@@ -14,12 +14,16 @@
  * limitations under the License.
  */
 
-#include "dexter.h"
+#pragma once
 
-///////////////////////////////////////////////////////////////////////////////
-//
-int main(int argc, char* argv[]) {
-  Dexter dexter(argc, argv);
-  return dexter.Run();
-}
+// TODO: this is just to test the build system
+//   (placeholder for the real .dex library code)
 
+namespace slicer {
+
+class Test {
+ public:
+  static void Hello();
+};
+
+} // namespace slicer
