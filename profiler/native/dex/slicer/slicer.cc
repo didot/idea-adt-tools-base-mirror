@@ -14,12 +14,15 @@
  * limitations under the License.
  */
 
-#include "dexter.h"
+#include <stdio.h>
 
-///////////////////////////////////////////////////////////////////////////////
-//
-int main(int argc, char* argv[]) {
-  Dexter dexter(argc, argv);
-  return dexter.Run();
+#include "slicer.h"
+
+namespace slicer {
+
+void Test::Hello() {
+  printf("Hello, world from slicer!\n");
 }
+
+} // namespace slicer
 
