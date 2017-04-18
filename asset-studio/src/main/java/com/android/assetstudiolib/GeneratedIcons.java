@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,23 +13,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.assetstudiolib;
 
-import com.android.annotations.Nullable;
-import java.awt.image.BufferedImage;
+import com.android.annotations.NonNull;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * The context used during graphic generation.
+ * List of {@link GeneratedIcon icons}, as returned from {@link
+ * GraphicGenerator#generateIcons(GraphicGeneratorContext, GraphicGenerator.Options, String)}
  */
-public interface GraphicGeneratorContext {
-    /**
-     * Loads the given image resource, as requested by the graphic generator.
-     *
-     * @param path The path to the resource, relative to the general "resources" path, as defined by
-     *     the context implementer.
-     * @return The loaded image resource, or null if there was an error.
-     */
-    @Nullable
-    BufferedImage loadImageResource(String path);
+public class GeneratedIcons {
+    @NonNull private final List<GeneratedIcon> list = new ArrayList<>();
+
+    public void add(@NonNull GeneratedIcon generatedIcon) {
+        list.add(generatedIcon);
+    }
+
+    @NonNull
+    public List<GeneratedIcon> getList() {
+        return list;
+    }
 }
