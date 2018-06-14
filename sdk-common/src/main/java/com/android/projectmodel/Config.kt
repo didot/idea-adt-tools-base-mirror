@@ -51,7 +51,7 @@ data class Config(
         /**
          * Dynamic resources. Map of resource names onto resource values.
          */
-        val resValues: Map<String, ResValue> = emptyMap(),
+        val resValues: Map<String, DynamicResourceValue> = emptyMap(),
         /**
          * List of dependencies needed to build an artifact that uses this [Config]. Jars and class files in this list may be interface-only.
          * That is, they are required to contain enough information for compilation - such as method signatures. Any content that would
@@ -125,9 +125,8 @@ data class Config(
 }
 
 private fun <T> mergeNullable(deps: T?, moreDeps: T?, merger: (T, T)-> T) : T? =
-  if (deps == null)
-    moreDeps
-  else if (moreDeps == null)
-    deps
-  else
-    merger(deps, moreDeps)
+  when {
+      (deps == null) -> moreDeps
+      (moreDeps == null) -> deps
+      else -> merger(deps, moreDeps)
+  }

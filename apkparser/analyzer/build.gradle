@@ -30,6 +30,8 @@ dependencies {
     compile project(':base:sdklib')
     compile project(':base:annotations')
     compile project(':base:apkparser:binary-resources')
+    compile project(':base:lint-api')
+    compile project(':base:lint-checks')
     compile files(jardeps)
 
     testCompile(libs.junit)
@@ -54,5 +56,6 @@ sourceSets {
 
 project.ext.pomName = 'Apk Analyzer library'
 project.ext.pomDesc = 'Library for parsing and analyzing information from APK files'
-
-
+group = 'com.android.tools.apkparser'
+archivesBaseName = 'apkanalyzer'
+version = rootProject.ext.baseVersion

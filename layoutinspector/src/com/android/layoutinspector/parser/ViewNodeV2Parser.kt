@@ -18,6 +18,7 @@ package com.android.layoutinspector.parser
 
 import com.android.layoutinspector.model.ViewNode
 import com.android.layoutinspector.model.ViewProperty
+import com.google.common.base.Verify.verify
 import com.google.common.collect.Lists
 import com.google.common.collect.Maps
 import java.nio.ByteBuffer
@@ -149,12 +150,11 @@ class ViewNodeV2Parser {
         // no children if there is no matching prop
         val childCountProp = metaProps.find { it.name == CHILD_COUNT_KEY } ?: return
         val childCount = childCountProp.value.toInt()
-        val children = ArrayList<ViewNode>(childCount)
-        childrenProps.entries.sortedBy { it.key }.forEach {
-            val childIndex = getChildIndex(it.key)
-            val childNode = createViewNode(it.value as Map<Short, Any>, parent)
-            children.add(childIndex, childNode)
-        }
+        val children = childrenProps.entries.sortedBy { getChildIndex(it.key) }.map { createViewNode(it.value as Map<Short, Any>, parent) }
+        verify(childCount == children.size, String.format(
+            "Expect view node %s to have %d children but instead found %d",
+            parent, childCount, children.size
+        ))
         parent.children.addAll(children)
     }
 }

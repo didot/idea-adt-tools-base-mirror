@@ -1,7 +1,9 @@
 load("//tools/base/bazel:android.bzl", "dex_library")
 load("//tools/base/profiler:perf_test.bzl", "perf_test")
 
-package(default_testonly = True)
+package(
+    default_testonly = True,
+)
 
 sh_binary(
     name = "art-runner",
@@ -21,6 +23,7 @@ sh_binary(
             "//tools/base/profiler/tests/app-launcher:app-launcher-dex",
         ],
     }),
+    visibility = ["//visibility:public"],
 )
 
 # TODO: Have transform pull in dependency jar files, so we do not need to load multiple
@@ -32,6 +35,7 @@ java_binary(
     ],
     main_class = "com.android.tools.profiler.transform.ProfilerTransformMain",
     resources = ["profiler.properties"],
+    visibility = ["//visibility:public"],
     runtime_deps = ["//tools/base/profiler/transform"],
     deps = [
         "//tools/base/profiler/transform",
@@ -42,6 +46,7 @@ java_binary(
 dex_library(
     name = "profiler-service",
     jars = ["//tools/base/profiler/app:studio-profiler"],
+    visibility = ["//visibility:public"],
 )
 
 java_library(
@@ -80,6 +85,7 @@ perf_test(
 
 perf_test(
     name = "HttpTest",
+    size = "medium",
     srcs = [
         "testSrcs/com/android/tools/profiler/network/HttpUrlTest.java",
         "testSrcs/com/android/tools/profiler/network/OkHttpTest.java",
@@ -97,22 +103,8 @@ perf_test(
 perf_test(
     name = "MemoryTest",
     srcs = [
-        "testSrcs/com/android/tools/profiler/memory/MemoryTest.java",
-    ],
-    tags = ["no_test_foundry"],  # b/73948555
-    test_app = "//tools/base/profiler/tests/test-app:test-app",
-    deps = [
-        ":tests",
-        "//tools/base/fakeandroid",
-        "//tools/base/profiler/tests/test-app:libjni.so",
-        "//tools/idea/.idea/libraries:truth",
-    ],
-)
-
-perf_test(
-    name = "JniTest",
-    srcs = [
         "testSrcs/com/android/tools/profiler/memory/JniTest.java",
+        "testSrcs/com/android/tools/profiler/memory/MemoryTest.java",
     ],
     tags = ["no_test_foundry"],  # b/73948555
     test_app = "//tools/base/profiler/tests/test-app:test-app",
@@ -142,6 +134,7 @@ perf_test(
 
 perf_test(
     name = "EnergyTest",
+    size = "medium",
     srcs = [
         "testSrcs/com/android/tools/profiler/energy/AlarmTest.java",
         "testSrcs/com/android/tools/profiler/energy/JobTest.java",

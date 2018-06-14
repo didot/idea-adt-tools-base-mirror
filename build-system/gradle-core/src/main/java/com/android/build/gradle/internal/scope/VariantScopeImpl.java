@@ -35,12 +35,10 @@ import static com.android.build.gradle.internal.publishing.AndroidArtifacts.Publ
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType.METADATA_ELEMENTS;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType.RUNTIME_ELEMENTS;
 import static com.android.build.gradle.internal.scope.ArtifactPublishingUtil.publishArtifactToConfiguration;
-import static com.android.build.gradle.internal.scope.CodeShrinker.ANDROID_GRADLE;
 import static com.android.build.gradle.internal.scope.CodeShrinker.PROGUARD;
 import static com.android.build.gradle.internal.scope.CodeShrinker.R8;
 import static com.android.build.gradle.options.BooleanOption.ENABLE_D8;
 import static com.android.build.gradle.options.BooleanOption.ENABLE_D8_DESUGARING;
-import static com.android.build.gradle.options.BooleanOption.ENABLE_DEX_ARCHIVE;
 import static com.android.build.gradle.options.BooleanOption.ENABLE_R8;
 import static com.android.build.gradle.options.BooleanOption.ENABLE_R8_DESUGARING;
 import static com.android.builder.model.AndroidProject.FD_GENERATED;
@@ -109,7 +107,6 @@ import com.android.sdklib.repository.AndroidSdkHandler;
 import com.android.sdklib.repository.LoggerProgressIndicatorWrapper;
 import com.android.utils.FileUtils;
 import com.android.utils.ILogger;
-import com.android.utils.PathUtils;
 import com.android.utils.StringHelper;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
@@ -160,8 +157,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
     @Nullable private Collection<File> ndkSoFolder;
     @NonNull private final Map<Abi, File> ndkDebuggableLibraryFolders = Maps.newHashMap();
 
-    @Nullable private CodeShrinker defaultCodeShrinker;
-
     @NonNull private BuildArtifactsHolder buildArtifactsHolder;
 
     private final MutableTaskContainer taskContainer = new MutableTaskContainer();
@@ -200,35 +195,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
                         getFullVariantName(),
                         globalScope.getBuildDir(),
                         globalScope.getDslScope());
-
-        validatePostprocessingOptions();
-    }
-
-    private void validatePostprocessingOptions() {
-        PostprocessingOptions postprocessingOptions = getPostprocessingOptionsIfUsed();
-        if (postprocessingOptions == null) {
-            return;
-        }
-
-        if (postprocessingOptions.getCodeShrinkerEnum() == ANDROID_GRADLE) {
-            if (postprocessingOptions.isObfuscate()) {
-                globalScope
-                        .getErrorHandler()
-                        .reportError(
-                                Type.GENERIC,
-                                new EvalIssueException(
-                                        "The 'android-gradle' code shrinker does not support obfuscating."));
-            }
-
-            if (postprocessingOptions.isOptimizeCode()) {
-                globalScope
-                        .getErrorHandler()
-                        .reportError(
-                                Type.GENERIC,
-                                new EvalIssueException(
-                                        "The 'android-gradle' code shrinker does not support optimizing code."));
-            }
-        }
     }
 
     protected Project getProject() {
@@ -353,6 +319,11 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
 
     @Override
     public boolean useResourceShrinker() {
+        if (variantData.getType().isForTesting()
+                || getInstantRunBuildContext().isInInstantRunMode()) {
+            return false;
+        }
+
         PostprocessingOptions postprocessingOptions = getPostprocessingOptionsIfUsed();
 
         boolean userEnabledShrinkResources;
@@ -468,7 +439,7 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
             } else if (useProguard == null) {
                 shrinkerForBuildType = getDefaultCodeShrinker();
             } else {
-                shrinkerForBuildType = useProguard ? PROGUARD : ANDROID_GRADLE;
+                shrinkerForBuildType = useProguard ? PROGUARD : R8;
             }
 
             if (!isTestComponent) {
@@ -504,12 +475,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
                     } else {
                         // For testing code, we only run ProGuard/R8 if main code is obfuscated.
                         return postprocessingOptions.isObfuscate() ? chosenShrinker : null;
-                    }
-                case ANDROID_GRADLE:
-                    if (isTestComponent) {
-                        return null;
-                    } else {
-                        return postprocessingOptions.isRemoveUnusedCode() ? ANDROID_GRADLE : null;
                     }
                 default:
                     throw new AssertionError("Unknown value " + chosenShrinker);
@@ -597,22 +562,7 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
 
     @NonNull
     private CodeShrinker getDefaultCodeShrinker() {
-        if (defaultCodeShrinker == null) {
-            if (getInstantRunBuildContext().isInInstantRunMode()) {
-                String message = "Using the built-in class shrinker for an Instant Run build.";
-                PostprocessingFeatures postprocessingFeatures = getPostprocessingFeatures();
-                if (postprocessingFeatures == null || postprocessingFeatures.isObfuscate()) {
-                    message += " Build won't be obfuscated.";
-                }
-                LOGGER.warning(message);
-
-                defaultCodeShrinker = ANDROID_GRADLE;
-            } else {
-                defaultCodeShrinker = PROGUARD;
-            }
-        }
-
-        return defaultCodeShrinker;
+        return CodeShrinker.PROGUARD;
     }
 
     /**
@@ -1819,13 +1769,13 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
         CodeShrinker shrinker = getCodeShrinker();
         if (shrinker == R8) {
             if (globalScope.getProjectOptions().get(ENABLE_R8_DESUGARING)
-                    && isValidJava8Flag(ENABLE_R8_DESUGARING, ENABLE_R8, ENABLE_DEX_ARCHIVE)) {
+                    && isValidJava8Flag(ENABLE_R8_DESUGARING, ENABLE_R8)) {
                 return Java8LangSupport.R8;
             }
         } else {
             // D8 cannot be used if R8 is used
             if (globalScope.getProjectOptions().get(ENABLE_D8_DESUGARING)
-                    && isValidJava8Flag(ENABLE_D8_DESUGARING, ENABLE_D8, ENABLE_DEX_ARCHIVE)) {
+                    && isValidJava8Flag(ENABLE_D8_DESUGARING, ENABLE_D8)) {
                 return Java8LangSupport.D8;
             }
         }
@@ -1942,32 +1892,17 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
             return bootClasspath;
         }
 
-        if (globalScope.getProjectOptions().get(BooleanOption.ENABLE_CORE_LAMBDA_STUBS)) {
-            File coreLambdaStubsJar =
-                    new File(
-                            globalScope
-                                    .getAndroidBuilder()
-                                    .getBuildToolInfo()
-                                    .getPath(BuildToolInfo.PathId.CORE_LAMBDA_STUBS));
-            bootClasspath =
-                    getProject()
-                            .files(
-                                    globalScope.getAndroidBuilder().getBootClasspath(false),
-                                    coreLambdaStubsJar);
-        } else if (!keepDefaultBootstrap()) {
-            // Set boot classpath if we don't need to keep the default.  Otherwise, this is
-            // added as normal classpath.
-            bootClasspath =
-                    getProject().files(globalScope.getAndroidBuilder().getBootClasspath(false));
-        } else {
-            String currentBootclasspath = System.getProperty("sun.boot.class.path", "");
-            if (currentBootclasspath.isEmpty()) {
-                bootClasspath = getProject().files();
-            } else {
-                bootClasspath =
-                        getProject().files(PathUtils.getClassPathItems(currentBootclasspath));
-            }
-        }
+        File coreLambdaStubsJar =
+                new File(
+                        globalScope
+                                .getAndroidBuilder()
+                                .getBuildToolInfo()
+                                .getPath(BuildToolInfo.PathId.CORE_LAMBDA_STUBS));
+        bootClasspath =
+                getProject()
+                        .files(
+                                globalScope.getAndroidBuilder().getBootClasspath(false),
+                                coreLambdaStubsJar);
 
         return bootClasspath;
     }

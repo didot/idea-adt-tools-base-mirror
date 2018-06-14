@@ -56,15 +56,10 @@ import org.junit.runners.Parameterized
 @RunWith(FilterableParameterized::class)
 class MinifyFeaturesTest(
         val codeShrinker: CodeShrinker,
-        val multiApkMode: MultiApkMode,
-        val dexArchiveMode: DexArchiveMode) {
+        val multiApkMode: MultiApkMode) {
 
     enum class MultiApkMode {
         DYNAMIC_APP, INSTANT_APP
-    }
-
-    enum class DexArchiveMode {
-        ENABLED, DISABLED
     }
 
     companion object {
@@ -73,25 +68,15 @@ class MinifyFeaturesTest(
         @Parameterized.Parameters(name = "codeShrinker {0}, {1}, dexArchive {2}")
         fun getConfigurations(): Collection<Array<Enum<*>>> =
             listOf(
-                arrayOf(CodeShrinker.PROGUARD, MultiApkMode.DYNAMIC_APP, DexArchiveMode.ENABLED),
-                arrayOf(CodeShrinker.PROGUARD, MultiApkMode.DYNAMIC_APP, DexArchiveMode.DISABLED),
-                arrayOf(CodeShrinker.PROGUARD, MultiApkMode.INSTANT_APP, DexArchiveMode.ENABLED),
-                arrayOf(CodeShrinker.PROGUARD, MultiApkMode.INSTANT_APP, DexArchiveMode.DISABLED),
-                arrayOf(CodeShrinker.R8, MultiApkMode.DYNAMIC_APP, DexArchiveMode.ENABLED),
-                arrayOf(CodeShrinker.R8, MultiApkMode.DYNAMIC_APP, DexArchiveMode.DISABLED),
-                arrayOf(CodeShrinker.R8, MultiApkMode.INSTANT_APP, DexArchiveMode.ENABLED),
-                arrayOf(CodeShrinker.R8, MultiApkMode.INSTANT_APP, DexArchiveMode.DISABLED),
-                arrayOf(
-                    CodeShrinker.ANDROID_GRADLE, MultiApkMode.DYNAMIC_APP, DexArchiveMode.ENABLED),
-                arrayOf(
-                    CodeShrinker.ANDROID_GRADLE, MultiApkMode.DYNAMIC_APP, DexArchiveMode.DISABLED),
-                arrayOf(
-                    CodeShrinker.ANDROID_GRADLE, MultiApkMode.INSTANT_APP, DexArchiveMode.ENABLED),
-                arrayOf(
-                    CodeShrinker.ANDROID_GRADLE, MultiApkMode.INSTANT_APP, DexArchiveMode.DISABLED)
+                arrayOf(CodeShrinker.PROGUARD, MultiApkMode.DYNAMIC_APP),
+                arrayOf(CodeShrinker.PROGUARD, MultiApkMode.INSTANT_APP),
+                arrayOf(CodeShrinker.R8, MultiApkMode.DYNAMIC_APP),
+                arrayOf(CodeShrinker.R8, MultiApkMode.INSTANT_APP)
             )
     }
 
+    // We use ":base" as otherFeature2GradlePath as regression test for http://b/80079844
+    private val otherFeature2GradlePath = ":base"
 
     private val lib1 =
         MinimalSubProject.lib("com.example.lib1")
@@ -222,7 +207,7 @@ class MinifyFeaturesTest(
                     .appendToBuild(
                         """
                             android {
-	                            dynamicFeatures = [':foo:otherFeature1', ':otherFeature2']
+	                            dynamicFeatures = [':foo:otherFeature1', '$otherFeature2GradlePath']
                                 buildTypes {
                                     minified.initWith(buildTypes.debug)
                                     minified {
@@ -612,7 +597,7 @@ class MinifyFeaturesTest(
             .subproject(":lib3", lib3)
             .subproject(":baseModule", baseModule)
             .subproject(":foo:otherFeature1", otherFeature1)
-            .subproject(":otherFeature2", otherFeature2)
+            .subproject(otherFeature2GradlePath, otherFeature2)
             .dependency(otherFeature1, lib2)
             // otherFeature1 depends on lib3 to test having multiple library module dependencies.
             .dependency(otherFeature1, lib3)
@@ -644,9 +629,6 @@ class MinifyFeaturesTest(
     val project =
         GradleTestProject.builder()
             .fromTestApp(testApp)
-            .addGradleProperties(
-                "${BooleanOption.ENABLE_DEX_ARCHIVE.propertyName}="
-                        + "${dexArchiveMode == DexArchiveMode.ENABLED}")
             .create()
 
     @Test
@@ -701,18 +683,10 @@ class MinifyFeaturesTest(
                     }
                 }
         assertThat(baseModuleApk).containsClass("Lcom/example/baseModule/Main;")
-        if (codeShrinker == CodeShrinker.ANDROID_GRADLE) {
-            assertThat(baseModuleApk).containsClass("Lcom/example/baseModule/StringProvider;")
-        } else {
-            assertThat(baseModuleApk).containsClass("Lcom/example/baseModule/a;")
-        }
+        assertThat(baseModuleApk).containsClass("Lcom/example/baseModule/a;")
         assertThat(baseModuleApk).containsClass("Lcom/example/baseModule/EmptyClassToKeep;")
         assertThat(baseModuleApk).containsClass("Lcom/example/lib1/EmptyClassToKeep;")
-        if (codeShrinker == CodeShrinker.ANDROID_GRADLE) {
-            assertThat(baseModuleApk).containsClass("Lcom/example/lib1/Lib1Class;")
-        } else {
-            assertThat(baseModuleApk).containsClass("Lcom/example/lib1/a;")
-        }
+        assertThat(baseModuleApk).containsClass("Lcom/example/lib1/a;")
         assertThat(baseModuleApk).containsJavaResource("base_java_res.txt")
         assertThat(baseModuleApk).containsJavaResource("other_java_res_1.txt")
         assertThat(baseModuleApk).containsJavaResource("other_java_res_2.txt")
@@ -739,11 +713,7 @@ class MinifyFeaturesTest(
         assertThat(otherFeature1Apk).containsClass("Lcom/example/otherFeature1/EmptyClassToKeep;")
         assertThat(otherFeature1Apk).containsClass("Lcom/example/lib2/EmptyClassToKeep;")
         assertThat(otherFeature1Apk).containsClass("Lcom/example/lib2/FooView;")
-        if (codeShrinker == CodeShrinker.ANDROID_GRADLE) {
-            assertThat(otherFeature1Apk).containsClass("Lcom/example/lib2/Lib2Class;")
-        } else {
-            assertThat(otherFeature1Apk).containsClass("Lcom/example/lib2/a;")
-        }
+        assertThat(otherFeature1Apk).containsClass("Lcom/example/lib2/a;")
         assertThat(otherFeature1Apk).doesNotContainJavaResource("other_java_res_1.txt")
         assertThat(otherFeature1Apk).doesNotContainClass(
             "Lcom/example/otherFeature1/EmptyClassToRemove;")
@@ -755,7 +725,7 @@ class MinifyFeaturesTest(
         assertThat(otherFeature1Apk).doesNotContainClass("Lcom/example/otherFeature2/Main;")
 
         val otherFeature2Apk =
-            project.getSubproject("otherFeature2")
+            project.getSubproject(otherFeature2GradlePath)
                 .let {
                     when (multiApkMode) {
                         MultiApkMode.DYNAMIC_APP -> it.getApk(apkType)
@@ -788,7 +758,6 @@ class MinifyFeaturesTest(
     @Test
     fun testMinifyEnabledSyncError() {
         Assume.assumeTrue(codeShrinker == CodeShrinker.R8)
-        Assume.assumeTrue(dexArchiveMode == DexArchiveMode.ENABLED)
         project.getSubproject(":foo:otherFeature1")
             .buildFile
             .appendText("android.buildTypes.minified.minifyEnabled true")
@@ -802,8 +771,7 @@ class MinifyFeaturesTest(
     @Test
     fun testDefaultProguardFilesSyncError() {
         Assume.assumeTrue(codeShrinker == CodeShrinker.R8)
-        Assume.assumeTrue(dexArchiveMode == DexArchiveMode.ENABLED)
-        project.getSubproject(":otherFeature2")
+        project.getSubproject(otherFeature2GradlePath)
             .buildFile
             .appendText(
                 """
@@ -817,7 +785,7 @@ class MinifyFeaturesTest(
                     """
             )
         val model = project.model().ignoreSyncIssues().fetchAndroidProjects()
-        assertThat(model.rootBuildModelMap[":otherFeature2"])
+        assertThat(model.rootBuildModelMap[otherFeature2GradlePath])
             .hasSingleError(SyncIssue.TYPE_GENERIC)
             .that()
             .hasMessageThatContains("should not be specified in this module.")

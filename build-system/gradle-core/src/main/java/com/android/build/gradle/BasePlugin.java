@@ -16,7 +16,6 @@
 
 package com.android.build.gradle;
 
-import static com.android.builder.model.AndroidProject.FD_INTERMEDIATES;
 import static com.google.common.base.Preconditions.checkState;
 import static java.io.File.separator;
 
@@ -25,13 +24,13 @@ import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
-import com.android.build.api.plugin.AndroidBasePlugin;
-import com.android.build.api.transform.Transform;
+import com.android.build.gradle.api.AndroidBasePlugin;
 import com.android.build.gradle.api.BaseVariantOutput;
 import com.android.build.gradle.internal.ApiObjectFactory;
 import com.android.build.gradle.internal.BadPluginException;
 import com.android.build.gradle.internal.BuildCacheUtils;
 import com.android.build.gradle.internal.ClasspathVerifier;
+import com.android.build.gradle.internal.DependencyResolutionChecks;
 import com.android.build.gradle.internal.ExtraModelInfo;
 import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.NativeLibraryFactoryImpl;
@@ -54,7 +53,6 @@ import com.android.build.gradle.internal.ide.ModelBuilder;
 import com.android.build.gradle.internal.ide.NativeModelBuilder;
 import com.android.build.gradle.internal.ndk.NdkHandler;
 import com.android.build.gradle.internal.packaging.GradleKeystoreHelper;
-import com.android.build.gradle.internal.pipeline.TransformTask;
 import com.android.build.gradle.internal.plugin.PluginDelegate;
 import com.android.build.gradle.internal.plugin.ProjectWrapper;
 import com.android.build.gradle.internal.plugin.TypedPluginDelegate;
@@ -66,7 +64,6 @@ import com.android.build.gradle.internal.scope.DelayedActionsExecutor;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.Workers;
-import com.android.build.gradle.internal.transforms.DexTransform;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.internal.variant2.DslScopeImpl;
@@ -84,7 +81,6 @@ import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.BuilderConstants;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.errors.EvalIssueReporter.Type;
-import com.android.builder.internal.compiler.PreDexCache;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.Version;
 import com.android.builder.profile.ProcessProfileWriter;
@@ -103,7 +99,6 @@ import com.android.repository.impl.downloader.LocalFileAwareDownloader;
 import com.android.repository.io.FileOpUtils;
 import com.android.sdklib.repository.legacy.LegacyDownloader;
 import com.android.tools.lint.gradle.api.ToolingRegistryProvider;
-import com.android.utils.FileUtils;
 import com.android.utils.ILogger;
 import com.google.common.base.CharMatcher;
 import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan.ExecutionType;
@@ -131,7 +126,6 @@ import org.gradle.api.GradleException;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.initialization.Settings;
 import org.gradle.api.invocation.Gradle;
@@ -230,9 +224,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
 
     protected abstract int getProjectType();
 
-    @NonNull
-    abstract Class<? extends Plugin<Project>> getApiPluginClass();
-
     @VisibleForTesting
     public VariantManager getVariantManager() {
         return variantManager;
@@ -263,10 +254,8 @@ public abstract class BasePlugin<E extends BaseExtension2>
         this.project = project;
         this.projectOptions = new ProjectOptions(project);
         checkGradleVersion(project, getLogger(), projectOptions);
+        DependencyResolutionChecks.registerDependencyCheck(project, projectOptions);
 
-        project.getPluginManager().apply(getApiPluginClass());
-        //noinspection deprecation
-        project.getPluginManager().apply(com.android.build.gradle.api.AndroidBasePlugin.class);
         project.getPluginManager().apply(AndroidBasePlugin.class);
 
         checkPathForErrors();
@@ -439,39 +428,10 @@ public abstract class BasePlugin<E extends BaseExtension2>
                                     WorkerActionServiceRegistry.INSTANCE
                                             .shutdownAllRegisteredServices(
                                                     ForkJoinPool.commonPool());
-                                    PreDexCache.getCache()
-                                            .clear(
-                                                    FileUtils.join(
-                                                            project.getRootProject().getBuildDir(),
-                                                            FD_INTERMEDIATES,
-                                                            "dex-cache",
-                                                            "cache.xml"),
-                                                    getLogger());
                                     Main.clearInternTables();
                                 });
                     }
                 });
-
-        gradle.getTaskGraph()
-                .addTaskExecutionGraphListener(
-                        taskGraph -> {
-                            for (Task task : taskGraph.getAllTasks()) {
-                                if (task instanceof TransformTask) {
-                                    Transform transform = ((TransformTask) task).getTransform();
-                                    if (transform instanceof DexTransform) {
-                                        PreDexCache.getCache()
-                                                .load(
-                                                        FileUtils.join(
-                                                                project.getRootProject()
-                                                                        .getBuildDir(),
-                                                                FD_INTERMEDIATES,
-                                                                "dex-cache",
-                                                                "cache.xml"));
-                                        break;
-                                    }
-                                }
-                            }
-                        });
 
         createLintClasspathConfiguration(project);
     }
