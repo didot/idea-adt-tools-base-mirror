@@ -19,7 +19,7 @@ sh_binary(
             "//tools/base/profiler/app:perfa_java",
             "//tools/base/profiler/app:perfa_okhttp",
             "//tools/base/profiler/native/perfa:libperfa.so",
-            "//tools/base/profiler/tests/android-mock:android-mock-dex",
+            "//tools/base/fakeandroid:android-mock-dex",
             "//tools/base/profiler/tests/app-launcher:app-launcher-dex",
         ],
     }),
@@ -106,7 +106,10 @@ perf_test(
         "testSrcs/com/android/tools/profiler/memory/JniTest.java",
         "testSrcs/com/android/tools/profiler/memory/MemoryTest.java",
     ],
-    tags = ["no_test_foundry"],  # b/73948555
+    tags = [
+        "manual",  # b/80501379
+        "no_test_foundry",  # b/73948555
+    ],
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
         ":tests",

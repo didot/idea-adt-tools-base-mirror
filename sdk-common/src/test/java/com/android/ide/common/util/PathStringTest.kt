@@ -58,10 +58,49 @@ class PathStringTest {
     }
 
     @Test
+    fun testStartsWith() {
+        val a = PathString("/a")
+        val fooBar = PathString("/foo/bar")
+        val root = PathString("/")
+        val emptyString = PathString("")
+        val foo = PathString("/foo")
+        val fooBa = PathString("/foo/ba")
+        val fooBarSlash = PathString("/foo/bar/")
+
+        val barBar = PathString("/bar/bar/")
+        val noSlashFooBar = PathString("foo/bar")
+
+        assertThat(fooBar.startsWith(root)).isTrue()
+        assertThat(a.startsWith(a)).isTrue()
+        assertThat(fooBar.startsWith(fooBar)).isTrue()
+        assertThat(fooBar.startsWith(fooBarSlash)).isTrue()
+        assertThat(fooBarSlash.startsWith(fooBar)).isTrue()
+        assertThat(fooBar.startsWith(foo)).isTrue()
+        assertThat(emptyString.startsWith(emptyString)).isTrue()
+        assertThat(noSlashFooBar.startsWith(emptyString)).isTrue()
+
+        assertThat(fooBar.startsWith(emptyString)).isFalse()
+        assertThat(root.startsWith(emptyString)).isFalse()
+        assertThat(fooBar.startsWith(barBar)).isFalse()
+        assertThat(fooBar.startsWith(fooBa)).isFalse()
+        assertThat(fooBar.startsWith(noSlashFooBar)).isFalse()
+        assertThat(foo.startsWith(fooBar)).isFalse()
+    }
+
+    @Test
     fun testDefaultFilesystem() {
         val defaultFilesystemUri = PathString("").filesystemUri
         val fileSystem = Paths.get(defaultFilesystemUri).fileSystem
         assertThat(fileSystem).isEqualTo(FileSystems.getDefault())
+    }
+
+    @Test
+    fun testWithoutTrailingSeparator() {
+        val withSlash = PathString("/foo/bar/")
+        val withoutSlash = PathString("/foo/bar")
+        assertThat(withSlash.withoutTrailingSeparator()).isEqualTo(withoutSlash)
+        assertThat(withSlash).isNotEqualTo(withoutSlash)
+        assertThat(withoutSlash.withoutTrailingSeparator()).isSameAs(withoutSlash)
     }
 
     @Test
@@ -147,10 +186,10 @@ class PathStringTest {
     fun testHashCodeForParent() {
         val child1 = PathString("/var/log")
         val child2 = PathString("/var/log/")
-        // Need to compute the child hashcodes first to trigger the optimization we're trying to
-        // test here.
-        val child1Hash = child1.hashCode()
-        val child2Hash = child2.hashCode()
+        // Need to compute the child hashcodes first to ensure they've been cached in the PathString
+        // which triggers the code paths we want to test here.
+        child1.hashCode()
+        child2.hashCode()
 
         val parent1 = child1.parent!!
         val parent2 = child2.parent!!
@@ -608,6 +647,30 @@ class PathStringTest {
         assertRelativize("misc/some_file", "misc/some_file/.bashrc", ".bashrc")
         assertRelativize("misc/some_file", "misc/some_file/~", "~")
         assertRelativize("misc/some_file", "misc/some_file/misc/some_file", "misc/some_file")
+    }
+
+    @Test
+    fun testEmptySegments() {
+        val emptyPath = PathString("")
+        assertThat(emptyPath.segments).isEqualTo(listOf<String>())
+        val rootPath = PathString("/")
+        assertThat(emptyPath.segments).isEqualTo(listOf<String>())
+        val windowsRootPath = PathString("C:\\")
+        assertThat(emptyPath.segments).isEqualTo(listOf<String>())
+    }
+
+    @Test
+    fun testSegments() {
+        val path1 = PathString("/foo/bar/baz")
+        val path2 = PathString("/foo/bar/baz/")
+        val path3 = PathString("foo/bar/baz")
+        val path4 = PathString("foo/bar/baz/")
+        val expected = listOf("foo", "bar", "baz")
+
+        assertThat(path1.segments).isEqualTo(expected)
+        assertThat(path2.segments).isEqualTo(expected)
+        assertThat(path3.segments).isEqualTo(expected)
+        assertThat(path4.segments).isEqualTo(expected)
     }
 
     @Test

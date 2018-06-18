@@ -20,8 +20,6 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
-import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.StringOption;
 import com.android.builder.model.OptionalCompilationStep;
@@ -193,33 +191,6 @@ public final class GradleTaskExecutor extends BaseGradleExecutor<GradleTaskExecu
         ImmutableList<ProgressEvent> getEvents() {
             return ImmutableList.copyOf(events);
         }
-    }
-
-    /** Makes the project execute with AAPT2 flag set to {@param enableAapt2}. */
-    public GradleTaskExecutor withEnabledAapt2(boolean enableAapt2) {
-        with(enableAapt2 ? AaptGeneration.AAPT_V2_DAEMON_MODE : AaptGeneration.AAPT_V1);
-        return this;
-    }
-
-    /** Makes the project execute with AAPT2 flag set to {@param enableAapt2}. */
-    public GradleTaskExecutor with(@NonNull AaptGeneration aaptGeneration) {
-        switch (aaptGeneration) {
-            case AAPT_V1:
-                with(BooleanOption.ENABLE_AAPT2, false);
-                with(BooleanOption.ENABLE_AAPT2_WORKER_ACTIONS, false);
-                break;
-            case AAPT_V2_DAEMON_MODE:
-                with(BooleanOption.ENABLE_AAPT2, true);
-                with(BooleanOption.ENABLE_AAPT2_WORKER_ACTIONS, false);
-                break;
-            case AAPT_V2_DAEMON_SHARED_POOL:
-                with(BooleanOption.ENABLE_AAPT2, true);
-                with(BooleanOption.ENABLE_AAPT2_WORKER_ACTIONS, true);
-                break;
-            default:
-                throw new IllegalArgumentException("Unknown AAPT Generation");
-        }
-        return this;
     }
 
     private static class WaitingResultHandler implements ResultHandler<Void> {

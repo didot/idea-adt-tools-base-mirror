@@ -67,7 +67,6 @@ import com.android.build.gradle.FeatureExtension;
 import com.android.build.gradle.api.AndroidSourceSet;
 import com.android.build.gradle.api.AnnotationProcessorOptions;
 import com.android.build.gradle.api.JavaCompileOptions;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
 import com.android.build.gradle.internal.api.DefaultAndroidSourceSet;
 import com.android.build.gradle.internal.core.Abi;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
@@ -2061,8 +2060,6 @@ public abstract class TaskManager {
                                         .getScope()
                                         .getArtifacts()
                                         .getFinalArtifactFiles(InternalArtifactType.APK));
-        testData.setExtraInstrumentationTestRunnerArgs(
-                projectOptions.getExtraInstrumentationTestRunnerArgs());
 
         configureTestData(testData);
 
@@ -3413,7 +3410,6 @@ public abstract class TaskManager {
                         scope.getArtifacts()
                                 .getFinalArtifactFiles(InternalArtifactType.PROCESSED_RES),
                         shrinkerOutput,
-                        AaptGeneration.fromProjectOptions(projectOptions),
                         logger);
 
         Optional<TransformTask> shrinkTask =
@@ -3726,5 +3722,7 @@ public abstract class TaskManager {
 
     protected void configureTestData(AbstractTestDataImpl testData) {
         testData.setAnimationsDisabled(extension.getTestOptions().getAnimationsDisabled());
+        testData.setExtraInstrumentationTestRunnerArgs(
+                projectOptions.getExtraInstrumentationTestRunnerArgs());
     }
 }

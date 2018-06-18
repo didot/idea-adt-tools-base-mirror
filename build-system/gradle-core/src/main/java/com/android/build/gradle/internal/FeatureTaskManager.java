@@ -20,7 +20,6 @@ package com.android.build.gradle.internal;
 import android.databinding.tool.DataBindingBuilder;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.AndroidConfig;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
 import com.android.build.gradle.internal.feature.BundleFeatureClasses;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.VariantScope;
@@ -76,17 +75,6 @@ public class FeatureTaskManager extends ApplicationTaskManager {
             androidBuilder
                     .getIssueReporter()
                     .reportError(Type.GENERIC, new EvalIssueException(message));
-        }
-
-        // Ensure we're not using aapt1.
-        if (AaptGeneration.fromProjectOptions(projectOptions) == AaptGeneration.AAPT_V1
-                && !extension.getBaseFeature()) {
-            androidBuilder
-                    .getIssueReporter()
-                    .reportError(
-                            Type.GENERIC,
-                            new EvalIssueException(
-                                    "Non-base feature modules require AAPTv2 to build."));
         }
 
         // FIXME: This is currently disabled due to b/62301277.

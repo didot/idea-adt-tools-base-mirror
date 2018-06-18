@@ -233,6 +233,52 @@ class PathString private constructor(
             endIndex - beginIndex)
 
     /**
+     * Returns true iff this [PathString] starts with the given prefix. That is, it returns true
+     * if this path has the same filesystem and root, and begins with all of the segments
+     * in the possible prefix. This is different from checking for a string prefix. For example,
+     * foo/bar/baz starts with foo/bar but not foo/b.
+     */
+    fun startsWith(possiblePrefix: PathString): Boolean {
+        val toTest = possiblePrefix.withoutTrailingSeparator()
+
+        if (!sameRootAs(toTest)) {
+            return false
+        }
+
+        val ourEnd = endIndex
+        val thisLength = ourEnd - startIndex
+        val prefixLength = toTest.endIndex - toTest.startIndex
+        if (prefixLength > thisLength) {
+            return false
+        }
+
+        if (prefixLength == 0) {
+            return true
+        }
+
+        val requiredSeparatorPosition = startIndex + prefixLength
+
+        if (requiredSeparatorPosition > ourEnd || (requiredSeparatorPosition < ourEnd && !isSeparator(path[requiredSeparatorPosition]))) {
+            return false
+        }
+
+        for (idx in 0 until prefixLength) {
+            val thisChar = path[startIndex + idx]
+            val otherChar = toTest.path[toTest.startIndex + idx]
+
+            if (thisChar == otherChar) {
+                continue
+            }
+
+            if (!(isSeparator(thisChar) && isSeparator(otherChar))) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /**
      * Returns the parent of this path, or null if this is a root path.
      */
     val parent: PathString?
@@ -244,12 +290,30 @@ class PathString private constructor(
             if (newEnd <= startIndex) {
                 return root
             }
-            return PathString(filesystemUri,
+            val result = PathString(filesystemUri,
                     path,
                     startIndex,
                     newEnd,
                     prefixEndIndex,
                     separator)
+
+            if (hash != 0) {
+                // Compute the hashcode for the parent by subtracting the hashcode for the removed
+                // segments.
+                var parentHash = hash
+                var hashCodeForSegment = 0
+                for (i in newEnd until suffixEndIndex) {
+                    val nextChar = path[i]
+                    if (isSeparator(nextChar)) {
+                        parentHash -= hashCodeForSegment
+                        hashCodeForSegment = 0
+                    }
+                    hashCodeForSegment = 31 * hashCodeForSegment + nextChar.toInt()
+                }
+                parentHash -= hashCodeForSegment
+                result.hash = parentHash
+            }
+            return result
         }
 
     /**
@@ -269,7 +333,7 @@ class PathString private constructor(
             if (prefixEndIndex == 0) {
                 return null
             }
-            return PathString(filesystemUri, path, 0, 0, prefixEndIndex, separator)
+            return PathString(filesystemUri, path, prefixEndIndex, prefixEndIndex, prefixEndIndex, separator)
         }
 
     /**
@@ -322,12 +386,22 @@ class PathString private constructor(
         var result = filesystemUri.hashCode()
 
         for (i in 0.until(prefixEndIndex)) {
-            result = 31 * result + path[i].hashCode()
+            result = 31 * result + path[i].toInt()
         }
 
-        for (i in startIndex.until(suffixEndIndex)) {
-            result = 31 * result + path[i].hashCode()
+        // Compute the hashcode as the simple sum of the hashcodes of the individual segments.
+        // That way we can compute the hashcode for the parent folder efficiently from the
+        // hashcode of one of the child folders by subtracting the hashcode of the last segment.
+        var hashCodeForSegment = 0
+        for (i in startIndex until suffixEndIndex) {
+            val nextChar = path[i]
+            if (isSeparator(nextChar)) {
+                result += hashCodeForSegment
+                hashCodeForSegment = 0
+            }
+            hashCodeForSegment = 31 * hashCodeForSegment + nextChar.toInt()
         }
+        result += hashCodeForSegment
 
         return result
     }
@@ -360,6 +434,16 @@ class PathString private constructor(
 
         return PathString(filesystemUri,
                 rootString + newNames.joinToString("" + separator))
+    }
+
+    /**
+     * Returns a [PathString] that is the same as this one, but without a trailing separator.
+     * Returns this if it doesn't have a trailing separator.
+     */
+    fun withoutTrailingSeparator(): PathString {
+        return if (hasTrailingSeparator) {
+            PathString(filesystemUri, path, startIndex, endIndex, prefixEndIndex, separator)
+        } else this
     }
 
     /**
@@ -482,6 +566,28 @@ class PathString private constructor(
                 separator)
     }
 
+    /**
+     * The segments of this path, as a list of strings.
+     */
+    val segments: List<String>
+        get() {
+            val result = ArrayList<String>()
+
+            var lastSegment = startIndex
+
+            startIndex.until(endIndex).forEach {
+                if (isSeparator(path[it])) {
+                    result.add(path.substring(lastSegment, it))
+                    lastSegment = it + 1
+                }
+            }
+
+            if (lastSegment < endIndex) {
+                result.add(path.substring(lastSegment, endIndex))
+            }
+            return result
+        }
+
     override fun compareTo(other: PathString): Int {
         val schemeResult = filesystemUri.compareTo(other.filesystemUri)
 
@@ -516,6 +622,23 @@ class PathString private constructor(
         }
 
         return length.compareTo(otherLength)
+    }
+
+    private fun sameRootAs(other: PathString): Boolean {
+        if (filesystemUri != other.filesystemUri) {
+            return false
+        }
+
+        if (prefixEndIndex != other.prefixEndIndex) {
+            return false
+        }
+
+        for (idx in 0 until prefixEndIndex) {
+            if (path[idx] != other.path[idx]) {
+                return false
+            }
+        }
+        return true
     }
 
     private fun compatibleRoots(root1: PathString?, root2: PathString?): Boolean {
@@ -592,25 +715,6 @@ class PathString private constructor(
             end - startIndex.until(end).reversed().countUntil {
                 isSeparator(path[it])
             }
-
-    private val segments: List<String>
-        get() {
-            val result = ArrayList<String>()
-
-            var lastSegment = startIndex
-
-            startIndex.until(endIndex).forEach {
-                if (isSeparator(path[it])) {
-                    result.add(path.substring(lastSegment, it))
-                    lastSegment = it + 1
-                }
-            }
-
-            if (lastSegment < endIndex) {
-                result.add(path.substring(lastSegment, endIndex))
-            }
-            return result
-        }
 }
 
 fun Path.toPathString() : PathString = PathString(this)

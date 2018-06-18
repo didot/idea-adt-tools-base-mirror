@@ -25,8 +25,6 @@ enum class BooleanOption(
     override val status: Option.Status = Option.Status.EXPERIMENTAL,
     override val additionalInfo: String = ""
 ) : Option<Boolean> {
-    ENABLE_AAPT2("android.enableAapt2", true, DeprecationReporter.DeprecationTarget.AAPT),
-
     ENABLE_BUILD_CACHE("android.enableBuildCache", true),
     ENABLE_PROFILE_JSON("android.enableProfileJson", false),
     // Used by Studio as workaround for b/71054106, b/75955471
@@ -62,7 +60,6 @@ enum class BooleanOption(
     DISABLE_RESOURCE_VALIDATION("android.disableResourceValidation"),
     CONSUME_DEPENDENCIES_AS_SHARED_LIBRARIES("android.consumeDependenciesAsSharedLibraries"),
     CONVERT_NON_NAMESPACED_DEPENDENCIES("android.convertNonNamespacedDependencies"),
-    USE_AAPT2_FROM_MAVEN("android.useAapt2FromMaven", true),
 
     /** Set to true to build native .so libraries only for the device it will be run on. */
     BUILD_ONLY_TARGET_ABI("android.buildOnlyTargetAbi", true),
@@ -87,7 +84,7 @@ enum class BooleanOption(
     ENABLE_UNIT_TEST_BINARY_RESOURCES("android.enableUnitTestBinaryResources", false),
     DISABLE_EARLY_MANIFEST_PARSING("android.disableEarlyManifestParsing", false),
     ENABLE_PARALLEL_NATIVE_JSON_GEN("android.enableParallelJsonGen", true),
-    ENABLE_SIDE_BY_SIDE_CMAKE("android.enableSideBySideCmake", false),
+    ENABLE_SIDE_BY_SIDE_CMAKE("android.enableSideBySideCmake", true),
     EXCLUDE_R_AND_MANIFEST_DOT_JAVA_FROM_GENERATED_SOURCES("android.excludeRAndManifestDotJavaFromGeneratedSources", false),
     WARN_ABOUT_DEPENDENCY_RESOLUTION_AT_CONFIGURATION("android.dependencyResolutionAtConfigurationTime.warn"),
     DISALLOW_DEPENDENCY_RESOLUTION_AT_CONFIGURATION("android.dependencyResolutionAtConfigurationTime.disallow"),

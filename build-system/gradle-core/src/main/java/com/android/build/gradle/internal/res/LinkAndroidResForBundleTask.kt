@@ -17,7 +17,6 @@
 package com.android.build.gradle.internal.res
 
 import com.android.build.api.artifact.BuildableArtifact
-import com.android.build.gradle.internal.aapt.AaptGeneration
 import com.android.build.gradle.internal.dsl.convert
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_RESOURCE_PKG
@@ -40,6 +39,7 @@ import com.android.sdklib.AndroidVersion
 import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
+import com.google.common.collect.ImmutableSet
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
@@ -65,11 +65,7 @@ import javax.inject.Inject
 open class LinkAndroidResForBundleTask
 @Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
 
-    private var aaptGeneration: AaptGeneration? = null
     private val workers = Workers.getWorker(workerExecutor)
-
-    @Input
-    fun getAaptGenerationString() = aaptGeneration.toString()
 
     @get:Input
     var debuggable: Boolean = false
@@ -161,7 +157,8 @@ open class LinkAndroidResForBundleTask
                 allowReservedPackageId = minSdkVersion < AndroidVersion.VersionCodes.O,
                 dependentFeatures = featurePackagesBuilder.build(),
                 pseudoLocalize = getPseudoLocalesEnabled(),
-                resourceDirs = ImmutableList.of(checkNotNull(getInputResourcesDir()).single()))
+                resourceDirs = ImmutableList.of(checkNotNull(getInputResourcesDir()).single()),
+                resourceConfigs = ImmutableSet.copyOf(resConfig))
         if (logger.isInfoEnabled) {
             logger.info("Aapt output file {}", bundledResFile.absolutePath)
         }
@@ -191,6 +188,9 @@ open class LinkAndroidResForBundleTask
     fun getInputResourcesDir(): BuildableArtifact? {
         return inputResourcesDir
     }
+
+    @get:Input
+    lateinit var resConfig: Collection<String> private set
 
     @Input
     fun getBuildToolsVersion(): String {
@@ -235,7 +235,6 @@ open class LinkAndroidResForBundleTask
                 .appendArtifact(InternalArtifactType.LINKED_RES_FOR_BUNDLE,
                     processResources,
                     "bundled-res.ap_")
-            processResources.aaptGeneration = AaptGeneration.fromProjectOptions(projectOptions)
 
             processResources.incrementalFolder = variantScope.getIncrementalDir(name)
 
@@ -268,12 +267,15 @@ open class LinkAndroidResForBundleTask
             processResources.aaptOptions = variantScope.globalScope.extension.aaptOptions
             processResources.pseudoLocalesEnabled = config.buildType.isPseudoLocalesEnabled
 
-            processResources.buildTargetDensity = projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
+            processResources.buildTargetDensity =
+                    projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
 
             processResources.mergeBlameLogFolder = variantScope.resourceBlameLogDir
             processResources.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
             processResources.minSdkVersion = variantScope.minSdkVersion.apiLevel
+
+            processResources.resConfig =
+                    variantScope.variantConfiguration.mergedFlavor.resourceConfigurations
         }
     }
-
 }
