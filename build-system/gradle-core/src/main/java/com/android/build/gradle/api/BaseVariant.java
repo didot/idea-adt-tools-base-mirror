@@ -32,14 +32,15 @@ import java.io.File;
 import java.util.Collection;
 import java.util.List;
 import org.gradle.api.DomainObjectCollection;
+import org.gradle.api.Incubating;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.ArtifactCollection;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.file.ConfigurableFileTree;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.resources.TextResource;
 import org.gradle.api.tasks.AbstractCopyTask;
 import org.gradle.api.tasks.compile.JavaCompile;
-
 
 /**
  * A Build variant and all its public data. This is the base class for items common to apps,
@@ -155,6 +156,14 @@ public interface BaseVariant {
     /** Returns the applicationId of the variant. */
     @NonNull
     String getApplicationId();
+
+    /**
+     * Returns the true application Id of the variant. For feature variants, this returns the
+     * resolved application id from the application. For application variants, this is the same as
+     * getApplicationId.
+     */
+    @NonNull
+    TextResource getApplicationIdTextResource();
 
     /** Returns the pre-build anchor task */
     @NonNull
@@ -493,4 +502,14 @@ public interface BaseVariant {
      */
     boolean getOutputsAreSigned();
 
+    /**
+     * Returns file collection containing all raw Android resources, including the ones from
+     * transitive dependencies.
+     *
+     * <p><strong>This is an incubating API, and it can be changed or removed without
+     * notice.</strong>
+     */
+    @Incubating
+    @NonNull
+    FileCollection getAllRawAndroidResources();
 }
