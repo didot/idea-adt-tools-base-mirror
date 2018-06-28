@@ -26,7 +26,10 @@ import com.android.ide.common.util.PathString
  */
 data class Artifact(
         /**
-         * Name of the artifact, unique within a given [AndroidProject]. Should remain stable across syncs.
+         * Name of the artifact, unique within a given [Variant]. Should remain stable across syncs. Identifies the
+         * artifact in the [ConfigTable] by matching the last segment of the [ConfigPath]. The names [ARTIFACT_NAME_MAIN],
+         * [ARTIFACT_NAME_ANDROID_TEST], and [ARTIFACT_NAME_UNIT_TEST] have special meanings - they must always be used to
+         * refer to an [Artifact] attached to a variant's mainArtifact, androidTestArtifact, and unitTestArtifact attributes.
          */
         val name: String,
         /**
@@ -44,11 +47,11 @@ data class Artifact(
          * For well-formed projects, this [Config] is expected to override all possible metadata and to
          * supply a valid dependency list.
          */
-        val resolved: Config,
+        val resolved: Config = Config(),
         /**
          * List of class folders and .jar files containing the output of java compilation for this artifact.
          */
-        val classFolders: List<PathString>,
+        val classFolders: List<PathString> = emptyList(),
         /**
          * The package name of the R file. Application projects may also use this as the default
          * value for the application ID. It is defined here:

@@ -341,7 +341,7 @@ public class AidlCompile extends IncrementalTask {
         return importDirs;
     }
 
-    public static class ConfigAction implements TaskConfigAction<AidlCompile> {
+    public static class ConfigAction extends TaskConfigAction<AidlCompile> {
 
         @NonNull
         VariantScope scope;
@@ -377,7 +377,12 @@ public class AidlCompile extends IncrementalTask {
             compileTask.importDirs = scope.getArtifactFileCollection(
                     COMPILE_CLASSPATH, ALL, AIDL);
 
-            compileTask.setSourceOutputDir(scope.getAidlSourceOutputDir());
+            compileTask.setSourceOutputDir(
+                    scope.getArtifacts()
+                            .appendArtifact(
+                                    InternalArtifactType.AIDL_SOURCE_OUTPUT_DIR,
+                                    compileTask,
+                                    "out"));
 
             if (variantConfiguration.getType().isAar()) {
                 compileTask.setPackagedDir(

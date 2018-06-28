@@ -27,6 +27,7 @@ import com.android.builder.model.ProductFlavor
 import com.android.builder.model.ProductFlavorContainer
 import com.android.builder.model.SourceProvider
 import com.android.ide.common.util.PathString
+import com.android.ide.common.util.toPathStrings
 import com.android.projectmodel.AndroidPathType
 import com.android.projectmodel.AndroidProject
 import com.android.projectmodel.Artifact
@@ -46,7 +47,6 @@ import com.android.projectmodel.matchDimension
 import com.android.resources.ResourceType
 import com.android.sdklib.AndroidVersion
 import com.google.common.collect.ImmutableMap
-import java.io.File
 
 // This file contains utilities for converting Gradle model types (from builder-model) into project model types.
 
@@ -205,19 +205,7 @@ class GradleModelConverter(
 
     fun convert(sourceProvider: SourceProvider): SourceSet =
         compute(sourceProvider) {
-            SourceSet(mapOf(
-                AndroidPathType.MANIFEST to listOf(PathString(sourceProvider.manifestFile)),
-                AndroidPathType.JAVA to filesToPathStrings(sourceProvider.javaDirectories),
-                AndroidPathType.RESOURCE to filesToPathStrings(sourceProvider.resourcesDirectories),
-                AndroidPathType.AIDL to filesToPathStrings(sourceProvider.aidlDirectories),
-                AndroidPathType.RENDERSCRIPT to filesToPathStrings(sourceProvider.renderscriptDirectories),
-                AndroidPathType.C to filesToPathStrings(sourceProvider.cDirectories),
-                AndroidPathType.CPP to filesToPathStrings(sourceProvider.cppDirectories),
-                AndroidPathType.RES to filesToPathStrings(sourceProvider.resDirectories),
-                AndroidPathType.ASSETS to filesToPathStrings(sourceProvider.assetsDirectories),
-                AndroidPathType.JNI_LIBS to filesToPathStrings(sourceProvider.jniLibsDirectories),
-                AndroidPathType.SHADERS to filesToPathStrings(sourceProvider.shadersDirectories)
-            ))
+            toSourceSet()
         }
 
     fun convert(variant: VariantContext): Variant =
@@ -315,7 +303,7 @@ class GradleModelConverter(
 
                 Artifact(
                     name = artifactName,
-                    classFolders = listOf(PathString(classesFolder)) + filesToPathStrings(additionalClassesFolders),
+                    classFolders = listOf(PathString(classesFolder)) + additionalClassesFolders.toPathStrings(),
                     resolved = mergedConfig
                 )
             }
@@ -452,8 +440,8 @@ class GradleModelConverter(
     private fun getBaseConfig(config: BaseConfig): Config {
         with(config) {
             val sources = HashMap<AndroidPathType, List<PathString>>()
-            sources[AndroidPathType.PROGUARD_FILE] = filesToPathStrings(proguardFiles)
-            sources[AndroidPathType.CONSUMER_PROGUARD_FILE] = filesToPathStrings(consumerProguardFiles)
+            sources[AndroidPathType.PROGUARD_FILE] = proguardFiles.toPathStrings()
+            sources[AndroidPathType.CONSUMER_PROGUARD_FILE] = consumerProguardFiles.toPathStrings()
 
             return Config(
                 applicationIdSuffix = applicationIdSuffix,
@@ -489,13 +477,29 @@ class GradleModelConverter(
     }
 }
 
-fun filesToPathStrings(files: Collection<File>): List<PathString> =
-    files.map { PathString(it) }
+/**
+ * Converts this [SourceProvider] to a [SourceSet].
+ */
+fun SourceProvider.toSourceSet() = SourceSet(
+    mapOf(
+        AndroidPathType.MANIFEST to listOf(PathString(manifestFile)),
+        AndroidPathType.JAVA to javaDirectories.toPathStrings(),
+        AndroidPathType.RESOURCE to resourcesDirectories.toPathStrings(),
+        AndroidPathType.AIDL to aidlDirectories.toPathStrings(),
+        AndroidPathType.RENDERSCRIPT to renderscriptDirectories.toPathStrings(),
+        AndroidPathType.C to cDirectories.toPathStrings(),
+        AndroidPathType.CPP to cppDirectories.toPathStrings(),
+        AndroidPathType.RES to resDirectories.toPathStrings(),
+        AndroidPathType.ASSETS to assetsDirectories.toPathStrings(),
+        AndroidPathType.JNI_LIBS to jniLibsDirectories.toPathStrings(),
+        AndroidPathType.SHADERS to shadersDirectories.toPathStrings()
+    )
+)
 
 fun classFieldsToDynamicResourceValues(classFields: Map<String, ClassField>): Map<String, DynamicResourceValue> {
     val result = HashMap<String, DynamicResourceValue>()
     for (field in classFields.values) {
-        val resourceType = ResourceType.getEnum(field.type)
+        val resourceType = ResourceType.fromClassName(field.type)
         if (resourceType != null) {
             result[field.name] = DynamicResourceValue(resourceType, field.value)
         }

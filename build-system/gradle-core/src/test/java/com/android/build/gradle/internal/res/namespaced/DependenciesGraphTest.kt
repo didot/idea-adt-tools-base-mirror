@@ -17,6 +17,8 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
+import com.android.build.gradle.internal.utils.toImmutableMap
+import com.google.common.collect.ImmutableCollection
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableMap
 import com.google.common.collect.ImmutableSet
@@ -60,6 +62,42 @@ class DependenciesGraphTest {
         assertThat(visit(result.rootNodes)).containsAllIn(listOf("a", "b", "c", "d", "e", "f", "g"))
     }
 
+    /** As graph nodes are compared by object identity, it is important that duplicates are never created */
+    @Test
+    fun graphWithSharedRoot() {
+        //   b  a
+        //  /
+        // a*
+        val a = createDependency("a")
+        val b = createDependency("b", ImmutableSet.of(a))
+
+        // Do this in both orders to avoid spuriously passing if the 'a' is processed first/
+        graphWithSharedRoot(listOf(a, b))
+        graphWithSharedRoot(listOf(b, a))
+    }
+
+    private fun graphWithSharedRoot(list: List<MockResolvedDependencyResult>) {
+        val result = DependenciesGraph.create(
+            ImmutableList.copyOf(list),
+            artifacts = ImmutableMap.of()
+        )
+
+        // Collect every node from the whole graph.
+        val allReachableNodes = HashSet<DependenciesGraph.Node>()
+        result.rootNodes.forEach {
+            allReachableNodes.add(it)
+            allReachableNodes.addAll(it.transitiveDependencies)
+        }
+        result.allNodes.forEach {
+            allReachableNodes.add(it)
+            allReachableNodes.addAll(it.transitiveDependencies)
+        }
+
+        assertThat(result.rootNodes).hasSize(2)
+        assertThat(result.allNodes).hasSize(2)
+        assertThat(allReachableNodes).hasSize(2)
+    }
+
     @Test
     fun graphWithArtifacts() {
         //     a
@@ -77,8 +115,9 @@ class DependenciesGraphTest {
         val fileC = temporaryFolder.newFile("c.txt")
         val fileD = temporaryFolder.newFile("d.txt")
 
-        val artifacts: ImmutableMap<String, File> =
-                ImmutableMap.of("a", fileA, "b", fileB, "c", fileC, "d", fileD)
+        val artifacts: ImmutableMap<String, ImmutableCollection<File>> =
+                mapOf<String, File>("a" to fileA, "b" to fileB, "c" to fileC, "d" to fileD)
+                    .toImmutableMap { ImmutableList.of(it) }
 
         val result = DependenciesGraph.create(
                 ImmutableSet.of(a),
@@ -90,6 +129,22 @@ class DependenciesGraphTest {
         val root = result.rootNodes.first()
         assertThat(root.getTransitiveFiles(AndroidArtifacts.ArtifactType.CLASSES))
             .containsExactlyElementsIn(listOf(fileA, fileB, fileC, fileD))
+    }
+
+    @Test
+    fun clashingNormalizedNames() {
+        // a> a< a_
+        val a1 = createDependency("a>")
+        val a2 = createDependency("a<")
+        val a3 = createDependency("a_")
+
+        val graph = DependenciesGraph.create(listOf(a1, a2, a3))
+
+        assertThat(graph.allNodes).hasSize(3)
+        assertThat(graph.allNodes.map { it.sanitizedName }.toSet()).hasSize(3)
+        graph.allNodes.forEach {
+            assertThat(it.sanitizedName).startsWith("a_")
+        }
     }
 
     private fun visit(nodes: ImmutableSet<DependenciesGraph.Node>): List<String> {

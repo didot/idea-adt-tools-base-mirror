@@ -56,7 +56,8 @@ open class ZipMergingTask : AndroidVariantTask() {
         private set
 
     @get:OutputFile
-    private lateinit var outputFile: File
+    lateinit var outputFile: File
+        private set
 
     @VisibleForTesting
     internal fun init(
@@ -89,10 +90,12 @@ open class ZipMergingTask : AndroidVariantTask() {
         }
     }
 
-    class ConfigAction(private val scope: VariantScope) : TaskConfigAction<ZipMergingTask> {
+    class ConfigAction(private val scope: VariantScope) : TaskConfigAction<ZipMergingTask>() {
 
-        override fun getName(): String = scope.getTaskName("createFullJar")
-        override fun getType(): Class<ZipMergingTask> = ZipMergingTask::class.java
+        override val name: String
+            get() = scope.getTaskName("createFullJar")
+        override val type: Class<ZipMergingTask>
+            get() = ZipMergingTask::class.java
 
         override fun execute(task: ZipMergingTask) {
             val buildArtifacts = scope.artifacts

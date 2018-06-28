@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,30 +18,41 @@ package com.android.ide.common.rendering.api;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
+import java.util.ArrayList;
+import java.util.List;
 
-/**
- * This class will replace {@link DeclareStyleableResourceValue} when the latter becomes an
- * interface.
- */
-public class DeclareStyleableResourceValueImpl extends DeclareStyleableResourceValue {
-    public DeclareStyleableResourceValueImpl(
-            @NonNull ResourceReference reference, @Nullable String value) {
-        super(reference, value);
-    }
+/** A resource value representing a declare-styleable resource. */
+public class StyleableResourceValueImpl extends ResourceValueImpl
+        implements StyleableResourceValue {
+    @NonNull private final List<AttrResourceValue> mAttrs = new ArrayList<>();
 
-    public DeclareStyleableResourceValueImpl(
+    public StyleableResourceValueImpl(
             @NonNull ResourceReference reference,
             @Nullable String value,
             @Nullable String libraryName) {
         super(reference, value, libraryName);
+        assert reference.getResourceType() == ResourceType.STYLEABLE;
     }
 
-    public DeclareStyleableResourceValueImpl(
+    public StyleableResourceValueImpl(
             @NonNull ResourceNamespace namespace,
             @NonNull ResourceType type,
             @NonNull String name,
             @Nullable String value,
             @Nullable String libraryName) {
         super(namespace, type, name, value, libraryName);
+        assert type == ResourceType.STYLEABLE;
+    }
+
+    @Override
+    @NonNull
+    public List<AttrResourceValue> getAllAttributes() {
+        return mAttrs;
+    }
+
+    public void addValue(@NonNull AttrResourceValue attr) {
+        assert attr.isFramework() || !isFramework()
+                : "Can't add non-framework attributes to framework resource.";
+        mAttrs.add(attr);
     }
 }

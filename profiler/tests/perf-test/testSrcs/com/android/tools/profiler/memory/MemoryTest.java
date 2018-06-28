@@ -86,12 +86,13 @@ public class MemoryTest {
         // Find MemTestEntity class tag
         int memTestEntityId = findClassTag(jvmtiData.getAllocationSamplesList(), "MemTestEntity");
         assertThat(memTestEntityId).isNotEqualTo(0);
-        final long startTime = jvmtiData.getEndTimestamp();
+        long startTime = jvmtiData.getEndTimestamp();
 
         FakeAndroidDriver androidDriver = myPerfDriver.getFakeAndroidDriver();
         final int allocationCount = 10;
-        int allocationsReported = 0;
-        int deallocationsReported = 0;
+        HashSet<Integer> allocTags = new HashSet<Integer>();
+        HashSet<Integer> deallocTags = new HashSet<Integer>();
+        HashMap<Integer, String> idToThreadName = new HashMap<Integer, String>();
 
         // Create several instances of MemTestEntity and when done free and collect them.
         androidDriver.setProperty("allocation.count", Integer.toString(allocationCount));
@@ -104,28 +105,22 @@ public class MemoryTest {
 
         // ALLOC_DATA events are available shortly, but FREE_DATA events need System.gc
         // and a while to happen.
-        while (deallocationsReported < allocationCount) {
+        while (deallocTags.size() < allocationCount) {
             androidDriver.triggerMethod(ACTIVITY_CLASS, "gc");
             jvmtiData = stubWrapper.getJvmtiData(mySession, startTime, Long.MAX_VALUE);
+            long endTime = jvmtiData.getEndTimestamp();
             System.out.printf(
                     "getJvmtiData called. endTime=%d, alloc samples=%d\n",
-                    jvmtiData.getEndTimestamp(), jvmtiData.getAllocationSamplesList().size());
+                    endTime, jvmtiData.getAllocationSamplesList().size());
 
-            HashMap<Integer, String> idToThreadName = new HashMap<Integer, String>();
+            // Read alloc/dealloc reports and count how many instances of
+            // MemTestEntity were created. At the same time keeping track of
+            // tags.
             for (BatchAllocationSample sample : jvmtiData.getAllocationSamplesList()) {
                 for (ThreadInfo ti : sample.getThreadInfosList()) {
                     assertThat(ti.getThreadId()).isGreaterThan(0);
                     idToThreadName.put(ti.getThreadId(), ti.getThreadName());
                 }
-            }
-
-            // Read alloc/dealloc reports and count how many instances of
-            // MemTestEntity were created. At the same time keeping track of
-            // tags.
-            HashSet<Integer> tags = new HashSet<Integer>();
-            allocationsReported = 0;
-            deallocationsReported = 0;
-            for (BatchAllocationSample sample : jvmtiData.getAllocationSamplesList()) {
                 assertThat(sample.getTimestamp()).isGreaterThan(startTime);
                 for (AllocationEvent event : sample.getEventsList()) {
                     if (event.getEventCase() == AllocationEvent.EventCase.ALLOC_DATA) {
@@ -133,24 +128,25 @@ public class MemoryTest {
                         assertThat(alloc.getThreadId()).isGreaterThan(0);
                         assertThat(idToThreadName.containsKey(alloc.getThreadId())).isTrue();
                         if (alloc.getClassTag() == memTestEntityId) {
-                            allocationsReported++;
                             System.out.printf("Alloc recorded: tag=%d\n", alloc.getTag());
-                            assertThat(tags.add(alloc.getTag())).isTrue();
+                            assertThat(allocTags.add(alloc.getTag())).isTrue();
                         }
                     } else if (event.getEventCase() == AllocationEvent.EventCase.FREE_DATA) {
                         AllocationEvent.Deallocation dealloc = event.getFreeData();
-                        if (tags.contains(dealloc.getTag())) {
-                            deallocationsReported++;
+                        if (allocTags.contains(dealloc.getTag())) {
                             System.out.printf("Free recorded: tag=%d\n", dealloc.getTag());
-                            tags.remove(dealloc.getTag());
+                            assertThat(deallocTags.add(dealloc.getTag())).isTrue();
                         }
                     }
                 }
             }
+            if (jvmtiData.getAllocationSamplesList().size() > 0) {
+                assertThat(endTime).isGreaterThan(startTime);
+                startTime = endTime;
+            }
         }
 
         // allocationCount of instances should have been created/deleted.
-        assertThat(allocationsReported).isEqualTo(allocationCount);
-        assertThat(deallocationsReported).isEqualTo(allocationCount);
+        assertThat(deallocTags).isEqualTo(allocTags);
     }
 }

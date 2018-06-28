@@ -17,6 +17,7 @@
 package com.android.build.gradle.tasks.ir;
 
 import static com.android.SdkConstants.ATTR_PACKAGE;
+import static com.android.build.gradle.internal.scope.InternalArtifactType.INSTANT_RUN_APP_INFO_OUTPUT_FILE;
 import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACC_SUPER;
@@ -193,7 +194,7 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
         }
     }
 
-    public static class ConfigAction implements TaskConfigAction<GenerateInstantRunAppInfoTask> {
+    public static class ConfigAction extends TaskConfigAction<GenerateInstantRunAppInfoTask> {
         @NonNull private final VariantScope variantScope;
         @NonNull
         private final TransformVariantScope transformVariantScope;
@@ -225,8 +226,13 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
             task.setVariantName(variantScope.getFullVariantName());
             task.buildContext = variantScope.getInstantRunBuildContext();
             task.outputFile =
-                    new File(variantScope.getIncrementalApplicationSupportDir(),
-                            PackageAndroidArtifact.INSTANT_RUN_PACKAGES_PREFIX + "-bootstrap.jar");
+                    variantScope
+                            .getArtifacts()
+                            .appendArtifact(
+                                    INSTANT_RUN_APP_INFO_OUTPUT_FILE,
+                                    task,
+                                    PackageAndroidArtifact.INSTANT_RUN_PACKAGES_PREFIX
+                                            + "-bootstrap.jar");
 
             task.mergedManifests = manifests;
         }

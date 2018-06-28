@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2017 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,20 @@
  * limitations under the License.
  */
 
-package com.android.build.gradle.integration.common.category;
+package com.android.build.gradle.internal.dependency
 
-/** Tests that gather performance information */
-public class PerformanceTests {}
+import com.google.common.collect.ImmutableList
+import java.io.File
+import javax.inject.Inject
+import org.gradle.api.artifacts.transform.ArtifactTransform
+
+/**
+ * Transform to go from one artifact type to one or multiple other artifact types without changing
+ * the artifact's contents.
+ */
+class IdentityTransform @Inject constructor() : ArtifactTransform() {
+
+    override fun transform(file: File): List<File> {
+        return ImmutableList.of(file)
+    }
+}

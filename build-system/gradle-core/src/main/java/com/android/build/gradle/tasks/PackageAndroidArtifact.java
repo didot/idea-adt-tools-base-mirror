@@ -895,7 +895,7 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
     // ----- ConfigAction -----
 
     public abstract static class ConfigAction<T extends PackageAndroidArtifact>
-            implements TaskConfigAction<T> {
+            extends TaskConfigAction<T> {
 
         protected final Project project;
         protected final VariantScope variantScope;
@@ -983,7 +983,9 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
             packageAndroidArtifact.apkFormat =
                     projectOptions.get(BooleanOption.DEPLOYMENT_USES_DIRECTORY)
                             ? IncrementalPackagerBuilder.ApkFormat.DIRECTORY
-                            : IncrementalPackagerBuilder.ApkFormat.FILE;
+                            : projectOptions.get(BooleanOption.DEPLOYMENT_PROVIDES_LIST_OF_CHANGES)
+                                    ? IncrementalPackagerBuilder.ApkFormat.FILE_WITH_LIST_OF_CHANGES
+                                    : IncrementalPackagerBuilder.ApkFormat.FILE;
             configure(packageAndroidArtifact);
         }
 

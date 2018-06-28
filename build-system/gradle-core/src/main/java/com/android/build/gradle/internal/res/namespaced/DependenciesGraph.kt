@@ -18,6 +18,11 @@ package com.android.build.gradle.internal.res.namespaced
 
 import com.android.annotations.VisibleForTesting
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType
+import com.android.utils.FileUtils
+import com.google.common.cache.CacheBuilder
+import com.google.common.cache.CacheLoader
+import com.google.common.cache.LoadingCache
+import com.google.common.collect.ImmutableCollection
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableMap
 import com.google.common.collect.ImmutableSet
@@ -27,7 +32,7 @@ import org.gradle.api.artifacts.result.DependencyResult
 import org.gradle.api.artifacts.result.ResolvedDependencyResult
 import java.io.File
 
-typealias ArtifactFiles = Map<ArtifactType, ImmutableMap<String, File>>
+typealias ArtifactFiles = Map<ArtifactType, ImmutableMap<String, ImmutableCollection<File>>>
 
 /**
  * Represents a graph of dependencies, with custom Nodes capable of fetching artifact files.
@@ -50,9 +55,9 @@ class DependenciesGraph(val rootNodes: ImmutableSet<Node>, val allNodes: Immutab
             artifacts: ArtifactFiles = ImmutableMap.of()
         ): DependenciesGraph {
             return create(
-                    dependencies.resolutionResult.root.dependencies,
-                    artifacts,
-                    HashMap()
+                dependencies.resolutionResult.root.dependencies,
+                artifacts,
+                HashMap()
             )
         }
 
@@ -60,69 +65,93 @@ class DependenciesGraph(val rootNodes: ImmutableSet<Node>, val allNodes: Immutab
         fun create(
             roots: Iterable<DependencyResult>,
             artifacts: ArtifactFiles = ImmutableMap.of(),
-            foundNodes: HashMap<String, Node> = HashMap()
+            foundNodes: MutableMap<String, Node> = HashMap(),
+            sanitizedNames: MutableSet<String> = HashSet()
         ): DependenciesGraph {
             val rootNodes = mutableSetOf<Node>()
             // We can have multiple roots. Collect nodes starting from each of them.
             for (dependency in roots) {
                 dependency as ResolvedDependencyResult
-                val node = collect(dependency, foundNodes, artifacts)
-                foundNodes.put(dependency.selected.id.displayName, node)
+                val node = collect(dependency, foundNodes, sanitizedNames, artifacts)
                 rootNodes.add(node)
             }
             return DependenciesGraph(
-                    ImmutableSet.copyOf(rootNodes),
-                    ImmutableSet.copyOf(foundNodes.values)
+                ImmutableSet.copyOf(rootNodes),
+                ImmutableSet.copyOf(foundNodes.values)
             )
         }
 
         private fun collect(
             dependencyResult: DependencyResult,
-            foundNodes: HashMap<String, Node>,
+            foundNodes: MutableMap<String, Node>,
+            usedSanitizedNames: MutableSet<String>,
             artifacts: ArtifactFiles
         ): Node {
             dependencyResult as ResolvedDependencyResult
+            if (foundNodes.contains(dependencyResult.selected.id.displayName)) {
+                return foundNodes[dependencyResult.selected.id.displayName]!!
+            }
             try {
                 // Visit all children of the node and collect them. If a child has already been
                 // visited, it will be stored in the 'foundNodes' map.
                 val dependencies = ArrayList<DependenciesGraph.Node>()
                 for (dependency in dependencyResult.selected.dependencies) {
                     dependency as ResolvedDependencyResult
-                    if (!foundNodes.contains(dependency.selected.id.displayName)) {
-                        foundNodes.put(
-                                dependency.selected.id.displayName,
-                                collect(dependency, foundNodes, artifacts)
-                        )
-                    }
+                    collect(dependency, foundNodes, usedSanitizedNames, artifacts)
                     dependencies.add(foundNodes[dependency.selected.id.displayName]!!)
                 }
                 return Node(
-                        dependencyResult.selected.id,
-                        ImmutableSet.copyOf(dependencies),
-                        artifacts
-                )
+                    dependencyResult.selected.id,
+                    getUniqueSanitizedDependencyName(
+                        dependencyResult.selected.id.displayName,
+                        usedSanitizedNames
+                    ),
+                    ImmutableSet.copyOf(dependencies),
+                    artifacts
+                ).also {
+                    check(foundNodes.put(dependencyResult.selected.id.displayName, it) == null)
+                }
             } catch (e: Exception) {
                 throw RuntimeException(
-                        "Failed rewriting node ${dependencyResult.selected.id.displayName}.",
-                        e
+                    "Failed rewriting node ${dependencyResult.selected.id.displayName}.",
+                    e
                 )
             }
+        }
+
+        private fun getUniqueSanitizedDependencyName(
+            name: String, usedNames: MutableSet<String>
+        ): String {
+            var sanitizedName = FileUtils.sanitizeFileName(name)
+            // This is unlikely, but if there is a collision, add more _ charaters until it is unique.
+            while (usedNames.contains(sanitizedName)) {
+                sanitizedName += "_"
+            }
+            usedNames.add(sanitizedName)
+            return sanitizedName
         }
     }
 
     /**
      * Class for storing information about a dependency node.
      */
-    class Node(
+    class Node constructor(
         val id: ComponentIdentifier,
+        val sanitizedName: String,
         val dependencies: ImmutableSet<Node>,
         artifactFiles: ArtifactFiles
     ) {
-        val artifacts: ImmutableMap<ArtifactType, File>
-        private val transitiveArtifactCache: HashMap<ArtifactType, ImmutableList<File>> = HashMap()
+        val artifacts: ImmutableMap<ArtifactType, ImmutableCollection<File>>
+        private val transitiveArtifactCache: LoadingCache<ArtifactType, ImmutableList<File>>
+        val transitiveDependencies: ImmutableSet<Node> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+            ImmutableSet.builder<Node>().apply {
+                addAll(dependencies)
+                dependencies.forEach { addAll(it.transitiveDependencies) }
+            }.build()
+        }
 
         init {
-            val builder = ImmutableMap.builder<ArtifactType, File>()
+            val builder = ImmutableMap.builder<ArtifactType, ImmutableCollection<File>>()
             for (type in artifactFiles.keys) {
                 val file = artifactFiles[type]!![id.displayName]
                 if (file != null) {
@@ -130,16 +159,26 @@ class DependenciesGraph(val rootNodes: ImmutableSet<Node>, val allNodes: Immutab
                 }
             }
             artifacts = builder.build()
+            transitiveArtifactCache = CacheBuilder.newBuilder().build(
+                object : CacheLoader<ArtifactType, ImmutableList<File>>() {
+                    override fun load(artifactType: ArtifactType) =
+                        computeTransitiveFiles(artifactType)
+                })
         }
 
         fun getFile(type: ArtifactType): File? {
+            return getFiles(type)?.single()
+        }
+
+        fun getFiles(type: ArtifactType): ImmutableCollection<File>? {
             return artifacts[type]
         }
 
         fun getTransitiveFiles(type: ArtifactType): ImmutableList<File> {
-            if (transitiveArtifactCache.containsKey(type)) {
-                return transitiveArtifactCache[type]!!
-            }
+            return transitiveArtifactCache.getUnchecked(type)
+        }
+
+        private fun computeTransitiveFiles(type: ArtifactType): ImmutableList<File> {
             val builder = ArrayList<File>()
             // Add ourselves first, if we contain the file.
             val file = getFile(type)
@@ -157,8 +196,7 @@ class DependenciesGraph(val rootNodes: ImmutableSet<Node>, val allNodes: Immutab
                     }
                 }
             }
-            transitiveArtifactCache.put(type, ImmutableList.copyOf(builder))
-            return transitiveArtifactCache[type]!!
+            return ImmutableList.copyOf(builder)
         }
 
         override fun toString(): String {

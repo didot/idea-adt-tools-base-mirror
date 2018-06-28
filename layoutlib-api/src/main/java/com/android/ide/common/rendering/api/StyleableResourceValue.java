@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2015 The Android Open Source Project
+ * Copyright (C) 2011 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,32 +13,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package com.android.build.gradle.internal.scope;
+package com.android.ide.common.rendering.api;
 
 import com.android.annotations.NonNull;
-import org.gradle.api.Action;
+import java.util.List;
 
 /**
- * Interface of Task configuration Actions.
+ * A resource value representing a declare-styleable resource.
+ *
+ * <p>{@link #getValue()} will return null, instead use {@link #getAllAttributes()} to get the list
+ * of attributes defined in the declare-styleable.
  */
-public interface TaskConfigAction<T> extends Action<T> {
-
-    /**
-     * Return the name of the task to be configured.
-     */
+public interface StyleableResourceValue extends ResourceValue {
     @NonNull
-    String getName();
-
-    /**
-     * Return the class type of the task to be configured.
-     */
-    @NonNull
-    Class<T> getType();
-
-    /**
-     * Configure the given newly-created task object.
-     */
-    @Override
-    void execute(@NonNull T task);
+    List<AttrResourceValue> getAllAttributes();
 }

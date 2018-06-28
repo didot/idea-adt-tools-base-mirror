@@ -18,7 +18,7 @@ package com.android.build.gradle.tasks;
 
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.CLASSES;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.JAR;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.PROCESSED_JAR;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.ANNOTATION_PROCESSOR;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
 
@@ -218,7 +218,7 @@ public class JavaPreCompileTask extends AndroidBuilderTask {
                 .collect(Collectors.toList());
     }
 
-    public static class ConfigAction implements TaskConfigAction<JavaPreCompileTask> {
+    public static class ConfigAction extends TaskConfigAction<JavaPreCompileTask> {
 
         private final VariantScope scope;
 
@@ -249,7 +249,7 @@ public class JavaPreCompileTask extends AndroidBuilderTask {
                     scope.getVariantData().getType().isTestComponent()
                             ? scope.getVariantData().getType().getPrefix() + "AnnotationProcessor"
                             : "annotationProcessor",
-                    scope.getArtifactCollection(ANNOTATION_PROCESSOR, ALL, JAR),
+                    scope.getArtifactCollection(ANNOTATION_PROCESSOR, ALL, PROCESSED_JAR),
                     scope.getJavaClasspathArtifacts(COMPILE_CLASSPATH, CLASSES, null),
                     scope.getVariantConfiguration()
                             .getJavaCompileOptions()

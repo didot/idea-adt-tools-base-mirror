@@ -99,6 +99,8 @@ public enum InternalArtifactType implements ArtifactType {
     RES_COMPILED_FLAT_FILES,
     // An AAPT2 static library, containing only the current sub-project's resources.
     RES_STATIC_LIBRARY,
+    // A directory of AAPT2 static libraries generated from all non-namepaced remote dependencies.
+    RES_CONVERTED_NON_NAMESPACED_REMOTE_DEPENDENCIES,
     // Compiled R class jar (for compilation only, packaged in AAR)
     COMPILE_ONLY_NAMESPACED_R_CLASS_JAR,
     // JAR file containing all of the auto-namespaced classes from dependencies.
@@ -107,8 +109,6 @@ public enum InternalArtifactType implements ArtifactType {
     COMPILE_ONLY_NAMESPACED_DEPENDENCIES_R_JARS,
     // Classes JAR files from dependencies that need to be auto-namespaced.
     NON_NAMESPACED_CLASSES,
-    // res-ids.txt
-    NAMESPACED_SYMBOL_LIST_WITH_PACKAGE_NAME,
     // Final R class sources (to package)
     RUNTIME_R_CLASS_SOURCES(Category.GENERATED),
     // Final R class classes (for packaging)
@@ -131,8 +131,11 @@ public enum InternalArtifactType implements ArtifactType {
 
     // AIDL headers "packaged" by libraries for consumers.
     AIDL_PARCELABLE,
+    AIDL_SOURCE_OUTPUT_DIR(Category.GENERATED),
     // renderscript headers "packaged" by libraries for consumers.
     RENDERSCRIPT_HEADERS,
+    // source output for rs
+    RENDERSCRIPT_SOURCE_OUTPUT_DIR(Category.GENERATED),
 
     COMPATIBLE_SCREEN_MANIFEST,
     MERGED_MANIFESTS,
@@ -244,7 +247,9 @@ public enum InternalArtifactType implements ArtifactType {
     // Project metadata
     METADATA_FEATURE_DECLARATION,
     METADATA_FEATURE_MANIFEST,
-    METADATA_INSTALLED_BASE_DECLARATION;
+    METADATA_INSTALLED_BASE_DECLARATION,
+
+    INSTANT_RUN_APP_INFO_OUTPUT_FILE;
 
     /**
      * Defines the kind of artifact type. this will be used to determine the output file location

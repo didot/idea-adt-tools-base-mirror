@@ -45,10 +45,10 @@ java_library(
 
 perf_test(
     name = "BasicTest",
+    size = "medium",
     srcs = [
         "testSrcs/com/android/tools/profiler/BasicPerfTest.java",
     ],
-    tags = ["no_test_foundry"],  # b/73948555
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
         ":tests",
@@ -61,12 +61,11 @@ perf_test(
 
 perf_test(
     name = "HttpTest",
-    size = "medium",
+    size = "large",
     srcs = [
         "testSrcs/com/android/tools/profiler/network/HttpUrlTest.java",
         "testSrcs/com/android/tools/profiler/network/OkHttpTest.java",
     ],
-    tags = ["no_test_foundry"],  # b/73948555
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
         ":tests",
@@ -78,13 +77,10 @@ perf_test(
 
 perf_test(
     name = "MemoryTest",
+    size = "medium",
     srcs = [
         "testSrcs/com/android/tools/profiler/memory/JniTest.java",
         "testSrcs/com/android/tools/profiler/memory/MemoryTest.java",
-    ],
-    tags = [
-        "manual",  # b/80501379
-        "no_test_foundry",  # b/73948555
     ],
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
@@ -98,10 +94,10 @@ perf_test(
 
 perf_test(
     name = "EventTest",
+    size = "large",
     srcs = [
         "testSrcs/com/android/tools/profiler/EventProfilerTest.java",
     ],
-    tags = ["no_test_foundry"],  # b/73948555
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
         ":tests",
@@ -113,14 +109,13 @@ perf_test(
 
 perf_test(
     name = "EnergyTest",
-    size = "medium",
+    size = "large",
     srcs = [
         "testSrcs/com/android/tools/profiler/energy/AlarmTest.java",
         "testSrcs/com/android/tools/profiler/energy/JobTest.java",
         "testSrcs/com/android/tools/profiler/energy/LocationTest.java",
         "testSrcs/com/android/tools/profiler/energy/WakeLockTest.java",
     ],
-    tags = ["no_test_foundry"],  # b/73948555
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
         ":tests",

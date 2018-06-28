@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,15 +14,10 @@
  * limitations under the License.
  */
 
-package com.android.build.gradle.integration.performance;
+package com.android.build.gradle.internal.crash
 
-import com.android.annotations.NonNull;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.wireless.android.sdk.gradlelogging.proto.Logging;
-import java.io.IOException;
-import java.util.List;
-
-@VisibleForTesting
-public interface ProfileUploader {
-    void uploadData(@NonNull List<Logging.GradleBenchmarkResult> result) throws IOException;
-}
+/**
+ * An exception that can be thrown when running code that we do not control. Typically, these are
+ * callbacks supplied through our APIs.
+ */
+class ExternalApiUsageException(t: Throwable):RuntimeException(t)

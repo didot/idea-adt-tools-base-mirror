@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.internal.res.namespaced
 
+import com.android.annotations.VisibleForTesting
 import com.android.ide.common.symbols.SymbolTable
 import com.android.ide.common.symbols.canonicalizeValueResourceName
 import com.android.ide.common.xml.XmlFormatPreferences
@@ -44,6 +45,7 @@ import org.w3c.dom.Node
 import org.w3c.dom.NodeList
 import java.io.File
 import java.io.IOException
+import java.io.Writer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.HashSet
@@ -243,7 +245,7 @@ class NamespaceRewriter(
             if (!possibleParent.isEmpty()) {
                 val possiblePackage = maybeFindPackage(
                     "style",
-                    canonicalizeValueResourceName(possibleParent),
+                    possibleParent,
                     logger,
                     symbolTables
                 )
@@ -502,7 +504,7 @@ class NamespaceRewriter(
         val type = trimmedContent.substring(1, slashIndex)
         val name = trimmedContent.substring(slashIndex + 1, trimmedContent.length)
 
-        val pckg = findPackage(type, canonicalizeValueResourceName(name), logger, symbolTables)
+        val pckg = findPackage(type, name, logger, symbolTables)
 
         // Rewrite the reference using the package and the un-canonicalized name.
         return "$prefixChar$pckg:$type/$name"
@@ -642,12 +644,13 @@ private fun maybeFindPackage(
     logger: Logger,
     symbolTables: ImmutableList<SymbolTable>
 ): String? {
+    val canonicalName = canonicalizeValueResourceName(name)
     var packages: ArrayList<String>? = null
     var result: String? = null
 
     // Go through R.txt files and find the proper package.
     for (table in symbolTables) {
-        if (table.containsSymbol(getResourceType(type), name)) {
+        if (table.containsSymbol(getResourceType(type), canonicalName)) {
             if (result == null) {
                 result = table.tablePackage
             } else {
@@ -672,4 +675,34 @@ private fun maybeFindPackage(
 }
 
 private fun getResourceType(typeString: String): ResourceType =
-    ResourceType.getEnum(typeString) ?: error("Unknown type '$typeString'")
+    ResourceType.fromClassName(typeString) ?: error("Unknown type '$typeString'")
+
+
+fun generatePublicFile(symbols: SymbolTable, outputDirectory: Path) {
+    val values = outputDirectory.resolve("values")
+    Files.createDirectories(values)
+    val publicFile = values.resolve("auto-namespace-public.xml")
+    if (Files.exists(publicFile)) {
+        error("Internal error: Auto namespaced public file already exists")
+    }
+    Files.newBufferedWriter(publicFile).use {
+        writePublicFile(it, symbols)
+    }
+}
+
+@VisibleForTesting
+internal fun writePublicFile(writer: Writer, symbols: SymbolTable) {
+    writer.write("""<?xml version="1.0" encoding="utf-8"?>""")
+    writer.write("\n<resources>\n\n")
+    symbols.resourceTypes.forEach { resourceType ->
+        symbols.getSymbolByResourceType(resourceType).forEach { symbol ->
+            writer.write("    <public name=\"")
+            writer.write(symbol.name)
+            writer.write("\" type=\"")
+            writer.write(resourceType.getName())
+            writer.write("\" />\n")
+        }
+
+    }
+    writer.write("\n</resources>\n")
+}

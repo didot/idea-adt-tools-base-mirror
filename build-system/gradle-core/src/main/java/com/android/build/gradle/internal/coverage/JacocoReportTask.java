@@ -80,7 +80,7 @@ public class JacocoReportTask extends DefaultTask {
 
     private Supplier<File> coverageDirectory;
     private BuildableArtifact classFileCollection;
-    private Supplier<Collection<File>> sourceFolders;
+    private Supplier<FileCollection> sourceFolders;
 
     private File coverageFile;
     private File reportDir;
@@ -128,7 +128,7 @@ public class JacocoReportTask extends DefaultTask {
     }
 
     @InputFiles
-    public Collection<File> getSourceFolders() {
+    public FileCollection getSourceFolders() {
         return sourceFolders.get();
     }
 
@@ -190,13 +190,13 @@ public class JacocoReportTask extends DefaultTask {
                             coverageFiles,
                             getReportDir(),
                             getClassFileCollection().getFiles(),
-                            getSourceFolders(),
+                            getSourceFolders().getFiles(),
                             getTabWidth(),
                             getReportName());
                 });
     }
 
-    public static class ConfigAction implements TaskConfigAction<JacocoReportTask> {
+    public static class ConfigAction extends TaskConfigAction<JacocoReportTask> {
         @NonNull private VariantScope scope;
         @NonNull private final Configuration jacocoAntConfiguration;
 
