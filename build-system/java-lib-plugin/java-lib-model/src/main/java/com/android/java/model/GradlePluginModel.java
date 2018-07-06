@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,17 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package com.android.java.model;
 
-package com.android.build.gradle.internal.ide;
+import com.android.annotations.NonNull;
+import java.util.Collection;
 
-import nl.jqno.equalsverifier.EqualsVerifier;
-import org.junit.Test;
+/** Returns artifacts information of a module. */
+public interface GradlePluginModel {
 
-public class NativeFolderImplTest {
-
-    @Test
-    public void equals() throws Exception {
-        EqualsVerifier.forClass(NativeFolderImpl.class).verify();
-
-    }
+    /**
+     * Returns a list of applied plugins.
+     *
+     * @return a list of applied plugins.
+     */
+    @NonNull
+    Collection<String> getGraldePluginList();
 }

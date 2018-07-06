@@ -28,5 +28,6 @@ internal constructor(private val registry: ToolingModelBuilderRegistry) : Plugin
   override fun apply(project: Project) {
     registry.register(JavaModelBuilder())
     registry.register(ArtifactModelBuilder())
+    registry.register(GradlePluginModelBuilder())
   }
 }

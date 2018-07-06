@@ -135,8 +135,7 @@ TEST_F(ProfilerServiceTest, CanBeginAndEndASession) {
   EXPECT_FALSE(SessionUtils::IsActive(end));
 }
 
-TEST_F(ProfilerServiceTest,
-       CanBeginMultipleSessions_AllRemainActiveUntilEnded) {
+TEST_F(ProfilerServiceTest, BeginClosesPreviousSession) {
   clock_.SetCurrentTime(1234);
   proto::Session session1 = BeginSession(-1, 1);
   clock_.Elapse(10);
@@ -155,20 +154,23 @@ TEST_F(ProfilerServiceTest,
   {
     proto::GetSessionsResponse sessions = GetSessions(LLONG_MIN, LLONG_MAX);
     EXPECT_EQ(3, sessions.sessions_size());
-    EXPECT_TRUE(SessionUtils::IsActive(sessions.sessions(0)));
-    EXPECT_TRUE(SessionUtils::IsActive(sessions.sessions(1)));
+    EXPECT_FALSE(SessionUtils::IsActive(sessions.sessions(0)));
+    EXPECT_FALSE(SessionUtils::IsActive(sessions.sessions(1)));
     EXPECT_TRUE(SessionUtils::IsActive(sessions.sessions(2)));
   }
 
-  // End sessions out of order
-  proto::Session ended_session2 = EndSession(-1, session2.session_id());
-  proto::Session ended_session3 = EndSession(-1, session3.session_id());
-  proto::Session ended_session1 = EndSession(-1, session1.session_id());
+  // End and already ended session
+  EndSession(-1, session2.session_id());
+  {
+    proto::GetSessionsResponse sessions = GetSessions(LLONG_MIN, LLONG_MAX);
+    EXPECT_EQ(3, sessions.sessions_size());
+    EXPECT_FALSE(SessionUtils::IsActive(sessions.sessions(0)));
+    EXPECT_FALSE(SessionUtils::IsActive(sessions.sessions(1)));
+    EXPECT_TRUE(SessionUtils::IsActive(sessions.sessions(2)));
+  }
 
-  EXPECT_EQ(session1.session_id(), ended_session1.session_id());
-  EXPECT_EQ(session2.session_id(), ended_session2.session_id());
-  EXPECT_EQ(session3.session_id(), ended_session3.session_id());
-
+  // End the last session
+  EndSession(-1, session3.session_id());
   {
     proto::GetSessionsResponse sessions = GetSessions(LLONG_MIN, LLONG_MAX);
     EXPECT_EQ(3, sessions.sessions_size());
@@ -228,12 +230,11 @@ TEST_F(ProfilerServiceTest, GetSessionsByTimeRangeWorks) {
     auto sessions = GetSessions(LLONG_MIN, LLONG_MAX);
     EXPECT_EQ(5, sessions.sessions_size());
 
-    // Range is returned most recent first.
-    EXPECT_EQ(50, sessions.sessions(0).pid());
-    EXPECT_EQ(40, sessions.sessions(1).pid());
+    EXPECT_EQ(10, sessions.sessions(0).pid());
+    EXPECT_EQ(20, sessions.sessions(1).pid());
     EXPECT_EQ(30, sessions.sessions(2).pid());
-    EXPECT_EQ(20, sessions.sessions(3).pid());
-    EXPECT_EQ(10, sessions.sessions(4).pid());
+    EXPECT_EQ(40, sessions.sessions(3).pid());
+    EXPECT_EQ(50, sessions.sessions(4).pid());
   }
 
   {
@@ -241,10 +242,9 @@ TEST_F(ProfilerServiceTest, GetSessionsByTimeRangeWorks) {
     auto sessions = GetSessions(3250, LLONG_MAX);
     EXPECT_EQ(3, sessions.sessions_size());
 
-    // Range is returned most recent first.
-    EXPECT_EQ(50, sessions.sessions(0).pid());
+    EXPECT_EQ(30, sessions.sessions(0).pid());
     EXPECT_EQ(40, sessions.sessions(1).pid());
-    EXPECT_EQ(30, sessions.sessions(2).pid());
+    EXPECT_EQ(50, sessions.sessions(2).pid());
   }
 
   {
@@ -252,10 +252,9 @@ TEST_F(ProfilerServiceTest, GetSessionsByTimeRangeWorks) {
     auto sessions = GetSessions(0, 3250);
     EXPECT_EQ(3, sessions.sessions_size());
 
-    // Range is returned most recent first.
-    EXPECT_EQ(30, sessions.sessions(0).pid());
+    EXPECT_EQ(10, sessions.sessions(0).pid());
     EXPECT_EQ(20, sessions.sessions(1).pid());
-    EXPECT_EQ(10, sessions.sessions(2).pid());
+    EXPECT_EQ(30, sessions.sessions(2).pid());
   }
 
   {
@@ -263,9 +262,8 @@ TEST_F(ProfilerServiceTest, GetSessionsByTimeRangeWorks) {
     auto sessions = GetSessions(2250, 3250);
     EXPECT_EQ(2, sessions.sessions_size());
 
-    // Range is returned most recent first.
-    EXPECT_EQ(30, sessions.sessions(0).pid());
-    EXPECT_EQ(20, sessions.sessions(1).pid());
+    EXPECT_EQ(20, sessions.sessions(0).pid());
+    EXPECT_EQ(30, sessions.sessions(1).pid());
   }
 
   {
@@ -277,54 +275,7 @@ TEST_F(ProfilerServiceTest, GetSessionsByTimeRangeWorks) {
   }
 }
 
-TEST_F(ProfilerServiceTest, CallingBeginSessionOnActiveSessionSortsItToFront) {
-  clock_.SetCurrentTime(1000);
-
-  auto session1 = BeginSession(-10, 10);
-  auto session2 = BeginSession(-20, 20);
-  auto session3 = BeginSession(-30, 30);
-  auto session4 = BeginSession(-40, 40);
-
-  {
-    // Sanity check
-    auto sessions = GetSessions(LLONG_MIN, LLONG_MAX);
-    EXPECT_EQ(4, sessions.sessions_size());
-
-    // Range is returned most recent first.
-    EXPECT_EQ(40, sessions.sessions(0).pid());
-    EXPECT_EQ(30, sessions.sessions(1).pid());
-    EXPECT_EQ(20, sessions.sessions(2).pid());
-    EXPECT_EQ(10, sessions.sessions(3).pid());
-  }
-
-  proto::Session session2_copy;
-  // Beginning an existent session returns false.
-  session2_copy = BeginSession(-20, 20);
-  EXPECT_EQ(session2.pid(), session2_copy.pid());
-
-  {
-    // Session2 promoted to most recent
-    auto sessions = GetSessions(LLONG_MIN, LLONG_MAX);
-    EXPECT_EQ(4, sessions.sessions_size());
-
-    // Range is returned most recent first.
-    EXPECT_EQ(20, sessions.sessions(0).pid());
-    EXPECT_EQ(40, sessions.sessions(1).pid());
-    EXPECT_EQ(30, sessions.sessions(2).pid());
-    EXPECT_EQ(10, sessions.sessions(3).pid());
-  }
-
-  // Session #2 is already the most recent. Calling |BeginSession| again is a
-  // no-op.
-  session2_copy = BeginSession(-20, 20);
-  {
-    auto sessions = GetSessions(LLONG_MIN, LLONG_MAX);
-    EXPECT_EQ(20, sessions.sessions(0).pid());
-  }
-}
-
-TEST_F(ProfilerServiceTest,
-       CallingBeginEndBeginWithSameParametersWillCreateNewSession) {
+TEST_F(ProfilerServiceTest, BeginingTwiceIsTheSameAsEndingInBetween) {
   clock_.SetCurrentTime(1000);
   proto::Session session;
 
@@ -332,18 +283,19 @@ TEST_F(ProfilerServiceTest,
   session = BeginSession(-10, 10);
   EXPECT_EQ(1, GetSessions(LLONG_MIN, LLONG_MAX).sessions_size());
   session = BeginSession(-10, 10);
-  EXPECT_EQ(1, GetSessions(LLONG_MIN, LLONG_MAX).sessions_size());
+  EXPECT_EQ(2, GetSessions(LLONG_MIN, LLONG_MAX).sessions_size());
   session = EndSession(-1, session.session_id());
   session = BeginSession(-10, 10);
 
   {
     auto sessions = GetSessions(LLONG_MIN, LLONG_MAX);
-    EXPECT_EQ(2, sessions.sessions_size());
+    EXPECT_EQ(3, sessions.sessions_size());
     EXPECT_EQ(10, sessions.sessions(0).pid());
-    EXPECT_TRUE(SessionUtils::IsActive(sessions.sessions(0)));
-    // Same PID, etc., but this session is dead
+    EXPECT_FALSE(SessionUtils::IsActive(sessions.sessions(0)));
     EXPECT_EQ(10, sessions.sessions(1).pid());
     EXPECT_FALSE(SessionUtils::IsActive(sessions.sessions(1)));
+    EXPECT_EQ(10, sessions.sessions(2).pid());
+    EXPECT_TRUE(SessionUtils::IsActive(sessions.sessions(2)));
   }
 }
 

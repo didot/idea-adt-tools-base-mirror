@@ -137,7 +137,6 @@ import com.android.build.gradle.internal.transforms.ExternalLibsMergerTransform;
 import com.android.build.gradle.internal.transforms.ExtractJarsTransform;
 import com.android.build.gradle.internal.transforms.FixStackFramesTransform;
 import com.android.build.gradle.internal.transforms.JacocoTransform;
-import com.android.build.gradle.internal.transforms.MainDexListTransform;
 import com.android.build.gradle.internal.transforms.MainDexListWriter;
 import com.android.build.gradle.internal.transforms.MergeClassesTransform;
 import com.android.build.gradle.internal.transforms.MergeJavaResourcesTransform;
@@ -1414,7 +1413,6 @@ public abstract class TaskManager {
                         variantScope);
         Optional<TransformTask> transformTask =
                 transformManager.addTransform(taskFactory, variantScope, mergeTransform);
-        variantScope.getTaskContainer().setMergeJavaResourcesTask(transformTask.orElse(null));
 
         File mergeJavaResOutput =
                 FileUtils.join(
@@ -1536,6 +1534,23 @@ public abstract class TaskManager {
                                                     .getFinalArtifactFiles(
                                                             InternalArtifactType
                                                                     .RUNTIME_R_CLASS_CLASSES)
+                                                    .get())
+                                    .build());
+        }
+
+        if (Boolean.TRUE.equals(
+                        scope.getGlobalScope().getExtension().getAaptOptions().getNamespaced())
+                && projectOptions.get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES)) {
+            scope.getTransformManager()
+                    .addStream(
+                            OriginalStream.builder(project, "auto-namespaced-dependencies-classes")
+                                    .addContentTypes(DefaultContentType.CLASSES)
+                                    .addScope(Scope.EXTERNAL_LIBRARIES)
+                                    .setFileCollection(
+                                            artifacts
+                                                    .getFinalArtifactFiles(
+                                                            InternalArtifactType
+                                                                    .NAMESPACED_CLASSES_JAR)
                                                     .get())
                                     .build());
         }
@@ -2279,14 +2294,7 @@ public abstract class TaskManager {
             // ---------
             // create the transform that's going to take the code and the proguard keep list
             // from above and compute the main class list.
-            Transform multiDexTransform;
-
-            if (projectOptions.get(BooleanOption.ENABLE_D8_MAIN_DEX_LIST)) {
-                multiDexTransform = new D8MainDexListTransform(variantScope);
-            } else {
-                multiDexTransform =
-                        new MainDexListTransform(variantScope, extension.getDexOptions());
-            }
+            Transform multiDexTransform = new D8MainDexListTransform(variantScope);
             transformManager
                     .addTransform(taskFactory, variantScope, multiDexTransform)
                     .ifPresent(
