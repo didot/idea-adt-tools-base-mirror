@@ -1,0 +1,92 @@
+{
+  "inputVersion": "0.1",
+  "projectConfig": {
+    "projectName": "generated",
+    "root": "./",
+    "buildSystemConfig": {
+      "buildSystemVersion": "4.6",
+      "agpVersion": "3.2.0"
+    },
+    "moduleConfigs": [
+      {
+        "moduleName": "Module0_Module1",
+        "moduleType": "pure",
+        "javaPackageCount": 10,
+        "javaClassCount": 10,
+        "javaMethodsPerClass": 10,
+        "dependencies": [
+          {
+            "library": "my.org:lib1:1.0",
+            "method": "implementation"
+          },
+          {
+            "library": "my.org:lib2:3.1",
+            "method": "api"
+          }
+        ]
+      },
+      {
+        "moduleName": "Module0",
+        "moduleType": "pure",
+        "javaPackageCount": 0,
+        "javaClassCount": 0,
+        "javaMethodsPerClass": 0,
+        "useKotlin": true,
+        "kotlinPackageCount": 10,
+        "kotlinClassCount": 10,
+        "kotlinMethodsPerClass": 10,
+        "dependencies": [
+          {
+            "moduleName": "Module0_Module1",
+            "method": "implementation"
+          },
+          {
+            "library": "my.org:lib1:1.0",
+            "method": "implementation"
+          },
+          {
+            "library": "my.org:lib2:3.1",
+            "method": "api"
+          }
+        ]
+      },
+      {
+        "moduleName": "Module2",
+        "moduleType": "android",
+        "javaPackageCount": 5,
+        "javaClassCount": 5,
+        "javaMethodsPerClass": 5,
+        "useKotlin": true,
+        "kotlinPackageCount": 5,
+        "kotlinClassCount": 5,
+        "kotlinMethodsPerClass": 5,
+        "androidBuildConfig": {
+          "minSdkVersion": 21,
+          "targetSdkVersion": 27,
+          "compileSdkVersion": 27
+        },
+        "activityCount": 0,
+        "hasLaunchActivity": false,
+        "resourcesConfig": {
+          "stringCount": 2,
+          "imageCount": 3,
+          "layoutCount": 4
+        },
+        "dependencies": [
+          {
+            "moduleName": "Module0",
+            "method": "implementation"
+          },
+          {
+            "library": "my.org:lib1:1.0",
+            "method": "implementation"
+          },
+          {
+            "library": "my.org:lib2:3.1",
+            "method": "api"
+          }
+        ]
+      }
+    ]
+  }
+}

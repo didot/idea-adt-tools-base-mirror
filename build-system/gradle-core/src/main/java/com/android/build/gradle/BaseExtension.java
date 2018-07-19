@@ -42,6 +42,7 @@ import com.android.build.gradle.internal.dsl.ProductFlavor;
 import com.android.build.gradle.internal.dsl.SigningConfig;
 import com.android.build.gradle.internal.dsl.Splits;
 import com.android.build.gradle.internal.dsl.TestOptions;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.BuilderConstants;
@@ -220,7 +221,10 @@ public abstract class BaseExtension implements AndroidConfig {
                         extraModelInfo.getDeprecationReporter(),
                         project.getLogger());
 
-        aaptOptions = objectFactory.newInstance(AaptOptions.class);
+        aaptOptions =
+                objectFactory.newInstance(
+                        AaptOptions.class,
+                        projectOptions.get(BooleanOption.ENABLE_RESOURCE_NAMESPACING_DEFAULT));
         dexOptions =
                 objectFactory.newInstance(
                         DexOptions.class, extraModelInfo.getDeprecationReporter());
@@ -232,9 +236,7 @@ public abstract class BaseExtension implements AndroidConfig {
         packagingOptions = objectFactory.newInstance(PackagingOptions.class);
         jacoco = objectFactory.newInstance(JacocoOptions.class);
         adbOptions = objectFactory.newInstance(AdbOptions.class);
-        splits =
-                objectFactory.newInstance(
-                        Splits.class, objectFactory, extraModelInfo.getDeprecationReporter());
+        splits = objectFactory.newInstance(Splits.class, objectFactory);
         dataBinding = objectFactory.newInstance(DataBindingOptions.class);
 
         // Create the "special" configuration for test buddy APKs. It will be resolved by the test
@@ -432,7 +434,7 @@ public abstract class BaseExtension implements AndroidConfig {
      * belong to that dimension. If you specify more than one dimension, you need to manually assign
      * each flavor to a dimension, as shown in the sample below.
      *
-     * <p>Flavor dimensions allow you to create groups of product flavors that you can compine with
+     * <p>Flavor dimensions allow you to create groups of product flavors that you can combine with
      * flavors from other flavor dimensions. For example, you can have one dimension that includes a
      * 'free' and 'paid' version of your app, and another dimension for flavors that support
      * different API levels, such as 'minApi21' and 'minApi24'. The Android plugin can then combine

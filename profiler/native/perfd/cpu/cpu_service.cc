@@ -216,24 +216,21 @@ grpc::Status CpuServiceImpl::StartProfilingApp(
   string trace_path;
   const CpuProfilerConfiguration& configuration = request->configuration();
   if (configuration.profiler_type() == CpuProfilerType::SIMPLEPERF) {
-    success = simpleperf_manager_.StartProfiling(
+    success = simpleperf_manager_->StartProfiling(
         app_pkg_name, request->abi_cpu_arch(),
         configuration.sampling_interval_us(), &trace_path, &error);
   } else if (configuration.profiler_type() == CpuProfilerType::ATRACE) {
-    success = atrace_manager_.StartProfiling(
+    success = atrace_manager_->StartProfiling(
         app_pkg_name, configuration.sampling_interval_us(),
         configuration.buffer_size_in_mb(), &trace_path, &error);
   } else {
-    // TODO: Move the activity manager to the daemon.
-    // It should be shared with everything in perfd.
-    ActivityManager* manager = ActivityManager::Instance();
     auto mode = ActivityManager::SAMPLING;
     if (configuration.profiler_mode() == CpuProfilerMode::INSTRUMENTED) {
       mode = ActivityManager::INSTRUMENTED;
     }
-    success = manager->StartProfiling(mode, app_pkg_name,
-                                      configuration.sampling_interval_us(),
-                                      &trace_path, &error);
+    success = activity_manager_->StartProfiling(
+        mode, app_pkg_name, configuration.sampling_interval_us(), &trace_path,
+        &error);
   }
 
   if (success) {
@@ -276,16 +273,15 @@ void CpuServiceImpl::DoStopProfilingApp(int32_t pid,
   bool success = false;
   bool need_trace = response != nullptr;
   if (profiler_type == CpuProfilerType::SIMPLEPERF) {
-    success = simpleperf_manager_.StopProfiling(app->app_pkg_name, need_trace,
-                                                &error);
+    success = simpleperf_manager_->StopProfiling(app->app_pkg_name, need_trace,
+                                                 &error);
   } else if (profiler_type == CpuProfilerType::ATRACE) {
     success =
-        atrace_manager_.StopProfiling(app->app_pkg_name, need_trace, &error);
+        atrace_manager_->StopProfiling(app->app_pkg_name, need_trace, &error);
   } else {  // Profiler is ART
-    ActivityManager* manager = ActivityManager::Instance();
-    success = manager->StopProfiling(app->app_pkg_name, need_trace, &error,
-                                     cpu_config_.art_stop_timeout_sec(),
-                                     app->is_startup_profiling);
+    success = activity_manager_->StopProfiling(
+        app->app_pkg_name, need_trace, &error,
+        cpu_config_.art_stop_timeout_sec(), app->is_startup_profiling);
   }
 
   if (need_trace) {
@@ -348,22 +344,21 @@ grpc::Status CpuServiceImpl::StartStartupProfiling(
   // Debug.stopMethodTracing APIs instrumentation instead. Once our codebase
   // supports instrumenting them, this code should be removed.
   if (profiler_type == CpuProfilerType::ART) {
-    ActivityManager* manager = ActivityManager::Instance();
     auto mode = ActivityManager::SAMPLING;
     if (app.configuration.profiler_mode() == CpuProfilerMode::INSTRUMENTED) {
       mode = ActivityManager::INSTRUMENTED;
     }
-    manager->StartProfiling(mode, app.app_pkg_name,
-                            app.configuration.sampling_interval_us(),
-                            &app.trace_path, &error, true);
+    activity_manager_->StartProfiling(mode, app.app_pkg_name,
+                                      app.configuration.sampling_interval_us(),
+                                      &app.trace_path, &error, true);
     response->set_file_path(app.trace_path);
   } else if (profiler_type == CpuProfilerType::SIMPLEPERF) {
-    simpleperf_manager_.StartProfiling(app.app_pkg_name,
-                                       request->abi_cpu_arch(),
-                                       app.configuration.sampling_interval_us(),
-                                       &app.trace_path, &error, true);
+    simpleperf_manager_->StartProfiling(
+        app.app_pkg_name, request->abi_cpu_arch(),
+        app.configuration.sampling_interval_us(), &app.trace_path, &error,
+        true);
   } else if (profiler_type == CpuProfilerType::ATRACE) {
-    atrace_manager_.StartProfiling(
+    atrace_manager_->StartProfiling(
         app.app_pkg_name, app.configuration.sampling_interval_us(),
         app.configuration.buffer_size_in_mb(), &app.trace_path, &error);
   }

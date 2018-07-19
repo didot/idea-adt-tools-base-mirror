@@ -41,6 +41,7 @@ import com.android.testutils.apk.Apk;
 import com.android.testutils.apk.Zip;
 import com.android.utils.FileUtils;
 import com.android.utils.Pair;
+import com.android.utils.StringHelper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -76,7 +77,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.gradle.internal.impldep.org.codehaus.plexus.util.StringUtils;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
@@ -189,6 +189,7 @@ public final class GradleTestProject implements TestRule {
     private final boolean withDeviceProvider;
     private final boolean withSdk;
     private final boolean withAndroidGradlePlugin;
+    private final boolean withKotlinGradlePlugin;
     @NonNull private final List<String> withIncludedBuilds;
     @Nullable private File testDir;
     private File sourceDir;
@@ -245,6 +246,7 @@ public final class GradleTestProject implements TestRule {
             boolean withDeviceProvider,
             boolean withSdk,
             boolean withAndroidGradlePlugin,
+            boolean withKotlinGradlePlugin,
             @NonNull List<String> withIncludedBuilds,
             @Nullable File testDir,
             @Nullable List<Path> repoDirectories,
@@ -257,6 +259,7 @@ public final class GradleTestProject implements TestRule {
         this.withDeviceProvider = withDeviceProvider;
         this.withSdk = withSdk;
         this.withAndroidGradlePlugin = withAndroidGradlePlugin;
+        this.withKotlinGradlePlugin = withKotlinGradlePlugin;
         this.withIncludedBuilds = withIncludedBuilds;
         this.buildFile = sourceDir = null;
         this.name = (name == null) ? DEFAULT_TEST_PROJECT_NAME : name;
@@ -312,6 +315,7 @@ public final class GradleTestProject implements TestRule {
         this.withDeviceProvider = rootProject.withDeviceProvider;
         this.withSdk = rootProject.withSdk;
         this.withAndroidGradlePlugin = rootProject.withAndroidGradlePlugin;
+        this.withKotlinGradlePlugin = rootProject.withKotlinGradlePlugin;
         this.withCmakeDirInLocalProp = rootProject.withCmakeDirInLocalProp;
         this.withIncludedBuilds = ImmutableList.of();
         this.repoDirectories = rootProject.repoDirectories;
@@ -750,9 +754,10 @@ public final class GradleTestProject implements TestRule {
         return cmakeVersionFolderInSdk;
     }
 
-    public String generateCommonBuildScript() throws IOException {
+    public String generateCommonBuildScript() {
         return BuildSystem.get()
-                .getCommonBuildScriptContent(withAndroidGradlePlugin, withDeviceProvider);
+                .getCommonBuildScriptContent(
+                        withAndroidGradlePlugin, withKotlinGradlePlugin, withDeviceProvider);
     }
 
     @NonNull
@@ -1030,6 +1035,17 @@ public final class GradleTestProject implements TestRule {
     }
 
     /**
+     * Return the bundle universal output apk File from the application plugin for the given
+     * dimension.
+     *
+     * <p>Expected dimensions orders are: - product flavors -
+     */
+    @NonNull
+    public Apk getBundleUniversalApk(@NonNull ApkType apk) throws IOException {
+        return getOutputApk("universal_apk", null, apk, ImmutableList.of(), "universal");
+    }
+
+    /**
      * Return the output full split apk File from the application plugin for the given dimension.
      *
      * <p>Expected dimensions orders are: - product flavors -
@@ -1037,19 +1053,29 @@ public final class GradleTestProject implements TestRule {
     @NonNull
     public Apk getApk(@Nullable String filterName, ApkType apkType, String... dimensions)
             throws IOException {
+        return getOutputApk("apk", filterName, apkType, ImmutableList.copyOf(dimensions), null);
+    }
+
+    @NonNull
+    private Apk getOutputApk(
+            @NonNull String pathPrefix,
+            @Nullable String filterName,
+            @NonNull ApkType apkType,
+            @NonNull ImmutableList<String> dimensions,
+            @Nullable String suffix)
+            throws IOException {
         return _getApk(
                 getOutputFile(
-                        "apk"
+                        pathPrefix
                                 + (apkType.getTestName() != null
                                         ? File.separatorChar + apkType.getTestName()
                                         : "")
                                 + File.separatorChar
-                                + mangleDimensions(dimensions)
+                                + StringHelper.combineAsCamelCase(dimensions)
                                 + File.separatorChar
                                 + apkType.getBuildType()
                                 + File.separatorChar
-                                + mangleApkName(
-                                        apkType, filterName, ImmutableList.copyOf(dimensions))
+                                + mangleApkName(apkType, filterName, dimensions, suffix)
                                 + (apkType.isSigned()
                                         ? SdkConstants.DOT_ANDROID_PACKAGE
                                         : "-unsigned" + SdkConstants.DOT_ANDROID_PACKAGE)));
@@ -1098,19 +1124,22 @@ public final class GradleTestProject implements TestRule {
                                 + File.separatorChar
                                 + "feature"
                                 + File.separatorChar
-                                + mangleDimensions(dimensions)
+                                + StringHelper.combineAsCamelCase(ImmutableList.copyOf(dimensions))
                                 + File.separatorChar
                                 + apkType.getBuildType()
                                 + File.separatorChar
                                 + mangleApkName(
-                                        apkType, filterName, ImmutableList.copyOf(dimensions))
+                                        apkType, filterName, ImmutableList.copyOf(dimensions), null)
                                 + (apkType.isSigned()
                                         ? SdkConstants.DOT_ANDROID_PACKAGE
                                         : "-unsigned" + SdkConstants.DOT_ANDROID_PACKAGE)));
     }
 
     private String mangleApkName(
-            @NonNull ApkType apkType, @Nullable String filterName, List<String> dimensions) {
+            @NonNull ApkType apkType,
+            @Nullable String filterName,
+            List<String> dimensions,
+            @Nullable String suffix) {
         List<String> dimensionList = Lists.newArrayListWithExpectedSize(1 + dimensions.size());
         dimensionList.add(getName());
         dimensionList.addAll(dimensions);
@@ -1123,20 +1152,10 @@ public final class GradleTestProject implements TestRule {
         if (!Strings.isNullOrEmpty(apkType.getTestName())) {
             dimensionList.add(apkType.getTestName());
         }
+        if (suffix != null) {
+            dimensionList.add(suffix);
+        }
         return Joiner.on("-").join(dimensionList);
-    }
-
-    private static String mangleDimensions(String... dimensions) {
-        StringBuilder sb = new StringBuilder();
-        Arrays.stream(dimensions)
-                .forEach(
-                        dimension -> {
-                            sb.append(
-                                    sb.length() == 0
-                                            ? dimension
-                                            : StringUtils.capitalise(dimension));
-                        });
-        return sb.toString();
     }
 
     @NonNull
@@ -1175,7 +1194,7 @@ public final class GradleTestProject implements TestRule {
         return new Zip(
                 getOutputFile(
                         "apk",
-                        mangleDimensions(dimensions),
+                        StringHelper.combineAsCamelCase(ImmutableList.copyOf(dimensions)),
                         Joiner.on("-").join(dimensionList) + SdkConstants.DOT_ZIP));
     }
 
@@ -1441,7 +1460,9 @@ public final class GradleTestProject implements TestRule {
 
             @Override
             String getCommonBuildScriptContent(
-                    boolean withAndroidGradlePlugin, boolean withDeviceProvider) {
+                    boolean withAndroidGradlePlugin,
+                    boolean withKotlinGradlePlugin,
+                    boolean withDeviceProvider) {
                 StringBuilder buildScript =
                         new StringBuilder(
                                 "\n"
@@ -1477,25 +1498,38 @@ public final class GradleTestProject implements TestRule {
         abstract List<Path> getLocalRepositories();
 
         String getCommonBuildScriptContent(
-                boolean withAndroidGradlePlugin, boolean withDeviceProvider) {
-            StringBuilder stringBuilder =
-                    new StringBuilder(
-                            "def commonScriptFolder = buildscript.sourceFile.parent\n"
-                                    + "apply from: \"$commonScriptFolder/commonVersions.gradle\", to: rootProject.ext\n"
-                                    + "\n"
-                                    + "project.buildscript { buildscript ->\n"
-                                    + "    apply from: \"$commonScriptFolder/commonLocalRepo.gradle\", to:buildscript\n"
-                                    + "    dependencies {\n");
+                boolean withAndroidGradlePlugin,
+                boolean withKotlinGradlePlugin,
+                boolean withDeviceProvider) {
+            StringBuilder script = new StringBuilder();
+            script.append("def commonScriptFolder = buildscript.sourceFile.parent\n");
+            script.append(
+                    "apply from: \"$commonScriptFolder/commonVersions.gradle\", to: rootProject.ext\n\n");
+            script.append("project.buildscript { buildscript ->\n");
+            script.append(
+                    "    apply from: \"$commonScriptFolder/commonLocalRepo.gradle\", to:buildscript\n");
+            if (withKotlinGradlePlugin) {
+                // To get the Kotlin version
+                script.append("    apply from: '../commonHeader.gradle'\n");
+            }
+
+            script.append("    dependencies {\n");
             if (withAndroidGradlePlugin) {
-                stringBuilder.append(
+                script.append(
                         "        classpath \"com.android.tools.build:gradle:$rootProject.buildVersion\"\n");
             }
+            if (withKotlinGradlePlugin) {
+                script.append(
+                        "        classpath \"org.jetbrains.kotlin:kotlin-gradle-plugin:$rootProject.kotlinVersion\"\n");
+            }
             if (withDeviceProvider) {
-                stringBuilder.append(
+                script.append(
                         "        classpath 'com.android.tools.internal.build.test:devicepool:0.1'\n");
             }
-            stringBuilder.append("    }\n" + "}");
-            return stringBuilder.toString();
+            script.append("    }\n");
+
+            script.append("}");
+            return script.toString();
         }
     }
 

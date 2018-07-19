@@ -23,11 +23,8 @@ import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.TaskConfigAction
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.tasks.WorkerExecutorAdapter
 import com.android.tools.build.bundletool.commands.BuildApksCommand
 import com.android.tools.build.bundletool.model.Aapt2Command
-import com.android.tools.build.bundletool.model.SigningConfiguration
-import com.android.tools.build.bundletool.utils.flags.Flag
 import com.android.utils.FileUtils
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.Input
@@ -40,7 +37,6 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.io.Serializable
-import java.util.Optional
 import javax.inject.Inject
 
 /**
@@ -123,22 +119,12 @@ open class BundleToApkTask @Inject constructor(workerExecutor: WorkerExecutor) :
                 .setBundlePath(params.bundleFile.toPath())
                 .setOutputFile(params.outputFile.toPath())
                 .setAapt2Command(Aapt2Command.createFromExecutablePath(params.aapt2File.toPath()))
-
-            params.keystoreFile?.let {
-                val storePassword = params.keystorePassword?.let {
-                    Optional.of(Flag.Password.createFromFlagValue("pass:$it"))
-                } ?: Optional.empty()
-
-                val keyPassword = params.keyPassword?.let {
-                    Optional.of(Flag.Password.createFromFlagValue("pass:$it"))
-                } ?: Optional.empty()
-
-                command.setSigningConfiguration(
-                    SigningConfiguration.extractFromKeystore(
-                        it.toPath(), params.keyAlias, storePassword, keyPassword
-                    )
+                .setSigningConfiguration(
+                    keystoreFile = params.keystoreFile,
+                    keystorePassword = params.keystorePassword,
+                    keyAlias = params.keyAlias,
+                    keyPassword = params.keyPassword
                 )
-            }
 
             command.build().execute()
         }

@@ -775,9 +775,10 @@ public class VariantManager implements VariantModel {
                         .getProjectOptions()
                         .get(BooleanOption.CONSUME_DEPENDENCIES_AS_SHARED_LIBRARIES);
         boolean autoNamespaceDependencies =
-                globalScope
-                        .getProjectOptions()
-                        .get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES);
+                globalScope.getExtension().getAaptOptions().getNamespaced()
+                        && globalScope
+                                .getProjectOptions()
+                                .get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES);
         for (ArtifactType transformTarget : AarTransform.getTransformTargets()) {
             dependencies.registerTransform(
                     reg -> {
@@ -826,6 +827,19 @@ public class VariantManager implements VariantModel {
                         reg.artifactTransform(IdentityTransform.class);
                     });
         }
+
+        // The Kotlin Kapt plugin should query for PROCESSED_JAR, but it is currently querying for
+        // JAR, so we need to have the workaround below to make it get PROCESSED_JAR. See
+        // http://issuetracker.google.com/111009645.
+        project.getConfigurations()
+                .all(
+                        configuration -> {
+                            if (configuration.getName().startsWith("kapt")) {
+                                configuration
+                                        .getAttributes()
+                                        .attribute(ARTIFACT_FORMAT, PROCESSED_JAR.getType());
+                            }
+                        });
 
         AttributesSchema schema = dependencies.getAttributesSchema();
 

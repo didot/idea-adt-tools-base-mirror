@@ -801,8 +801,9 @@ public final class SdkConstants {
             "android.support.percent.PercentRelativeLayout"; //$NON-NLS-1$
     public static final String CLASS_PERCENT_FRAME_LAYOUT =
             "android.support.percent.PercentFrameLayout"; //$NON-NLS-1$
-    public static final String SUPPORT_MULTI_DEX_APPLICATION =
-            "android.support.multidex.MultiDexApplication";
+
+    public static final AndroidxName MULTI_DEX_APPLICATION =
+            AndroidxName.of("android.support.multidex.", "MultiDexApplication");
 
     /* Material Components */
     public static final AndroidxName CLASS_APP_BAR_LAYOUT =
@@ -1855,6 +1856,7 @@ public final class SdkConstants {
     public static final String DOT_KTS = ".kts"; //$NON-NLS-1$
     public static final String DOT_CLASS = ".class"; //$NON-NLS-1$
     public static final String DOT_JAR = ".jar"; //$NON-NLS-1$
+    public static final String DOT_SRCJAR = ".srcjar"; //$NON-NLS-1$
     public static final String DOT_GRADLE = ".gradle"; //$NON-NLS-1$
     public static final String DOT_PROPERTIES = ".properties"; //$NON-NLS-1$
     public static final String DOT_JSON = ".json"; //$NON-NLS-1$
@@ -2434,7 +2436,7 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "4.9-rc-1";
+    public static final String GRADLE_MINIMUM_VERSION = "4.9-rc-2";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
     public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";
@@ -2455,7 +2457,7 @@ public final class SdkConstants {
     public static final String GRADLE_ANDROID_TEST_API_CONFIGURATION = "androidTestApi";
 
     public static final String GRADLE_ANDROID_TEST_UTIL_CONFIGURATION = "androidTestUtil";
-    public static final String CURRENT_BUILD_TOOLS_VERSION = "27.0.3";
+    public static final String CURRENT_BUILD_TOOLS_VERSION = "28.0.0";
     public static final String SUPPORT_LIB_GROUP_ID = "com.android.support";
     public static final String SUPPORT_LIB_ARTIFACT = "com.android.support:support-v4";
     public static final String DESIGN_LIB_ARTIFACT = "com.android.support:design";

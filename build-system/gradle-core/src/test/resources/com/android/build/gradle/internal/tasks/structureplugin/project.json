@@ -9,8 +9,7 @@
     },
     "moduleConfigs": [
       {
-        "moduleName": "javalib",
-        "modulePath": "javalib",
+        "moduleName": "kotlinlib_javalib",
         "moduleType": "pure",
         "javaPackageCount": 10,
         "javaClassCount": 10,
@@ -28,7 +27,6 @@
       },
       {
         "moduleName": "kotlinlib",
-        "modulePath": "kotlinlib",
         "moduleType": "pure",
         "javaPackageCount": 0,
         "javaClassCount": 0,
@@ -38,6 +36,10 @@
         "kotlinClassCount": 10,
         "kotlinMethodsPerClass": 10,
         "dependencies": [
+          {
+            "moduleName": "kotlinlib_javalib",
+            "method": "implementation"
+          },
           {
             "library": "my.org:lib1:1.0",
             "method": "implementation"
@@ -50,7 +52,6 @@
       },
       {
         "moduleName": "myapp",
-        "modulePath": "myapp",
         "moduleType": "android",
         "javaPackageCount": 5,
         "javaClassCount": 5,
@@ -73,20 +74,16 @@
         },
         "dependencies": [
           {
+            "moduleName": "kotlinlib",
+            "method": "implementation"
+          },
+          {
             "library": "my.org:lib1:1.0",
             "method": "implementation"
           },
           {
             "library": "my.org:lib2:3.1",
             "method": "api"
-          },
-          {
-            "moduleName": ":javalib",
-            "method": "implementation"
-          },
-          {
-            "moduleName": ":kotlinlib",
-            "method": "implementation"
           }
         ]
       }

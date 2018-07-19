@@ -1,6 +1,5 @@
 {
   "moduleName": "kotlinlib",
-  "modulePath": "kotlinlib",
   "moduleType": "pure",
   "javaPackageCount": 0,
   "javaClassCount": 0,
@@ -10,6 +9,10 @@
   "kotlinClassCount": 10,
   "kotlinMethodsPerClass": 10,
   "dependencies": [
+    {
+      "moduleName": "kotlinlib_javalib",
+      "method": "implementation"
+    },
     {
       "library": "my.org:lib1:1.0",
       "method": "implementation"

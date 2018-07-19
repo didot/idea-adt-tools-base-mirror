@@ -145,8 +145,6 @@ class DynamicAppTest {
             "intermediates",
             "merged_manifests",
             "debug",
-            "processDebugManifest",
-            "merged",
             "AndroidManifest.xml")
         FileSubject.assertThat(manifestFile).isFile()
         FileSubject.assertThat(manifestFile).doesNotContain("splitName")
@@ -168,8 +166,6 @@ class DynamicAppTest {
             "intermediates",
             "merged_manifests",
             "debug",
-            "processDebugManifest",
-            "merged",
             "AndroidManifest.xml")
         assertThat(baseManifest).isFile()
         assertThat(baseManifest).doesNotContain("splitName")
@@ -304,6 +300,17 @@ class DynamicAppTest {
         apkFileArray = apkFolder.list() ?: fail("No Files at $apkFolder")
         Truth.assertThat(apkFileArray.toList()).named("APK List for API 18")
             .containsExactly("standalone-xxhdpi.apk")
+
+
+        // Check universal APK generation too.
+        project
+            .executor()
+            .run(":app:packageDebugUniversalApk")
+
+        project.getSubproject("app").getBundleUniversalApk(GradleTestProject.ApkType.DEBUG).use {
+            Truth.assertThat(it.entries.map { it.toString() })
+                .containsAllOf("/META-INF/CERT.RSA", "/META-INF/CERT.SF")
+        }
     }
 
 
@@ -490,8 +497,6 @@ class DynamicAppTest {
                     "intermediates",
                     "merged_manifests",
                     "debug",
-                    "processDebugManifest",
-                    "merged",
                     "AndroidManifest.xml")
             FileSubject.assertThat(manifestFile).isFile()
             FileSubject.assertThat(manifestFile).contains("android:versionCode=\"12\"")

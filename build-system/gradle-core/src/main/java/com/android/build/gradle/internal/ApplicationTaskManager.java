@@ -44,6 +44,7 @@ import com.android.build.gradle.internal.tasks.AppPreBuildTask;
 import com.android.build.gradle.internal.tasks.ApplicationIdWriterTask;
 import com.android.build.gradle.internal.tasks.BundleTask;
 import com.android.build.gradle.internal.tasks.BundleToApkTask;
+import com.android.build.gradle.internal.tasks.BundleToStandaloneApkTask;
 import com.android.build.gradle.internal.tasks.CheckMultiApkLibrariesTask;
 import com.android.build.gradle.internal.tasks.ExtractApksTask;
 import com.android.build.gradle.internal.tasks.InstallVariantViaBundleTask;
@@ -478,8 +479,8 @@ public class ApplicationTaskManager extends TaskManager {
 
         // If namespaced resources are enabled, LINKED_RES_FOR_BUNDLE is not generated,
         // and the bundle can't be created. For now, just don't add the bundle task.
-        if (Boolean.TRUE.equals(
-                scope.getGlobalScope().getExtension().getAaptOptions().getNamespaced())) {
+        // TODO(b/111168382): Remove this
+        if (scope.getGlobalScope().getExtension().getAaptOptions().getNamespaced()) {
             return;
         }
 
@@ -493,12 +494,17 @@ public class ApplicationTaskManager extends TaskManager {
                             scope.getArtifacts()
                                     .getFinalArtifactFiles(InternalArtifactType.BUNDLE));
 
-            BundleToApkTask task = taskFactory.create(new BundleToApkTask.ConfigAction(scope));
-            // make the task depend on the validate signing task to ensure that the keystore
+            BundleToApkTask splitAndMultiApkTask =
+                    taskFactory.create(new BundleToApkTask.ConfigAction(scope));
+            BundleToStandaloneApkTask universalApkTask =
+                    taskFactory.create(new BundleToStandaloneApkTask.ConfigAction(scope));
+            // make the tasks depend on the validate signing task to ensure that the keystore
             // is created if it's a debug one.
             if (scope.getVariantConfiguration().getSigningConfig() != null) {
-                task.dependsOn(getValidateSigningTask(scope));
-                bundleTask.dependsOn(getValidateSigningTask(scope));
+                Task validateSigningTask = getValidateSigningTask(scope);
+                splitAndMultiApkTask.dependsOn(validateSigningTask);
+                bundleTask.dependsOn(validateSigningTask);
+                universalApkTask.dependsOn(validateSigningTask);
             }
 
             taskFactory.create(new ExtractApksTask.ConfigAction(scope));

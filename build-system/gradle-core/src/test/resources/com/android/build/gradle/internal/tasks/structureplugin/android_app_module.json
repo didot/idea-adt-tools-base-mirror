@@ -1,6 +1,5 @@
 {
   "moduleName": "myapp",
-  "modulePath": "myapp",
   "moduleType": "android",
   "javaPackageCount": 5,
   "javaClassCount": 5,
@@ -22,6 +21,10 @@
     "layoutCount": 4
   },
   "dependencies": [
+    {
+      "moduleName": "kotlinlib",
+      "method": "implementation"
+    },
     {
       "library": "my.org:lib1:1.0",
       "method": "implementation"

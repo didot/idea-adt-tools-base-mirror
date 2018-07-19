@@ -18,11 +18,31 @@ package com.android.tools.deploy.swapper.testapp;
 import android.app.Activity;
 
 public class TestActivity extends Activity {
+
+    private static int counter = 0;
+
+    public static void resetCounter() {
+        counter = 0;
+    }
+
+    public static void incrementCounter() {
+        counter++;
+    }
+
+    public static void printCounter() {
+        System.out.println("TestActivity.counter = " + counter);
+    }
+
     public TestActivity() {
         super("HotSwap Test Activity");
+        resetCounter();
     }
 
     public void getStatus() {
         System.out.println(Target.getStatus());
+    }
+
+    public void getClassInitializerStatus() {
+        System.out.println(new ClinitTarget().getStatus());
     }
 }

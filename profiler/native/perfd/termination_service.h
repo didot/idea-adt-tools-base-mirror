@@ -33,21 +33,24 @@ extern "C" void SignalHandler(int signal);
 // to run shutdown code before finally being terminated.
 class TerminationService {
  public:
-  static TerminationService* GetTerminationService();
+  static TerminationService* Instance();
 
   void RegisterShutdownCallback(ShutdownCallback shutdown_callback) {
     shutdown_callbacks_.push_back(shutdown_callback);
   }
 
- private:
-  std::list<ShutdownCallback> shutdown_callbacks_;
-
+ protected:
+  // Visible only for testing.
   TerminationService();
 
+  // Visible only for testing.
   // If we properly terminate, then we should notify all callbacks with
   // user-defined shutdown signal. This way, we only need to worry about
   // shutdown in one place.
   ~TerminationService() { NotifyShutdown(SIGUSR1); }
+
+ private:
+  std::list<ShutdownCallback> shutdown_callbacks_;
 
   void NotifyShutdown(int signal);
 

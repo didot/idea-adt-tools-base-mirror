@@ -35,35 +35,40 @@ public final class ResourceReference implements Serializable {
     @NonNull private final ResourceNamespace namespace;
     @NonNull private final String name;
 
+    /**
+     * Initializes a ResourceReference.
+     *
+     * @param namespace the namespace of the resource
+     * @param resourceType the type of the resource
+     * @param name the name of the resource, should not be qualified
+     */
     public ResourceReference(
             @NonNull ResourceNamespace namespace,
             @NonNull ResourceType resourceType,
             @NonNull String name) {
+        assert resourceType == ResourceType.SAMPLE_DATA || name.indexOf(':') < 0
+                : "Qualified name is not allowed: " + name;
         this.namespace = namespace;
         this.resourceType = resourceType;
         this.name = name;
     }
 
-    /**
-     * Used by layoutlib still. TODO(namespaces): remove this.
-     *
-     * @deprecated
-     */
-    @Deprecated
-    public ResourceReference(@NonNull String name, boolean isFramework) {
-        this(ResourceNamespace.fromBoolean(isFramework), ResourceType.LAYOUT, name);
-    }
-
-    @Deprecated
-    public ResourceReference(
-            @NonNull ResourceType type, @NonNull String name, boolean isFramework) {
-        this(ResourceNamespace.fromBoolean(isFramework), type, name);
+    /** A shorthand for creating a {@link ResourceType#ATTR} resource reference. */
+    public static ResourceReference attr(
+            @NonNull ResourceNamespace namespace, @NonNull String name) {
+        return new ResourceReference(namespace, ResourceType.ATTR, name);
     }
 
     /** A shorthand for creating a {@link ResourceType#STYLE} resource reference. */
     public static ResourceReference style(
             @NonNull ResourceNamespace namespace, @NonNull String name) {
         return new ResourceReference(namespace, ResourceType.STYLE, name);
+    }
+
+    /** A shorthand for creating a {@link ResourceType#STYLEABLE} resource reference. */
+    public static ResourceReference styleable(
+            @NonNull ResourceNamespace namespace, @NonNull String name) {
+        return new ResourceReference(namespace, ResourceType.STYLEABLE, name);
     }
 
     /** Returns the name of the resource, as defined in the XML. */
@@ -89,17 +94,6 @@ public final class ResourceReference implements Serializable {
     @NonNull
     public ResourceNamespace getNamespace() {
         return namespace;
-    }
-
-    /**
-     * Returns whether the resource is a framework resource ({@code true}) or a project resource
-     * ({@code false}).
-     *
-     * @deprecated all namespaces should be handled not just "android:".
-     */
-    @Deprecated
-    public final boolean isFramework() {
-        return ResourceNamespace.ANDROID.equals(namespace);
     }
 
     @NonNull

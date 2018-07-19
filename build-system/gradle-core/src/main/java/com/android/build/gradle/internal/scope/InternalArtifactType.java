@@ -28,8 +28,6 @@ public enum InternalArtifactType implements ArtifactType {
     // module, use AnchorOutputType.ALL_CLASSES
     // Javac task output.
     JAVAC,
-    // Rewritten classes from non-namespaced dependencies. Fully resource namespaced now.
-    NAMESPACED_CLASSES,
     // Rewritten classes from non-namespaced dependencies put together into one JAR.
     NAMESPACED_CLASSES_JAR,
 
@@ -55,6 +53,8 @@ public enum InternalArtifactType implements ArtifactType {
 
     // Full jar with both classes and java res.
     FULL_JAR,
+
+    JACOCO_INSTRUMENTED_CLASSES,
 
     // --- android res ---
     // output of the resource merger ready for aapt.
@@ -89,6 +89,7 @@ public enum InternalArtifactType implements ArtifactType {
     INSTANT_RUN_SPLIT_APK_RESOURCES,
     // linked res for the unified bundle
     LINKED_RES_FOR_BUNDLE,
+    SHRUNK_LINKED_RES_FOR_BUNDLE,
 
     // Artifacts for legacy multidex
     LEGACY_MULTIDEX_AAPT_DERIVED_PROGUARD_RULES,
@@ -105,8 +106,6 @@ public enum InternalArtifactType implements ArtifactType {
     COMPILE_ONLY_NAMESPACED_R_CLASS_JAR,
     // JAR file containing all of the auto-namespaced classes from dependencies.
     COMPILE_ONLY_NAMESPACED_DEPENDENCIES_R_JAR,
-    // JARs containing auto-namespaced classes from dependencies.
-    COMPILE_ONLY_NAMESPACED_DEPENDENCIES_R_JARS,
     // Classes JAR files from dependencies that need to be auto-namespaced.
     NON_NAMESPACED_CLASSES,
     // Final R class sources (to package)
@@ -207,11 +206,13 @@ public enum InternalArtifactType implements ArtifactType {
     // analyzes all of the dynamic feature classes too.
     MAIN_DEX_LIST_FOR_BUNDLE,
     // the full bundle, including feature module. This is only valid for the base module.
-    BUNDLE(Category.OUTPUTS),
+    BUNDLE(Category.OUTPUTS, Kind.FILE),
     // APK Set archive with APKs generated from a bundle.
     APKS_FROM_BUNDLE,
     // output of ExtractApks applied to APKS_FROM_BUNDLE and a device config.
     EXTRACTED_APKS,
+    // Universal APK from the bundle
+    UNIVERSAL_APK(Category.OUTPUTS, Kind.FILE),
 
     // file containing the metadata for the full feature set. This contains the feature names,
     // the res ID offset, both tied to the feature module path. Published by the base for the
@@ -281,12 +282,28 @@ public enum InternalArtifactType implements ArtifactType {
     }
 
     final Category category;
+    final Kind kind;
+
+    @Override
+    @NonNull
+    public Kind kind() {
+        return kind;
+    }
 
     InternalArtifactType() {
-        this.category = Category.INTERMEDIATES;
+        this(Category.INTERMEDIATES, Kind.DIRECTORY);
     }
 
     InternalArtifactType(Category category) {
+        this(category, Kind.DIRECTORY);
+    }
+
+    InternalArtifactType(Kind kind) {
+        this(Category.INTERMEDIATES, kind);
+    }
+
+    InternalArtifactType(Category category, Kind kind) {
         this.category = category;
+        this.kind = kind;
     }
 }
