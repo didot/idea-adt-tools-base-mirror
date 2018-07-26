@@ -467,21 +467,19 @@ class NamespaceRewriterTest {
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    androidx_coordinatorlayout:layout_behavior="@com.example.dependency:string/appbar_scrolling_view_behavior"
-    xmlns:android_support_constraint="http://schemas.android.com/apk/res/android.support.constraint"
-    xmlns:androidx_coordinatorlayout="http://schemas.android.com/apk/res/androidx.coordinatorlayout"
-    xmlns:com_example_dependency="http://schemas.android.com/apk/res/com.example.dependency"
-    xmlns:com_example_module="http://schemas.android.com/apk/res/com.example.module"
+    ns0:layout_behavior="@com.example.dependency:string/appbar_scrolling_view_behavior"
+    xmlns:ns0="http://schemas.android.com/apk/res/androidx.coordinatorlayout"
+    xmlns:ns1="http://schemas.android.com/apk/res/android.support.constraint"
     tools:context=".MainActivity"
     tools:showIn="@com.example.module:layout/activity_main" >
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android_support_constraint:layout_constraintBottom_toBottomOf="parent"
-        android_support_constraint:layout_constraintLeft_toLeftOf="parent"
-        android_support_constraint:layout_constraintRight_toRightOf="parent"
-        android_support_constraint:layout_constraintTop_toTopOf="parent"
+        ns1:layout_constraintBottom_toBottomOf="parent"
+        ns1:layout_constraintLeft_toLeftOf="parent"
+        ns1:layout_constraintRight_toRightOf="parent"
+        ns1:layout_constraintTop_toTopOf="parent"
         android:text="@com.example.module:string/text" />
 
     <com.example.module.PieChart
@@ -595,7 +593,6 @@ class NamespaceRewriterTest {
             </vector>"""
         val rewritten = """<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:com_example_module="http://schemas.android.com/apk/res/com.example.module"
     android:height="24dp"
     android:viewportHeight="24.0"
     android:viewportWidth="24.0"
@@ -651,7 +648,6 @@ class NamespaceRewriterTest {
             -->
 
             <ripple xmlns:android="http://schemas.android.com/apk/res/android"
-                    xmlns:com_example_module="http://schemas.android.com/apk/res/com.example.module"
                     android:color="@com.example.module:color/abc_color_highlight_material"
                     android:radius="20dp" />
             """.xmlFormat()
@@ -694,6 +690,130 @@ class NamespaceRewriterTest {
             <public name="Base.Widget.Design.TabLayout" type="style" />
             </resources>
         """.xmlFormat())
+    }
+
+    @Test
+    fun checkNestedNamespaces() {
+        val original = """
+<levelone xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:app="http://schemas.android.com/apk/res-auto"
+          app:attr1="@bool/value">
+
+    <leveltwo
+        android:attr1="@bool/value"
+        app:attr1="@bool/value"
+        app:attr2="@bool/value">
+
+        <levelthree
+            android:attr3="@bool/value"
+            app:attr3="@bool/value"
+            app:attr4="@bool/value" />
+    </leveltwo>
+
+</levelone>"""
+
+        val namespaced = """
+<levelone xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:ns0="http://schemas.android.com/apk/res/dependency.one"
+          xmlns:ns1="http://schemas.android.com/apk/res/dependency.two"
+          ns0:attr1="@com.example.module:bool/value" >
+
+    <leveltwo
+        android:attr1="@com.example.module:bool/value"
+        ns0:attr1="@com.example.module:bool/value"
+        ns1:attr2="@com.example.module:bool/value" >
+
+        <levelthree
+            android:attr3="@com.example.module:bool/value"
+            ns0:attr3="@com.example.module:bool/value"
+            ns1:attr4="@com.example.module:bool/value" />
+    </leveltwo>
+
+</levelone>""".xmlFormat()
+
+        val moduleTable = SymbolTable.builder()
+                .tablePackage("com.example.module")
+            .add(symbol("bool", "value"))
+                .build()
+        val depOneTable = SymbolTable.builder()
+                .tablePackage("dependency.one")
+                .add(symbol("attr", "attr1"))
+                .add(symbol("attr", "attr3"))
+                .build()
+        val depTwoTable = SymbolTable.builder()
+                .tablePackage("dependency.two")
+                .add(symbol("attr", "attr2"))
+                .add(symbol("attr", "attr4"))
+                .build()
+
+        val namespaceRewriter =
+                NamespaceRewriter(ImmutableList.of(moduleTable, depOneTable, depTwoTable))
+
+        checkAarRewrite(namespaceRewriter, "drawable/test.xml", original, namespaced)
+    }
+
+    @Test
+    fun checkOnlyUsedNamespacesAreAdded() {
+        val original = """
+<node1
+    xmlns:foo="http://schemas.android.com/apk/res-auto"
+    foo:attr1="@bool/value"
+    foo:attr2="@bool/value">
+
+    <node2 foo:attr1="@bool/value">
+        <node3 foo:attr3="@bool/value"/>
+    </node2>
+
+</node1>"""
+
+        val rewritten = """
+<?xml version="1.0" encoding="utf-8"?>
+<node1
+    xmlns:ns0="http://schemas.android.com/apk/res/dep.a"
+    xmlns:ns1="http://schemas.android.com/apk/res/dep.b"
+    xmlns:ns2="http://schemas.android.com/apk/res/dep.c"
+    ns0:attr1="@com.module:bool/value"
+    ns1:attr2="@com.module:bool/value" >
+
+    <node2 ns0:attr1="@com.module:bool/value" >
+        <node3 ns2:attr3="@com.module:bool/value" />
+    </node2>
+
+</node1>"""
+
+        val moduleTable = SymbolTable.builder()
+                .tablePackage("com.module")
+                .add(symbol("bool", "value"))
+                .build()
+        val depA = SymbolTable.builder()
+                .tablePackage("dep.a")
+                .add(symbol("attr", "attr1"))
+                .build()
+        val depB = SymbolTable.builder()
+                .tablePackage("dep.b")
+                .add(symbol("attr", "attr2"))
+                .build()
+        val depC = SymbolTable.builder()
+                .tablePackage("dep.c")
+                .add(symbol("attr", "attr3"))
+                .build()
+        val unused1 = SymbolTable.builder()
+                .tablePackage("dep.unused.one")
+                .add(symbol("attr", "attr123"))
+                .build()
+        val unused2 = SymbolTable.builder()
+                .tablePackage("dep.unused.two")
+                .add(symbol("attr", "attr1"))
+                .build()
+        val unused3 = SymbolTable.builder()
+                .tablePackage("dep.unused.three")
+                .build()
+
+        val namespaceRewriter =
+                NamespaceRewriter(
+                        ImmutableList.of(moduleTable, depA, depB, depC, unused1, unused2, unused3))
+
+        checkAarRewrite(namespaceRewriter, "drawable/test.xml", original, rewritten)
     }
 
     private fun checkAarRewrite(

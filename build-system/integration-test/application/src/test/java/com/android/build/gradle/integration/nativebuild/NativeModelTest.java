@@ -29,6 +29,7 @@ import static com.google.common.truth.Truth.assertThat;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.build.gradle.integration.common.fixture.ParameterizedAndroidProject;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldJniApp;
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
 import com.android.build.gradle.integration.common.utils.AssumeUtil;
@@ -60,6 +61,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Assume;
 import org.junit.Before;
@@ -581,6 +583,23 @@ public class NativeModelTest {
     }
 
     @Test
+    public void checkSingleVariantModel() throws Exception {
+        assumeNotCMakeOnWindows();
+        Map<String, ParameterizedAndroidProject> parameterizedAndroidProject =
+                project.model().fetchMulti(ParameterizedAndroidProject.class);
+
+        ParameterizedAndroidProject base = parameterizedAndroidProject.get(":");
+        assertThat(base.getNativeAndroidProject()).isNotNull();
+        NativeAndroidProject nativeAndroidProject = base.getNativeAndroidProject();
+        assert nativeAndroidProject != null;
+        // Artifacts is expected to be empty because this is the NativeAndroidProject that returns
+        // just the per-variant information that can be cheaply constructed for single-variant sync.
+        assertThat(nativeAndroidProject.getArtifacts()).hasSize(0);
+        // We should have gotten information about the variants and ABIs
+        assertThat(base.getNativeVariantAbis()).isNotEmpty();
+    }
+
+    @Test
     public void checkModel() throws Exception {
         assumeNotCMakeOnWindows();
         AndroidProject androidProject = project.model().fetchAndroidProjects().getOnlyModel();
@@ -640,6 +659,7 @@ public class NativeModelTest {
 
         checkProblematicCompilerFlags(model);
         checkNativeBuildOutputPath(config, project);
+        checkIncludesPresent(model);
     }
 
     @Test
@@ -963,6 +983,23 @@ public class NativeModelTest {
                     assertThat(new File(workingDirectory)).exists();
                 }
             }
+        }
+    }
+
+    private static void checkIncludesPresent(NativeAndroidProject model) {
+        for (NativeSettings settings : model.getSettings()) {
+            boolean sawInclude = false;
+            boolean sawSystemInclude = false;
+            for (String flag : settings.getCompilerFlags()) {
+                if (flag.startsWith("-I")) {
+                    sawInclude = true;
+                }
+                if (flag.startsWith("-system")) {
+                    sawSystemInclude = true;
+                }
+            }
+            assertThat(sawInclude).isTrue();
+            assertThat(sawSystemInclude).isTrue();
         }
     }
 

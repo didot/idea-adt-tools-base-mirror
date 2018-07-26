@@ -35,13 +35,13 @@ import com.android.build.gradle.internal.scope.BuildOutputProperty;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.OutputScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.ide.common.build.ApkData;
 import com.android.manifmerger.ManifestProvider;
 import com.android.utils.FileUtils;
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import java.io.File;
@@ -52,14 +52,11 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.gradle.api.artifacts.ArtifactCollection;
 import org.gradle.api.artifacts.result.ResolvedArtifactResult;
-import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
-import org.gradle.api.tasks.TaskProvider;
 
 /**
  * A task that processes the manifest for test modules and tests in androidTest.
@@ -139,9 +136,15 @@ public class ProcessTestManifest extends ManifestProcessorTask {
                             + Joiner.on(",").join(apkDatas));
         }
         ApkData mainApkData = apkDatas.get(0);
-
         File manifestOutputFolder =
-                new File(getManifestOutputDirectory().get().getAsFile(), mainApkData.getDirName());
+                Strings.isNullOrEmpty(mainApkData.getDirName())
+                        ? getManifestOutputDirectory().get().getAsFile()
+                        : getManifestOutputDirectory()
+                                .get()
+                                .file(mainApkData.getDirName())
+                                .getAsFile();
+
+
         FileUtils.mkdirs(manifestOutputFolder);
         File manifestOutputFile = new File(manifestOutputFolder, SdkConstants.ANDROID_MANIFEST_XML);
 
@@ -253,9 +256,10 @@ public class ProcessTestManifest extends ManifestProcessorTask {
         List<ManifestProvider> providers = Lists.newArrayListWithCapacity(artifacts.size());
 
         for (ResolvedArtifactResult artifact : artifacts) {
-            providers.add(new MergeManifests.ConfigAction.ManifestProviderImpl(
-                    artifact.getFile(),
-                    MergeManifests.getArtifactName(artifact)));
+            providers.add(
+                    new ProcessApplicationManifest.ConfigAction.ManifestProviderImpl(
+                            artifact.getFile(),
+                            ProcessApplicationManifest.getArtifactName(artifact)));
         }
 
         return providers;
@@ -266,47 +270,24 @@ public class ProcessTestManifest extends ManifestProcessorTask {
         return manifests.getArtifactFiles();
     }
 
-    public static class ConfigAction extends TaskConfigAction<ProcessTestManifest> {
+    public static class ConfigAction
+            extends AnnotationProcessingTaskConfigAction<ProcessTestManifest> {
 
         @NonNull
         private final VariantScope scope;
 
         @Nullable private final BuildableArtifact testTargetMetadata;
-        @Nullable private Provider<Directory> manifestOutputFolder;
 
         public ConfigAction(
                 @NonNull VariantScope scope, @Nullable BuildableArtifact testTargetMetadata) {
+            super(scope, scope.getTaskName("process", "Manifest"), ProcessTestManifest.class);
             this.scope = scope;
             this.testTargetMetadata = testTargetMetadata;
         }
 
-        @NonNull
-        @Override
-        public String getName() {
-            return scope.getTaskName("process", "Manifest");
-        }
-
-        @NonNull
-        @Override
-        public Class<ProcessTestManifest> getType() {
-            return ProcessTestManifest.class;
-        }
-
-        @Override
-        public void preConfigure(
-                @NonNull TaskProvider<? extends ProcessTestManifest> taskProvider,
-                @NonNull String taskName) {
-            manifestOutputFolder =
-                    scope.getArtifacts()
-                            .appendDirectory(
-                                    InternalArtifactType.MERGED_MANIFESTS,
-                                    taskName,
-                                    taskProvider,
-                                    "");
-        }
-
         @Override
         public void execute(@NonNull final ProcessTestManifest processTestManifestTask) {
+            super.execute(processTestManifestTask);
 
             final VariantConfiguration<CoreBuildType, CoreProductFlavor, CoreProductFlavor> config =
                     scope.getVariantConfiguration();
@@ -352,8 +333,6 @@ public class ProcessTestManifest extends ManifestProcessorTask {
 
             processTestManifestTask.manifests = scope.getArtifactCollection(
                     RUNTIME_CLASSPATH, ALL, MANIFEST);
-
-            processTestManifestTask.setManifestOutputDirectory(manifestOutputFolder);
 
             processTestManifestTask.placeholdersValues =
                     TaskInputHelper.memoize(config::getManifestPlaceholders);

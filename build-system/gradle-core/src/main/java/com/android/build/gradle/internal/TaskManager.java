@@ -175,7 +175,6 @@ import com.android.build.gradle.tasks.LintGlobalTask;
 import com.android.build.gradle.tasks.LintPerVariantTask;
 import com.android.build.gradle.tasks.MainApkListPersistence;
 import com.android.build.gradle.tasks.ManifestProcessorTask;
-import com.android.build.gradle.tasks.MergeManifests;
 import com.android.build.gradle.tasks.MergeResources;
 import com.android.build.gradle.tasks.MergeSourceSetFolders;
 import com.android.build.gradle.tasks.NdkCompile;
@@ -184,11 +183,11 @@ import com.android.build.gradle.tasks.PackageSplitAbi;
 import com.android.build.gradle.tasks.PackageSplitRes;
 import com.android.build.gradle.tasks.PreColdSwapTask;
 import com.android.build.gradle.tasks.ProcessAndroidResources;
-import com.android.build.gradle.tasks.ProcessManifest;
+import com.android.build.gradle.tasks.ProcessApplicationManifest;
+import com.android.build.gradle.tasks.ProcessLibraryManifest;
 import com.android.build.gradle.tasks.ProcessTestManifest;
 import com.android.build.gradle.tasks.RenderscriptCompile;
 import com.android.build.gradle.tasks.ShaderCompile;
-import com.android.build.gradle.tasks.SplitsDiscovery;
 import com.android.build.gradle.tasks.factory.AndroidUnitTest;
 import com.android.build.gradle.tasks.factory.JavaCompileConfigAction;
 import com.android.build.gradle.tasks.factory.ProcessJavaResConfigAction;
@@ -722,26 +721,23 @@ public abstract class TaskManager {
                             .getTestingSpec(variantScope.getVariantConfiguration().getType());
 
             // get the OutputPublishingSpec from the ArtifactType for this particular variant spec
-            Collection<PublishingSpecs.OutputSpec> taskOutputSpecs =
+            PublishingSpecs.OutputSpec taskOutputSpec =
                     testedSpec.getSpec(AndroidArtifacts.ArtifactType.CLASSES);
+            // now get the output type
+            com.android.build.api.artifact.ArtifactType testedOutputType =
+                    taskOutputSpec.getOutputType();
 
-            for (PublishingSpecs.OutputSpec taskOutputSpec : taskOutputSpecs) {
-                // now get the output type
-                com.android.build.api.artifact.ArtifactType testedOutputType =
-                        taskOutputSpec.getOutputType();
-
-                // create two streams of different types.
-                transformManager.addStream(
-                        OriginalStream.builder(project, "tested-code-classes")
-                                .addContentTypes(DefaultContentType.CLASSES)
-                                .addScope(Scope.TESTED_CODE)
-                                .setFileCollection(
-                                        testedVariantScope
-                                                .getArtifacts()
-                                                .getFinalArtifactFiles(testedOutputType)
-                                                .get())
-                                .build());
-            }
+            // create two streams of different types.
+            transformManager.addStream(
+                    OriginalStream.builder(project, "tested-code-classes")
+                            .addContentTypes(DefaultContentType.CLASSES)
+                            .addScope(Scope.TESTED_CODE)
+                            .setFileCollection(
+                                    testedVariantScope
+                                            .getArtifacts()
+                                            .getFinalArtifactFiles(testedOutputType)
+                                            .get())
+                            .build());
 
             transformManager.addStream(
                     OriginalStream.builder(project, "tested-code-deps")
@@ -798,14 +794,14 @@ public abstract class TaskManager {
     @NonNull
     protected ManifestProcessorTask createMergeManifestTask(@NonNull VariantScope variantScope) {
         return taskFactory.create(
-                new MergeManifests.ConfigAction(
+                new ProcessApplicationManifest.ConfigAction(
                         variantScope, !getAdvancedProfilingTransforms(projectOptions).isEmpty()));
     }
 
-    public ProcessManifest createMergeLibManifestsTask(@NonNull VariantScope scope) {
+    public ProcessLibraryManifest createMergeLibManifestsTask(@NonNull VariantScope scope) {
 
-        ProcessManifest processManifest =
-                taskFactory.create(new ProcessManifest.ConfigAction(scope));
+        ProcessLibraryManifest processManifest =
+                taskFactory.create(new ProcessLibraryManifest.ConfigAction(scope));
 
         processManifest.dependsOn(scope.getTaskContainer().getCheckManifestTask());
 
@@ -1156,8 +1152,6 @@ public abstract class TaskManager {
         BaseVariantData variantData = scope.getVariantData();
 
         variantData.calculateFilters(scope.getGlobalScope().getExtension().getSplits());
-
-        createSplitsDiscovery(scope);
 
         // The manifest main dex list proguard rules are always needed for the bundle,
         // even if legacy multidex is not explicitly enabled.
@@ -1823,15 +1817,6 @@ public abstract class TaskManager {
 
         // This hides the assemble unit test task from the task list.
         variantScope.getTaskContainer().getAssembleTask().setGroup(null);
-    }
-
-    protected void createSplitsDiscovery(VariantScope variantScope) {
-        if (variantScope.getVariantData().getType().getCanHaveSplits()) {
-            // split list calculation and save to this file.
-            SplitsDiscovery splitsDiscoveryAndroidTask =
-                    taskFactory.create(
-                            new SplitsDiscovery.ConfigAction(variantScope));
-        }
     }
 
     /** Creates the tasks to build android tests. */
@@ -3055,6 +3040,21 @@ public abstract class TaskManager {
                     createdShrinker = CodeShrinker.PROGUARD;
                 } else {
                     transformTask = createR8Transform(variantScope, mappingFileCollection);
+                    transformTask.ifPresent(
+                            task -> {
+                                if (variantScope.getNeedsMainDexListForBundle()) {
+                                    File mainDexListFile =
+                                            variantScope
+                                                    .getArtifacts()
+                                                    .appendArtifact(
+                                                            InternalArtifactType
+                                                                    .MAIN_DEX_LIST_FOR_BUNDLE,
+                                                            task,
+                                                            "mainDexList.txt");
+                                    ((R8Transform) task.getTransform())
+                                            .setMainDexListOutput(mainDexListFile);
+                                }
+                            });
                 }
                 break;
             default:

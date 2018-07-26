@@ -25,7 +25,6 @@ import com.android.build.gradle.internal.dsl.CoreProductFlavor;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.OutputScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.builder.core.AndroidBuilder;
@@ -44,7 +43,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tools.ant.BuildException;
-import org.gradle.api.file.Directory;
 import org.gradle.api.file.RegularFile;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.CacheableTask;
@@ -53,13 +51,15 @@ import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskProvider;
+import org.jetbrains.annotations.NotNull;
 
 /** a Task that only merge a single manifest with its overlays. */
 @CacheableTask
-public class ProcessManifest extends ManifestProcessorTask {
+public class ProcessLibraryManifest extends ManifestProcessorTask {
 
     private Supplier<String> minSdkVersion;
     private Supplier<String> targetSdkVersion;
@@ -69,11 +69,12 @@ public class ProcessManifest extends ManifestProcessorTask {
             variantConfiguration;
     private OutputScope outputScope;
 
-    /**
-     * There is no necessity to explicitly declare this as an Output of the task since the file is
-     * located within the manifest output folder which is declared as an output directory.
-     */
-    private RegularFile manifestOutputFile;
+    private Provider<RegularFile> manifestOutputFile;
+
+    @OutputFile
+    public Provider<RegularFile> getManifestOutputFile() {
+        return manifestOutputFile;
+    }
 
     @Override
     protected void doFullTaskAction() {
@@ -92,7 +93,7 @@ public class ProcessManifest extends ManifestProcessorTask {
                                 getMinSdkVersion(),
                                 getTargetSdkVersion(),
                                 getMaxSdkVersion(),
-                                manifestOutputFile.getAsFile().getAbsolutePath(),
+                                manifestOutputFile.get().getAsFile().getAbsolutePath(),
                                 aaptFriendlyManifestOutputFile.getAbsolutePath(),
                                 null /* outInstantRunManifestLocation */,
                                 ManifestMerger2.MergeType.LIBRARY,
@@ -114,7 +115,7 @@ public class ProcessManifest extends ManifestProcessorTask {
             new BuildOutput(
                             InternalArtifactType.MERGED_MANIFESTS,
                             outputScope.getMainSplit(),
-                            manifestOutputFile.getAsFile(),
+                            manifestOutputFile.get().getAsFile(),
                             properties)
                     .save(getManifestOutputDirectory().get().getAsFile());
 
@@ -223,11 +224,11 @@ public class ProcessManifest extends ManifestProcessorTask {
         return outputScope.getMainSplit().getFullName();
     }
 
-    public static class ConfigAction extends TaskConfigAction<ProcessManifest> {
+    public static class ConfigAction
+            extends AnnotationProcessingTaskConfigAction<ProcessLibraryManifest> {
 
-        @NonNull private final VariantScope scope;
-        @Nullable private Provider<Directory> manifestOutputFolder;
-
+        Provider<RegularFile> manifestOutputFile;
+        VariantScope scope;
 
         /**
          * {@code TaskConfigAction} for the library process manifest task.
@@ -235,39 +236,30 @@ public class ProcessManifest extends ManifestProcessorTask {
          * @param scope The library variant scope.
          */
         public ConfigAction(@NonNull VariantScope scope) {
+            super(scope, scope.getTaskName("process", "Manifest"), ProcessLibraryManifest.class);
             this.scope = scope;
-        }
-
-        @NonNull
-        @Override
-        public String getName() {
-            return scope.getTaskName("process", "Manifest");
-        }
-
-        @NonNull
-        @Override
-        public Class<ProcessManifest> getType() {
-            return ProcessManifest.class;
         }
 
         @Override
         public void preConfigure(
-                @NonNull TaskProvider<? extends ProcessManifest> taskProvider,
-                @NonNull String taskName) {
-            manifestOutputFolder =
+                @NotNull TaskProvider<? extends ProcessLibraryManifest> taskProvider,
+                @NotNull String taskName) {
+            super.preConfigure(taskProvider, taskName);
+
+            manifestOutputFile =
                     scope.getArtifacts()
-                            .appendDirectory(
-                                    InternalArtifactType.MERGED_MANIFESTS,
+                            .appendArtifactFile(
+                                    InternalArtifactType.LIBRARY_MANIFEST,
                                     taskName,
-                                    taskProvider,
-                                    "");
+                                    SdkConstants.ANDROID_MANIFEST_XML);
         }
 
         @Override
-        public void execute(@NonNull ProcessManifest processManifest) {
+        public void execute(@NonNull ProcessLibraryManifest processManifest) {
+            super.execute(processManifest);
             VariantConfiguration<CoreBuildType, CoreProductFlavor, CoreProductFlavor> config =
-                    scope.getVariantConfiguration();
-            final AndroidBuilder androidBuilder = scope.getGlobalScope().getAndroidBuilder();
+                    getScope().getVariantConfiguration();
+            final AndroidBuilder androidBuilder = getScope().getGlobalScope().getAndroidBuilder();
 
             processManifest.setAndroidBuilder(androidBuilder);
             processManifest.setVariantName(config.getFullName());
@@ -298,45 +290,35 @@ public class ProcessManifest extends ManifestProcessorTask {
 
             processManifest.maxSdkVersion = TaskInputHelper.memoize(mergedFlavor::getMaxSdkVersion);
 
-            processManifest.setManifestOutputDirectory(manifestOutputFolder);
-
             processManifest.setAaptFriendlyManifestOutputDirectory(
-                    scope.getArtifacts()
+                    getScope()
+                            .getArtifacts()
                             .appendArtifact(
                                     InternalArtifactType.AAPT_FRIENDLY_MERGED_MANIFESTS,
                                     processManifest,
                                     "aapt"));
 
-            processManifest.manifestOutputFile =
-                    processManifest
-                            .getManifestOutputDirectory()
-                            .get()
-                            .file(SdkConstants.FN_ANDROID_MANIFEST_XML);
+            processManifest.manifestOutputFile = manifestOutputFile;
 
-            scope.getArtifacts()
-                    .appendArtifact(
-                            InternalArtifactType.LIBRARY_MANIFEST,
-                            ImmutableList.of(processManifest.manifestOutputFile),
-                            processManifest);
-
-            processManifest.outputScope = scope.getOutputScope();
+            processManifest.outputScope = getScope().getOutputScope();
 
             File reportFile =
                     FileUtils.join(
-                            scope.getGlobalScope().getOutputsDir(),
+                            getScope().getGlobalScope().getOutputsDir(),
                             "logs",
                             "manifest-merger-"
-                                    + scope.getVariantConfiguration().getBaseName()
+                                    + getScope().getVariantConfiguration().getBaseName()
                                     + "-report.txt");
 
             processManifest.setReportFile(reportFile);
-            scope.getArtifacts()
+            getScope()
+                    .getArtifacts()
                     .appendArtifact(
                             InternalArtifactType.MANIFEST_MERGE_REPORT,
                             ImmutableList.of(reportFile),
                             processManifest);
 
-            scope.getTaskContainer().setProcessManifestTask(processManifest);
+            getScope().getTaskContainer().setProcessManifestTask(processManifest);
         }
     }
 }

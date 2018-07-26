@@ -38,6 +38,22 @@ public interface ModelBuilderParameter {
     void setShouldBuildVariant(boolean shouldBuildVariant);
 
     /**
+     * Whether model builder should schedule source generation post sync or not when building {@link
+     * Variant}.
+     *
+     * @return true if model builder should schedule source generation.
+     */
+    boolean getShouldGenerateSources();
+
+    /**
+     * Set whether model builder should should schedule source generation post sync or not.
+     *
+     * @param shouldGenerateSources whether model builder should schedule source generation post
+     *     sync or not.
+     */
+    void setShouldGenerateSources(boolean shouldGenerateSources);
+
+    /**
      * Returns the name of the variant to build.
      *
      * @return the name of the variant to build.
@@ -51,4 +67,19 @@ public interface ModelBuilderParameter {
      * @param variantName the name of the variant to build.
      */
     void setVariantName(@NonNull String variantName);
+
+    /**
+     * If not null then this is the name of the ABI to build.
+     *
+     * @return the name of the ABI to build.
+     */
+    @Nullable
+    String getAbiName();
+
+    /**
+     * Sets the ABI to build.
+     *
+     * @param abi the ABI to build.
+     */
+    void setAbiName(@NonNull String abi);
 }

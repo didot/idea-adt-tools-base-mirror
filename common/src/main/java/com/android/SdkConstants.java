@@ -108,7 +108,6 @@ public final class SdkConstants {
     public static final String FN_INTERMEDIATE_FULL_JAR = "full.jar"; //$NON-NLS-1$
 
     /** list of splits for a variant */
-    public static final String FN_SPLIT_LIST = "split-list.gson";                     //$NON-NLS-1$
     public static final String FN_APK_LIST = "apk-list.gson"; //$NON-NLS-1$
 
     /** An SDK Project's build.xml file */
@@ -1388,6 +1387,7 @@ public final class SdkConstants {
     public static final String ATTR_AUTO_VERIFY = "autoVerify";
     public static final String ATTR_DEFAULT_NAV_HOST = "defaultNavHost";
     public static final String ATTR_START_DESTINATION = "startDestination";
+    public static final String ATTR_NULLABLE = "nullable";
 
     // TextView attributes
     public static final String ATTR_TEXT_APPEARANCE = "textAppearance"; //$NON-NLS-1$
@@ -1907,8 +1907,8 @@ public final class SdkConstants {
     public static final String EXT_RES = "ap_"; //$NON-NLS-1$
     /** Extension for pre-processable images. Right now pngs */
     public static final String EXT_PNG = "png"; //$NON-NLS-1$
-    /** Extension of bundle files, i.e. "aab" */
-    public static final String EXT_BUNDLE = "aab"; //$NON-NLS-1$
+    /** Extension of app bundle files, i.e. "aab" */
+    public static final String EXT_APP_BUNDLE = "aab"; //$NON-NLS-1$
 
     public static final String EXT_HPROF = "hprof"; //$NON-NLS-1$
     public static final String EXT_GZ = "gz"; //$NON-NLS-1$
@@ -2436,7 +2436,7 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "4.9-rc-2";
+    public static final String GRADLE_MINIMUM_VERSION = "4.9";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
     public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";

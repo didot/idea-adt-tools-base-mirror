@@ -20,6 +20,8 @@
 #include "jni.h"
 #include "jvmti.h"
 
+#include <string>
+
 namespace swapper {
 
 class HotSwap {
@@ -28,12 +30,13 @@ class HotSwap {
 
   // Invokes JVMTI RedefineClasses with on all .dex files in the 'dir' and
   // delete them afterward.
-  bool DoHotSwap(std::string& dir);
+  bool DoHotSwap(const std::string& dir) const;
 
  private:
   // Invoke JVMTI RedefineClasses on the class with the given 'name' using the
   // content from 'location'
-  bool RedefineClass(std::string& name, std::string& location);
+  bool RedefineClass(const std::string& name,
+                     const std::string& location) const;
   jvmtiEnv* jvmti_;
   JNIEnv* jni_;
 };

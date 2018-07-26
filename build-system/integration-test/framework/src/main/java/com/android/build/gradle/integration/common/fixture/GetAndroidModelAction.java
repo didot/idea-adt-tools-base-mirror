@@ -20,6 +20,9 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.ModelBuilderParameter;
+import com.android.builder.model.NativeAndroidProject;
+import com.android.builder.model.NativeVariantAbi;
+import com.android.builder.model.NativeVariantInfo;
 import com.android.builder.model.Variant;
 import com.android.builder.model.level2.GlobalLibraryMap;
 import com.android.utils.Pair;
@@ -46,6 +49,8 @@ public class GetAndroidModelAction<T> implements BuildAction<ModelContainer<T>> 
 
     private final Class<T> type;
 
+    private final boolean shouldGenerateSources;
+
     // Determines whether models are fetched with multiple threads.
     private final boolean isMultiThreaded;
 
@@ -54,9 +59,15 @@ public class GetAndroidModelAction<T> implements BuildAction<ModelContainer<T>> 
     }
 
     public GetAndroidModelAction(Class<T> type, boolean isMultiThreaded) {
+        this(type, isMultiThreaded, false);
+    }
+
+    public GetAndroidModelAction(
+            Class<T> type, boolean isMultiThreaded, boolean shouldGenerateSource) {
         this.type = type;
         // parallelization hit a change in Gradle 3.2 which makes it not work.
         this.isMultiThreaded = false; //isMultiThreaded;
+        this.shouldGenerateSources = shouldGenerateSource;
     }
 
     @Override
@@ -141,7 +152,7 @@ public class GetAndroidModelAction<T> implements BuildAction<ModelContainer<T>> 
         }
 
         long t2 = System.currentTimeMillis();
-        System.out.println("GetAndroidModelAction: " + (t2-t1) + "ms");
+        System.out.println("GetAndroidModelAction: " + (t2 - t1) + "ms");
 
         return new ModelContainer<>(rootBuildId, modelMap, globalLibraryMap);
     }
@@ -219,19 +230,50 @@ public class GetAndroidModelAction<T> implements BuildAction<ModelContainer<T>> 
                             ModelBuilderParameter.class,
                             p -> p.setShouldBuildVariant(false));
             if (androidProject != null) {
+                NativeAndroidProject nativeAndroidProject =
+                        buildController.findModel(
+                                project,
+                                NativeAndroidProject.class,
+                                ModelBuilderParameter.class,
+                                p -> p.setShouldBuildVariant(false));
                 List<Variant> variants = new ArrayList<>();
+                List<NativeVariantAbi> nativeVariantAbis = new ArrayList<>();
                 for (String variantName : androidProject.getVariantNames()) {
                     Variant variant =
                             buildController.findModel(
                                     project,
                                     Variant.class,
                                     ModelBuilderParameter.class,
-                                    p -> p.setVariantName(variantName));
+                                    p -> {
+                                        p.setVariantName(variantName);
+                                        p.setShouldGenerateSources(shouldGenerateSources);
+                                    });
                     if (variant != null) {
                         variants.add(variant);
+                        if (nativeAndroidProject != null) {
+                            NativeVariantInfo variantinfo =
+                                    nativeAndroidProject.getVariantInfos().get(variantName);
+                            assert variantinfo
+                                    != null; // This should exist if the variant exists in AndroidProject
+                            for (String abi : variantinfo.getAbiNames()) {
+                                NativeVariantAbi nativeVariantAbi =
+                                        buildController.findModel(
+                                                project,
+                                                NativeVariantAbi.class,
+                                                ModelBuilderParameter.class,
+                                                p -> {
+                                                    p.setVariantName(variantName);
+                                                    p.setAbiName(abi);
+                                                });
+                                if (nativeVariantAbi != null) {
+                                    nativeVariantAbis.add(nativeVariantAbi);
+                                }
+                            }
+                        }
                     }
                 }
-                return new ParameterizedAndroidProject(androidProject, variants);
+                return new ParameterizedAndroidProject(
+                        androidProject, variants, nativeAndroidProject, nativeVariantAbis);
             }
             return null;
         }
