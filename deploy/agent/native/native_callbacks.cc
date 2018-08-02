@@ -1,5 +1,23 @@
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 #include "native_callbacks.h"
 
+#include "capabilities.h"
+#include "config.h"
 #include "hotswap.h"
 #include "jni/jni_class.h"
 #include "jni/jni_util.h"
@@ -28,7 +46,7 @@ int Native_GetAppInfoChanged(JNIEnv* jni, jobject object) {
       {"APPLICATION_INFO_CHANGED", "I"});
 }
 
-bool Native_TryRedefineClasses(JNIEnv* jni, jobject object, jstring dex_dir) {
+bool Native_TryRedefineClasses(JNIEnv* jni, jobject object) {
   JavaVM* vm;
   if (jni->GetJavaVM(&vm) != 0) {
     return false;
@@ -40,12 +58,16 @@ bool Native_TryRedefineClasses(JNIEnv* jni, jobject object, jstring dex_dir) {
   }
 
   HotSwap code_swap(jvmti, jni);
-  if (!code_swap.DoHotSwap(JStringToString(jni, dex_dir))) {
-    // TODO: Log meaningful error.
+
+  // TODO(noahz): Prevent us from creating two JVMTI instances.
+  if (jvmti->AddCapabilities(&REQUIRED_CAPABILITIES) != JVMTI_ERROR_NONE) {
     return false;
   }
 
-  return true;
+  const Config& config = Config::GetInstance();
+  bool success = code_swap.DoHotSwap(config.GetSwapRequest());
+  jvmti->RelinquishCapabilities(&REQUIRED_CAPABILITIES);
+  return success;
 }
 
 }  // namespace swapper

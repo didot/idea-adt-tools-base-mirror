@@ -59,7 +59,6 @@ java_test(
         "//tools/base/profiler/native/perfd:android/arm64-v8a/perfd",
         "//tools/base/profiler/native/perfd:android/armeabi-v7a/perfd",
         "//tools/base/profiler/native/perfd:android/x86/perfd",
-        "//tools/base/profiler/native/perfd:android/x86_64/perfd",
     ],
     jvm_flags = ["-Dtest.suite.jar=NativeBinarySizeTest.jar"],
     tags = ["no_windows"],
@@ -149,6 +148,23 @@ perf_test(
     deps = [
         ":test_lib",
         "//tools/base/fakeandroid",
+        "//tools/base/profiler/tests/test-app:libjni.so",
+        "//tools/idea/.idea/libraries:truth",
+    ],
+)
+
+perf_test(
+    name = "PerformanceTest",
+    size = "large",
+    srcs = [
+        "testSrcs/com/android/tools/profiler/performance/LiveAllocationTest.java",
+    ],
+    tags = ["no_psq"],
+    test_app = "//tools/base/profiler/tests/test-app:test-app",
+    deps = [
+        ":test_lib",
+        "//tools/base/fakeandroid",
+        "//tools/base/perf-logger:studio.perf-logger_testlib",
         "//tools/base/profiler/tests/test-app:libjni.so",
         "//tools/idea/.idea/libraries:truth",
     ],

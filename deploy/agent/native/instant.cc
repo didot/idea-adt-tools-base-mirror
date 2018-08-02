@@ -18,6 +18,7 @@
 #include "jni.h"
 #include "jvmti.h"
 
+#include <fstream>
 #include <memory>
 #include <vector>
 
@@ -32,21 +33,18 @@
 #include "jni/jni_object.h"
 #include "jni/jni_util.h"
 
-#include "proto/config.pb.h"
 #include "utils/log.h"
 
 using std::string;
 using std::unique_ptr;
 using std::vector;
 
-using swapper::proto::Config;
-
 namespace swapper {
 
 const char* kBreadcrumbClass = "com/android/tools/deploy/instrument/Breadcrumb";
 const char* kHandlerWrapperClass =
     "com/android/tools/deploy/instrument/ActivityThreadHandlerWrapper";
-    
+
 // Event that fires when the agent loads a class file.
 extern "C" void JNICALL Agent_ClassFileLoadHook(
     jvmtiEnv* jvmti, JNIEnv* jni, jclass class_being_redefined, jobject loader,
@@ -110,8 +108,7 @@ bool Instrument(jvmtiEnv* jvmti, JNIEnv* jni,
                                  (void*)&Native_GetAppInfoChanged);
 
     native_bindings.emplace_back(kHandlerWrapperClass, "tryRedefineClasses",
-                                 "(Ljava/lang/String;)Z",
-                                 (void*)&Native_TryRedefineClasses);
+                                 "()Z", (void*)&Native_TryRedefineClasses);
 
     RegisterNatives(jni, native_bindings);
 
@@ -140,6 +137,7 @@ bool Instrument(jvmtiEnv* jvmti, JNIEnv* jni,
 
     // Mark that we've finished instrumentation.
     breadcrumb.CallStaticMethod<void>({"setFinishedInstrumenting", "()V"});
+    Log::V("Finished instrumenting");
   }
 
   return true;
@@ -147,12 +145,11 @@ bool Instrument(jvmtiEnv* jvmti, JNIEnv* jni,
 
 jint DoHotSwap(jvmtiEnv* jvmti, JNIEnv* jni, const Config& config) {
   HotSwap code_swap(jvmti, jni);
-  if (!code_swap.DoHotSwap(config.dex_dir())) {
+  if (!code_swap.DoHotSwap(config.GetSwapRequest())) {
     // TODO: Log meaningful error.
     Log::E("Hot swap failed.");
     return JNI_ERR;
   }
-
   return JNI_OK;
 }
 
@@ -166,26 +163,23 @@ jint DoHotSwapAndRestart(jvmtiEnv* jvmti, JNIEnv* jni, const Config& config) {
     return JNI_ERR;
   }
 
-  if (!LoadInstrumentationJar(jvmti, jni,
-                              config.instrumentation_jar().c_str())) {
-    Log::E("Error loading instrumentation jar.");
+  if (!LoadInstrumentationJar(jvmti, jni, config.GetInstrumentationPath())) {
+    Log::E("Error loading instrumentation dex.");
     return JNI_ERR;
   }
 
-  if (!Instrument(jvmti, jni, config.instrumentation_jar().c_str())) {
+  if (!Instrument(jvmti, jni, config.GetInstrumentationPath())) {
     Log::E("Error instrumenting application.");
     return JNI_ERR;
   }
 
   // Enable hot-swapping via the callback.
   JniClass handlerWrapper(jni, kHandlerWrapperClass);
-  jvalue dex_path = {.l = jni->NewStringUTF(config.dex_dir().c_str())};
-  handlerWrapper.CallStaticMethod<void>(
-      {"prepareForHotSwap", "(Ljava/lang/String;)V"}, &dex_path);
+  handlerWrapper.CallStaticMethod<void>({"prepareForHotSwap", "()V"});
 
   // Perform hot swap through the activity restart callback path.
   AndroidWrapper wrapper(jni);
-  wrapper.RestartActivity(config.package_name().c_str());
+  wrapper.RestartActivity(config.GetSwapRequest().package_name().c_str());
 
   return JNI_OK;
 }
@@ -196,9 +190,8 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* input,
   jvmtiEnv* jvmti;
   JNIEnv* jni;
 
-  auto config = unique_ptr<Config>(ParseConfig(input));
-  if (!config) {
-    Log::E("Could not parse config");
+  if (!Config::ParseFromFile(input)) {
+    Log::E("Could not parse swap request");
     return JNI_ERR;
   }
 
@@ -217,15 +210,16 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* input,
     return JNI_ERR;
   }
 
-  jint ret = JNI_ERR;
-  if (config->restart_activity()) {
-    ret = DoHotSwapAndRestart(jvmti, jni, *config);
-  } else {
-    ret = DoHotSwap(jvmti, jni, *config);
-  }
+  const Config& config = Config::GetInstance();
 
-  jvmti->RelinquishCapabilities(&REQUIRED_CAPABILITIES);
-  Log::V("Finished.");
+  jint ret = JNI_ERR;
+  if (config.GetSwapRequest().restart_activity()) {
+    ret = DoHotSwapAndRestart(jvmti, jni, config);
+  } else {
+    ret = DoHotSwap(jvmti, jni, config);
+    jvmti->RelinquishCapabilities(&REQUIRED_CAPABILITIES);
+    Log::V("Finished.");
+  }
   return ret;
 }
 

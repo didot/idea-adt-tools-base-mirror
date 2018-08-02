@@ -1,51 +1,42 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+/*
+ * Copyright (C) 2018 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#ifndef AGENT_CONFIG_H
+#define AGENT_CONFIG_H
 
 #include <memory>
+#include <string>
 
-#include "proto/config.pb.h"
-#include "utils/log.h"
-
-using std::string;
-using std::unique_ptr;
-using swapper::proto::Config;
+#include "swap.pb.h"
 
 namespace swapper {
+class Config {
+ public:
+  static bool ParseFromFile(const std::string& file_location);
+  static const Config& GetInstance();
 
-// TODO: This should read from a file passed as an option, not from a
-// comma-delimited string.
-unique_ptr<Config> ParseConfig(char* input) {
-  string options(input);
+  const proto::SwapRequest& GetSwapRequest() const;
+  const std::string& GetInstrumentationPath() const;
 
-  uint idx = 0;
-  string parsed_options[4];
-
-  size_t start = 0;
-  while (idx < 4) {
-    size_t end = options.find(',', start);
-
-    if (end != string::npos) {
-      parsed_options[idx++] = options.substr(start, end - start);
-      start = end + 1;
-    } else {
-      parsed_options[idx++] = options.substr(start, end);
-      break;
-    }
-  }
-
-  for (; idx < 4; ++idx) {
-    parsed_options[idx] = "";
-  }
-
-  auto config = unique_ptr<Config>(new Config);
-  config->set_package_name(parsed_options[0]);
-  config->set_dex_dir(parsed_options[1]);
-  config->set_restart_activity(parsed_options[2] == "true");  // Really gross.
-  config->set_instrumentation_jar(parsed_options[3]);
-
-  return config;
-}
-
+ private:
+  static Config instance_;
+  Config() {}
+  Config(proto::AgentConfig* agent_config) : agent_config_(agent_config) {}
+  std::unique_ptr<proto::AgentConfig> agent_config_;
+};
 }  // namespace swapper
 
 #endif
