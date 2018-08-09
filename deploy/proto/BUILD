@@ -17,4 +17,19 @@ java_proto_library(
     srcs = glob(["*.proto"]),
     # Seems to be ok here.
     grpc_support = 0,
+    visibility = ["//visibility:public"],
+)
+
+cc_binary(
+    name = "proto_tool",
+    srcs = [
+        "proto_tool.cc",
+    ],
+    copts = ["-I$(GENDIR)/tools/base/deploy/proto"],
+    tags = [
+        "no_windows",
+    ],
+    deps = [
+        "//tools/base/deploy/proto:cc_proto",
+    ],
 )

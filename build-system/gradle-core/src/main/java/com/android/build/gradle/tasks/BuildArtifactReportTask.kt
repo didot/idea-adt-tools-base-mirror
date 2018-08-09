@@ -19,8 +19,9 @@ package com.android.build.gradle.tasks
 import com.android.build.gradle.internal.api.DefaultAndroidSourceSet
 import com.android.build.gradle.internal.scope.GlobalScope
 import com.android.build.gradle.internal.scope.Report
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
 import com.android.build.gradle.options.StringOption
 import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
@@ -68,18 +69,18 @@ open class BuildArtifactReportTask : DefaultTask() {
         }
     }
 
-    class SourceSetReportConfigAction(
+    class SourceSetReportCreationAction(
         val globalScope: GlobalScope,
         val sourceSet: DefaultAndroidSourceSet
     ) :
-        TaskConfigAction<BuildArtifactReportTask>() {
+        LazyTaskCreationAction<BuildArtifactReportTask>() {
 
         override val name: String
             get() = "reportSourceSetTransform" + sourceSet.name.capitalize()
         override val type: Class<BuildArtifactReportTask>
             get() = BuildArtifactReportTask::class.java
 
-        override fun execute(task: BuildArtifactReportTask) {
+        override fun configure(task: BuildArtifactReportTask) {
             task.reportSupplier = sourceSet::buildArtifactsReport
             val outputFile = globalScope.projectOptions.get(StringOption.BUILD_ARTIFACT_REPORT_FILE)
             if (outputFile != null) {
@@ -88,15 +89,15 @@ open class BuildArtifactReportTask : DefaultTask() {
         }
     }
 
-    class BuildArtifactReportConfigAction(val scope: VariantScope) :
-        TaskConfigAction<BuildArtifactReportTask>() {
+    class BuildArtifactReportCreationAction(val scope: VariantScope) :
+        LazyTaskCreationAction<BuildArtifactReportTask>() {
 
         override val name: String
             get() = scope.getTaskName("reportBuildArtifacts")
         override val type: Class<BuildArtifactReportTask>
             get() = BuildArtifactReportTask::class.java
 
-        override fun execute(task: BuildArtifactReportTask) {
+        override fun configure(task: BuildArtifactReportTask) {
             val outputFileName =
                     scope.globalScope.projectOptions.get(StringOption.BUILD_ARTIFACT_REPORT_FILE)
             val outputFile : File? =

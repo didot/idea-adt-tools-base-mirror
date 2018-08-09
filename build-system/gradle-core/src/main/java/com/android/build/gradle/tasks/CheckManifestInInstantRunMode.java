@@ -26,9 +26,9 @@ import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.ide.common.build.ApkInfo;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
@@ -198,11 +198,12 @@ public class CheckManifestInInstantRunMode extends AndroidVariantTask {
         }
     }
 
-    public static class ConfigAction extends TaskConfigAction<CheckManifestInInstantRunMode> {
+    public static class CreationAction
+            extends EagerTaskCreationAction<CheckManifestInInstantRunMode> {
 
         @NonNull protected final VariantScope variantScope;
 
-        public ConfigAction(@NonNull VariantScope variantScope) {
+        public CreationAction(@NonNull VariantScope variantScope) {
             this.variantScope = variantScope;
         }
 

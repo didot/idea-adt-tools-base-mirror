@@ -16,11 +16,12 @@
 
 package com.android.build.gradle.internal.res.namespaced
 
-import com.android.build.gradle.internal.TaskFactory
+import com.android.build.gradle.internal.tasks.factory.TaskFactory
 import com.android.build.gradle.internal.res.LinkApplicationAndroidResourcesTask
 import com.android.build.gradle.internal.scope.GlobalScope
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.factory.dependsOn
 import com.android.build.gradle.options.BooleanOption
 
 /**
@@ -53,17 +54,17 @@ class NamespacedResourcesTaskManager(
 
         // Process dependencies making sure everything we consume will be fully namespaced.
         if (globalScope.projectOptions.get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES)) {
-            val task = taskFactory.create(AutoNamespaceDependenciesTask.ConfigAction(variantScope))
+            val task = taskFactory.eagerCreate(AutoNamespaceDependenciesTask.CreationAction(variantScope))
             // Needed for the IDE
-            variantScope.taskContainer.sourceGenTask!!.dependsOn(task)
+            variantScope.taskContainer.sourceGenTask.dependsOn(task)
         }
 
         // Compile
         createCompileResourcesTask()
-        taskFactory.create(StaticLibraryManifestTask.ConfigAction(variantScope))
-        taskFactory.create(LinkLibraryAndroidResourcesTask.ConfigAction(variantScope))
+        taskFactory.eagerCreate(StaticLibraryManifestTask.CreationAction(variantScope))
+        taskFactory.eagerCreate(LinkLibraryAndroidResourcesTask.CreationAction(variantScope))
         // TODO: also generate a private R.jar holding private resources.
-        taskFactory.create(GenerateNamespacedLibraryRFilesTask.ConfigAction(variantScope))
+        taskFactory.eagerCreate(GenerateNamespacedLibraryRFilesTask.CreationAction(variantScope))
         if (variantScope.type.isTestComponent) {
             if (variantScope.testedVariantData!!.type.isAar) {
                 createNamespacedLibraryTestProcessResourcesTask(
@@ -83,17 +84,20 @@ class NamespacedResourcesTaskManager(
                 useAaptToGenerateLegacyMultidexMainDexProguardRules = useAaptToGenerateLegacyMultidexMainDexProguardRules
             )
         }
-        taskFactory.create(CompileRClassTask.ConfigAction(variantScope))
+        taskFactory.eagerCreate(CompileRClassTask.CreationAction(variantScope))
     }
 
     private fun createNamespacedAppProcessTask(
             packageOutputType: InternalArtifactType?,
             baseName: String,
             useAaptToGenerateLegacyMultidexMainDexProguardRules: Boolean) {
-       taskFactory.create(LinkApplicationAndroidResourcesTask.NamespacedConfigAction(
-           variantScope,
-           useAaptToGenerateLegacyMultidexMainDexProguardRules,
-           baseName))
+       taskFactory.eagerCreate(
+           LinkApplicationAndroidResourcesTask.NamespacedCreationAction(
+               variantScope,
+               useAaptToGenerateLegacyMultidexMainDexProguardRules,
+               baseName
+           )
+       )
         if (packageOutputType != null) {
             variantScope.artifacts.appendArtifact(
                 packageOutputType,
@@ -103,7 +107,7 @@ class NamespacedResourcesTaskManager(
 
     private fun createNamespacedLibraryTestProcessResourcesTask(
             packageOutputType: InternalArtifactType?) {
-        taskFactory.create(ProcessAndroidAppResourcesTask.ConfigAction(variantScope))
+        taskFactory.eagerCreate(ProcessAndroidAppResourcesTask.CreationAction(variantScope))
         if (packageOutputType != null) {
             variantScope.artifacts.appendArtifact(
                 packageOutputType,
@@ -116,7 +120,7 @@ class NamespacedResourcesTaskManager(
             val name = "compile${sourceSetName.capitalize()}" +
                     "ResourcesFor${variantScope.fullVariantName.capitalize()}"
             // TODO : figure out when we need explicit task dependency and potentially remove it.
-            taskFactory.create(CompileSourceSetResources.ConfigAction(
+            taskFactory.eagerCreate(CompileSourceSetResources.CreationAction(
                     name = name,
                     inputDirectories = artifacts,
                     variantScope = variantScope))

@@ -37,6 +37,11 @@ public enum InternalArtifactType implements ArtifactType {
     // Packaged classes for AAR intermediate publishing
     // This is for external usage. For usage inside a module use ALL_CLASSES
     LIBRARY_CLASSES,
+
+    // External libraries' dex files only.
+    EXTERNAL_LIBS_DEX,
+    // The final dex files that will get packaged in the APK or bundle.
+    DEX,
     // the packaged classes published by APK modules.
     // This is for external usage. For usage inside a module use ALL_CLASSES
     APP_CLASSES,
@@ -138,7 +143,7 @@ public enum InternalArtifactType implements ArtifactType {
     COMPATIBLE_SCREEN_MANIFEST,
     MERGED_MANIFESTS,
     LIBRARY_MANIFEST(Kind.FILE),
-    // AAR manifests that have been auto-namespaced and are fully resource namespace aware.
+    // A directory of AAR manifests that have been auto-namespaced and are fully resource namespace aware.
     NAMESPACED_MANIFESTS,
     AAPT_FRIENDLY_MERGED_MANIFESTS,
     INSTANT_RUN_MERGED_MANIFESTS,

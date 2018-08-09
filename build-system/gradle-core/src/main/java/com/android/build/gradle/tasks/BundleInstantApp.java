@@ -24,11 +24,12 @@ import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InstantAppOutputScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
 import com.android.build.gradle.internal.tasks.ModuleMetadata;
+import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction;
 import com.android.utils.FileUtils;
+import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -109,9 +110,9 @@ public class BundleInstantApp extends AndroidVariantTask {
     private FileCollection applicationId;
     private FileCollection apkDirectories;
 
-    public static class ConfigAction extends TaskConfigAction<BundleInstantApp> {
+    public static class CreationAction extends LazyTaskCreationAction<BundleInstantApp> {
 
-        public ConfigAction(@NonNull VariantScope scope, @NonNull File bundleDirectory) {
+        public CreationAction(@NonNull VariantScope scope, @NonNull File bundleDirectory) {
             this.scope = scope;
             this.bundleDirectory = bundleDirectory;
         }
@@ -129,7 +130,18 @@ public class BundleInstantApp extends AndroidVariantTask {
         }
 
         @Override
-        public void execute(@NonNull BundleInstantApp bundleInstantApp) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+
+            scope.getArtifacts()
+                    .appendArtifact(
+                            InternalArtifactType.INSTANTAPP_BUNDLE,
+                            ImmutableList.of(scope.getApkLocation()),
+                            taskName);
+        }
+
+        @Override
+        public void configure(@NonNull BundleInstantApp bundleInstantApp) {
             bundleInstantApp.setVariantName(scope.getFullVariantName());
             bundleInstantApp.bundleDirectory = bundleDirectory;
             bundleInstantApp.bundleName =

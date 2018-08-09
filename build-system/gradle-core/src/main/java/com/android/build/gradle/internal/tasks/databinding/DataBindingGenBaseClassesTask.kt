@@ -1,3 +1,4 @@
+
 /*
  * Copyright (C) 2017 The Android Open Source Project
  *
@@ -23,7 +24,7 @@ import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_BASE_CLASS_LOGS_DEPENDENCY_ARTIFACTS
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_MERGE
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.options.BooleanOption
 import com.android.utils.FileUtils
@@ -164,8 +165,8 @@ open class DataBindingGenBaseClassesTask : DefaultTask() {
         )
     }
 
-    class ConfigAction(val variantScope: VariantScope) :
-        TaskConfigAction<DataBindingGenBaseClassesTask>() {
+    class CreationAction(val variantScope: VariantScope) :
+        EagerTaskCreationAction<DataBindingGenBaseClassesTask>() {
 
         override val name: String
             get() = variantScope.getTaskName("dataBindingGenBaseClasses")

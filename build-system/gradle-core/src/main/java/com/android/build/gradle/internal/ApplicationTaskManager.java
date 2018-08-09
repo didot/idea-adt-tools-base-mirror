@@ -31,30 +31,30 @@ import com.android.build.gradle.internal.dsl.BaseAppModuleExtension;
 import com.android.build.gradle.internal.dsl.DslAdaptersKt;
 import com.android.build.gradle.internal.incremental.BuildInfoWriterTask;
 import com.android.build.gradle.internal.pipeline.TransformManager;
-import com.android.build.gradle.internal.pipeline.TransformTask;
 import com.android.build.gradle.internal.res.Aapt2MavenUtils;
 import com.android.build.gradle.internal.scope.AnchorOutputType;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AppClasspathCheckTask;
 import com.android.build.gradle.internal.tasks.AppPreBuildTask;
 import com.android.build.gradle.internal.tasks.ApplicationIdWriterTask;
-import com.android.build.gradle.internal.tasks.BundleTask;
 import com.android.build.gradle.internal.tasks.BundleToApkTask;
 import com.android.build.gradle.internal.tasks.BundleToStandaloneApkTask;
 import com.android.build.gradle.internal.tasks.CheckMultiApkLibrariesTask;
 import com.android.build.gradle.internal.tasks.ExtractApksTask;
 import com.android.build.gradle.internal.tasks.InstallVariantViaBundleTask;
 import com.android.build.gradle.internal.tasks.InstantRunSplitApkResourcesBuilder;
-import com.android.build.gradle.internal.tasks.MergeConsumerProguardFilesConfigAction;
+import com.android.build.gradle.internal.tasks.MergeConsumerProguardFilesCreationAction;
 import com.android.build.gradle.internal.tasks.ModuleMetadataWriterTask;
+import com.android.build.gradle.internal.tasks.PackageBundleTask;
 import com.android.build.gradle.internal.tasks.PerModuleBundleTask;
 import com.android.build.gradle.internal.tasks.TestPreBuildTask;
 import com.android.build.gradle.internal.tasks.databinding.DataBindingExportFeatureApplicationIdsTask;
 import com.android.build.gradle.internal.tasks.databinding.DataBindingExportFeatureInfoTask;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadataWriterTask;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSplitDeclarationWriterTask;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSplitTransitiveDepsWriterTask;
@@ -70,7 +70,6 @@ import com.android.builder.core.VariantType;
 import com.android.builder.profile.Recorder;
 import com.google.common.collect.Sets;
 import java.io.File;
-import java.util.Optional;
 import java.util.Set;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
@@ -80,6 +79,7 @@ import org.gradle.api.attributes.AttributeContainer;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.resources.TextResourceFactory;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.bundling.Jar;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
@@ -125,7 +125,7 @@ public class ApplicationTaskManager extends TaskManager {
         // Add a task to publish the applicationId.
         createApplicationIdWriterTask(variantScope);
 
-        taskFactory.create(new MainApkListPersistence.ConfigAction(variantScope));
+        taskFactory.eagerCreate(new MainApkListPersistence.CreationAction(variantScope));
         createBuildArtifactReportTask(variantScope);
 
         // Add a task to process the manifest(s)
@@ -162,7 +162,6 @@ public class ApplicationTaskManager extends TaskManager {
 
         // Add NDK tasks
         createNdkTasks(variantScope);
-        variantScope.setNdkBuildable(getNdkBuildable(variantData));
 
         // Add external native build tasks
         createExternalNativeBuildJsonGenerators(variantScope);
@@ -174,7 +173,7 @@ public class ApplicationTaskManager extends TaskManager {
         // Add feature related tasks if necessary
         if (variantScope.getType().isBaseModule()) {
             // Base feature specific tasks.
-            taskFactory.create(new FeatureSetMetadataWriterTask.ConfigAction(variantScope));
+            taskFactory.eagerCreate(new FeatureSetMetadataWriterTask.CreationAction(variantScope));
 
             if (extension.getDataBinding().isEnabled()) {
                 // Create a task that will package the manifest ids(the R file packages) of all
@@ -182,20 +181,23 @@ public class ApplicationTaskManager extends TaskManager {
                 // processor which uses it to known about all available features.
                 //
                 // <p>see: {@link TaskManager#setDataBindingAnnotationProcessorParams(VariantScope)}
-                taskFactory.create(
-                        new DataBindingExportFeatureApplicationIdsTask.ConfigAction(variantScope));
+                taskFactory.eagerCreate(
+                        new DataBindingExportFeatureApplicationIdsTask.CreationAction(
+                                variantScope));
 
             }
         } else {
             // Non-base feature specific task.
             // Task will produce artifacts consumed by the base feature
-            taskFactory.create(new FeatureSplitDeclarationWriterTask.ConfigAction(variantScope));
+            taskFactory.eagerCreate(
+                    new FeatureSplitDeclarationWriterTask.CreationAction(variantScope));
             if (extension.getDataBinding().isEnabled()) {
                 // Create a task that will package necessary information about the feature into a
                 // file which is passed into the Data Binding annotation processor.
-                taskFactory.create(new DataBindingExportFeatureInfoTask.ConfigAction(variantScope));
+                taskFactory.eagerCreate(
+                        new DataBindingExportFeatureInfoTask.CreationAction(variantScope));
             }
-            taskFactory.create(new MergeConsumerProguardFilesConfigAction(variantScope));
+            taskFactory.eagerCreate(new MergeConsumerProguardFilesCreationAction(variantScope));
         }
 
         // Add data binding tasks if enabled
@@ -223,7 +225,8 @@ public class ApplicationTaskManager extends TaskManager {
         // Create the lint tasks, if enabled
         createLintTasks(variantScope);
 
-        taskFactory.create(new FeatureSplitTransitiveDepsWriterTask.ConfigAction(variantScope));
+        taskFactory.eagerCreate(
+                new FeatureSplitTransitiveDepsWriterTask.CreationAction(variantScope));
 
         createDynamicBundleTask(variantScope);
     }
@@ -249,7 +252,7 @@ public class ApplicationTaskManager extends TaskManager {
 
         } else {
             // use the install task that uses the App Bundle
-            taskFactory.create(new InstallVariantViaBundleTask.ConfigAction(variantScope));
+            taskFactory.lazyCreate(new InstallVariantViaBundleTask.CreationAction(variantScope));
         }
     }
 
@@ -263,7 +266,8 @@ public class ApplicationTaskManager extends TaskManager {
         }
 
         BuildInfoWriterTask buildInfoGeneratorTask =
-                taskFactory.create(new BuildInfoWriterTask.ConfigAction(variantScope, getLogger()));
+                taskFactory.eagerCreate(
+                        new BuildInfoWriterTask.CreationAction(variantScope, getLogger()));
 
         variantScope.getInstantRunTaskManager()
                         .configureBuildInfoWriterTask(buildInfoGeneratorTask);
@@ -295,15 +299,19 @@ public class ApplicationTaskManager extends TaskManager {
                         artifacts.getFinalArtifactFiles(InternalArtifactType.APK_LIST),
                         variantScope.getOutputScope().getMainSplit());
 
-        Optional<TransformTask> dependenciesApkBuilderTask =
-                variantScope
-                        .getTransformManager()
-                        .addTransform(taskFactory, variantScope, dependenciesApkBuilder);
+        variantScope
+                .getTransformManager()
+                .addTransform(
+                        taskFactory,
+                        variantScope,
+                        dependenciesApkBuilder,
+                        null,
+                        task -> task.dependsOn(getValidateSigningTask(variantScope)),
+                        null);
 
-        dependenciesApkBuilderTask.ifPresent(
-                task -> task.dependsOn(getValidateSigningTask(variantScope)));
 
-        taskFactory.create(new InstantRunSplitApkResourcesBuilder.ConfigAction(variantScope));
+        taskFactory.eagerCreate(
+                new InstantRunSplitApkResourcesBuilder.CreationAction(variantScope));
 
         // and now the transform that will create a split FULL_APK for each slice.
         InstantRunSliceSplitApkBuilder slicesApkBuilder =
@@ -325,21 +333,25 @@ public class ApplicationTaskManager extends TaskManager {
                                 InternalArtifactType.INSTANT_RUN_SPLIT_APK_RESOURCES),
                         variantScope.getOutputScope().getMainSplit());
 
-        Optional<TransformTask> transformTaskAndroidTask =
-                variantScope
-                        .getTransformManager()
-                        .addTransform(taskFactory, variantScope, slicesApkBuilder);
-
-        if (transformTaskAndroidTask.isPresent()) {
-            TransformTask splitApk = transformTaskAndroidTask.get();
-            splitApk.dependsOn(getValidateSigningTask(variantScope));
-            variantScope.getTaskContainer().getAssembleTask().dependsOn(splitApk);
-            buildInfoGeneratorTask.mustRunAfter(splitApk.getName());
-        }
+        variantScope
+                .getTransformManager()
+                .addTransform(
+                        taskFactory,
+                        variantScope,
+                        slicesApkBuilder,
+                        null,
+                        task -> task.dependsOn(getValidateSigningTask(variantScope)),
+                        taskProvider -> {
+                            TaskFactoryUtils.dependsOn(
+                                    variantScope.getTaskContainer().getAssembleTask(),
+                                    taskProvider);
+                            buildInfoGeneratorTask.mustRunAfter(taskProvider);
+                        });
 
         // if the assembleVariant task run, make sure it also runs the task to generate
         // the build-info.xml.
-        variantScope.getTaskContainer().getAssembleTask().dependsOn(buildInfoGeneratorTask);
+        TaskFactoryUtils.dependsOn(
+                variantScope.getTaskContainer().getAssembleTask(), buildInfoGeneratorTask);
         return buildInfoGeneratorTask;
     }
 
@@ -352,8 +364,8 @@ public class ApplicationTaskManager extends TaskManager {
                 scope.getVariantData().getAllPostJavacGeneratedBytecode();
 
         // Create the classes artifact for uses by external test modules.
-        taskFactory.create(
-                new TaskConfigAction<Jar>() {
+        taskFactory.eagerCreate(
+                new EagerTaskCreationAction<Jar>() {
                     @NonNull
                     @Override
                     public String getName() {
@@ -391,30 +403,31 @@ public class ApplicationTaskManager extends TaskManager {
     }
 
     @Override
-    protected Task createVariantPreBuildTask(@NonNull VariantScope scope) {
+    protected void createVariantPreBuildTask(@NonNull VariantScope scope) {
         final VariantType variantType = scope.getVariantConfiguration().getType();
 
         if (variantType.isApk()) {
             AppClasspathCheckTask classpathCheck =
-                    taskFactory.create(new AppClasspathCheckTask.ConfigAction(scope));
+                    taskFactory.eagerCreate(new AppClasspathCheckTask.CreationAction(scope));
 
-            Task task =
+            TaskProvider<? extends Task> task =
                     (variantType.isTestComponent()
-                                    ? taskFactory.create(new TestPreBuildTask.ConfigAction(scope))
-                                    : taskFactory.create(new AppPreBuildTask.ConfigAction(scope)))
-                            .dependsOn(classpathCheck);
+                            ? taskFactory.lazyCreate(new TestPreBuildTask.CreationAction(scope))
+                            : taskFactory.lazyCreate(new AppPreBuildTask.CreationAction(scope)));
+
+            TaskFactoryUtils.dependsOn(task, classpathCheck);
 
             if (variantType.isBaseModule() && globalScope.hasDynamicFeatures()) {
-                CheckMultiApkLibrariesTask checkMultiApkLibrariesTask =
-                        taskFactory.create(new CheckMultiApkLibrariesTask.ConfigAction(scope));
+                TaskProvider<CheckMultiApkLibrariesTask> checkMultiApkLibrariesTask =
+                        taskFactory.lazyCreate(
+                                new CheckMultiApkLibrariesTask.CreationAction(scope));
 
-                task.dependsOn(checkMultiApkLibrariesTask);
+                TaskFactoryUtils.dependsOn(task, checkMultiApkLibrariesTask);
             }
-
-            return task;
+            return;
         }
 
-        return super.createVariantPreBuildTask(scope);
+        super.createVariantPreBuildTask(scope);
     }
 
     @NonNull
@@ -459,11 +472,11 @@ public class ApplicationTaskManager extends TaskManager {
 
     private void createApplicationIdWriterTask(@NonNull VariantScope variantScope) {
         if (variantScope.getType().isBaseModule()) {
-            taskFactory.create(new ModuleMetadataWriterTask.ConfigAction(variantScope));
+            taskFactory.eagerCreate(new ModuleMetadataWriterTask.CreationAction(variantScope));
         }
 
         Task applicationIdWriterTask =
-                taskFactory.create(new ApplicationIdWriterTask.ConfigAction(variantScope));
+                taskFactory.eagerCreate(new ApplicationIdWriterTask.CreationAction(variantScope));
 
         TextResourceFactory resources = project.getResources().getText();
         // this builds the dependencies from the task, and its output is the textResource.
@@ -484,30 +497,32 @@ public class ApplicationTaskManager extends TaskManager {
             return;
         }
 
-        taskFactory.create(new PerModuleBundleTask.ConfigAction(scope));
+        taskFactory.lazyCreate(new PerModuleBundleTask.CreationAction(scope));
 
         if (scope.getType().isBaseModule()) {
-            BundleTask bundleTask = taskFactory.create(new BundleTask.ConfigAction(scope));
-            scope.getTaskContainer()
-                    .getBundleTask()
-                    .dependsOn(
-                            scope.getArtifacts()
-                                    .getFinalArtifactFiles(InternalArtifactType.BUNDLE));
+            TaskProvider<PackageBundleTask> packageBundleTask =
+                    taskFactory.lazyCreate(new PackageBundleTask.CreationAction(scope));
+
+            // bundle anchor task does not depend on packageBundleTask, instead it depends
+            // on its BuildableArtifact in order to always generate the final version of it.
+            TaskFactoryUtils.dependsOn(
+                    scope.getTaskContainer().getBundleTask(),
+                    scope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.BUNDLE));
 
             BundleToApkTask splitAndMultiApkTask =
-                    taskFactory.create(new BundleToApkTask.ConfigAction(scope));
+                    taskFactory.eagerCreate(new BundleToApkTask.CreationAction(scope));
             BundleToStandaloneApkTask universalApkTask =
-                    taskFactory.create(new BundleToStandaloneApkTask.ConfigAction(scope));
+                    taskFactory.eagerCreate(new BundleToStandaloneApkTask.CreationAction(scope));
             // make the tasks depend on the validate signing task to ensure that the keystore
             // is created if it's a debug one.
             if (scope.getVariantConfiguration().getSigningConfig() != null) {
                 Task validateSigningTask = getValidateSigningTask(scope);
                 splitAndMultiApkTask.dependsOn(validateSigningTask);
-                bundleTask.dependsOn(validateSigningTask);
+                TaskFactoryUtils.dependsOn(packageBundleTask, validateSigningTask);
                 universalApkTask.dependsOn(validateSigningTask);
             }
 
-            taskFactory.create(new ExtractApksTask.ConfigAction(scope));
+            taskFactory.eagerCreate(new ExtractApksTask.CreationAction(scope));
         }
     }
 }

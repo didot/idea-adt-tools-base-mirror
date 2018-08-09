@@ -30,6 +30,7 @@ import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.MutableTaskContainer;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.tasks.AidlCompile;
 import com.android.build.gradle.tasks.ExternalNativeBuildTask;
@@ -62,6 +63,7 @@ import org.gradle.api.file.FileCollection;
 import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.resources.TextResource;
 import org.gradle.api.tasks.Sync;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.compile.JavaCompile;
 
 /**
@@ -216,7 +218,7 @@ public abstract class BaseVariantImpl implements BaseVariant {
     @Override
     @NonNull
     public Task getPreBuild() {
-        return getVariantData().getTaskContainer().getPreBuildTask();
+        return getVariantData().getTaskContainer().getPreBuildTask().get();
     }
 
     @Override
@@ -228,46 +230,46 @@ public abstract class BaseVariantImpl implements BaseVariant {
     @Override
     @NonNull
     public AidlCompile getAidlCompile() {
-        return getVariantData().getTaskContainer().getAidlCompileTask();
+        return getVariantData().getTaskContainer().getAidlCompileTask().get();
     }
 
     @Override
     @NonNull
     public RenderscriptCompile getRenderscriptCompile() {
-        return getVariantData().getTaskContainer().getRenderscriptCompileTask();
+        return getVariantData().getTaskContainer().getRenderscriptCompileTask().get();
     }
 
     @Override
     public MergeResources getMergeResources() {
-        return getVariantData().getTaskContainer().getMergeResourcesTask();
+        return getVariantData().getTaskContainer().getMergeResourcesTask().getOrNull();
     }
 
     @Override
     public MergeSourceSetFolders getMergeAssets() {
-        return getVariantData().getTaskContainer().getMergeAssetsTask();
+        return getVariantData().getTaskContainer().getMergeAssetsTask().getOrNull();
     }
 
     @Override
     public GenerateBuildConfig getGenerateBuildConfig() {
-        return getVariantData().getTaskContainer().getGenerateBuildConfigTask();
+        return getVariantData().getTaskContainer().getGenerateBuildConfigTask().get();
     }
 
     @Override
     @Nullable
     public JavaCompile getJavaCompile() {
-        return getVariantData().getTaskContainer().getJavacTask();
+        return getVariantData().getTaskContainer().getJavacTask().getOrNull();
     }
 
     @NonNull
     @Override
     public Task getJavaCompiler() {
-        return getVariantData().getTaskContainer().getJavacTask();
+        return getVariantData().getTaskContainer().getJavacTask().getOrNull();
     }
 
     @NonNull
     @Override
     public NdkCompile getNdkCompile() {
-        return getVariantData().getTaskContainer().getNdkCompileTask();
+        return getVariantData().getTaskContainer().getNdkCompileTask().get();
     }
 
     @Override
@@ -297,13 +299,13 @@ public abstract class BaseVariantImpl implements BaseVariant {
     @Override
     @NonNull
     public Sync getProcessJavaResources() {
-        return getVariantData().getTaskContainer().getProcessJavaResourcesTask();
+        return getVariantData().getTaskContainer().getProcessJavaResourcesTask().get();
     }
 
     @Override
     @Nullable
     public Task getAssemble() {
-        return getVariantData().getTaskContainer().getAssembleTask();
+        return getVariantData().getTaskContainer().getAssembleTask().get();
     }
 
     @Override
@@ -464,10 +466,10 @@ public abstract class BaseVariantImpl implements BaseVariant {
     @Override
     public void register(Task task) {
         MutableTaskContainer taskContainer = getVariantData().getScope().getTaskContainer();
-        taskContainer.getAssembleTask().dependsOn(task);
-        Task bundleTask = taskContainer.getBundleTask();
+        TaskFactoryUtils.dependsOn(taskContainer.getAssembleTask(), task);
+        TaskProvider<? extends Task> bundleTask = taskContainer.getBundleTask();
         if (bundleTask != null) {
-            bundleTask.dependsOn(task);
+            TaskFactoryUtils.dependsOn(bundleTask, task);
         }
         Task bundleTaskLibrary = taskContainer.getBundleLibraryTask();
         if (bundleTaskLibrary != null) {

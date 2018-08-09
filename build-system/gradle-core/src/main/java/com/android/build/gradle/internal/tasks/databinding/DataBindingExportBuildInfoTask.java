@@ -19,8 +19,8 @@ package com.android.build.gradle.internal.tasks.databinding;
 import android.databinding.tool.LayoutXmlProcessor;
 import android.databinding.tool.processing.Scope;
 import com.android.annotations.NonNull;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.build.gradle.options.BooleanOption;
 import java.io.File;
 import java.util.function.Supplier;
@@ -62,11 +62,12 @@ public class DataBindingExportBuildInfoTask extends DefaultTask {
         Scope.assertNoError();
     }
 
-    public static class ConfigAction extends TaskConfigAction<DataBindingExportBuildInfoTask> {
+    public static class CreationAction
+            extends EagerTaskCreationAction<DataBindingExportBuildInfoTask> {
 
         @NonNull private final VariantScope variantScope;
 
-        public ConfigAction(@NonNull VariantScope variantScope) {
+        public CreationAction(@NonNull VariantScope variantScope) {
             this.variantScope = variantScope;
         }
 
@@ -91,6 +92,8 @@ public class DataBindingExportBuildInfoTask extends DefaultTask {
                             .getProjectOptions()
                             .get(BooleanOption.USE_ANDROID_X);
             task.emptyClassOutDir = variantScope.getClassOutputForDataBinding();
+
+            variantScope.getTaskContainer().setDataBindingExportBuildInfoTask(task);
         }
     }
 }

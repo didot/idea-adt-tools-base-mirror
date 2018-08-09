@@ -17,6 +17,8 @@ package com.android.ide.common.rendering.api;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.resources.ResourceUrl;
+
 import java.util.Collection;
 
 /**
@@ -35,7 +37,30 @@ public interface StyleResourceValue extends ResourceValue {
      * reference in XML or by splitting the name of this {@link StyleResourceValue} by dots.
      */
     @Nullable
-    ResourceReference getParentStyle();
+    default ResourceReference getParentStyle() {
+        String parentStyleName = getParentStyleName();
+        if (parentStyleName != null) {
+            ResourceUrl url = ResourceUrl.parseStyleParentReference(parentStyleName);
+            if (url == null) {
+                return null;
+            }
+
+            return url.resolve(getNamespace(), getNamespaceResolver());
+        }
+
+        String styleName = getName();
+        int lastDot = styleName.lastIndexOf('.');
+        if (lastDot >= 0) {
+            String parent = styleName.substring(0, lastDot);
+            if (parent.isEmpty()) {
+                return null;
+            }
+
+            return ResourceReference.style(getNamespace(), parent);
+        }
+
+        return null;
+    }
 
     /**
      * Finds the item for the given qualified attr name in this style (if it's defined in this
@@ -47,16 +72,6 @@ public interface StyleResourceValue extends ResourceValue {
     /** Finds the item for the given attr in this style (if it's defined in this style). */
     @Nullable
     StyleItemResourceValue getItem(@NonNull ResourceReference attr);
-
-    /**
-     * Adds a style item to this style.
-     *
-     * @param item the style item to add
-     */
-    void addItem(@NonNull StyleItemResourceValue item);
-
-    @Override
-    void replaceWith(@NonNull ResourceValue style);
 
     /**
      * Returns a list of all items defined in this Style. This doesn't return items inherited from

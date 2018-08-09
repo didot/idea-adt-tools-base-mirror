@@ -33,11 +33,10 @@ import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.AnchorOutputType;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AbstractAndroidCompile;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.build.gradle.internal.utils.AndroidXDependency;
-import com.android.build.gradle.internal.variant.LibraryVariantData;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.packaging.TypedefRemover;
 import com.android.tools.lint.gradle.api.ExtractAnnotationRequest;
@@ -300,14 +299,13 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
         return false;
     }
 
-    public static class ConfigAction extends TaskConfigAction<ExtractAnnotations> {
+    public static class CreationAction extends EagerTaskCreationAction<ExtractAnnotations> {
 
         @NonNull private final AndroidConfig extension;
         @NonNull private final VariantScope variantScope;
 
-        public ConfigAction(
-                @NonNull AndroidConfig extension,
-                @NonNull VariantScope variantScope) {
+        public CreationAction(
+                @NonNull AndroidConfig extension, @NonNull VariantScope variantScope) {
             this.extension = extension;
             this.variantScope = variantScope;
         }
@@ -371,7 +369,7 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
             // force the sdk to be parsed. (Same as in compileTask)
             task.setBootClasspath(() -> androidBuilder.getBootClasspathAsStrings(false));
 
-            ((LibraryVariantData) variantScope.getVariantData()).generateAnnotationsTask = task;
+            variantScope.getTaskContainer().setGenerateAnnotationsTask(task);
 
             task.lintClassPath = variantScope.getGlobalScope().getProject().getConfigurations()
                     .getByName(LintBaseTask.LINT_CLASS_PATH);

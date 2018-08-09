@@ -18,7 +18,7 @@ package com.android.build.gradle.internal.tasks;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction;
 import com.android.utils.FileUtils;
 import java.io.File;
 import org.gradle.api.tasks.OutputDirectory;
@@ -49,11 +49,11 @@ public class LintCompile extends AndroidBuilderTask {
     }
 
 
-    public static class ConfigAction extends TaskConfigAction<LintCompile> {
+    public static class CreationAction extends LazyTaskCreationAction<LintCompile> {
 
         private final GlobalScope globalScope;
 
-        public ConfigAction(@NonNull GlobalScope globalScope) {
+        public CreationAction(@NonNull GlobalScope globalScope) {
             this.globalScope = globalScope;
         }
 
@@ -70,7 +70,7 @@ public class LintCompile extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull LintCompile task) {
+        public void configure(@NonNull LintCompile task) {
             task.setOutputDirectory(new File(globalScope.getIntermediatesDir(), "lint"));
             task.setVariantName("");
         }

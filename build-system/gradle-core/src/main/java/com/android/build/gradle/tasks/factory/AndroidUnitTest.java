@@ -26,8 +26,8 @@ import com.android.annotations.NonNull;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.TestVariantData;
 import com.android.build.gradle.options.BooleanOption;
@@ -77,11 +77,11 @@ public class AndroidUnitTest extends Test {
     }
 
     /** Configuration Action for a JavaCompile task. */
-    public static class ConfigAction extends TaskConfigAction<AndroidUnitTest> {
+    public static class CreationAction extends EagerTaskCreationAction<AndroidUnitTest> {
 
         private final VariantScope scope;
 
-        public ConfigAction(@NonNull VariantScope scope) {
+        public CreationAction(@NonNull VariantScope scope) {
             this.scope = Preconditions.checkNotNull(scope);
         }
 

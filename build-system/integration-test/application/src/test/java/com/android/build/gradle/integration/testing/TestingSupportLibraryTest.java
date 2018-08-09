@@ -18,7 +18,7 @@ package com.android.build.gradle.integration.testing;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.TestVersions;
-import com.android.build.gradle.integration.common.fixture.app.AndroidTestApp;
+import com.android.build.gradle.integration.common.fixture.app.AndroidTestModule;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
@@ -36,7 +36,7 @@ public class TestingSupportLibraryTest {
     public GradleTestProject project =
             GradleTestProject.builder().fromTestApp(helloWorldApp).create();
 
-    public static final AndroidTestApp helloWorldApp = HelloWorldApp.noBuildFile();
+    public static final AndroidTestModule helloWorldApp = HelloWorldApp.noBuildFile();
 
     static {
         /* Junit 4 now maps tests annotated with @Ignore and tests that throw
@@ -79,10 +79,9 @@ public class TestingSupportLibraryTest {
                                 + "    }\n"
                                 + "}\n"));
 
-        helloWorldApp.addFile(
+        helloWorldApp.replaceFile(
                 new TestSourceFile(
-                        "src/main",
-                        "AndroidManifest.xml",
+                        "src/main/AndroidManifest.xml",
                         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                                 + "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
                                 + "      package=\"com.example.helloworld\"\n"

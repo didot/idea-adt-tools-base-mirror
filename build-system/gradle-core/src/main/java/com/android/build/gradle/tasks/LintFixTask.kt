@@ -57,17 +57,17 @@ open class LintFixTask : LintBaseTask() {
         }
     }
 
-    class GlobalConfigAction(
+    class GlobalCreationAction(
         globalScope: GlobalScope, private val variantScopes: Collection<VariantScope>
-    ) : LintBaseTask.BaseConfigAction<LintFixTask>(globalScope) {
+    ) : BaseCreationAction<LintFixTask>(globalScope) {
 
         override val name: String
             get() = TaskManager.LINT_FIX
         override val type: Class<LintFixTask>
             get() = LintFixTask::class.java
 
-        override fun execute(task: LintFixTask) {
-            super.execute(task)
+        override fun configure(task: LintFixTask) {
+            super.configure(task)
 
             task.description =
                     "Runs lint on all variants and applies any safe suggestions to the source code."

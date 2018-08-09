@@ -33,10 +33,9 @@ public class HelloWorldLibraryApp extends MultiModuleTestProject implements Test
     public HelloWorldLibraryApp() {
         super(ImmutableMap.of(":app", new EmptyAndroidTestApp(), ":lib", HelloWorldApp.noBuildFile()));
 
-        AndroidTestApp app = (AndroidTestApp) getSubproject(":app");
+        AndroidTestModule app = (AndroidTestModule) getSubproject(":app");
         app.addFile(
                 new TestSourceFile(
-                        "",
                         "build.gradle",
                         "apply plugin: 'com.android.application'\n"
                                 + "\n"
@@ -73,10 +72,9 @@ public class HelloWorldLibraryApp extends MultiModuleTestProject implements Test
 "    </application>\n" +
 "</manifest>\n"));
 
-        AndroidTestApp lib = (AndroidTestApp) getSubproject(":lib");
+        AndroidTestModule lib = (AndroidTestModule) getSubproject(":lib");
         lib.addFile(
                 new TestSourceFile(
-                        "",
                         "build.gradle",
                         "apply plugin: 'com.android.library'\n"
                                 + "\n"

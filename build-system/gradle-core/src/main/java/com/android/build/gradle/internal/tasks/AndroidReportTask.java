@@ -24,7 +24,7 @@ import static com.android.builder.core.BuilderConstants.FD_FLAVORS_ALL;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction;
 import com.android.build.gradle.internal.test.report.ReportType;
 import com.android.build.gradle.internal.test.report.TestReport;
 import com.android.builder.core.VariantType;
@@ -164,7 +164,7 @@ public class AndroidReportTask extends DefaultTask implements AndroidTestTask {
         }
     }
 
-    public static class ConfigAction extends TaskConfigAction<AndroidReportTask> {
+    public static class CreationAction extends LazyTaskCreationAction<AndroidReportTask> {
 
         public enum TaskKind { CONNECTED, DEVICE_PROVIDER }
 
@@ -172,9 +172,7 @@ public class AndroidReportTask extends DefaultTask implements AndroidTestTask {
 
         private final TaskKind taskKind;
 
-        public ConfigAction(
-                @NonNull GlobalScope scope,
-                @NonNull TaskKind taskKind) {
+        public CreationAction(@NonNull GlobalScope scope, @NonNull TaskKind taskKind) {
             this.scope = scope;
             this.taskKind = taskKind;
         }
@@ -193,7 +191,7 @@ public class AndroidReportTask extends DefaultTask implements AndroidTestTask {
         }
 
         @Override
-        public void execute(@NonNull AndroidReportTask task) {
+        public void configure(@NonNull AndroidReportTask task) {
 
             task.setGroup(JavaBasePlugin.VERIFICATION_GROUP);
             task.setDescription((taskKind == TaskKind.CONNECTED) ?

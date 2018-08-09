@@ -18,7 +18,7 @@ package com.android.build.gradle.internal.res.namespaced
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.IncrementalTask
 import com.android.build.gradle.internal.tasks.Workers
@@ -48,13 +48,25 @@ open class CompileSourceSetResources
 @Inject constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection private set
+    lateinit var aapt2FromMaven: FileCollection
+        private set
 
-    @get:InputFiles @get:SkipWhenEmpty lateinit var inputDirectories: BuildableArtifact private set
-    @get:Input var isPngCrunching: Boolean = false; private set
-    @get:Input var isPseudoLocalize: Boolean = false; private set
-    @get:OutputDirectory lateinit var outputDirectory: File private set
-    @get:OutputDirectory lateinit var partialRDirectory: File private set
+    @get:InputFiles
+    @get:SkipWhenEmpty
+    lateinit var inputDirectories: BuildableArtifact
+        private set
+    @get:Input
+    var isPngCrunching: Boolean = false
+        private set
+    @get:Input
+    var isPseudoLocalize: Boolean = false
+        private set
+    @get:OutputDirectory
+    lateinit var outputDirectory: File
+        private set
+    @get:OutputDirectory
+    lateinit var partialRDirectory: File
+        private set
 
     private val workers = Workers.getWorker(workerExecutor)
 
@@ -163,11 +175,11 @@ open class CompileSourceSetResources
     // TODO: filtering using same logic as DataSet.isIgnored.
     private fun willCompile(file: File) = !file.name.startsWith(".") && !file.isDirectory
 
-    class ConfigAction(
+    class CreationAction(
         override val name: String,
         private val inputDirectories: BuildableArtifact,
         private val variantScope: VariantScope
-    ) : TaskConfigAction<CompileSourceSetResources>() {
+    ) : EagerTaskCreationAction<CompileSourceSetResources>() {
 
         override val type: Class<CompileSourceSetResources>
             get() = CompileSourceSetResources::class.java

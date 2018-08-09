@@ -16,26 +16,24 @@
 
 package com.android.build.gradle.internal.scope
 
-import com.android.build.gradle.internal.pipeline.TransformTask
 import com.android.build.gradle.internal.tasks.CheckManifest
-import com.android.build.gradle.internal.tasks.GenerateApkDataTask
+import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask
 import com.android.build.gradle.tasks.AidlCompile
 import com.android.build.gradle.tasks.ExternalNativeBuildTask
 import com.android.build.gradle.tasks.ExternalNativeJsonGenerator
+import com.android.build.gradle.tasks.ExtractAnnotations
 import com.android.build.gradle.tasks.GenerateBuildConfig
-import com.android.build.gradle.tasks.GenerateResValues
 import com.android.build.gradle.tasks.ManifestProcessorTask
 import com.android.build.gradle.tasks.MergeResources
 import com.android.build.gradle.tasks.MergeSourceSetFolders
 import com.android.build.gradle.tasks.NdkCompile
 import com.android.build.gradle.tasks.PackageAndroidArtifact
-import com.android.build.gradle.tasks.PackageSplitAbi
-import com.android.build.gradle.tasks.PackageSplitRes
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.android.build.gradle.tasks.RenderscriptCompile
-import com.android.build.gradle.tasks.ShaderCompile
+import org.gradle.api.DefaultTask
 import org.gradle.api.Task
 import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.compile.JavaCompile
 
@@ -56,39 +54,50 @@ import org.gradle.api.tasks.compile.JavaCompile
 class MutableTaskContainer : TaskContainer {
 
     // implementation of the API setter/getters as required by our current APIs.
-    override lateinit var assembleTask: Task
-    override lateinit var javacTask: JavaCompile
-    override lateinit var compileTask: Task
-    override lateinit var preBuildTask: Task
+    override lateinit var assembleTask: TaskProvider<out Task>
+    override lateinit var javacTask: TaskProvider<out JavaCompile>
+    override lateinit var compileTask: TaskProvider<out Task>
+    override lateinit var preBuildTask: TaskProvider<out Task>
     override var checkManifestTask: CheckManifest? = null
-    override var aidlCompileTask: AidlCompile? = null
-    override var renderscriptCompileTask: RenderscriptCompile? = null
-    override lateinit var mergeResourcesTask: MergeResources
-    override lateinit var mergeAssetsTask: MergeSourceSetFolders
-    override lateinit var processJavaResourcesTask: Sync
-    override var generateBuildConfigTask: GenerateBuildConfig? = null
-    override var ndkCompileTask: NdkCompile? = null
+    override var aidlCompileTask: TaskProvider<out AidlCompile>? = null
+    override var renderscriptCompileTask: TaskProvider<out RenderscriptCompile>? = null
+    override lateinit var mergeResourcesTask: TaskProvider<out MergeResources>
+    override lateinit var mergeAssetsTask: TaskProvider<out MergeSourceSetFolders>
+    override lateinit var processJavaResourcesTask: TaskProvider<out Sync>
+    override var generateBuildConfigTask: TaskProvider<out GenerateBuildConfig>? = null
+    override var ndkCompileTask: TaskProvider<out NdkCompile>? = null
     override var obfuscationTask: Task? = null
     override var processAndroidResTask: ProcessAndroidResources? = null
-    override var processManifestTask: ManifestProcessorTask? = null
+    override var processManifestTask: TaskProvider<out ManifestProcessorTask>? = null
     override var packageAndroidTask: PackageAndroidArtifact? = null
     override var bundleLibraryTask: Zip? = null
 
+    override var installTask: TaskProvider<out DefaultTask>? = null
+    override var uninstallTask: TaskProvider<out DefaultTask>? = null
+
+    override var connectedTestTask: DeviceProviderInstrumentTestTask? = null
+    override val providerTestTaskList: List<DeviceProviderInstrumentTestTask> = mutableListOf()
+
+    override var generateAnnotationsTask: ExtractAnnotations? = null
+
     override val externalNativeBuildTasks: MutableCollection<ExternalNativeBuildTask> = mutableListOf()
+
+    // required by the model.
+    lateinit var sourceGenTask: TaskProvider<out Task>
 
     // anything below is scheduled for removal, using BuildableArtifact to link tasks.
 
-    var bundleTask: Task? = null
-    var sourceGenTask: Task? = null
-    var resourceGenTask: Task? = null
-    var assetGenTask: Task? = null
+    var bundleTask: TaskProvider<out Task>? = null
+    lateinit var resourceGenTask: TaskProvider<Task>
+    lateinit var assetGenTask: TaskProvider<Task>
     var connectedTask: Task? = null
-    var microApkTask: GenerateApkDataTask? = null
+    var microApkTask: Task? = null
     var externalNativeBuildTask: ExternalNativeBuildTask? = null
     var externalNativeJsonGenerator: ExternalNativeJsonGenerator? = null
-    var packageSplitResourcesTask: PackageSplitRes? = null
-    var packageSplitAbiTask: PackageSplitAbi? = null
-    var generateResValuesTask: GenerateResValues? = null
-    var generateApkDataTask: GenerateApkDataTask? = null
-    var coverageReportTask: Task? = null
+    var packageSplitResourcesTask: Task? = null
+    var packageSplitAbiTask: Task? = null
+    var generateResValuesTask: TaskProvider<out Task>? = null
+    var generateApkDataTask: Task? = null
+    var coverageReportTask: TaskProvider<out Task>? = null
+    var dataBindingExportBuildInfoTask: Task? = null
 }

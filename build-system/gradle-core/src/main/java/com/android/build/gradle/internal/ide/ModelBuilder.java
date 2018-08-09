@@ -392,6 +392,13 @@ public class ModelBuilder<Extension extends AndroidConfig>
             }
         }
 
+        // FIXME we should not have to configure the javac task to have proper values in extension.getCompileOptions()
+        // b/112356059
+        VariantScope variant = Iterables.getFirst(variantManager.getVariantScopes(), null);
+        if (variant != null) {
+            variant.getTaskContainer().getCompileTask().get();
+        }
+
         return new DefaultAndroidProject(
                 project.getName(),
                 defaultConfig,
@@ -786,7 +793,7 @@ public class ModelBuilder<Extension extends AndroidConfig>
 
         InstantRunImpl instantRun =
                 new InstantRunImpl(
-                        BuildInfoWriterTask.ConfigAction.getBuildInfoFile(scope),
+                        BuildInfoWriterTask.CreationAction.getBuildInfoFile(scope),
                         variantConfiguration.getInstantRunSupportStatus(globalScope));
 
         Pair<Dependencies, DependencyGraphs> dependencies =
@@ -857,11 +864,7 @@ public class ModelBuilder<Extension extends AndroidConfig>
                 variantConfiguration.isSigningReady() || variantData.outputsAreSigned,
                 signingConfigName,
                 applicationId,
-                // TODO: Need to determine the tasks' name when the tasks may not be created
-                // in component plugin.
-                taskContainer.getSourceGenTask() == null
-                        ? scope.getTaskName("generate", "Sources")
-                        : taskContainer.getSourceGenTask().getName(),
+                taskContainer.getSourceGenTask().getName(),
                 taskContainer.getCompileTask().getName(),
                 getGeneratedSourceFolders(variantData),
                 getGeneratedResourceFolders(variantData),

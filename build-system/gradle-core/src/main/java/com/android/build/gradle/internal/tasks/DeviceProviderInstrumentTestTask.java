@@ -29,8 +29,8 @@ import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.build.gradle.internal.test.AbstractTestDataImpl;
 import com.android.build.gradle.internal.test.report.ReportType;
 import com.android.build.gradle.internal.test.report.TestReport;
@@ -332,7 +332,8 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         return testData.getTestedApksDir();
     }
 
-    public static class ConfigAction extends TaskConfigAction<DeviceProviderInstrumentTestTask> {
+    public static class CreationAction
+            extends EagerTaskCreationAction<DeviceProviderInstrumentTestTask> {
 
         @NonNull
         private final VariantScope scope;
@@ -341,7 +342,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         @NonNull private final AbstractTestDataImpl testData;
         @NonNull private final FileCollection testTargetManifests;
 
-        public ConfigAction(
+        public CreationAction(
                 @NonNull VariantScope scope,
                 @NonNull DeviceProvider deviceProvider,
                 @NonNull AbstractTestDataImpl testData,
@@ -467,11 +468,10 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
             task.setCoverageDir(project.file(rootLocation + subFolder));
 
             if (scope.getVariantData() instanceof TestVariantData) {
-                TestVariantData testVariantData = (TestVariantData) scope.getVariantData();
                 if (connected) {
-                    testVariantData.connectedTestTask = task;
+                    scope.getTaskContainer().setConnectedTestTask(task);
                 } else {
-                    testVariantData.providerTestTaskList.add(task);
+                    scope.getTaskContainer().getProviderTestTaskList().add(task);
                 }
             }
 

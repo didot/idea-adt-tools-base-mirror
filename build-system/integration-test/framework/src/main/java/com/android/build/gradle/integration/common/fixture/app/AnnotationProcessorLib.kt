@@ -24,7 +24,8 @@ package com.android.build.gradle.integration.common.fixture.app
  * field.
  * In addition, it will also generated a InnerClass for the annotated class.
  */
-class AnnotationProcessorLib private constructor(isCompiler: Boolean) : AbstractAndroidTestApp(), AndroidTestApp {
+class AnnotationProcessorLib private constructor(isCompiler: Boolean) : AbstractAndroidTestModule(),
+    AndroidTestModule {
 
     init {
         addFiles(annotation, buildGradle)
@@ -137,7 +138,6 @@ public class Processor extends AbstractProcessor {
 }""")
 
         private val buildGradle = TestSourceFile(
-                "",
                 "build.gradle",
                 """
 apply plugin: "java"

@@ -23,8 +23,8 @@ import static com.android.build.gradle.internal.scope.InternalArtifactType.PROCE
 import com.android.annotations.NonNull;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.utils.FileUtils;
 import com.android.utils.PathUtils;
 import com.google.common.collect.Iterables;
@@ -99,10 +99,10 @@ public class PackageForUnitTest extends DefaultTask {
                 .getOutputFile();
     }
 
-    public static class ConfigAction extends TaskConfigAction<PackageForUnitTest> {
+    public static class CreationAction extends EagerTaskCreationAction<PackageForUnitTest> {
         @NonNull private final VariantScope scope;
 
-        public ConfigAction(@NonNull VariantScope scope) {
+        public CreationAction(@NonNull VariantScope scope) {
             this.scope = scope;
         }
 

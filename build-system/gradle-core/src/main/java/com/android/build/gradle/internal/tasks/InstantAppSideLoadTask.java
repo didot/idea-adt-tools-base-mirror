@@ -25,8 +25,8 @@ import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InstantAppOutputScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction;
 import com.android.builder.sdk.SdkInfo;
 import com.android.builder.testing.ConnectedDevice;
 import com.android.builder.testing.ConnectedDeviceProvider;
@@ -162,11 +162,11 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
         return bundleDir;
     }
 
-    public static class ConfigAction extends TaskConfigAction<InstantAppSideLoadTask> {
+    public static class CreationAction extends LazyTaskCreationAction<InstantAppSideLoadTask> {
 
         @NonNull private final VariantScope scope;
 
-        public ConfigAction(@NonNull VariantScope scope) {
+        public CreationAction(@NonNull VariantScope scope) {
             this.scope = scope;
         }
 
@@ -183,7 +183,7 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull InstantAppSideLoadTask task) {
+        public void configure(@NonNull InstantAppSideLoadTask task) {
             task.setDescription("Side loads the " + scope.getVariantData().getDescription() + ".");
             task.setVariantName(scope.getFullVariantName());
 

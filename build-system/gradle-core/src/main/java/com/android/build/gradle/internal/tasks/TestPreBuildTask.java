@@ -21,7 +21,7 @@ import static com.android.build.gradle.internal.publishing.AndroidArtifacts.Arti
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
 
 import com.android.annotations.NonNull;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.scope.VariantScope;
 import java.io.File;
 import java.util.Objects;
@@ -56,18 +56,11 @@ public class TestPreBuildTask extends ClasspathComparisionTask {
         compareClasspaths();
     }
 
-    public static class ConfigAction extends TaskConfigAction<TestPreBuildTask> {
+    public static class CreationAction
+            extends TaskManager.AbstractPreBuildCreationAction<TestPreBuildTask> {
 
-        @NonNull private final VariantScope variantScope;
-
-        public ConfigAction(@NonNull VariantScope variantScope) {
-            this.variantScope = variantScope;
-        }
-
-        @NonNull
-        @Override
-        public String getName() {
-            return variantScope.getTaskName("pre", "Build");
+        public CreationAction(@NonNull VariantScope variantScope) {
+            super(variantScope);
         }
 
         @NonNull
@@ -77,7 +70,8 @@ public class TestPreBuildTask extends ClasspathComparisionTask {
         }
 
         @Override
-        public void execute(@NonNull TestPreBuildTask task) {
+        public void configure(@NonNull TestPreBuildTask task) {
+            super.configure(task);
             task.setVariantName(variantScope.getFullVariantName());
 
             task.runtimeClasspath =
@@ -92,8 +86,6 @@ public class TestPreBuildTask extends ClasspathComparisionTask {
                     new File(
                             variantScope.getGlobalScope().getIntermediatesDir(),
                             "prebuild/" + variantScope.getVariantConfiguration().getDirName());
-
-            variantScope.getTaskContainer().setPreBuildTask(task);
         }
     }
 }

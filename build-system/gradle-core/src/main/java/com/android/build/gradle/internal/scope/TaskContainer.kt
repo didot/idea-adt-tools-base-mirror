@@ -17,8 +17,10 @@
 package com.android.build.gradle.internal.scope
 
 import com.android.build.gradle.internal.tasks.CheckManifest
+import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask
 import com.android.build.gradle.tasks.AidlCompile
 import com.android.build.gradle.tasks.ExternalNativeBuildTask
+import com.android.build.gradle.tasks.ExtractAnnotations
 import com.android.build.gradle.tasks.GenerateBuildConfig
 import com.android.build.gradle.tasks.ManifestProcessorTask
 import com.android.build.gradle.tasks.MergeResources
@@ -27,8 +29,10 @@ import com.android.build.gradle.tasks.NdkCompile
 import com.android.build.gradle.tasks.PackageAndroidArtifact
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.android.build.gradle.tasks.RenderscriptCompile
+import org.gradle.api.DefaultTask
 import org.gradle.api.Task
 import org.gradle.api.tasks.Sync
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.Zip
 import org.gradle.api.tasks.compile.JavaCompile
 
@@ -37,24 +41,32 @@ import org.gradle.api.tasks.compile.JavaCompile
  */
 interface TaskContainer {
 
-    val assembleTask: Task
-    val javacTask: JavaCompile
+    val assembleTask: TaskProvider<out Task>
+    val javacTask: TaskProvider<out JavaCompile>
     // empty anchor compile task to set all compilations tasks as dependents.
-    val compileTask: Task
-    val preBuildTask: Task
+    val compileTask: TaskProvider<out Task>
+    val preBuildTask: TaskProvider<out Task>
     val checkManifestTask: CheckManifest?
-    val aidlCompileTask: AidlCompile?
-    val renderscriptCompileTask: RenderscriptCompile?
-    val mergeResourcesTask: MergeResources
-    val mergeAssetsTask: MergeSourceSetFolders
-    val processJavaResourcesTask: Sync
-    val generateBuildConfigTask: GenerateBuildConfig?
-    val ndkCompileTask: NdkCompile?
+    val aidlCompileTask: TaskProvider<out AidlCompile>?
+    val renderscriptCompileTask: TaskProvider<out RenderscriptCompile>?
+    val mergeResourcesTask: TaskProvider<out MergeResources>
+    val mergeAssetsTask: TaskProvider<out MergeSourceSetFolders>
+    val processJavaResourcesTask: TaskProvider<out Sync>
+    val generateBuildConfigTask: TaskProvider<out GenerateBuildConfig>?
+    val ndkCompileTask: TaskProvider<out NdkCompile>?
     val obfuscationTask: Task?
     val processAndroidResTask: ProcessAndroidResources?
-    val processManifestTask: ManifestProcessorTask?
+    val processManifestTask: TaskProvider<out ManifestProcessorTask>?
     val packageAndroidTask: PackageAndroidArtifact?
     val bundleLibraryTask: Zip?
+
+    val installTask: TaskProvider<out DefaultTask>?
+    val uninstallTask: TaskProvider<out DefaultTask>?
+
+    val connectedTestTask: DeviceProviderInstrumentTestTask?
+    val providerTestTaskList: List<DeviceProviderInstrumentTestTask>
+
+    var generateAnnotationsTask: ExtractAnnotations?
 
     val externalNativeBuildTasks: Collection<ExternalNativeBuildTask>
 }

@@ -18,7 +18,7 @@ package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.builder.symbols.exportToCompiledJava
 import com.android.ide.common.symbols.SymbolTable
@@ -45,12 +45,19 @@ open class GenerateNamespacedLibraryRFilesTask : DefaultTask() {
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var partialRFiles: BuildableArtifact private set
+    lateinit var partialRFiles: BuildableArtifact
+        private set
 
-    @get:Internal lateinit var packageForRSupplier: Supplier<String> private set
-    @get:Input val packageForR get() = packageForRSupplier.get()
+    @get:Internal
+    lateinit var packageForRSupplier: Supplier<String>
+        private set
+    @get:Input
+    val packageForR
+        get() = packageForRSupplier.get()
 
-    @get:OutputFile lateinit var rJarFile: File private set
+    @get:OutputFile
+    lateinit var rJarFile: File
+        private set
 
     @TaskAction
     fun taskAction() {
@@ -69,8 +76,8 @@ open class GenerateNamespacedLibraryRFilesTask : DefaultTask() {
         exportToCompiledJava(ImmutableList.of(resources), rJarFile.toPath())
     }
 
-    class ConfigAction(private val scope: VariantScope) :
-        TaskConfigAction<GenerateNamespacedLibraryRFilesTask>() {
+    class CreationAction(private val scope: VariantScope) :
+        EagerTaskCreationAction<GenerateNamespacedLibraryRFilesTask>() {
 
         override val name: String
             get() = scope.getTaskName("create", "RFiles")

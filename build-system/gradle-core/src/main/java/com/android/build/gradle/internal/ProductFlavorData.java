@@ -19,15 +19,16 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.internal.api.DefaultAndroidSourceSet;
 import com.android.build.gradle.internal.dsl.CoreProductFlavor;
-import org.gradle.api.DefaultTask;
+import org.gradle.api.Task;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
  * Class containing a ProductFlavor and associated data (sourcesets)
  */
 public class ProductFlavorData<T extends CoreProductFlavor> extends VariantDimensionData {
     @NonNull private final T productFlavor;
-    @Nullable private DefaultTask assembleTask;
-    @Nullable private DefaultTask bundleTask;
+    @Nullable private TaskProvider<Task> assembleTask;
+    @Nullable private TaskProvider<Task> bundleTask;
 
     ProductFlavorData(
             @NonNull T productFlavor,
@@ -45,20 +46,20 @@ public class ProductFlavorData<T extends CoreProductFlavor> extends VariantDimen
     }
 
     @Nullable
-    public DefaultTask getAssembleTask() {
+    public TaskProvider<Task> getAssembleTask() {
         return assembleTask;
     }
 
-    public void setAssembleTask(@NonNull DefaultTask assembleTask) {
+    public void setAssembleTask(@NonNull TaskProvider<Task> assembleTask) {
         this.assembleTask = assembleTask;
     }
 
     @Nullable
-    public DefaultTask getBundleTask() {
+    public TaskProvider<Task> getBundleTask() {
         return bundleTask;
     }
 
-    public void setBundleTask(@Nullable DefaultTask bundleTask) {
+    public void setBundleTask(@Nullable TaskProvider<Task> bundleTask) {
         this.bundleTask = bundleTask;
     }
 }

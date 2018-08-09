@@ -21,7 +21,7 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactSco
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH
 import com.android.build.gradle.internal.scope.ExistingBuildElements
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.TaskInputHelper
 import com.android.build.gradle.options.BooleanOption
@@ -137,11 +137,11 @@ open class GenerateLibraryRFileTask : ProcessAndroidResources() {
 
 
 
-    class ConfigAction(
+    class CreationAction(
             private val variantScope: VariantScope,
             private val symbolFile: File,
             private val symbolsWithPackageNameOutputFile: File
-    ) : TaskConfigAction<GenerateLibraryRFileTask>() {
+    ) : EagerTaskCreationAction<GenerateLibraryRFileTask>() {
 
         override val name: String
             get() = variantScope.getTaskName("generate", "RFile")

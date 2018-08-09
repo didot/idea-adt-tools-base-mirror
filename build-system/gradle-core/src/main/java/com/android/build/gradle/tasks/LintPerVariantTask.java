@@ -61,11 +61,11 @@ public class LintPerVariantTask extends LintBaseTask {
         }
     }
 
-    public static class ConfigAction extends BaseConfigAction<LintPerVariantTask> {
+    public static class CreationAction extends BaseCreationAction<LintPerVariantTask> {
 
         private final VariantScope scope;
 
-        public ConfigAction(@NonNull VariantScope scope) {
+        public CreationAction(@NonNull VariantScope scope) {
             super(scope.getGlobalScope());
             this.scope = scope;
         }
@@ -83,8 +83,8 @@ public class LintPerVariantTask extends LintBaseTask {
         }
 
         @Override
-        public void execute(@NonNull LintPerVariantTask lint) {
-            super.execute(lint);
+        public void configure(@NonNull LintPerVariantTask lint) {
+            super.configure(lint);
 
             lint.setVariantName(scope.getVariantConfiguration().getFullName());
 
@@ -98,11 +98,11 @@ public class LintPerVariantTask extends LintBaseTask {
         }
     }
 
-    public static class VitalConfigAction extends BaseConfigAction<LintPerVariantTask> {
+    public static class VitalCreationAction extends BaseCreationAction<LintPerVariantTask> {
 
         private final VariantScope scope;
 
-        public VitalConfigAction(@NonNull VariantScope scope) {
+        public VitalCreationAction(@NonNull VariantScope scope) {
             super(scope.getGlobalScope());
             this.scope = scope;
         }
@@ -120,8 +120,8 @@ public class LintPerVariantTask extends LintBaseTask {
         }
 
         @Override
-        public void execute(@NonNull LintPerVariantTask task) {
-            super.execute(task);
+        public void configure(@NonNull LintPerVariantTask task) {
+            super.configure(task);
 
             String variantName = scope.getVariantData().getVariantConfiguration().getFullName();
             task.setVariantName(variantName);

@@ -16,12 +16,10 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
-import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.compile.JavaCompile
-import java.io.File
 
 /**
  * Task to compile a directory containing R.java file(s) and jar the result.
@@ -34,7 +32,7 @@ import java.io.File
 @CacheableTask
 open class CompileRClassTask : JavaCompile() {
 
-    class ConfigAction(private val scope: VariantScope) : TaskConfigAction<CompileRClassTask>() {
+    class CreationAction(private val scope: VariantScope) : EagerTaskCreationAction<CompileRClassTask>() {
 
         override val name: String
             get() = scope.getTaskName("compile", "FinalRClass")

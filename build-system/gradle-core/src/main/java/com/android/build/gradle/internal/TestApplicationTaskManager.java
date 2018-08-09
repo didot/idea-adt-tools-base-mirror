@@ -33,6 +33,7 @@ import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.test.TestApplicationTestData;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.options.ProjectOptions;
@@ -51,6 +52,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
 /**
@@ -124,8 +126,8 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
 
         // create the test connected check task.
         DeviceProviderInstrumentTestTask instrumentTestTask =
-                taskFactory.create(
-                        new DeviceProviderInstrumentTestTask.ConfigAction(
+                taskFactory.eagerCreate(
+                        new DeviceProviderInstrumentTestTask.CreationAction(
                                 variantScope,
                                 new ConnectedDeviceProvider(
                                         sdkHandler.getSdkInfo().getAdb(),
@@ -182,9 +184,11 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
                             AndroidArtifacts.ArtifactType.APK_MAPPING));
         } else {
             CheckTestedAppObfuscation checkObfuscation =
-                    taskFactory.create(new CheckTestedAppObfuscation.ConfigAction(variantScope));
+                    taskFactory.eagerCreate(
+                            new CheckTestedAppObfuscation.CreationAction(variantScope));
             Preconditions.checkNotNull(variantScope.getTaskContainer().getJavacTask());
-            variantScope.getTaskContainer().getJavacTask().dependsOn(checkObfuscation);
+            TaskFactoryUtils.dependsOn(
+                    variantScope.getTaskContainer().getJavacTask(), checkObfuscation);
             return null;
         }
     }
@@ -214,9 +218,10 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     /** Creates the merge manifests task. */
     @Override
     @NonNull
-    protected ManifestProcessorTask createMergeManifestTask(@NonNull VariantScope variantScope) {
-        return taskFactory.create(
-                new ProcessTestManifest.ConfigAction(
+    protected TaskProvider<? extends ManifestProcessorTask> createMergeManifestTask(
+            @NonNull VariantScope variantScope) {
+        return taskFactory.lazyCreate(
+                new ProcessTestManifest.CreationAction(
                         variantScope,
                         new BuildableArtifactImpl(
                                 getTestedManifestMetadata(variantScope.getVariantData()),
@@ -224,7 +229,7 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     }
 
     @Override
-    protected Task createVariantPreBuildTask(@NonNull VariantScope scope) {
-        return createDefaultPreBuildTask(scope);
+    protected void createVariantPreBuildTask(@NonNull VariantScope scope) {
+        createDefaultPreBuildTask(scope);
     }
 }

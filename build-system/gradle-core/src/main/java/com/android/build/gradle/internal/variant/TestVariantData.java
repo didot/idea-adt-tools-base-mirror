@@ -20,20 +20,15 @@ import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask;
 import com.android.builder.core.VariantType;
 import com.android.builder.profile.Recorder;
 import com.android.utils.StringHelper;
-import com.google.common.collect.Lists;
-import java.util.List;
 
 /**
  * Data about a variant that produce a test APK
  */
 public class TestVariantData extends ApkVariantData {
 
-    public DeviceProviderInstrumentTestTask connectedTestTask;
-    public final List<DeviceProviderInstrumentTestTask> providerTestTaskList = Lists.newArrayList();
     @NonNull
     private final TestedVariantData testedVariantData;
 

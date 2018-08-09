@@ -79,15 +79,15 @@ public abstract class BaseVariantOutputImpl implements BaseVariantOutput {
     }
 
     @Override
-    @Nullable
+    @NonNull
     public ManifestProcessorTask getProcessManifest() {
-        return taskContainer.getProcessManifestTask();
+        return taskContainer.getProcessManifestTask().get();
     }
 
     @Nullable
     @Override
     public Task getAssemble() {
-        return taskContainer.getAssembleTask();
+        return taskContainer.getAssembleTask().get();
     }
 
     @NonNull

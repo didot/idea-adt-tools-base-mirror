@@ -57,6 +57,8 @@ import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.TaskProvider;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * A task that processes the manifest for test modules and tests in androidTest.
@@ -257,7 +259,7 @@ public class ProcessTestManifest extends ManifestProcessorTask {
 
         for (ResolvedArtifactResult artifact : artifacts) {
             providers.add(
-                    new ProcessApplicationManifest.ConfigAction.ManifestProviderImpl(
+                    new ProcessApplicationManifest.CreationAction.ManifestProviderImpl(
                             artifact.getFile(),
                             ProcessApplicationManifest.getArtifactName(artifact)));
         }
@@ -270,15 +272,15 @@ public class ProcessTestManifest extends ManifestProcessorTask {
         return manifests.getArtifactFiles();
     }
 
-    public static class ConfigAction
-            extends AnnotationProcessingTaskConfigAction<ProcessTestManifest> {
+    public static class CreationAction
+            extends AnnotationProcessingTaskCreationAction<ProcessTestManifest> {
 
         @NonNull
         private final VariantScope scope;
 
         @Nullable private final BuildableArtifact testTargetMetadata;
 
-        public ConfigAction(
+        public CreationAction(
                 @NonNull VariantScope scope, @Nullable BuildableArtifact testTargetMetadata) {
             super(scope, scope.getTaskName("process", "Manifest"), ProcessTestManifest.class);
             this.scope = scope;
@@ -286,63 +288,69 @@ public class ProcessTestManifest extends ManifestProcessorTask {
         }
 
         @Override
-        public void execute(@NonNull final ProcessTestManifest processTestManifestTask) {
-            super.execute(processTestManifestTask);
+        public void preConfigure(@NotNull String taskName) {
+            super.preConfigure(taskName);
+            scope.getArtifacts()
+                    .appendArtifact(
+                            InternalArtifactType.MANIFEST_METADATA,
+                            scope.getArtifacts()
+                                    .getFinalArtifactFiles(InternalArtifactType.MERGED_MANIFESTS));
+        }
+
+        @Override
+        public void handleProvider(
+                @NotNull TaskProvider<? extends ProcessTestManifest> taskProvider) {
+            super.handleProvider(taskProvider);
+            scope.getTaskContainer().setProcessManifestTask(taskProvider);
+        }
+
+        @Override
+        public void configure(@NonNull final ProcessTestManifest task) {
+            super.configure(task);
 
             final VariantConfiguration<CoreBuildType, CoreProductFlavor, CoreProductFlavor> config =
                     scope.getVariantConfiguration();
 
-            processTestManifestTask.setTestManifestFile(config.getMainManifest());
-            processTestManifestTask.outputScope = scope.getOutputScope();
+            task.setTestManifestFile(config.getMainManifest());
+            task.outputScope = scope.getOutputScope();
 
-            processTestManifestTask.setTmpDir(FileUtils.join(
-                    scope.getGlobalScope().getIntermediatesDir(),
-                    "tmp",
-                    "manifest",
-                    scope.getDirName()));
+            task.setTmpDir(
+                    FileUtils.join(
+                            scope.getGlobalScope().getIntermediatesDir(),
+                            "tmp",
+                            "manifest",
+                            scope.getDirName()));
 
-            processTestManifestTask.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            processTestManifestTask.setVariantName(config.getFullName());
+            task.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
+            task.setVariantName(config.getFullName());
 
-
-            processTestManifestTask.minSdkVersion =
+            task.minSdkVersion =
                     TaskInputHelper.memoize(() -> config.getMinSdkVersion().getApiString());
 
-            processTestManifestTask.targetSdkVersion =
+            task.targetSdkVersion =
                     TaskInputHelper.memoize(() -> config.getTargetSdkVersion().getApiString());
 
-            processTestManifestTask.testTargetMetadata = testTargetMetadata;
-            processTestManifestTask.testApplicationId =
-                    TaskInputHelper.memoize(config::getTestApplicationId);
+            task.testTargetMetadata = testTargetMetadata;
+            task.testApplicationId = TaskInputHelper.memoize(config::getTestApplicationId);
 
             // will only be used if testTargetMetadata is null.
-            processTestManifestTask.testedApplicationId =
-                    TaskInputHelper.memoize(config::getTestedApplicationId);
+            task.testedApplicationId = TaskInputHelper.memoize(config::getTestedApplicationId);
 
             VariantConfiguration testedConfig = config.getTestedConfig();
-            processTestManifestTask.onlyTestApk =
-                    testedConfig != null && testedConfig.getType().isAar();
+            task.onlyTestApk = testedConfig != null && testedConfig.getType().isAar();
 
-            processTestManifestTask.instrumentationRunner =
-                    TaskInputHelper.memoize(config::getInstrumentationRunner);
-            processTestManifestTask.handleProfiling =
-                    TaskInputHelper.memoize(config::getHandleProfiling);
-            processTestManifestTask.functionalTest =
-                    TaskInputHelper.memoize(config::getFunctionalTest);
-            processTestManifestTask.testLabel = TaskInputHelper.memoize(config::getTestLabel);
+            task.instrumentationRunner = TaskInputHelper.memoize(config::getInstrumentationRunner);
+            task.handleProfiling = TaskInputHelper.memoize(config::getHandleProfiling);
+            task.functionalTest = TaskInputHelper.memoize(config::getFunctionalTest);
+            task.testLabel = TaskInputHelper.memoize(config::getTestLabel);
 
-            processTestManifestTask.manifests = scope.getArtifactCollection(
-                    RUNTIME_CLASSPATH, ALL, MANIFEST);
+            task.manifests = scope.getArtifactCollection(RUNTIME_CLASSPATH, ALL, MANIFEST);
 
-            processTestManifestTask.placeholdersValues =
-                    TaskInputHelper.memoize(config::getManifestPlaceholders);
+            task.placeholdersValues = TaskInputHelper.memoize(config::getManifestPlaceholders);
 
-            scope.getArtifacts().appendArtifact(
-                    InternalArtifactType.MANIFEST_METADATA,
-                    scope.getArtifacts().getFinalArtifactFiles(
-                            InternalArtifactType.MERGED_MANIFESTS));
-
-            scope.getTaskContainer().setProcessManifestTask(processTestManifestTask);
+            if (scope.getTaskContainer().getCheckManifestTask() != null) {
+                task.dependsOn(scope.getTaskContainer().getCheckManifestTask());
+            }
         }
     }
 }

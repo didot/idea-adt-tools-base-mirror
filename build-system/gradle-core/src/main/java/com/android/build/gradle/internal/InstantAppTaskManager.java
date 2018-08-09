@@ -22,19 +22,19 @@ import com.android.build.api.transform.QualifiedContent;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.InstantAppProvisionTask;
 import com.android.build.gradle.internal.tasks.InstantAppSideLoadTask;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.tasks.BundleInstantApp;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.profile.Recorder;
-import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.util.Collection;
 import java.util.Set;
 import org.gradle.api.Project;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
 /** TaskManager for creating tasks in an Android InstantApp project. */
@@ -66,27 +66,23 @@ public class InstantAppTaskManager extends TaskManager {
     public void createTasksForVariantScope(@NonNull final VariantScope variantScope) {
         // Create the bundling task.
         File bundleDir = variantScope.getApkLocation();
-        BundleInstantApp bundleTask =
-                taskFactory.create(new BundleInstantApp.ConfigAction(variantScope, bundleDir));
-        variantScope.getTaskContainer().getAssembleTask().dependsOn(bundleTask);
-        variantScope
-                .getArtifacts()
-                .appendArtifact(
-                        InternalArtifactType.INSTANTAPP_BUNDLE,
-                        ImmutableList.of(variantScope.getApkLocation()),
-                        bundleTask);
+        TaskProvider<BundleInstantApp> bundleTask =
+                taskFactory.lazyCreate(
+                        new BundleInstantApp.CreationAction(variantScope, bundleDir));
 
-        taskFactory.create(new InstantAppSideLoadTask.ConfigAction(variantScope));
+        TaskFactoryUtils.dependsOn(variantScope.getTaskContainer().getAssembleTask(), bundleTask);
+
+        taskFactory.lazyCreate(new InstantAppSideLoadTask.CreationAction(variantScope));
 
         // FIXME: Stop creating a dummy task just to make the IDE sync shut up.
-        taskFactory.create(variantScope.getTaskName("dummy"));
+        taskFactory.lazyCreate(variantScope.getTaskName("dummy"));
     }
 
     @Override
     public void createTasksBeforeEvaluate() {
         super.createTasksBeforeEvaluate();
 
-        taskFactory.create(new InstantAppProvisionTask.ConfigAction(globalScope));
+        taskFactory.eagerCreate(new InstantAppProvisionTask.CreationAction(globalScope));
     }
 
     @NonNull

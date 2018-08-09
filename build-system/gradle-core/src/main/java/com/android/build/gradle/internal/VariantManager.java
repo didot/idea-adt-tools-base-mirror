@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.internal;
 
+import static com.android.build.gradle.internal.dependency.DexingTransformKt.getDexingArtifactConfigurations;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.AAR;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.EXPLODED_AAR;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.JAR;
@@ -46,6 +47,9 @@ import com.android.build.gradle.internal.dependency.AlternateDisambiguationRule;
 import com.android.build.gradle.internal.dependency.AndroidTypeAttr;
 import com.android.build.gradle.internal.dependency.AndroidTypeAttrCompatRule;
 import com.android.build.gradle.internal.dependency.AndroidTypeAttrDisambRule;
+import com.android.build.gradle.internal.dependency.DexingArtifactConfiguration;
+import com.android.build.gradle.internal.dependency.DexingTransform;
+import com.android.build.gradle.internal.dependency.DexingTransformKt;
 import com.android.build.gradle.internal.dependency.ExtractAarTransform;
 import com.android.build.gradle.internal.dependency.IdentityTransform;
 import com.android.build.gradle.internal.dependency.JetifyTransform;
@@ -69,6 +73,7 @@ import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.MutableTaskContainer;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.TestVariantData;
 import com.android.build.gradle.internal.variant.TestedVariantData;
@@ -107,7 +112,6 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.gradle.api.Action;
-import org.gradle.api.DefaultTask;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
@@ -117,6 +121,7 @@ import org.gradle.api.attributes.AttributeMatchingStrategy;
 import org.gradle.api.attributes.AttributesSchema;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.model.ObjectFactory;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
  * Class to create, manage variants.
@@ -381,6 +386,7 @@ public class VariantManager implements VariantModel {
                     variantScope.getFullVariantName(),
                     () -> createTasksForVariantData(variantScope));
         }
+
         taskManager.createSourceSetArtifactReportTask(globalScope);
 
         taskManager.createReportTasks(variantScopes);
@@ -412,19 +418,20 @@ public class VariantManager implements VariantModel {
                     taskContainer.setBundleTask(buildTypeData.getBundleTask());
                 }
             } else {
-                DefaultTask variantAssembleTask = taskManager.createAssembleTask(variantData);
+                TaskProvider<Task> variantAssembleTask =
+                        taskManager.createAssembleTask(variantData);
                 taskContainer.setAssembleTask(variantAssembleTask);
 
                 // setup the task dependencies
                 // build type
-                buildTypeData.getAssembleTask().dependsOn(variantAssembleTask);
+                TaskFactoryUtils.dependsOn(buildTypeData.getAssembleTask(), variantAssembleTask);
 
-                DefaultTask variantBundleTask = null;
+                TaskProvider<Task> variantBundleTask = null;
                 if (needBundleTask) {
                     variantBundleTask = taskManager.createBundleTask(variantData);
                     taskContainer.setBundleTask(variantBundleTask);
 
-                    buildTypeData.getBundleTask().dependsOn(variantBundleTask);
+                    TaskFactoryUtils.dependsOn(buildTypeData.getBundleTask(), variantBundleTask);
                 }
 
                 // each flavor
@@ -432,20 +439,20 @@ public class VariantManager implements VariantModel {
                 for (CoreProductFlavor flavor : variantConfig.getProductFlavors()) {
                     ProductFlavorData productFlavorData = productFlavors.get(flavor.getName());
 
-                    DefaultTask flavorAssembleTask = productFlavorData.getAssembleTask();
+                    TaskProvider<Task> flavorAssembleTask = productFlavorData.getAssembleTask();
                     if (flavorAssembleTask == null) {
                         flavorAssembleTask = taskManager.createAssembleTask(productFlavorData);
                         productFlavorData.setAssembleTask(flavorAssembleTask);
                     }
-                    flavorAssembleTask.dependsOn(variantAssembleTask);
+                    TaskFactoryUtils.dependsOn(flavorAssembleTask, variantAssembleTask);
 
                     if (needBundleTask) {
-                        DefaultTask flavorBundleTask = productFlavorData.getBundleTask();
+                        TaskProvider<Task> flavorBundleTask = productFlavorData.getBundleTask();
                         if (flavorBundleTask == null) {
                             flavorBundleTask = taskManager.createBundleTask(productFlavorData);
                             productFlavorData.setBundleTask(flavorBundleTask);
                         }
-                        flavorBundleTask.dependsOn(variantBundleTask);
+                        TaskFactoryUtils.dependsOn(flavorBundleTask, variantBundleTask);
                     }
                 }
 
@@ -455,15 +462,24 @@ public class VariantManager implements VariantModel {
                     final String variantAssembleTaskName =
                             StringHelper.appendCapitalized("assemble", name);
                     if (!taskManager.getTaskFactory().containsKey(variantAssembleTaskName)) {
-                        Task task = taskManager.getTaskFactory().create(variantAssembleTaskName);
-                        task.setDescription("Assembles all builds for flavor combination: " + name);
-                        task.setGroup("Build");
-                        task.dependsOn(taskContainer.getAssembleTask().getName());
+
+                        taskManager
+                                .getTaskFactory()
+                                .lazyCreate(
+                                        variantAssembleTaskName,
+                                        task -> {
+                                            task.setDescription(
+                                                    "Assembles all builds for flavor combination: "
+                                                            + name);
+                                            task.setGroup("Build");
+                                            task.dependsOn(
+                                                    taskContainer.getAssembleTask().getName());
+                                        });
                     }
 
                     taskManager
                             .getTaskFactory()
-                            .configure(
+                            .lazyConfigure(
                                     "assemble", task1 -> task1.dependsOn(variantAssembleTaskName));
 
                     if (needBundleTask) {
@@ -471,16 +487,23 @@ public class VariantManager implements VariantModel {
                         final String variantBundleTaskName =
                                 StringHelper.appendCapitalized("bundle", name);
                         if (!taskManager.getTaskFactory().containsKey(variantBundleTaskName)) {
-                            Task task = taskManager.getTaskFactory().create(variantBundleTaskName);
-                            task.setDescription(
-                                    "Assembles all bundles for flavor combination: " + name);
-                            task.setGroup("Build");
-                            task.dependsOn(taskContainer.getBundleTask().getName());
+                            taskManager
+                                    .getTaskFactory()
+                                    .lazyCreate(
+                                            variantBundleTaskName,
+                                            task -> {
+                                                task.setDescription(
+                                                        "Assembles all bundles for flavor combination: "
+                                                                + name);
+                                                task.setGroup("Build");
+                                                task.dependsOn(
+                                                        taskContainer.getBundleTask().getName());
+                                            });
                         }
 
                         taskManager
                                 .getTaskFactory()
-                                .configure(
+                                .lazyConfigure(
                                         "bundle", task1 -> task1.dependsOn(variantBundleTaskName));
                     }
                 }
@@ -503,7 +526,7 @@ public class VariantManager implements VariantModel {
         // Add dependency of assemble task on assemble build type task.
         taskManager
                 .getTaskFactory()
-                .configure(
+                .lazyConfigure(
                         "assemble",
                         task -> {
                             assert buildTypeData.getAssembleTask() != null;
@@ -514,7 +537,7 @@ public class VariantManager implements VariantModel {
 
             if (variantType.isHybrid()
                     && taskManager.getTaskFactory().findByName("bundle") == null) {
-                taskManager.getTaskFactory().create("bundle");
+                taskManager.getTaskFactory().lazyCreate("bundle");
             }
 
             if (buildTypeData.getBundleTask() == null) {
@@ -523,7 +546,7 @@ public class VariantManager implements VariantModel {
 
             taskManager
                     .getTaskFactory()
-                    .configure(
+                    .lazyConfigure(
                             "bundle",
                             task -> {
                                 assert buildTypeData.getBundleTask() != null;
@@ -602,7 +625,11 @@ public class VariantManager implements VariantModel {
                 project.getDependencies()
                         .add(
                                 variantDep.getCompileClasspath().getName(),
-                                project.files(androidBuilder.getRenderScriptSupportJar()));
+                                project.files(
+                                        androidBuilder.getRenderScriptSupportJar(
+                                                globalScope
+                                                        .getProjectOptions()
+                                                        .get(BooleanOption.USE_ANDROID_X))));
             }
 
             if (variantType.isApk()) { // ANDROID_TEST
@@ -855,6 +882,48 @@ public class VariantManager implements VariantModel {
         setupFlavorStrategy(schema);
     }
 
+    /** Configure artifact transforms that require variant-specific attribute information. */
+    private void configureVariantArtifactTransforms(
+            @NonNull Collection<VariantScope> variantScopes) {
+        DependencyHandler dependencies = project.getDependencies();
+
+        if (globalScope.getProjectOptions().get(BooleanOption.ENABLE_DEXING_ARTIFACT_TRANSFORM)) {
+
+            for (DexingArtifactConfiguration artifactConfiguration :
+                    getDexingArtifactConfigurations(variantScopes)) {
+                dependencies.registerTransform(
+                        reg -> {
+                            reg.getFrom().attribute(ARTIFACT_FORMAT, PROCESSED_JAR.getType());
+                            reg.getTo().attribute(ARTIFACT_FORMAT, ArtifactType.DEX.getType());
+
+                            reg.getFrom()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_IS_DEBUGGABLE,
+                                            Boolean.toString(artifactConfiguration.isDebuggable()));
+                            reg.getTo()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_IS_DEBUGGABLE,
+                                            Boolean.toString(artifactConfiguration.isDebuggable()));
+                            reg.getFrom()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_MIN_SDK,
+                                            Integer.toString(artifactConfiguration.getMinSdk()));
+                            reg.getTo()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_MIN_SDK,
+                                            Integer.toString(artifactConfiguration.getMinSdk()));
+                            reg.artifactTransform(
+                                    DexingTransform.class,
+                                    config -> {
+                                        config.params(
+                                                artifactConfiguration.getMinSdk(),
+                                                artifactConfiguration.isDebuggable());
+                                    });
+                        });
+            }
+        }
+    }
+
     private static <F, T> List<T> convert(
             @NonNull Collection<F> values,
             @NonNull Function<F, ?> function,
@@ -1043,6 +1112,8 @@ public class VariantManager implements VariantModel {
                         (List<ProductFlavor>) (List) flavorCombo.getFlavorList());
             }
         }
+
+        configureVariantArtifactTransforms(variantScopes);
     }
 
     private BaseVariantData createVariantDataForVariantType(
@@ -1162,7 +1233,9 @@ public class VariantManager implements VariantModel {
         }
 
         if (variantConfig.getRenderscriptSupportModeEnabled()) {
-            File renderScriptSupportJar = androidBuilder.getRenderScriptSupportJar();
+            File renderScriptSupportJar =
+                    androidBuilder.getRenderScriptSupportJar(
+                            globalScope.getProjectOptions().get(BooleanOption.USE_ANDROID_X));
 
             final ConfigurableFileCollection fileCollection = project.files(renderScriptSupportJar);
             project.getDependencies()

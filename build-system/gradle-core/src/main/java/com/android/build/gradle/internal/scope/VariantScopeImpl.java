@@ -152,7 +152,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
     @NonNull private final GlobalScope globalScope;
     @NonNull private final BaseVariantData variantData;
     @NonNull private final TransformManager transformManager;
-    @Nullable private Collection<Object> ndkBuildable;
     @Nullable private Collection<File> ndkSoFolder;
     @NonNull private final Map<Abi, File> ndkDebuggableLibraryFolders = Maps.newHashMap();
 
@@ -164,7 +163,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
 
     private ConfigurableFileCollection desugarTryWithResourcesRuntimeJar;
 
-    @Nullable private DataBindingExportBuildInfoTask dataBindingExportBuildInfoTask;
     @Nullable private DataBindingCompilerArguments dataBindingCompilerArguments;
 
     private FileCollection bootClasspath;
@@ -650,17 +648,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
 
     @Override
     @Nullable
-    public Collection<Object> getNdkBuildable() {
-        return ndkBuildable;
-    }
-
-    @Override
-    public void setNdkBuildable(@NonNull Collection<Object> ndkBuildable) {
-        this.ndkBuildable = ndkBuildable;
-    }
-
-    @Override
-    @Nullable
     public Collection<File> getNdkSoFolder() {
         return ndkSoFolder;
     }
@@ -864,13 +851,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
     public File getIncrementalRuntimeSupportJar() {
         return new File(globalScope.getIntermediatesDir(), "/incremental-runtime-classes/" +
                 variantData.getVariantConfiguration().getDirName() + "/instant-run.jar");
-    }
-
-    @Override
-    @NonNull
-    public File getIncrementalApplicationSupportDir() {
-        return new File(globalScope.getIntermediatesDir(), "/incremental-classes/" +
-                variantData.getVariantConfiguration().getDirName());
     }
 
     @NonNull
@@ -1167,13 +1147,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
 
     @Override
     @NonNull
-    public File getProguardComponentsJarFile() {
-        return new File(globalScope.getIntermediatesDir(), "multi-dex/" + getVariantConfiguration().getDirName()
-                + "/componentClasses.jar");
-    }
-
-    @Override
-    @NonNull
     public File getRenderscriptLibOutputDir() {
         return new File(globalScope.getIntermediatesDir(),
                 "rs/" + variantData.getVariantConfiguration().getDirName() + "/lib");
@@ -1235,17 +1208,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
                 globalScope.getGeneratedDir(),
                 StringHelper.toStrings(
                         "res",
-                        name,
-                        getDirectorySegments()));
-    }
-
-    @NonNull
-    @Override
-    public File getGeneratedAssetsDir(@NonNull String name) {
-        return FileUtils.join(
-                globalScope.getGeneratedDir(),
-                StringHelper.toStrings(
-                        "assets",
                         name,
                         getDirectorySegments()));
     }
@@ -1345,14 +1307,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
                 "proguard-rules",
                 getVariantConfiguration().getDirName(),
                 SdkConstants.FN_AAPT_RULES);
-    }
-
-    @Override
-    @NonNull
-    public File getSplitSupportDirectory() {
-        return new File(
-                globalScope.getIntermediatesDir(),
-                "splits-support/" + getVariantConfiguration().getDirName());
     }
 
     @NonNull
@@ -1663,36 +1617,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
         }
 
         return result;
-    }
-
-    @NonNull
-    @Override
-    public File getProcessResourcePackageOutputDirectory() {
-        return FileUtils.join(getGlobalScope().getIntermediatesDir(), FD_RES, getDirName());
-    }
-
-    ProcessAndroidResources processAndroidResourcesTask;
-
-    @Override
-    public void setProcessResourcesTask(
-            ProcessAndroidResources processAndroidResourcesAndroidTask) {
-        this.processAndroidResourcesTask = processAndroidResourcesAndroidTask;
-    }
-
-    @Override
-    public ProcessAndroidResources getProcessResourcesTask() {
-        return processAndroidResourcesTask;
-    }
-
-    @Override
-    public void setDataBindingExportBuildInfoTask(@NonNull DataBindingExportBuildInfoTask task) {
-        this.dataBindingExportBuildInfoTask = task;
-    }
-
-    @Override
-    @Nullable
-    public DataBindingExportBuildInfoTask getDataBindingExportBuildInfoTask() {
-        return dataBindingExportBuildInfoTask;
     }
 
     @Override

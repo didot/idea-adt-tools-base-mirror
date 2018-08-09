@@ -21,7 +21,7 @@ import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.api.AndroidSourceDirectorySet;
 import com.android.build.gradle.api.AndroidSourceSet;
 import com.android.build.gradle.internal.TaskManager;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction;
 import com.android.builder.core.VariantType;
 import java.io.IOException;
 import java.util.stream.Collectors;
@@ -108,11 +108,11 @@ public class SourceSetsTask extends AbstractReportTask {
     }
 
 
-    public static class ConfigAction extends TaskConfigAction<SourceSetsTask> {
+    public static class CreationAction extends LazyTaskCreationAction<SourceSetsTask> {
 
         private final AndroidConfig extension;
 
-        public ConfigAction(@NonNull AndroidConfig extension) {
+        public CreationAction(@NonNull AndroidConfig extension) {
             this.extension = extension;
         }
 
@@ -129,7 +129,7 @@ public class SourceSetsTask extends AbstractReportTask {
         }
 
         @Override
-        public void execute(@NonNull SourceSetsTask sourceSetsTask) {
+        public void configure(@NonNull SourceSetsTask sourceSetsTask) {
             sourceSetsTask.setConfig(extension);
             sourceSetsTask.setDescription(
                     "Prints out all the source sets defined in this project.");

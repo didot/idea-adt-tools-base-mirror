@@ -18,11 +18,9 @@ package com.android.ide.common.rendering.api;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
-import com.android.resources.ResourceUrl;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Table;
 import java.util.Collection;
-import org.jetbrains.annotations.NotNull;
 
 /**
  * Represents an Android style resource with a name and a list of children {@link ResourceValue}.
@@ -33,27 +31,13 @@ public class StyleResourceValueImpl extends ResourceValueImpl implements StyleRe
      *
      * @see #StyleResourceValueImpl(ResourceReference, String, String)
      */
-    @Nullable private String mParentStyle;
+    @Nullable private String parentStyle;
 
     /**
      * Items defined in this style, indexed by the namespace and name of the attribute they define.
      */
-    private final Table<ResourceNamespace, String, StyleItemResourceValue> mItems =
+    @NonNull private final Table<ResourceNamespace, String, StyleItemResourceValue> styleItems =
             HashBasedTable.create();
-
-    /**
-     * Creates a new {@link StyleResourceValueImpl}.
-     *
-     * @see #StyleResourceValueImpl(ResourceNamespace, ResourceType, String, String, String)
-     */
-    public StyleResourceValueImpl(
-            @NonNull ResourceReference reference,
-            @Nullable String parentStyle,
-            @Nullable String libraryName) {
-        super(reference, null, libraryName);
-        assert reference.getResourceType() == ResourceType.STYLE;
-        mParentStyle = parentStyle;
-    }
 
     /**
      * Creates a new {@link StyleResourceValueImpl}.
@@ -72,52 +56,62 @@ public class StyleResourceValueImpl extends ResourceValueImpl implements StyleRe
             @Nullable String libraryName) {
         super(namespace, type, name, null, libraryName);
         assert type == ResourceType.STYLE;
-        mParentStyle = parentStyle;
+        this.parentStyle = parentStyle;
+    }
+
+    /**
+     * Creates a new {@link StyleResourceValueImpl}.
+     *
+     * @see #StyleResourceValueImpl(ResourceNamespace, ResourceType, String, String, String)
+     */
+    public StyleResourceValueImpl(
+            @NonNull ResourceReference reference,
+            @Nullable String parentStyle,
+            @Nullable String libraryName) {
+        super(reference, null, libraryName);
+        assert reference.getResourceType() == ResourceType.STYLE;
+        this.parentStyle = parentStyle;
+    }
+
+    /** Creates a copy of the given style. */
+    @NonNull
+    public static StyleResourceValueImpl copyOf(@NonNull StyleResourceValue style) {
+        StyleResourceValueImpl copy = new StyleResourceValueImpl(
+                style.getNamespace(),
+                style.getResourceType(),
+                style.getName(),
+                style.getParentStyleName(),
+                style.getLibraryName());
+        for (StyleItemResourceValue item : style.getDefinedItems()) {
+            copy.addItem(item);
+        }
+        return copy;
     }
 
     @Override
     @Nullable
     public String getParentStyleName() {
-        return mParentStyle;
-    }
-
-    @Override
-    @Nullable
-    public ResourceReference getParentStyle() {
-        if (mParentStyle != null) {
-            ResourceUrl url = ResourceUrl.parseStyleParentReference(mParentStyle);
-            if (url == null) {
-                return null;
-            }
-
-            return url.resolve(getNamespace(), mNamespaceResolver);
-        }
-
-        int lastDot = getName().lastIndexOf('.');
-        if (lastDot >= 0) {
-            String parent = getName().substring(0, lastDot);
-            if (parent.isEmpty()) {
-                return null;
-            }
-
-            return ResourceReference.style(getNamespace(), parent);
-        }
-
-        return null;
+        return parentStyle;
     }
 
     @Override
     @Nullable
     public StyleItemResourceValue getItem(
             @NonNull ResourceNamespace namespace, @NonNull String name) {
-        return mItems.get(namespace, name);
+        return styleItems.get(namespace, name);
     }
 
     @Override
     @Nullable
     public StyleItemResourceValue getItem(@NonNull ResourceReference attr) {
         assert attr.getResourceType() == ResourceType.ATTR;
-        return mItems.get(attr.getNamespace(), attr.getName());
+        return styleItems.get(attr.getNamespace(), attr.getName());
+    }
+
+    @Override
+    @NonNull
+    public Collection<StyleItemResourceValue> getDefinedItems() {
+        return styleItems.values();
     }
 
     /**
@@ -125,13 +119,11 @@ public class StyleResourceValueImpl extends ResourceValueImpl implements StyleRe
      *
      * @param item the style item to add
      */
-    @Override
-    public void addItem(@NotNull StyleItemResourceValue item) {
+    public void addItem(@NonNull StyleItemResourceValue item) {
         ResourceReference attr = item.getAttr();
-        if (attr == null) {
-            return;
+        if (attr != null) {
+            styleItems.put(attr.getNamespace(), attr.getName(), item);
         }
-        mItems.put(attr.getNamespace(), attr.getName(), item);
     }
 
     @Override
@@ -142,14 +134,8 @@ public class StyleResourceValueImpl extends ResourceValueImpl implements StyleRe
 
         //noinspection ConstantConditions
         if (style instanceof StyleResourceValueImpl) {
-            mItems.clear();
-            mItems.putAll(((StyleResourceValueImpl) style).mItems);
+            styleItems.clear();
+            styleItems.putAll(((StyleResourceValueImpl) style).styleItems);
         }
-    }
-
-    @Override
-    @NotNull
-    public Collection<StyleItemResourceValue> getDefinedItems() {
-        return mItems.values();
     }
 }

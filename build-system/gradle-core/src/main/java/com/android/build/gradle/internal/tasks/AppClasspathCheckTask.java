@@ -22,8 +22,8 @@ import static com.android.build.gradle.internal.publishing.AndroidArtifacts.Cons
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
 
 import com.android.annotations.NonNull;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.ide.common.repository.GradleVersion;
@@ -88,11 +88,11 @@ public class AppClasspathCheckTask extends ClasspathComparisionTask {
         compareClasspaths();
     }
 
-    public static class ConfigAction extends TaskConfigAction<AppClasspathCheckTask> {
+    public static class CreationAction extends EagerTaskCreationAction<AppClasspathCheckTask> {
 
         @NonNull private final VariantScope variantScope;
 
-        public ConfigAction(@NonNull VariantScope variantScope) {
+        public CreationAction(@NonNull VariantScope variantScope) {
             this.variantScope = variantScope;
         }
 

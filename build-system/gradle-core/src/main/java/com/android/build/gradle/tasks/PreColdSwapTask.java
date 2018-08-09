@@ -20,9 +20,9 @@ import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.incremental.InstantRunBuildMode;
 import com.android.build.gradle.internal.scope.InstantRunVariantScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import java.io.IOException;
 import org.gradle.api.Task;
 import org.gradle.api.logging.Logger;
@@ -56,7 +56,9 @@ public class PreColdSwapTask extends AndroidVariantTask {
         switch (instantRunContext.getBuildMode()) {
             case HOT_WARM:
                 // We can hot swap, don't produce the full apk.
-                instantRunVariantScope.getColdSwapBuildTasks().forEach(this::disableTask);
+                instantRunVariantScope
+                        .getColdSwapBuildTasks()
+                        .forEach(taskProvider -> taskProvider.configure(this::disableTask));
                 disableTask(instantRunVariantScope.getPackageApplicationTask());
                 break;
             case COLD:
@@ -74,7 +76,7 @@ public class PreColdSwapTask extends AndroidVariantTask {
                 .setEnabled(false);
     }
 
-    public static class ConfigAction extends TaskConfigAction<PreColdSwapTask> {
+    public static class CreationAction extends EagerTaskCreationAction<PreColdSwapTask> {
 
         @NonNull
         protected final TransformVariantScope transformVariantScope;
@@ -83,7 +85,8 @@ public class PreColdSwapTask extends AndroidVariantTask {
         @NonNull
         protected final String name;
 
-        public ConfigAction(@NonNull String name,
+        public CreationAction(
+                @NonNull String name,
                 @NonNull TransformVariantScope transformVariantScope,
                 @NonNull InstantRunVariantScope instantRunVariantScope) {
             this.name = name;

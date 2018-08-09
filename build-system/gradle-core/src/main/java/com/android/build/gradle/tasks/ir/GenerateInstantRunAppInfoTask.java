@@ -36,10 +36,10 @@ import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.build.gradle.tasks.PackageAndroidArtifact;
 import com.android.utils.XmlUtils;
 import java.io.BufferedOutputStream;
@@ -194,13 +194,14 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
         }
     }
 
-    public static class ConfigAction extends TaskConfigAction<GenerateInstantRunAppInfoTask> {
+    public static class CreationAction
+            extends EagerTaskCreationAction<GenerateInstantRunAppInfoTask> {
         @NonNull private final VariantScope variantScope;
         @NonNull
         private final TransformVariantScope transformVariantScope;
         @NonNull private final BuildableArtifact manifests;
 
-        public ConfigAction(
+        public CreationAction(
                 @NonNull TransformVariantScope transformVariantScope,
                 @NonNull VariantScope variantScope,
                 @NonNull BuildableArtifact manifests) {

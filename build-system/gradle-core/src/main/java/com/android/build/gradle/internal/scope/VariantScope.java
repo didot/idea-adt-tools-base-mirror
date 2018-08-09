@@ -30,9 +30,7 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType;
 import com.android.build.gradle.internal.publishing.PublishingSpecs;
 import com.android.build.gradle.internal.tasks.databinding.DataBindingCompilerArguments;
-import com.android.build.gradle.internal.tasks.databinding.DataBindingExportBuildInfoTask;
 import com.android.build.gradle.internal.variant.BaseVariantData;
-import com.android.build.gradle.tasks.ProcessAndroidResources;
 import com.android.builder.core.VariantType;
 import com.android.builder.dexing.DexMergerTool;
 import com.android.builder.dexing.DexerTool;
@@ -121,11 +119,6 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
     TransformManager getTransformManager();
 
     @Nullable
-    Collection<Object> getNdkBuildable();
-
-    void setNdkBuildable(@NonNull Collection<Object> ndkBuildable);
-
-    @Nullable
     Collection<File> getNdkSoFolder();
 
     void setNdkSoFolder(@NonNull Collection<File> ndkSoFolder);
@@ -195,9 +188,6 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
     File getIntermediateJarOutputFolder();
 
     @NonNull
-    File getProguardComponentsJarFile();
-
-    @NonNull
     File getRenderscriptLibOutputDir();
 
     @NonNull
@@ -217,9 +207,6 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
 
     @NonNull
     File getBuildConfigSourceOutputDir();
-
-    @NonNull
-    File getGeneratedAssetsDir(@NonNull String name);
 
     @NonNull
     File getGeneratedResOutputDir();
@@ -244,7 +231,8 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
 
     /**
      * Returns a place to store incremental build data. The {@code name} argument has to be unique
-     * per task, ideally generated with {@link TaskConfigAction#getName()}.
+     * per task, ideally generated with {@link
+     * com.android.build.gradle.internal.tasks.factory.TaskInformation#getName()}.
      */
     @NonNull
     File getIncrementalDir(String name);
@@ -266,9 +254,6 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
 
     @NonNull
     File getFullApkPackagesOutputDirectory();
-
-    @NonNull
-    File getSplitSupportDirectory();
 
     @NonNull
     File getMicroApkManifestFile();
@@ -293,18 +278,6 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
     @Nullable
     InstantRunTaskManager getInstantRunTaskManager();
     void setInstantRunTaskManager(InstantRunTaskManager taskManager);
-
-    @NonNull
-    File getProcessResourcePackageOutputDirectory();
-
-    void setProcessResourcesTask(ProcessAndroidResources processAndroidResourcesAndroidTask);
-
-    ProcessAndroidResources getProcessResourcesTask();
-
-    void setDataBindingExportBuildInfoTask(@NonNull DataBindingExportBuildInfoTask task);
-
-    @Nullable
-    DataBindingExportBuildInfoTask getDataBindingExportBuildInfoTask();
 
     void setDataBindingCompilerArguments(
             @NonNull DataBindingCompilerArguments dataBindingCompilerArguments);

@@ -19,10 +19,9 @@ package com.android.build.gradle.integration.common.fixture.app
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 
 /** A simple android library with only native code. */
-class SimpleNativeLib : AbstractAndroidTestApp() {
+class SimpleNativeLib : AbstractAndroidTestModule() {
     private val buildGradle =
             TestSourceFile(
-                    ".",
                     "build.gradle",
                     """
 apply plugin: 'com.android.library'

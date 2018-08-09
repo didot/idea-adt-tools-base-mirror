@@ -17,13 +17,14 @@
 package com.android.build.gradle.integration.common.fixture.app;
 
 import com.android.annotations.NonNull;
+import java.io.File;
 
 /**
  * Simple test application that uses JNI to print a "hello world!".
  *
- * NOTE: Android project must create an NDK module named "hello-jni".
+ * <p>NOTE: Android project must create an NDK module named "hello-jni".
  */
-public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidTestApp {
+public class HelloWorldJniApp extends AbstractAndroidTestModule implements AndroidTestModule {
 
     private static final TestSourceFile javaSource = new TestSourceFile(
             "src/main/java/com/example/hellojni", "HelloJni.java",
@@ -260,18 +261,22 @@ public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidT
     }
 
     public static TestSourceFile cmakeLists(String folder) {
+        String filePath =
+                (folder.isEmpty() || folder.equals("."))
+                        ? "CMakeLists.txt"
+                        : (folder + File.separatorChar + "CMakeLists.txt");
         return new TestSourceFile(
-                folder, "CMakeLists.txt",
-                "cmake_minimum_required(VERSION 3.4.1)\n" +
-                        "\n" +
-                        "# Compile all source files under this tree into a single shared library\n" +
-                        "file(GLOB_RECURSE SRC src/*.c src/*.cpp src/*.cc src/*.cxx src/*.c++ src/*.C)\n" +
-                        "message(\"${SRC}\")\n" +
-                        "set(CMAKE_VERBOSE_MAKEFILE ON)\n" +
-                        "add_library(hello-jni SHARED ${SRC})\n" +
-                        "\n" +
-                        "# Include a nice standard set of libraries to link against by default\n" +
-                        "target_link_libraries(hello-jni log)");
+                filePath,
+                "cmake_minimum_required(VERSION 3.4.1)\n"
+                        + "\n"
+                        + "# Compile all source files under this tree into a single shared library\n"
+                        + "file(GLOB_RECURSE SRC src/*.c src/*.cpp src/*.cc src/*.cxx src/*.c++ src/*.C)\n"
+                        + "message(\"${SRC}\")\n"
+                        + "set(CMAKE_VERBOSE_MAKEFILE ON)\n"
+                        + "add_library(hello-jni SHARED ${SRC})\n"
+                        + "\n"
+                        + "# Include a nice standard set of libraries to link against by default\n"
+                        + "target_link_libraries(hello-jni log)");
     }
 
     public static TestSourceFile cmakeListsWithExecutables(String folder) {
@@ -314,7 +319,8 @@ public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidT
                         : cSource("src/main/jni");
         addFiles(
                 javaSource,
-                new TestSourceFile("src/main/" + jniDir, jniSource.getName(), jniSource.getContent()),
+                new TestSourceFile(
+                        "src/main/" + jniDir + "/" + jniSource.getName(), jniSource.getContent()),
                 resSource,
                 manifest,
                 androidTestSource);

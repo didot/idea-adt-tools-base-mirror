@@ -16,14 +16,13 @@
 
 package com.android.build.gradle.internal.res.namespaced
 
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.tasks.Workers
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
-import org.gradle.workers.IsolationMode
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import javax.inject.Inject
@@ -51,10 +50,10 @@ open class JarRClassTask @Inject constructor(workerExecutor: WorkerExecutor) : D
         }
     }
 
-    class ConfigAction(
+    class CreationAction(
                 override val name: String,
                 private val rClassClasses: FileCollection,
-                private val rClassJar: File) : TaskConfigAction<JarRClassTask>() {
+                private val rClassJar: File) : EagerTaskCreationAction<JarRClassTask>() {
         override val type: Class<JarRClassTask>
             get() = JarRClassTask::class.java
 

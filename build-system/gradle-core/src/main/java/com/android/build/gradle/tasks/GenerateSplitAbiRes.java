@@ -38,11 +38,11 @@ import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.OutputFactory;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
 import com.android.build.gradle.internal.tasks.ModuleMetadata;
 import com.android.build.gradle.internal.tasks.Workers;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.VariantType;
@@ -296,19 +296,19 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
         return new File(outputDirectory, "resources-" + getOutputBaseName() + "-" + split + ".ap_");
     }
 
-    // ----- ConfigAction -----
+    // ----- CreationAction -----
 
-    public static class ConfigAction extends TaskConfigAction<GenerateSplitAbiRes> {
+    public static class CreationAction extends EagerTaskCreationAction<GenerateSplitAbiRes> {
 
         @NonNull private final VariantScope scope;
         @NonNull private final FeatureSetMetadata.SupplierProvider provider;
 
-        public ConfigAction(@NonNull VariantScope scope) {
+        public CreationAction(@NonNull VariantScope scope) {
             this(scope, FeatureSetMetadata.getInstance());
         }
 
         @VisibleForTesting
-        ConfigAction(
+        CreationAction(
                 @NonNull VariantScope scope,
                 @NonNull FeatureSetMetadata.SupplierProvider provider) {
             this.scope = scope;

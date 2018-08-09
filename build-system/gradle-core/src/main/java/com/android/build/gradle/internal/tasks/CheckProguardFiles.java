@@ -19,8 +19,8 @@ package com.android.build.gradle.internal.tasks;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.ProguardFiles;
 import com.android.build.gradle.ProguardFiles.ProguardFile;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import java.io.File;
 import java.util.HashMap;
 import java.util.List;
@@ -67,10 +67,10 @@ public class CheckProguardFiles extends DefaultTask {
         return proguardFiles;
     }
 
-    public static class ConfigAction extends TaskConfigAction<CheckProguardFiles> {
+    public static class CreationAction extends EagerTaskCreationAction<CheckProguardFiles> {
         private final VariantScope scope;
 
-        public ConfigAction(VariantScope scope) {
+        public CreationAction(VariantScope scope) {
             this.scope = scope;
         }
 

@@ -33,6 +33,8 @@ import com.android.build.gradle.internal.pipeline.TransformTask;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.TaskFactory;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.transforms.InstantRunDex;
 import com.android.build.gradle.internal.transforms.InstantRunTransform;
 import com.android.build.gradle.internal.transforms.InstantRunVerifierTransform;
@@ -57,6 +59,7 @@ import org.gradle.api.Task;
 import org.gradle.api.execution.TaskExecutionAdapter;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.TaskState;
 
 /**
@@ -64,8 +67,8 @@ import org.gradle.api.tasks.TaskState;
  */
 public class InstantRunTaskManager {
 
-    @Nullable private TransformTask verifierTask;
-    @Nullable private TransformTask reloadDexTask;
+    @Nullable private TaskProvider<TransformTask> verifierTask;
+    @Nullable private TaskProvider<TransformTask> reloadDexTask;
     @Nullable private BuildInfoLoaderTask buildInfoLoaderTask;
 
     @NonNull
@@ -93,7 +96,7 @@ public class InstantRunTaskManager {
     }
 
     public BuildInfoLoaderTask createInstantRunAllTasks(
-            @Nullable Task preTask,
+            @Nullable TaskProvider<? extends Task> preTask,
             Task anchorTask,
             Set<? super QualifiedContent.Scope> resMergingScopes,
             BuildableArtifact instantRunMergedManifests,
@@ -107,22 +110,27 @@ public class InstantRunTaskManager {
         TransformVariantScope transformVariantScope = variantScope.getTransformVariantScope();
 
         buildInfoLoaderTask =
-                taskFactory.create(new BuildInfoLoaderTask.ConfigAction(variantScope, logger));
+                taskFactory.eagerCreate(
+                        new BuildInfoLoaderTask.CreationAction(variantScope, logger));
 
         // always run the verifier first, since if it detects incompatible changes, we
         // should skip bytecode enhancements of the changed classes.
         InstantRunVerifierTransform verifierTransform =
                 new InstantRunVerifierTransform(variantScope, recorder);
-        Optional<TransformTask> verifierTaskOptional =
-                transformManager.addTransform(
-                        taskFactory, transformVariantScope, verifierTransform);
-        verifierTask = verifierTaskOptional.orElse(null);
-        verifierTaskOptional.ifPresent(
-                t -> {
-                    if (preTask != null) {
-                        t.dependsOn(preTask);
-                    }
-                });
+        verifierTask =
+                transformManager
+                        .addTransform(
+                                taskFactory,
+                                transformVariantScope,
+                                verifierTransform,
+                                null,
+                                task -> {
+                                    if (preTask != null) {
+                                        task.dependsOn(preTask);
+                                    }
+                                },
+                                null)
+                        .orElse(null);
 
         NoChangesVerifierTransform javaResourcesVerifierTransform =
                 new NoChangesVerifierTransform(
@@ -134,22 +142,44 @@ public class InstantRunTaskManager {
                         resMergingScopes,
                         InstantRunVerifierStatus.JAVA_RESOURCES_CHANGED);
 
-        Optional<TransformTask> javaResourcesVerifierTask =
+        Optional<TaskProvider<TransformTask>> javaResourcesVerifierTask =
                 transformManager.addTransform(
-                        taskFactory, transformVariantScope, javaResourcesVerifierTransform);
-        javaResourcesVerifierTask.ifPresent(
-                t -> {
-                    if (verifierTask != null) {
-                        t.dependsOn(verifierTask);
-                    }
-                });
+                        taskFactory,
+                        transformVariantScope,
+                        javaResourcesVerifierTransform,
+                        null,
+                        task -> {
+                            if (verifierTask != null) {
+                                task.dependsOn(verifierTask);
+                            }
+                        },
+                        null);
+
+        // create the manifest file change checker. This task should always run even if the
+        // processAndroidResources task did not run. It is possible (through an IDE sync mainly)
+        // that the processAndroidResources task ran in a previous non InstantRun enabled
+        // invocation.
+        CheckManifestInInstantRunMode checkManifestTask =
+                taskFactory.eagerCreate(
+                        new CheckManifestInInstantRunMode.CreationAction(variantScope));
 
         InstantRunTransform instantRunTransform = new InstantRunTransform(
                 WaitableExecutor.useGlobalSharedThreadPool(),
                 variantScope);
-        Optional<TransformTask> instantRunTask =
+
+        Optional<TaskProvider<TransformTask>> instantRunTask =
                 transformManager.addTransform(
-                        taskFactory, transformVariantScope, instantRunTransform);
+                        taskFactory,
+                        transformVariantScope,
+                        instantRunTransform,
+                        null,
+                        task ->
+                                task.dependsOn(
+                                        buildInfoLoaderTask,
+                                        verifierTask,
+                                        javaResourcesVerifierTask.orElse(null),
+                                        checkManifestTask),
+                        null);
 
         InternalArtifactType resourceFilesInputType =
                 variantScope.useResourceShrinker()
@@ -161,24 +191,11 @@ public class InstantRunTaskManager {
             // will eventually get packaged in the main APK.
             // We need to pass the published resource type as the generated manifest can use
             // a String resource for its version name (so AAPT can check for resources existence).
-            taskFactory.create(
-                    new InstantRunMainApkResourcesBuilder.ConfigAction(
+            taskFactory.eagerCreate(
+                    new InstantRunMainApkResourcesBuilder.CreationAction(
                             variantScope, resourceFilesInputType));
         }
 
-        // create the manifest file change checker. This task should always run even if the
-        // processAndroidResources task did not run. It is possible (through an IDE sync mainly)
-        // that the processAndroidResources task ran in a previous non InstantRun enabled
-        // invocation.
-        CheckManifestInInstantRunMode checkManifestTask =
-                taskFactory.create(new CheckManifestInInstantRunMode.ConfigAction(variantScope));
-
-        instantRunTask.ifPresent(t ->
-                t.dependsOn(
-                        buildInfoLoaderTask,
-                        verifierTask,
-                        javaResourcesVerifierTask.orElse(null),
-                        checkManifestTask));
 
         if (addDependencyChangeChecker) {
             NoChangesVerifierTransform dependenciesVerifierTransform =
@@ -188,21 +205,27 @@ public class InstantRunTaskManager {
                             ImmutableSet.of(QualifiedContent.DefaultContentType.CLASSES),
                             Sets.immutableEnumSet(QualifiedContent.Scope.EXTERNAL_LIBRARIES),
                             InstantRunVerifierStatus.DEPENDENCY_CHANGED);
-            Optional<TransformTask> dependenciesVerifierTask =
+            Optional<TaskProvider<TransformTask>> dependenciesVerifierTask =
                     transformManager.addTransform(
                             taskFactory, transformVariantScope, dependenciesVerifierTransform);
+
             dependenciesVerifierTask.ifPresent(
                     t -> {
                         if (verifierTask != null) {
-                            t.dependsOn(verifierTask);
+                            TaskFactoryUtils.dependsOn(t, verifierTask);
                         }
                     });
-            instantRunTask.ifPresent(t -> dependenciesVerifierTask.ifPresent(t::dependsOn));
+            instantRunTask.ifPresent(
+                    IRTask ->
+                            dependenciesVerifierTask.ifPresent(
+                                    depVerifyTask ->
+                                            TaskFactoryUtils.dependsOn(IRTask, depVerifyTask)));
         }
 
 
         FastDeployRuntimeExtractorTask extractorTask =
-                taskFactory.create(new FastDeployRuntimeExtractorTask.ConfigAction(variantScope));
+                taskFactory.eagerCreate(
+                        new FastDeployRuntimeExtractorTask.CreationAction(variantScope));
         extractorTask.dependsOn(buildInfoLoaderTask);
 
         // also add a new stream for the extractor task output.
@@ -217,8 +240,8 @@ public class InstantRunTaskManager {
 
         // create the AppInfo.class for this variant.
         GenerateInstantRunAppInfoTask generateInstantRunAppInfoTask =
-                taskFactory.create(
-                        new GenerateInstantRunAppInfoTask.ConfigAction(
+                taskFactory.eagerCreate(
+                        new GenerateInstantRunAppInfoTask.CreationAction(
                                 transformVariantScope, variantScope, instantRunMergedManifests));
 
         // also add a new stream for the injector task output.
@@ -271,8 +294,8 @@ public class InstantRunTaskManager {
         }
 
         PreColdSwapTask preColdSwapTask =
-                taskFactory.create(
-                        new PreColdSwapTask.ConfigAction(
+                taskFactory.eagerCreate(
+                        new PreColdSwapTask.CreationAction(
                                 "preColdswap", transformVariantScope, variantScope));
 
         if (verifierTask != null) {
