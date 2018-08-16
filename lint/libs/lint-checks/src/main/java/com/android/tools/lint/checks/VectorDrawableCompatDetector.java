@@ -28,9 +28,10 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.Variant;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.repository.GradleVersion;
-import com.android.ide.common.resources.AbstractResourceRepository;
 import com.android.ide.common.resources.ResourceItem;
+import com.android.ide.common.resources.ResourceRepository;
 import com.android.ide.common.util.PathString;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
@@ -188,7 +189,7 @@ public class VectorDrawableCompatDetector extends ResourceXmlDetector {
             isVector = mVectors::contains;
         } else {
             LintClient client = context.getClient();
-            AbstractResourceRepository resources =
+            ResourceRepository resources =
                     client.getResourceRepository(context.getMainProject(), true, false);
             if (resources == null) {
                 // We only run on a single layout file, but have no access to the resources
@@ -230,12 +231,9 @@ public class VectorDrawableCompatDetector extends ResourceXmlDetector {
     }
 
     private static boolean checkResourceRepository(
-            @NonNull AbstractResourceRepository resources, @NonNull String name) {
-        List<ResourceItem> items = resources.getResourceItem(ResourceType.DRAWABLE, name);
-
-        if (items == null) {
-            return false;
-        }
+            @NonNull ResourceRepository resources, @NonNull String name) {
+        List<ResourceItem> items =
+                resources.getResources(ResourceNamespace.TODO(), ResourceType.DRAWABLE, name);
 
         // Check if at least one drawable with this name is a vector.
         for (ResourceItem item : items) {

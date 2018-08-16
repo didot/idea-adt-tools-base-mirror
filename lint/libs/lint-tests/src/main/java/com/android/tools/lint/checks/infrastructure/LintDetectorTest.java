@@ -24,15 +24,15 @@ import static com.android.SdkConstants.NEW_ID_PREFIX;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.ide.common.rendering.api.ResourceNamespace;
-import com.android.ide.common.resources.AbstractResourceRepository;
-import com.android.ide.common.resources.MergerResourceRepository;
 import com.android.ide.common.resources.MergingException;
 import com.android.ide.common.resources.ResourceFile;
 import com.android.ide.common.resources.ResourceItem;
 import com.android.ide.common.resources.ResourceMerger;
 import com.android.ide.common.resources.ResourceMergerItem;
 import com.android.ide.common.resources.ResourceRepositories;
+import com.android.ide.common.resources.ResourceRepository;
 import com.android.ide.common.resources.ResourceSet;
+import com.android.ide.common.resources.TestResourceRepository;
 import com.android.ide.common.util.PathString;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
@@ -1000,13 +1000,13 @@ public abstract class LintDetectorTest extends BaseLintDetectorTest {
 
         @Nullable
         @Override
-        public AbstractResourceRepository getResourceRepository(
+        public ResourceRepository getResourceRepository(
                 Project project, boolean includeDependencies, boolean includeLibraries) {
             if (incrementalCheck == null) {
                 return null;
             }
 
-            MergerResourceRepository repository = new MergerResourceRepository();
+            TestResourceRepository repository = new TestResourceRepository();
             ILogger logger = new StdLogger(StdLogger.Level.INFO);
             ResourceMerger merger = new ResourceMerger(0);
 
@@ -1034,7 +1034,8 @@ public abstract class LintDetectorTest extends BaseLintDetectorTest {
                 repository.update(merger);
 
                 // Make tests stable: sort the item lists!
-                for (ListMultimap<String, ResourceItem> multimap : repository.getItems().values()) {
+                for (ListMultimap<String, ResourceItem> multimap :
+                        repository.getFullTable().values()) {
                     ResourceRepositories.sortItemLists(multimap);
                 }
 
@@ -1042,7 +1043,7 @@ public abstract class LintDetectorTest extends BaseLintDetectorTest {
                 // to do that here.
                 // TODO: namespaces
                 Map<ResourceType, ListMultimap<String, ResourceItem>> items =
-                        repository.getItems().row(ResourceNamespace.RES_AUTO);
+                        repository.getFullTable().row(ResourceNamespace.RES_AUTO);
                 ListMultimap<String, ResourceItem> layouts = items.get(ResourceType.LAYOUT);
                 if (layouts != null) {
                     for (ResourceItem item : layouts.values()) {

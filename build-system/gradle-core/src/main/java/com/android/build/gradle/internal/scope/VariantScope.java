@@ -87,6 +87,9 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
     @NonNull
     List<File> getConsumerProguardFiles();
 
+    @NonNull
+    List<File> getConsumerProguardFilesForFeatures();
+
     @Nullable
     PostprocessingFeatures getPostprocessingFeatures();
 
@@ -273,17 +276,13 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
     @NonNull
     File getApkLocation();
 
+    @Override
+    @NonNull
     MutableTaskContainer getTaskContainer();
 
     @Nullable
     InstantRunTaskManager getInstantRunTaskManager();
     void setInstantRunTaskManager(InstantRunTaskManager taskManager);
-
-    void setDataBindingCompilerArguments(
-            @NonNull DataBindingCompilerArguments dataBindingCompilerArguments);
-
-    @Nullable
-    DataBindingCompilerArguments getDataBindingCompilerArguments();
 
     @NonNull
     VariantDependencies getVariantDependencies();

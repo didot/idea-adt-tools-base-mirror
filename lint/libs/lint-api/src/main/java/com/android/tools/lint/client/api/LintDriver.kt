@@ -35,8 +35,8 @@ import com.android.annotations.VisibleForTesting
 import com.android.ide.common.repository.GradleCoordinate
 import com.android.ide.common.repository.GradleVersion
 import com.android.ide.common.repository.ResourceVisibilityLookup
-import com.android.ide.common.resources.AbstractResourceRepository
 import com.android.ide.common.resources.ResourceItem
+import com.android.ide.common.resources.ResourceRepository
 import com.android.ide.common.resources.configuration.FolderConfiguration.QUALIFIER_SPLITTER
 import com.android.repository.api.ProgressIndicator
 import com.android.resources.ResourceFolderType
@@ -1700,7 +1700,8 @@ class LintDriver
             if (path.endsWith(DOT_JAVA) || path.endsWith(DOT_KT)) {
                 // Figure out if this is a generated test context
                 if (!checkGeneratedSources &&
-                    generatedFolders.asSequence().any { FileUtil.isAncestor(it, file, false) }) {
+                    generatedFolders.asSequence().any { FileUtil.isAncestor(it, file, false) }
+                ) {
                     continue
                 }
 
@@ -2228,7 +2229,7 @@ class LintDriver
             project: Project,
             includeModuleDependencies: Boolean,
             includeLibraries: Boolean
-        ): AbstractResourceRepository? =
+        ): ResourceRepository? =
             delegate.getResourceRepository(
                 project, includeModuleDependencies,
                 includeLibraries
@@ -2807,7 +2808,8 @@ class LintDriver
             }
 
             if (VALUE_TRUE == System.getenv("LINT_PRINT_STACKTRACE") ||
-                    VALUE_TRUE == System.getProperty("lint.print-stacktrace")) {
+                VALUE_TRUE == System.getProperty("lint.print-stacktrace")
+            ) {
                 throwable.printStackTrace()
             }
 

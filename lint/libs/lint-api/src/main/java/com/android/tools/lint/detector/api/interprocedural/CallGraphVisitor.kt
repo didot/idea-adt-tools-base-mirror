@@ -70,7 +70,7 @@ class CallGraphVisitor(
 
     // Checks for implicit calls to super constructors.
     override fun visitClass(node: UClass): Boolean {
-        val superClass = node.superClass?.psi?.navigationElement.toUElementOfType<UClass>()
+        val superClass = node.superClass?.javaPsi?.navigationElement.toUElementOfType<UClass>()
         if (superClass != null) {
             val constructors = node.constructors()
             val thoseWithoutExplicitSuper = constructors.filter {
@@ -83,7 +83,7 @@ class CallGraphVisitor(
                 else listOf(node)
             val callee: UElement = superClass.constructors()
                 .find { it.uastParameters.isEmpty() }
-                    ?: superClass
+                ?: superClass
             with(mutableCallGraph) {
                 val calleeNode = getNode(callee)
                 callers.forEach { getNode(it).edges.add(Edge(calleeNode, /*call*/ null, DIRECT)) }
@@ -116,7 +116,7 @@ class CallGraphVisitor(
                 if (decl.isStatic) // Ignore static initializers for now.
                     return super.visitCallExpression(node)
                 val containingClass = decl.getContainingUClass()
-                        ?: return super.visitCallExpression(node) // No containing class.
+                    ?: return super.visitCallExpression(node) // No containing class.
                 val ctors = containingClass.constructors()
                 // For default constructors we use the containing class as the caller.
                 if (ctors.isNotEmpty()) ctors else listOf(containingClass)
@@ -141,7 +141,7 @@ class CallGraphVisitor(
                 // Found a call to a default constructor; create an edge to the instantiated class.
                 val constructedClass = node.classReference
                     ?.resolve()?.navigationElement.toUElement() as? UClass
-                        ?: return super.visitCallExpression(node) // Unable to resolve class.
+                    ?: return super.visitCallExpression(node) // Unable to resolve class.
                 addEdge(constructedClass, DIRECT)
             } else if (node.methodName == "invoke") {
                 // This is likely an invocation of a function expression, such as a Kotlin lambda.
@@ -157,7 +157,7 @@ class CallGraphVisitor(
         val staticallyDispatched = baseCallee.isStaticallyDispatched()
         val throughSuper = node.receiver is USuperExpression
         val isFunctionalCall =
-            baseCallee.psi == LambdaUtil.getFunctionalInterfaceMethod(node.receiverType)
+            baseCallee.javaPsi == LambdaUtil.getFunctionalInterfaceMethod(node.receiverType)
         val uniqueImpl = (overrides + baseCallee).singleOrNull { it.isCallable() }
         when {
             staticallyDispatched || throughSuper -> addEdge(baseCallee, DIRECT)
@@ -188,14 +188,16 @@ class CallGraphVisitor(
 
     /** Returns whether this method could be the runtime target of a call. */
     private fun UMethod.isCallable() = when {
-        hasModifierProperty(PsiModifier.ABSTRACT) -> false
-        containingClass?.isInterface == true -> hasModifierProperty(PsiModifier.DEFAULT)
+        javaPsi.hasModifierProperty(PsiModifier.ABSTRACT) -> false
+        javaPsi.containingClass?.isInterface == true -> {
+            javaPsi.hasModifierProperty(PsiModifier.DEFAULT)
+        }
         else -> true
     }
 
     /** Returns whether this method is statically dispatched. */
     private fun UMethod.isStaticallyDispatched(): Boolean {
-        val parentClass = containingClass ?: return true
+        val parentClass = javaPsi.containingClass ?: return true
         return isConstructor ||
                 isStatic ||
                 isFinal ||

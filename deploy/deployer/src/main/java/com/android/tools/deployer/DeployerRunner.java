@@ -18,7 +18,9 @@ package com.android.tools.deployer;
 
 import com.android.ddmlib.AndroidDebugBridge;
 import com.android.ddmlib.IDevice;
+import com.android.tools.deploy.swapper.InMemoryDexArchiveDatabase;
 import com.android.utils.ILogger;
+import java.io.IOException;
 import java.util.ArrayList;
 
 class InstallerNotifier implements Deployer.InstallerCallBack {
@@ -32,15 +34,18 @@ public class DeployerRunner {
 
     // Run it from bazel with the following command:
     // bazel run :deployer.runner org.wikipedia.alpha PATH_TO_APK1 PATH_TO_APK2
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         DeployerRunner runner = new DeployerRunner();
-        runner.run(args);
-        AndroidDebugBridge.terminate();
+        try {
+            runner.run(args);
+        } finally {
+            AndroidDebugBridge.terminate();
+        }
     }
 
     public DeployerRunner() {}
 
-    public void run(String[] args) {
+    public void run(String[] args) throws IOException {
         // Check that we have the parameters we need to run.
         if (args.length < 2) {
             printUsage();
@@ -63,9 +68,12 @@ public class DeployerRunner {
         }
 
         // Run
+        InMemoryDexArchiveDatabase db = new InMemoryDexArchiveDatabase();
+        AdbClient adb = new AdbClient(device);
+        Installer installer = new Installer("", adb);
         Deployer deployer =
-                new Deployer(packageName, apks, new InstallerNotifier(), new AdbClient(device));
-        Deployer.RunResponse response = deployer.run();
+                new Deployer(packageName, apks, new InstallerNotifier(), adb, db, installer);
+        Deployer.RunResponse response = deployer.fullSwap();
 
         if (response.status != Deployer.RunResponse.Status.OK) {
             LOGGER.info("%s", response.errorMessage);
@@ -76,7 +84,7 @@ public class DeployerRunner {
         for (String apkName : response.result.keySet()) {
             Deployer.RunResponse.Analysis analysis = response.result.get(apkName);
             for (String key : analysis.diffs.keySet()) {
-                Apk.ApkEntryStatus status = analysis.diffs.get(key);
+                ApkDiffer.ApkEntryStatus status = analysis.diffs.get(key);
                 switch (status) {
                     case CREATED:
                         LOGGER.info("%s has been CREATED.", key);

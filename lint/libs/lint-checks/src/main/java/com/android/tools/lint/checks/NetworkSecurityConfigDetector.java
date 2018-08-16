@@ -17,7 +17,8 @@
 package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
-import com.android.ide.common.resources.AbstractResourceRepository;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.resources.ResourceRepository;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceUrl;
 import com.android.tools.lint.detector.api.Category;
@@ -441,11 +442,14 @@ public class NetworkSecurityConfigDetector extends ResourceXmlDetector {
                             && resourceUrl != null
                             && !resourceUrl.isFramework()) {
                         // ensure that this is a valid resource
-                        AbstractResourceRepository resources =
+                        ResourceRepository resources =
                                 context.getClient()
                                         .getResourceRepository(context.getProject(), true, false);
                         if (resources != null
-                                && !resources.hasResourceItem(resourceUrl.type, resourceUrl.name)) {
+                                && !resources.hasResources(
+                                        ResourceNamespace.TODO(),
+                                        resourceUrl.type,
+                                        resourceUrl.name)) {
                             context.report(
                                     ISSUE,
                                     sourceIdAttr,

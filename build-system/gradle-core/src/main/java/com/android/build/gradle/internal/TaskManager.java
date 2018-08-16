@@ -34,6 +34,7 @@ import static com.android.build.gradle.internal.publishing.AndroidArtifacts.Cons
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.METADATA_VALUES;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.MODULE_PATH;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType.RUNTIME_ELEMENTS;
 import static com.android.build.gradle.internal.scope.ArtifactPublishingUtil.publishArtifactToConfiguration;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.APK_MAPPING;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_BASE_CLASS_LOGS_DEPENDENCY_ARTIFACTS;
@@ -125,7 +126,6 @@ import com.android.build.gradle.internal.tasks.databinding.DataBindingExportBuil
 import com.android.build.gradle.internal.tasks.databinding.DataBindingGenBaseClassesTask;
 import com.android.build.gradle.internal.tasks.databinding.DataBindingMergeDependencyArtifactsTask;
 import com.android.build.gradle.internal.tasks.databinding.DataBindingMergeGenClassLogTransform;
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
 import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction;
 import com.android.build.gradle.internal.tasks.factory.PreConfigAction;
 import com.android.build.gradle.internal.tasks.factory.TaskConfigAction;
@@ -238,7 +238,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.gradle.api.Action;
@@ -1067,7 +1066,7 @@ public abstract class TaskManager {
         createApkProcessResTask(scope, packageOutputType);
 
         if (scope.consumesFeatureJars()) {
-            taskFactory.eagerCreate(new MergeAaptProguardFilesCreationAction(scope));
+            taskFactory.lazyCreate(new MergeAaptProguardFilesCreationAction(scope));
         }
     }
 
@@ -1132,19 +1131,19 @@ public abstract class TaskManager {
                         "symbol-table-with-package",
                         scope.getVariantConfiguration().getDirName(),
                         "package-aware-r.txt");
-        final ProcessAndroidResources task;
+        final TaskProvider<? extends ProcessAndroidResources> task;
 
         File symbolFile = new File(symbolDirectory, FN_RESOURCE_TEXT);
         BuildArtifactsHolder artifacts = scope.getArtifacts();
         if (mergeType == MergeType.PACKAGE) {
             // Simply generate the R class for a library
             task =
-                    taskFactory.eagerCreate(
+                    taskFactory.lazyCreate(
                             new GenerateLibraryRFileTask.CreationAction(
                                     scope, symbolFile, symbolTableWithPackageName));
         } else {
             task =
-                    taskFactory.eagerCreate(
+                    taskFactory.lazyCreate(
                             createProcessAndroidResourcesConfigAction(
                                     scope,
                                     () -> symbolDirectory,
@@ -1160,11 +1159,10 @@ public abstract class TaskManager {
             }
 
             // create the task that creates the aapt output for the bundle.
-            taskFactory.eagerCreate(new LinkAndroidResForBundleTask.CreationAction(scope));
+            taskFactory.lazyCreate(new LinkAndroidResForBundleTask.CreationAction(scope));
         }
-        scope.getTaskContainer().setProcessAndroidResTask(task);
         artifacts.appendArtifact(
-                InternalArtifactType.SYMBOL_LIST, ImmutableList.of(symbolFile), task);
+                InternalArtifactType.SYMBOL_LIST, ImmutableList.of(symbolFile), task.getName());
 
         // Needed for the IDE
         TaskFactoryUtils.dependsOn(scope.getTaskContainer().getSourceGenTask(), task);
@@ -1174,10 +1172,10 @@ public abstract class TaskManager {
         artifacts.appendArtifact(
                 InternalArtifactType.SYMBOL_LIST_WITH_PACKAGE_NAME,
                 ImmutableList.of(symbolTableWithPackageName),
-                task);
+                task.getName());
     }
 
-    protected EagerTaskCreationAction<LinkApplicationAndroidResourcesTask>
+    protected LazyTaskCreationAction<LinkApplicationAndroidResourcesTask>
             createProcessAndroidResourcesConfigAction(
                     @NonNull VariantScope scope,
                     @NonNull Supplier<File> symbolLocation,
@@ -1763,7 +1761,7 @@ public abstract class TaskManager {
         createDependencyStreams(variantScope);
 
         // persist variant's output
-        taskFactory.eagerCreate(new MainApkListPersistence.CreationAction(variantScope));
+        taskFactory.lazyCreate(new MainApkListPersistence.CreationAction(variantScope));
 
         // Add a task to process the manifest
         createProcessTestManifestTask(
@@ -1883,8 +1881,8 @@ public abstract class TaskManager {
 
     private void createRunUnitTestTask(
             @NonNull final VariantScope variantScope) {
-        final AndroidUnitTest runTestsTask =
-                taskFactory.eagerCreate(new AndroidUnitTest.CreationAction(variantScope));
+        TaskProvider<AndroidUnitTest> runTestsTask =
+                taskFactory.lazyCreate(new AndroidUnitTest.CreationAction(variantScope));
 
         taskFactory.lazyConfigure(JavaPlugin.TEST_TASK_NAME, test -> test.dependsOn(runTestsTask));
     }
@@ -2009,17 +2007,10 @@ public abstract class TaskManager {
 
         configureTestData(testData);
 
-        // create the check tasks for this test
-        // first the connected one.
-        ImmutableList<TaskProvider<? extends Task>> artifactsTasks =
-                ImmutableList.of(
-                        testVariantData.getTaskContainer().getAssembleTask(),
-                        baseVariantData.getTaskContainer().getAssembleTask());
-
-        DeviceProviderInstrumentTestTask connectedTask =
-                taskFactory.eagerCreate(
+        TaskProvider<DeviceProviderInstrumentTestTask> connectedTask =
+                taskFactory.lazyCreate(
                         new DeviceProviderInstrumentTestTask.CreationAction(
-                                testVariantData.getScope(),
+                                testVariantScope,
                                 new ConnectedDeviceProvider(
                                         sdkHandler.getSdkInfo().getAdb(),
                                         extension.getAdbOptions().getTimeOutInMs(),
@@ -2027,13 +2018,9 @@ public abstract class TaskManager {
                                 testData,
                                 project.files() /* testTargetMetadata */));
 
-        connectedTask.dependsOn(artifactsTasks.toArray());
-
-        testVariantScope.getTaskContainer().setConnectedTask(connectedTask);
-
         taskFactory.lazyConfigure(
                 CONNECTED_ANDROID_TEST,
-                connectedAndroidTest -> connectedAndroidTest.dependsOn(connectedTask.getName()));
+                connectedAndroidTest -> connectedAndroidTest.dependsOn(connectedTask));
 
         if (baseVariantData.getVariantConfiguration().getBuildType().isTestCoverageEnabled()) {
 
@@ -2059,32 +2046,31 @@ public abstract class TaskManager {
         // now the providers.
         for (DeviceProvider deviceProvider : providers) {
 
-            final DeviceProviderInstrumentTestTask providerTask =
-                    taskFactory.eagerCreate(
+            final TaskProvider<DeviceProviderInstrumentTestTask> providerTask =
+                    taskFactory.lazyCreate(
                             new DeviceProviderInstrumentTestTask.CreationAction(
                                     testVariantData.getScope(),
                                     deviceProvider,
                                     testData,
                                     project.files() /* testTargetMetadata */));
 
-            providerTask.dependsOn(artifactsTasks.toArray());
             taskFactory.lazyConfigure(
                     DEVICE_ANDROID_TEST,
-                    deviceAndroidTest -> deviceAndroidTest.dependsOn(providerTask.getName()));
+                    deviceAndroidTest -> deviceAndroidTest.dependsOn(providerTask));
         }
 
         // now the test servers
         List<TestServer> servers = extension.getTestServers();
         for (final TestServer testServer : servers) {
-            final TestServerTask serverTask =
-                    taskFactory.eagerCreate(
+            final TaskProvider<TestServerTask> serverTask =
+                    taskFactory.lazyCreate(
                             new TestServerTask.TestServerTaskCreationAction(
                                     testVariantScope, testServer));
-            serverTask.dependsOn(testVariantScope.getTaskContainer().getAssembleTask());
+            TaskFactoryUtils.dependsOn(
+                    serverTask, testVariantScope.getTaskContainer().getAssembleTask());
 
             taskFactory.lazyConfigure(
-                    DEVICE_CHECK,
-                    deviceAndroidTest -> deviceAndroidTest.dependsOn(serverTask.getName()));
+                    DEVICE_CHECK, deviceAndroidTest -> deviceAndroidTest.dependsOn(serverTask));
         }
     }
 
@@ -2182,14 +2168,15 @@ public abstract class TaskManager {
         }
 
         // ----- 10x support
-        PreColdSwapTask preColdSwapTask = null;
+        TaskProvider<PreColdSwapTask> preColdSwapTask = null;
         if (variantScope.getInstantRunBuildContext().isInInstantRunMode()) {
 
-            Task allActionsAnchorTask = createInstantRunAllActionsTasks(variantScope);
+            TaskProvider<? extends Task> allActionsAnchorTask =
+                    createInstantRunAllActionsTasks(variantScope);
             assert variantScope.getInstantRunTaskManager() != null;
             preColdSwapTask =
                     variantScope.getInstantRunTaskManager().createPreColdswapTask(projectOptions);
-            preColdSwapTask.dependsOn(allActionsAnchorTask);
+            TaskFactoryUtils.dependsOn(preColdSwapTask, allActionsAnchorTask);
         }
 
         // ----- Multi-Dex support
@@ -2535,10 +2522,11 @@ public abstract class TaskManager {
 
     /** Create InstantRun related tasks that should be ran right after the java compilation task. */
     @NonNull
-    private Task createInstantRunAllActionsTasks(@NonNull VariantScope variantScope) {
+    private TaskProvider<? extends Task> createInstantRunAllActionsTasks(
+            @NonNull VariantScope variantScope) {
 
-        Task allActionAnchorTask =
-                taskFactory.eagerCreate(new InstantRunAnchorTaskCreationAction(variantScope));
+        TaskProvider<? extends Task> allActionAnchorTask =
+                taskFactory.lazyCreate(new InstantRunAnchorTaskCreationAction(variantScope));
 
         TransformManager transformManager = variantScope.getTransformManager();
 
@@ -2562,7 +2550,7 @@ public abstract class TaskManager {
 
         variantScope.setInstantRunTaskManager(instantRunTaskManager);
         AndroidVersion minSdkForDx = variantScope.getMinSdkVersion();
-        BuildInfoLoaderTask buildInfoLoaderTask =
+        TaskProvider<BuildInfoLoaderTask> buildInfoLoaderTask =
                 instantRunTaskManager.createInstantRunAllTasks(
                         extractJarsTask.orElse(null),
                         allActionAnchorTask,
@@ -2763,9 +2751,6 @@ public abstract class TaskManager {
                             getLogger().isDebugEnabled(),
                             dataBindingBuilder.getPrintMachineReadableOutput());
             options.compilerArgumentProvider(dataBindingArgs);
-
-            // Set these so we can use them later to configure Kapt.
-            scope.setDataBindingCompilerArguments(dataBindingArgs);
         } else {
             getLogger().error("Cannot setup data binding for %s because java compiler options"
                     + " is not an instance of AnnotationProcessorOptions", processorOptions);
@@ -2779,8 +2764,9 @@ public abstract class TaskManager {
      */
     public void createPackagingTask(
             @NonNull VariantScope variantScope,
-            @Nullable BuildInfoWriterTask fullBuildInfoGeneratorTask) {
+            @Nullable TaskProvider<BuildInfoWriterTask> fullBuildInfoGeneratorTask) {
         ApkVariantData variantData = (ApkVariantData) variantScope.getVariantData();
+        final MutableTaskContainer taskContainer = variantData.getScope().getTaskContainer();
 
         boolean signedApk = variantData.isSigned();
 
@@ -2823,8 +2809,19 @@ public abstract class TaskManager {
                         ? InternalArtifactType.SHRUNK_PROCESSED_RES
                         : InternalArtifactType.PROCESSED_RES;
 
-        PackageApplication packageApp =
-                taskFactory.eagerCreate(
+        CoreSigningConfig signingConfig = variantScope.getVariantConfiguration().getSigningConfig();
+
+        // Common code for both packaging tasks.
+        Action<Task> configureResourcesAndAssetsDependencies =
+                task -> {
+                    task.dependsOn(taskContainer.getMergeAssetsTask());
+                    if (taskContainer.getProcessAndroidResTask() != null) {
+                        task.dependsOn(taskContainer.getProcessAndroidResTask());
+                    }
+                };
+
+        TaskProvider<PackageApplication> packageApp =
+                taskFactory.lazyCreate(
                         new PackageApplication.StandardCreationAction(
                                 variantScope,
                                 outputDirectory,
@@ -2835,27 +2832,50 @@ public abstract class TaskManager {
                                 manifestType,
                                 variantScope.getOutputScope(),
                                 globalScope.getBuildCache(),
-                                taskOutputType));
-        variantScope.getArtifacts().appendArtifact(taskOutputType,
-                ImmutableList.of(outputDirectory),
-                packageApp);
+                                taskOutputType),
+                        null,
+                        task -> {
+                            //noinspection VariableNotUsedInsideIf - we use the whole packaging scope below.
+                            if (signingConfig != null) {
+                                task.dependsOn(getValidateSigningTask(variantScope));
+                            }
 
-        Task packageInstantRunResources = null;
+                            task.dependsOn(taskContainer.getJavacTask());
+
+                            if (taskContainer.getPackageSplitResourcesTask() != null) {
+                                task.dependsOn(taskContainer.getPackageSplitResourcesTask());
+                            }
+                            if (taskContainer.getPackageSplitAbiTask() != null) {
+                                task.dependsOn(taskContainer.getPackageSplitAbiTask());
+                            }
+
+                            // FIX ME : Reinstate once ShrinkResourcesTransform is converted.
+                            //if ( variantOutputScope.getShrinkResourcesTask() != null) {
+                            //    packageApp.dependsOn( variantOutputScope.getShrinkResourcesTask());
+                            //}
+
+                            configureResourcesAndAssetsDependencies.execute(task);
+                        },
+                        null);
+
+        TaskProvider<? extends Task> packageInstantRunResources = null;
 
         if (variantScope.getInstantRunBuildContext().isInInstantRunMode()) {
             packageInstantRunResources =
-                    taskFactory.eagerCreate(
+                    taskFactory.lazyCreate(
                             new InstantRunResourcesApkBuilder.CreationAction(
                                     resourceFilesInputType, variantScope));
-            packageInstantRunResources.dependsOn(getValidateSigningTask(variantScope));
+            TaskFactoryUtils.dependsOn(
+                    packageInstantRunResources, getValidateSigningTask(variantScope));
+
             // make sure the task run even if none of the files we consume are available,
             // this is necessary so we can clean up output.
-            packageApp.dependsOn(packageInstantRunResources);
+            TaskFactoryUtils.dependsOn(packageApp, packageInstantRunResources);
 
             if (!useSeparateApkForResources) {
                 // in instantRunMode, there is no user configured splits, only one apk.
                 packageInstantRunResources =
-                        taskFactory.eagerCreate(
+                        taskFactory.lazyCreate(
                                 new PackageApplication.InstantRunResourcesCreationAction(
                                         variantScope.getInstantRunResourcesFile(),
                                         variantScope,
@@ -2867,56 +2887,26 @@ public abstract class TaskManager {
             }
 
             // Make sure the MAIN artifact is registered after the RESOURCES one.
-            packageApp.dependsOn(packageInstantRunResources);
+            TaskFactoryUtils.dependsOn(packageApp, packageInstantRunResources);
         }
 
-        final MutableTaskContainer taskContainer = variantData.getScope().getTaskContainer();
-
-        // Common code for both packaging tasks.
-        Consumer<Task> configureResourcesAndAssetsDependencies =
-                task -> {
-                    task.dependsOn(taskContainer.getMergeAssetsTask());
-                    if (taskContainer.getProcessAndroidResTask() != null) {
-                        task.dependsOn(taskContainer.getProcessAndroidResTask());
-                    }
-                };
-
-        configureResourcesAndAssetsDependencies.accept(packageApp);
         if (packageInstantRunResources != null) {
-            configureResourcesAndAssetsDependencies.accept(packageInstantRunResources);
+            packageInstantRunResources.configure(configureResourcesAndAssetsDependencies);
         }
 
-        CoreSigningConfig signingConfig = variantScope.getVariantConfiguration().getSigningConfig();
-
-        //noinspection VariableNotUsedInsideIf - we use the whole packaging scope below.
-        if (signingConfig != null) {
-            packageApp.dependsOn(getValidateSigningTask(variantScope));
-        }
-
-        packageApp.dependsOn(taskContainer.getJavacTask());
-
-        if (taskContainer.getPackageSplitResourcesTask() != null) {
-            packageApp.dependsOn(taskContainer.getPackageSplitResourcesTask());
-        }
-        if (taskContainer.getPackageSplitAbiTask() != null) {
-            packageApp.dependsOn(taskContainer.getPackageSplitAbiTask());
-        }
-
-        // FIX ME : Reinstate once ShrinkResourcesTransform is converted.
-        //if ( variantOutputScope.getShrinkResourcesTask() != null) {
-        //    packageApp.dependsOn( variantOutputScope.getShrinkResourcesTask());
-        //}
-
-        variantScope.setPackageApplicationTask(packageApp);
         TaskFactoryUtils.dependsOn(taskContainer.getAssembleTask(), packageApp.getName());
 
         if (fullBuildInfoGeneratorTask != null) {
-            fullBuildInfoGeneratorTask.mustRunAfter(packageApp.getName());
-            if (packageInstantRunResources != null) {
-                fullBuildInfoGeneratorTask.mustRunAfter(packageInstantRunResources);
-            }
-            TaskFactoryUtils.dependsOn(
-                    taskContainer.getAssembleTask(), fullBuildInfoGeneratorTask.getName());
+            final TaskProvider<? extends Task> fPackageInstantRunResources =
+                    packageInstantRunResources;
+            fullBuildInfoGeneratorTask.configure(
+                    t -> {
+                        t.mustRunAfter(packageApp);
+                        if (fPackageInstantRunResources != null) {
+                            t.mustRunAfter(fPackageInstantRunResources);
+                        }
+                    });
+            TaskFactoryUtils.dependsOn(taskContainer.getAssembleTask(), fullBuildInfoGeneratorTask);
         }
 
         if (splitsArePossible) {
@@ -2951,14 +2941,18 @@ public abstract class TaskManager {
         taskFactory.lazyCreate(new InstallVariantTask.CreationAction(variantScope));
     }
 
-    protected Task getValidateSigningTask(@NonNull VariantScope variantScope) {
-        File defaultDebugKeystoreLocation = GradleKeystoreHelper.getDefaultDebugKeystoreLocation();
-        ValidateSigningTask.CreationAction configAction =
-                new ValidateSigningTask.CreationAction(variantScope, defaultDebugKeystoreLocation);
-
-        Task validateSigningTask = taskFactory.findByName(configAction.getName());
+    protected TaskProvider<? extends Task> getValidateSigningTask(
+            @NonNull VariantScope variantScope) {
+        // FIXME create one per signing config instead of one per variant.
+        TaskProvider<? extends ValidateSigningTask> validateSigningTask =
+                variantScope.getTaskContainer().getValidateSigningTask();
         if (validateSigningTask == null) {
-            validateSigningTask = taskFactory.eagerCreate(configAction);
+            validateSigningTask =
+                    taskFactory.lazyCreate(
+                            new ValidateSigningTask.CreationAction(
+                                    variantScope,
+                                    GradleKeystoreHelper.getDefaultDebugKeystoreLocation()));
+            variantScope.getTaskContainer().setValidateSigningTask(validateSigningTask);
         }
         return validateSigningTask;
     }
@@ -3388,7 +3382,7 @@ public abstract class TaskManager {
         }
 
         Configuration configuration =
-                variantScope.getVariantData().getVariantDependency().getRuntimeElements();
+                variantScope.getVariantData().getVariantDependency().getElements(RUNTIME_ELEMENTS);
         Preconditions.checkNotNull(
                 configuration,
                 "Publishing to Runtime Element with no Runtime Elements configuration object. "
@@ -3632,9 +3626,7 @@ public abstract class TaskManager {
     }
 
     public void createCheckManifestTask(@NonNull VariantScope scope) {
-        final CheckManifest task = taskFactory.eagerCreate(getCheckManifestConfig(scope));
-        scope.getTaskContainer().setCheckManifestTask(task);
-        task.dependsOn(scope.getTaskContainer().getPreBuildTask());
+        taskFactory.lazyCreate(getCheckManifestConfig(scope));
     }
 
     protected CheckManifest.CreationAction getCheckManifestConfig(@NonNull VariantScope scope) {
@@ -3780,21 +3772,6 @@ public abstract class TaskManager {
 
     private static void configureKaptTaskInScope(
             @NonNull VariantScope scope, @NonNull Task kaptTask) {
-        // HACK ALERT - Remove this when Kapt is fixed (and also enforce a minimum version of Kapt
-        // that has the fix).
-        if (scope.getDataBindingCompilerArguments() != null) {
-            // Workaround for https://youtrack.jetbrains.com/issue/KT-23866.
-            // Since Kapt is not yet aware of the new compilerArgumentProvider() API, we need to
-            // provide the arguments via the arguments() API. The Java compiler might see duplicate
-            // arguments (if AndroidJavaCompile is configured after this), but it won't break, and
-            // it will pass a list of unique arguments to the annotation processors.
-            AnnotationProcessorOptions options =
-                    scope.getVariantConfiguration()
-                            .getJavaCompileOptions()
-                            .getAnnotationProcessorOptions();
-            options.getArguments().putAll(scope.getDataBindingCompilerArguments().toMap());
-        }
-
         // The data binding artifact is created through annotation processing, which is invoked
         // by the Kapt task (when the Kapt plugin is used). Therefore, we register Kapt as the
         // generating task. (This will overwrite the registration of JavaCompile as the generating

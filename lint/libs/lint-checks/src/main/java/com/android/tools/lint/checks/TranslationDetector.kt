@@ -32,6 +32,7 @@ import com.android.ide.common.resources.configuration.FolderConfiguration
 import com.android.ide.common.resources.configuration.VersionQualifier
 import com.android.ide.common.resources.usage.ResourceUsageModel
 import com.android.ide.common.resources.usage.ResourceUsageModel.getResourceFieldName
+import com.android.ide.common.resources.getLocales
 import com.android.resources.FolderTypeRelationship
 import com.android.resources.ResourceFolderType
 import com.android.resources.ResourceFolderType.VALUES
@@ -314,7 +315,7 @@ class TranslationDetector : Detector(), XmlScanner, ResourceFolderScanner, Binar
             .getResourceRepository(context.mainProject, true, false) ?: return
 
         val items: List<ResourceItem> =
-            resources.getResourceItems(context.project.resourceNamespace, type, name)
+            resources.getResources(context.project.resourceNamespace, type, name)
         val hasDefault = items.filter { isDefaultFolder(it.configuration, null) }.any()
         if (!hasDefault) {
             reportExtraResource(type, name, context, element)
@@ -332,7 +333,7 @@ class TranslationDetector : Detector(), XmlScanner, ResourceFolderScanner, Binar
             if (locales == null) {
                 locales = filterLocalesByResConfigs(
                     context.project,
-                    resources.locales.mapNotNull {
+                    resources.getLocales().mapNotNull {
                         if (it.hasLanguage()) {
                             it.language
                         } else {
@@ -385,7 +386,7 @@ class TranslationDetector : Detector(), XmlScanner, ResourceFolderScanner, Binar
                     set
                 }
                 names.add(name)
-            } else if (element != null && context is XmlContext) {
+            } else if (element != null && type == STRING && context is XmlContext) {
                 // Second pass: that means we're reporting already determined
                 // missing translations
                 val missingFrom = missingMap?.get(name)

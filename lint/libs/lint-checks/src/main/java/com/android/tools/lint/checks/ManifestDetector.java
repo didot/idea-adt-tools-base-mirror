@@ -63,10 +63,11 @@ import com.android.builder.model.ProductFlavor;
 import com.android.builder.model.ProductFlavorContainer;
 import com.android.builder.model.SourceProviderContainer;
 import com.android.builder.model.Variant;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.repository.GradleCoordinate;
 import com.android.ide.common.repository.MavenRepositories;
 import com.android.ide.common.repository.SdkMavenRepository;
-import com.android.ide.common.resources.AbstractResourceRepository;
+import com.android.ide.common.resources.ResourceRepository;
 import com.android.repository.io.FileOp;
 import com.android.repository.io.FileOpUtils;
 import com.android.resources.ResourceUrl;
@@ -514,13 +515,13 @@ public class ManifestDetector extends Detector implements XmlScanner {
             if (fullBackupNode != null
                     && fullBackupNode.getValue().startsWith(PREFIX_RESOURCE_REF)
                     && context.getClient().supportsProjectResources()) {
-                AbstractResourceRepository resources =
+                ResourceRepository resources =
                         context.getClient().getResourceRepository(mainProject, true, false);
                 ResourceUrl url = ResourceUrl.parse(fullBackupNode.getValue());
                 if (url != null
                         && !url.isFramework()
                         && resources != null
-                        && !resources.hasResourceItem(url.type, url.name)) {
+                        && !resources.hasResources(ResourceNamespace.TODO(), url.type, url.name)) {
                     Attr sourceFullBackupNode =
                             sourceApplicationElement.getAttributeNodeNS(
                                     ANDROID_URI, ATTR_FULL_BACKUP_CONTENT);

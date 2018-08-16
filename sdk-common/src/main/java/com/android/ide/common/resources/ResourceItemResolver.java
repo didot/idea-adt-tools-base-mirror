@@ -17,7 +17,7 @@ package com.android.ide.common.resources;
 
 import static com.android.SdkConstants.PREFIX_RESOURCE_REF;
 import static com.android.SdkConstants.PREFIX_THEME_REF;
-import static com.android.ide.common.resources.AbstractResourceRepository.MAX_RESOURCE_INDIRECTION;
+import static com.android.ide.common.resources.ResourceResolver.MAX_RESOURCE_INDIRECTION;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -44,8 +44,8 @@ public class ResourceItemResolver extends RenderResources {
     private final LayoutLog myLogger;
     private final ResourceProvider myResourceProvider;
     private ResourceResolver myResolver;
-    private AbstractResourceRepository myFrameworkResources;
-    private AbstractResourceRepository myAppResources;
+    private ResourceRepository myFrameworkResources;
+    private ResourceRepository myAppResources;
     @Nullable private List<ResourceValue> myLookupChain;
 
     public ResourceItemResolver(
@@ -60,8 +60,8 @@ public class ResourceItemResolver extends RenderResources {
 
     public ResourceItemResolver(
             @NonNull FolderConfiguration configuration,
-            @NonNull AbstractResourceRepository frameworkResources,
-            @NonNull AbstractResourceRepository appResources,
+            @NonNull ResourceRepository frameworkResources,
+            @NonNull ResourceRepository appResources,
             @Nullable LayoutLog logger) {
         myConfiguration = configuration;
         myResourceProvider = null;
@@ -173,8 +173,9 @@ public class ResourceItemResolver extends RenderResources {
                     return null;
                 }
             }
-            ResourceValue item;
-            item = myAppResources.getConfiguredValue(url.type, url.name, myConfiguration);
+            ResourceValue item =
+                    ResourceRepositoryUtil.getConfiguredValue(
+                            myAppResources, url.type, url.name, myConfiguration);
             if (item != null) {
                 if (myLookupChain != null) {
                     myLookupChain.add(item);
@@ -191,7 +192,7 @@ public class ResourceItemResolver extends RenderResources {
             }
             // Now search in the framework resources.
             List<ResourceItem> items =
-                    myFrameworkResources.getResourceItems(
+                    myFrameworkResources.getResources(
                             ResourceNamespace.ANDROID, url.type, url.name);
             if (!items.isEmpty()) {
                 ResourceValue value = items.get(0).getResourceValue();
@@ -337,7 +338,7 @@ public class ResourceItemResolver extends RenderResources {
     public interface ResourceProvider {
         @Nullable ResourceResolver getResolver(boolean createIfNecessary);
         @Nullable
-        AbstractResourceRepository getFrameworkResources();
-        @Nullable AbstractResourceRepository getAppResources();
+        ResourceRepository getFrameworkResources();
+        @Nullable ResourceRepository getAppResources();
     }
 }

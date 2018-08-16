@@ -39,9 +39,10 @@ import static com.android.utils.CharSequences.indexOf;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.rendering.api.ResourceValue;
-import com.android.ide.common.resources.AbstractResourceRepository;
 import com.android.ide.common.resources.ResourceItem;
+import com.android.ide.common.resources.ResourceRepository;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.resources.ResourceUrl;
@@ -1233,11 +1234,13 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
             LintClient client = context.getClient();
             if (client.supportsProjectResources()
                     && !context.getScope().contains(Scope.RESOURCE_FILE)) {
-                AbstractResourceRepository resources =
+                ResourceRepository resources =
                         client.getResourceRepository(context.getMainProject(), true, false);
                 List<ResourceItem> items;
                 if (resources != null) {
-                    items = resources.getResourceItem(ResourceType.STRING, name);
+                    items =
+                            resources.getResources(
+                                    ResourceNamespace.TODO(), ResourceType.STRING, name);
                 } else {
                     // Must be a non-Android module
                     items = null;
@@ -1259,7 +1262,8 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                                         break;
                                     }
                                     List<ResourceItem> l =
-                                            resources.getResourceItem(url.type, url.name);
+                                            resources.getResources(
+                                                    ResourceNamespace.TODO(), url.type, url.name);
                                     if (l != null && !l.isEmpty()) {
                                         v = l.get(0).getResourceValue();
                                         if (v != null) {

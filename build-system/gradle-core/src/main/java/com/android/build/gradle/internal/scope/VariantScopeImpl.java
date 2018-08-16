@@ -30,10 +30,6 @@ import static com.android.build.gradle.internal.publishing.AndroidArtifacts.Arti
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.SHARED_CLASSES;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType.API_ELEMENTS;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType.BUNDLE_ELEMENTS;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType.METADATA_ELEMENTS;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType.RUNTIME_ELEMENTS;
 import static com.android.build.gradle.internal.scope.ArtifactPublishingUtil.publishArtifactToConfiguration;
 import static com.android.build.gradle.internal.scope.CodeShrinker.PROGUARD;
 import static com.android.build.gradle.internal.scope.CodeShrinker.R8;
@@ -48,6 +44,7 @@ import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.api.artifact.BuildableArtifact;
+import com.android.build.gradle.FeaturePlugin;
 import com.android.build.gradle.ProguardFiles;
 import com.android.build.gradle.internal.InstantRunTaskManager;
 import com.android.build.gradle.internal.LoggerWrapper;
@@ -75,7 +72,6 @@ import com.android.build.gradle.internal.publishing.PublishingSpecs;
 import com.android.build.gradle.internal.publishing.PublishingSpecs.OutputSpec;
 import com.android.build.gradle.internal.publishing.PublishingSpecs.VariantSpec;
 import com.android.build.gradle.internal.tasks.databinding.DataBindingCompilerArguments;
-import com.android.build.gradle.internal.tasks.databinding.DataBindingExportBuildInfoTask;
 import com.android.build.gradle.internal.variant.ApplicationVariantData;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.TestVariantData;
@@ -86,7 +82,6 @@ import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.OptionalBooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
-import com.android.build.gradle.tasks.ProcessAndroidResources;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.BootClasspathBuilder;
 import com.android.builder.core.BuilderConstants;
@@ -146,6 +141,8 @@ import org.gradle.api.specs.Spec;
 public class VariantScopeImpl extends GenericVariantScopeImpl implements VariantScope {
 
     private static final ILogger LOGGER = LoggerWrapper.getLogger(VariantScopeImpl.class);
+    private static final String PUBLISH_ERROR_MSG =
+            "Publishing to %1$s with no %1$s configuration object. VariantType: %2$s";
 
     @NonNull private final PublishingSpecs.VariantSpec variantPublishingSpec;
 
@@ -162,8 +159,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
     private InstantRunTaskManager instantRunTaskManager;
 
     private ConfigurableFileCollection desugarTryWithResourcesRuntimeJar;
-
-    @Nullable private DataBindingCompilerArguments dataBindingCompilerArguments;
 
     private FileCollection bootClasspath;
 
@@ -201,6 +196,7 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
         return variantPublishingSpec;
     }
 
+    @NonNull
     @Override
     public MutableTaskContainer getTaskContainer() {
         return taskContainer;
@@ -228,42 +224,14 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
         // FIXME this needs to be parameterized based on the variant's publishing type.
         final VariantDependencies variantDependency = getVariantData().getVariantDependency();
 
-        if (configTypes.contains(API_ELEMENTS)) {
-            Preconditions.checkNotNull(
-                    variantDependency.getApiElements(),
-                    "Publishing to API Element with no ApiElements configuration object. VariantType: "
-                            + getType());
-            publishArtifactToConfiguration(
-                    variantDependency.getApiElements(), file, artifact, artifactType);
+        for (PublishedConfigType configType : PublishedConfigType.values()) {
+            if (configTypes.contains(configType)) {
+                Configuration config = variantDependency.getElements(configType);
+                Preconditions.checkNotNull(
+                        config, String.format(PUBLISH_ERROR_MSG, configType, getType()));
+                publishArtifactToConfiguration(config, file, artifact, artifactType);
+            }
         }
-
-        if (configTypes.contains(RUNTIME_ELEMENTS)) {
-            Preconditions.checkNotNull(
-                    variantDependency.getRuntimeElements(),
-                    "Publishing to Runtime Element with no RuntimeElements configuration object. VariantType: "
-                            + getType());
-            publishArtifactToConfiguration(
-                    variantDependency.getRuntimeElements(), file, artifact, artifactType);
-        }
-
-        if (configTypes.contains(METADATA_ELEMENTS)) {
-            Preconditions.checkNotNull(
-                    variantDependency.getMetadataElements(),
-                    "Publishing to Metadata Element with no MetaDataElements configuration object. VariantType: "
-                            + getType());
-            publishArtifactToConfiguration(
-                    variantDependency.getMetadataElements(), file, artifact, artifactType);
-        }
-
-        if (configTypes.contains(BUNDLE_ELEMENTS)) {
-            Preconditions.checkNotNull(
-                    variantDependency.getBundleElements(),
-                    "Publishing to Bundle Element with no BundleElements configuration object. VariantType: "
-                            + getType());
-            publishArtifactToConfiguration(
-                    variantDependency.getBundleElements(), file, artifact, artifactType);
-        }
-
     }
 
     @Override
@@ -514,6 +482,23 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
         return gatherProguardFiles(
                 PostprocessingOptions::getConsumerProguardFiles,
                 BaseConfig::getConsumerProguardFiles);
+    }
+
+    @NonNull
+    @Override
+    public List<File> getConsumerProguardFilesForFeatures() {
+        final boolean hasFeaturePlugin =
+                getGlobalScope().getProject().getPlugins().hasPlugin(FeaturePlugin.class);
+        // We include proguardFiles if we're in a dynamic-feature or feature module. For feature
+        // modules, we check for the presence of the FeaturePlugin, because we want to include
+        // proguardFiles even when we're in the library variant.
+        final boolean includeProguardFiles = hasFeaturePlugin || getType().isDynamicFeature();
+        final Collection<File> consumerProguardFiles = getConsumerProguardFiles();
+        if (includeProguardFiles) {
+            consumerProguardFiles.addAll(getExplicitProguardFiles());
+        }
+
+        return ImmutableList.copyOf(consumerProguardFiles);
     }
 
     @NonNull
@@ -1617,18 +1602,6 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
         }
 
         return result;
-    }
-
-    @Override
-    public void setDataBindingCompilerArguments(
-            @NonNull DataBindingCompilerArguments dataBindingCompilerArguments) {
-        this.dataBindingCompilerArguments = dataBindingCompilerArguments;
-    }
-
-    @Override
-    @Nullable
-    public DataBindingCompilerArguments getDataBindingCompilerArguments() {
-        return dataBindingCompilerArguments;
     }
 
     @Override

@@ -39,7 +39,7 @@ import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
+import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction;
 import com.android.build.gradle.tasks.PackageAndroidArtifact;
 import com.android.utils.XmlUtils;
 import java.io.BufferedOutputStream;
@@ -195,11 +195,12 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
     }
 
     public static class CreationAction
-            extends EagerTaskCreationAction<GenerateInstantRunAppInfoTask> {
+            extends LazyTaskCreationAction<GenerateInstantRunAppInfoTask> {
         @NonNull private final VariantScope variantScope;
         @NonNull
         private final TransformVariantScope transformVariantScope;
         @NonNull private final BuildableArtifact manifests;
+        private File outputFile;
 
         public CreationAction(
                 @NonNull TransformVariantScope transformVariantScope,
@@ -223,18 +224,23 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull GenerateInstantRunAppInfoTask task) {
-            task.setVariantName(variantScope.getFullVariantName());
-            task.buildContext = variantScope.getInstantRunBuildContext();
-            task.outputFile =
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+            outputFile =
                     variantScope
                             .getArtifacts()
                             .appendArtifact(
                                     INSTANT_RUN_APP_INFO_OUTPUT_FILE,
-                                    task,
+                                    taskName,
                                     PackageAndroidArtifact.INSTANT_RUN_PACKAGES_PREFIX
                                             + "-bootstrap.jar");
+        }
 
+        @Override
+        public void configure(@NonNull GenerateInstantRunAppInfoTask task) {
+            task.setVariantName(variantScope.getFullVariantName());
+            task.buildContext = variantScope.getInstantRunBuildContext();
+            task.outputFile = outputFile;
             task.mergedManifests = manifests;
         }
     }

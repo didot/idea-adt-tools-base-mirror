@@ -113,7 +113,7 @@ sealed class DispatchReceiver {
          * in the virtual method table of this class.
          */
         fun refineToTarget(method: UMethod) =
-            element.findMethodBySignature(method, true)
+            element.javaPsi.findMethodBySignature(method.javaPsi, true)
                 ?.navigationElement?.toUElementOfType<UMethod>()
                 ?.let { CallTarget.Method(it) }
     }
@@ -137,7 +137,7 @@ sealed class DispatchReceiver {
 
             override fun toTarget(): CallTarget.Method? {
                 val baseCallee = element.resolve().toUElementOfType<UMethod>()
-                        ?: return null
+                    ?: return null
                 return if (receiver == null) {
                     CallTarget.Method(baseCallee)
                 } else {
@@ -157,7 +157,7 @@ private fun ULambdaExpression.getCaptures(): List<UVariable> {
             node: USimpleNameReferenceExpression
         ): Boolean {
             val resolved = node.resolve()?.navigationElement.toUElementOfType<UVariable>()
-                    ?: return super.visitSimpleNameReferenceExpression(node)
+                ?: return super.visitSimpleNameReferenceExpression(node)
             val isCaptured = generateSequence<UElement>(resolved) { it.uastParent }
                 .none { it == this@getCaptures }
             if (isCaptured) {
@@ -224,12 +224,12 @@ class SimpleExpressionDispatchReceiverEvaluator(
             val baseClass = classType?.resolve()?.navigationElement.toUElementOfType<UClass>()
             when {
                 baseClass == null -> emptyList() // Unable to resolve class.
-                LambdaUtil.isFunctionalClass(baseClass.psi) -> {
+                LambdaUtil.isFunctionalClass(baseClass.javaPsi) -> {
                     emptyList() // SAM interfaces often have implicit inheritors (lambdas).
                 }
                 else -> {
                     fun UClass.isInstantiable() =
-                        !isInterface && !hasModifierProperty(PsiModifier.ABSTRACT)
+                        !isInterface && !javaPsi.hasModifierProperty(PsiModifier.ABSTRACT)
 
                     val subtypes = cha.allInheritorsOf(baseClass) + baseClass
                     val uniqueReceiverClass = subtypes
@@ -363,8 +363,8 @@ fun UCallExpression.getDispatchReceivers(
                 as? PsiElement
 
         val uDecl = ktDecl.toUElementOfType<UDeclarationsExpression>()?.declarations?.singleOrNull()
-                ?: ktDecl.toUElement()
-                ?: return emptyList()
+            ?: ktDecl.toUElement()
+            ?: return emptyList()
 
         return receiverEval[uDecl]
     }
@@ -388,7 +388,7 @@ fun UCallExpression.getTarget(dispatchReceiver: DispatchReceiver): CallTarget? {
     val method = resolve().toUElementOfType<UMethod>() ?: return null
     if (method.isStatic)
         return CallTarget.Method(method)
-    fun isFunctionalCall() = method.psi == LambdaUtil.getFunctionalInterfaceMethod(receiverType)
+    fun isFunctionalCall() = method.javaPsi == LambdaUtil.getFunctionalInterfaceMethod(receiverType)
     return when (dispatchReceiver) {
         is DispatchReceiver.Class -> dispatchReceiver.refineToTarget(method)
         is DispatchReceiver.Functional -> {

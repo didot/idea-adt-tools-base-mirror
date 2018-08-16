@@ -22,15 +22,16 @@ import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.resources.ResourceType;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
+import java.util.Collection;
 import java.util.Set;
 
 /** Simple repository implementation that just stores what the {@link ResourceMerger} emits. */
-public final class MergerResourceRepository extends AbstractResourceRepository {
+public final class TestResourceRepository extends AbstractResourceRepository {
     private final ResourceTable resourceTable = new ResourceTable();
 
     @NonNull
     @Override
-    protected ResourceTable getFullTable() {
+    public ResourceTable getFullTable() {
         return resourceTable;
     }
 
@@ -50,6 +51,12 @@ public final class MergerResourceRepository extends AbstractResourceRepository {
     @Override
     public Set<ResourceNamespace> getNamespaces() {
         return resourceTable.rowKeySet();
+    }
+
+    @Override
+    public void getLeafResourceRepositories(
+            @NonNull Collection<SingleNamespaceResourceRepository> result) {
+        throw new UnsupportedOperationException();
     }
 
     public void update(@NonNull ResourceMerger merger) {

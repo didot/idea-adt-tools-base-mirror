@@ -35,7 +35,6 @@ Trace::~Trace() { End(); }
 
 #if defined(__ANDROID__)
 void Trace::Init() {
-  std::cout << "Tracing is enabled" << std::endl;
   if (trace_marker_fd == 0) {
     trace_marker_fd = open("/sys/kernel/debug/tracing/trace_marker", O_WRONLY);
     // TODO: Error handling
@@ -44,7 +43,7 @@ void Trace::Init() {
   }
 }
 #else
-void Trace::Init() { std::cout << "Tracing is disabled" << std::endl; }
+void Trace::Init() {}
 #endif
 
 }  // namespace deployer

@@ -32,9 +32,10 @@ import static com.android.SdkConstants.TAG_STYLE;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.rendering.api.ResourceValue;
-import com.android.ide.common.resources.AbstractResourceRepository;
 import com.android.ide.common.resources.ResourceItem;
+import com.android.ide.common.resources.ResourceRepository;
 import com.android.ide.common.util.PathString;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceUrl;
@@ -199,29 +200,27 @@ public class NegativeMarginDetector extends LayoutDetector {
                 // but we can use the IDE to resolve resource URLs
                 LintClient client = context.getClient();
                 Project project = context.getProject();
-                AbstractResourceRepository resources =
+                ResourceRepository resources =
                         client.getResourceRepository(project, true, true);
                 if (resources != null) {
-                    List<ResourceItem> items = resources.getResourceItem(url.type, url.name);
-                    if (items != null) {
-                        for (ResourceItem item : items) {
-                            ResourceValue resourceValue = item.getResourceValue();
-                            if (resourceValue != null) {
-                                String dimenValue = resourceValue.getValue();
-                                if (dimenValue != null && isNegativeDimension(dimenValue)) {
-                                    PathString sourceFile = item.getSource();
-                                    assert sourceFile != null;
-                                    String message =
-                                            String.format(
-                                                    "Margin values should not be negative "
-                                                            + "(`%1$s` is defined as `%2$s` in `%3$s`",
-                                                    value,
-                                                    dimenValue,
-                                                    Lint.getFileNameWithParent(client, sourceFile));
-                                    context.report(
-                                            ISSUE, scope, context.getLocation(scope), message);
-                                    break;
-                                }
+                    List<ResourceItem> items =
+                            resources.getResources(ResourceNamespace.TODO(), url.type, url.name);
+                    for (ResourceItem item : items) {
+                        ResourceValue resourceValue = item.getResourceValue();
+                        if (resourceValue != null) {
+                            String dimenValue = resourceValue.getValue();
+                            if (dimenValue != null && isNegativeDimension(dimenValue)) {
+                                PathString sourceFile = item.getSource();
+                                assert sourceFile != null;
+                                String message =
+                                        String.format(
+                                                "Margin values should not be negative "
+                                                        + "(`%1$s` is defined as `%2$s` in `%3$s`",
+                                                value,
+                                                dimenValue,
+                                                Lint.getFileNameWithParent(client, sourceFile));
+                                context.report(ISSUE, scope, context.getLocation(scope), message);
+                                break;
                             }
                         }
                     }

@@ -94,7 +94,6 @@ import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.workers.WorkerExecutor;
-import org.jetbrains.annotations.NotNull;
 
 @CacheableTask
 public class MergeResources extends IncrementalTask {
@@ -389,10 +388,13 @@ public class MergeResources extends IncrementalTask {
                         String.format(
                                 "Can't process attribute %1$s=\"%2$s\": "
                                         + "references to other resources are not supported by "
-                                        + "build-time PNG generation. "
+                                        + "build-time PNG generation.\n"
+                                        + "%3$s\n"
                                         + "See http://developer.android.com/tools/help/vector-asset-studio.html "
                                         + "for details.",
-                                e.getName(), e.getValue()));
+                                e.getName(),
+                                e.getValue(),
+                                getPreprocessingReasonDescription(original)));
             }
         }
     }
@@ -754,7 +756,7 @@ public class MergeResources extends IncrementalTask {
         }
 
         @Override
-        public void preConfigure(@NotNull String taskName) {
+        public void preConfigure(@NonNull String taskName) {
             super.preConfigure(taskName);
 
             if (scope.getGlobalScope().getExtension().getDataBinding().isEnabled()) {
@@ -771,7 +773,7 @@ public class MergeResources extends IncrementalTask {
         }
 
         @Override
-        public void handleProvider(@NotNull TaskProvider<? extends MergeResources> taskProvider) {
+        public void handleProvider(@NonNull TaskProvider<? extends MergeResources> taskProvider) {
             super.handleProvider(taskProvider);
             // In LibraryTaskManager#createMergeResourcesTasks, there are actually two
             // MergeResources tasks sharing the same task type (MergeResources) and CreationAction

@@ -18,10 +18,11 @@ package com.android.tools.deployer;
 
 import com.android.annotations.NonNull;
 import com.android.ddmlib.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -35,10 +36,28 @@ public class AdbClient {
     public void shell(String[] parameters) throws DeployerException {
         try {
             device.executeShellCommand(String.join(" ", parameters), new NullOutputReceiver());
-        } catch (IOException
-                | TimeoutException
-                | AdbCommandRejectedException
-                | ShellCommandUnresponsiveException e) {
+        } catch (Exception e) {
+            throw new DeployerException("Unable to run shell command.", e);
+        }
+    }
+
+    /**
+     * Executes the given command and sends {@code input} to stdin and returns stdout as a byte[]
+     */
+    public byte[] shell(String[] parameters, byte[] input) throws DeployerException {
+        try {
+            ByteArrayOutputReceiver receiver = new ByteArrayOutputReceiver();
+            device.executeShellCommand(
+                    String.join(" ", parameters),
+                    receiver,
+                    DdmPreferences.getTimeOut(),
+                    TimeUnit.MILLISECONDS,
+                    input == null ? null : new ByteArrayInputStream(input));
+            return receiver.toByteArray();
+        } catch (AdbCommandRejectedException
+                | ShellCommandUnresponsiveException
+                | IOException
+                | TimeoutException e) {
             throw new DeployerException("Unable to run shell command.", e);
         }
     }
@@ -72,20 +91,64 @@ public class AdbClient {
             for (String file : files) {
                 device.pullFile(srcDirectory + "/" + file, dstDir.getPath() + "/" + file);
             }
-        } catch (Exception e) {
+        } catch (AdbCommandRejectedException
+                | ShellCommandUnresponsiveException
+                | IOException
+                | SyncException
+                | TimeoutException e) {
             throw new DeployerException("Unable to pull files.", e);
         }
     }
 
-    public void installMultiple(List<Apk> apks) throws DeployerException {
+    public void installMultiple(List<ApkFull> apks, boolean kill) throws DeployerException {
         List<File> files = new ArrayList<>();
-        for (Apk apk : apks) {
-            files.add(new File(apk.getLocalArchive().getPath()));
+        for (ApkFull apk : apks) {
+            files.add(new File(apk.getPath()));
         }
         try {
-            device.installPackages(files, true, Arrays.asList("-t", "-r"), 10, TimeUnit.SECONDS);
+            List<String> options = new ArrayList<>();
+            options.add("-t");
+            options.add("-r");
+            if (!kill) {
+                options.add("--dont-kill");
+            }
+            device.installPackages(files, true, options, 10, TimeUnit.SECONDS);
         } catch (InstallException e) {
             throw new DeployerException("Unable to install packages.", e);
+        }
+    }
+
+    public List<String> getAbis() {
+        return device.getAbis();
+    }
+
+    public void push(String from, String to) {
+        try {
+            device.pushFile(from, to);
+        } catch (IOException | SyncException | TimeoutException | AdbCommandRejectedException e) {
+            throw new DeployerException("Unable to push files", e);
+        }
+    }
+
+    private class ByteArrayOutputReceiver implements IShellOutputReceiver {
+
+        ByteArrayOutputStream stream = new ByteArrayOutputStream();
+
+        @Override
+        public void addOutput(byte[] data, int offset, int length) {
+            stream.write(data, offset, length);
+        }
+
+        @Override
+        public void flush() {}
+
+        @Override
+        public boolean isCancelled() {
+            return false;
+        }
+
+        byte[] toByteArray() {
+            return stream.toByteArray();
         }
     }
 }
