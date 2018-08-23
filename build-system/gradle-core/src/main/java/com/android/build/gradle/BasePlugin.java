@@ -515,6 +515,7 @@ public abstract class BasePlugin<E extends BaseExtension2>
 
         ndkHandler =
                 new NdkHandler(
+                        extension.getNdkVersion(),
                         project.getRootDir(),
                         null, /* compileSkdVersion, this will be set in afterEvaluate */
                         "gcc",
@@ -922,7 +923,7 @@ public abstract class BasePlugin<E extends BaseExtension2>
         }
 
         // See if the path contains non-ASCII characters.
-        if (CharMatcher.ASCII.matchesAllOf(project.getRootDir().getAbsolutePath())) {
+        if (CharMatcher.ascii().matchesAllOf(project.getRootDir().getAbsolutePath())) {
             return;
         }
 

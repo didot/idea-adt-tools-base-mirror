@@ -1094,7 +1094,6 @@ public final class SdkConstants {
     public static final String TAG_DECLARE_STYLEABLE = "declare-styleable"; //$NON-NLS-1$
     public static final String TAG_EAT_COMMENT = "eat-comment"; //$NON-NLS-1$
     public static final String TAG_SKIP = "skip"; //$NON-NLS-1$
-    public static final String TAG_SELECTOR = "selector"; //$NON-NLS-1$
     public static final String TAG_PUBLIC = "public"; //$NON-NLS-1$
 
     // Tags: Adaptive icon
@@ -1229,9 +1228,15 @@ public final class SdkConstants {
     public static final String CONSTRAINT_REFERENCED_IDS = "constraint_referenced_ids";
 
     // Tags: Drawables
+    public static final String TAG_PATH = "path";
+    public static final String TAG_GRADIENT = "gradient";
     public static final String TAG_BITMAP = "bitmap"; //$NON-NLS-1$
     public static final String TAG_VECTOR = "vector"; //$NON-NLS-1$
     public static final String TAG_ANIMATED_VECTOR = "animated-vector"; //$NON-NLS-1$
+    public static final String TAG_SHAPE = "shape";
+    public static final String TAG_RIPPLE = "ripple";
+    public static final String TAG_ANIMATED_SELECTOR = "animated-selector";
+    public static final String TAG_SELECTOR = "selector"; //$NON-NLS-1$
 
     // Tags: Data-Binding
     public static final String TAG_LAYOUT = "layout"; //$NON-NLS-1$
@@ -1386,6 +1391,23 @@ public final class SdkConstants {
     public static final String ATTR_WIDTH = "width"; //$NON-NLS-1$
     public static final String ATTR_HEIGHT = "height"; //$NON-NLS-1$
     public static final String ATTR_NAV_GRAPH = "navGraph";
+
+    // Attributes: Drawable
+    public static final String ATTR_VIEWPORT_HEIGHT = "viewportHeight";
+    public static final String ATTR_VIEWPORT_WIDTH = "viewportWidth";
+    public static final String ATTR_PATH_DATA = "pathData";
+    public static final String ATTR_FILL_COLOR = "fillColor";
+
+    // Attributes: Gradients
+    public static final String ATTR_END_X = "endX";
+    public static final String ATTR_END_Y = "endY";
+    public static final String ATTR_START_X = "startX";
+    public static final String ATTR_START_Y = "startY";
+    public static final String ATTR_CENTER_X = "centerX";
+    public static final String ATTR_CENTER_Y = "centerY";
+    public static final String ATTR_GRADIENT_RADIUS = "gradientRadius";
+    public static final String ATTR_STOP_COLOR = "color";
+    public static final String ATTR_STOP_OFFSET = "offset";
 
     // Attributes: Navigation
     public static final String ATTR_GRAPH = "graph";
@@ -2464,7 +2486,7 @@ public final class SdkConstants {
     public static final String GRADLE_ANDROID_TEST_API_CONFIGURATION = "androidTestApi";
 
     public static final String GRADLE_ANDROID_TEST_UTIL_CONFIGURATION = "androidTestUtil";
-    public static final String CURRENT_BUILD_TOOLS_VERSION = "28.0.0";
+    public static final String CURRENT_BUILD_TOOLS_VERSION = "28.0.2";
     public static final String SUPPORT_LIB_GROUP_ID = "com.android.support";
     public static final String SUPPORT_LIB_ARTIFACT = "com.android.support:support-v4";
     public static final String DESIGN_LIB_ARTIFACT = "com.android.support:design";

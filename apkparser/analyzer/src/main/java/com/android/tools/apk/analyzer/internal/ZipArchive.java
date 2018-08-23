@@ -29,19 +29,12 @@ import java.nio.file.Path;
  * <p>The archive is opened as a <code>zip</code> {@link FileSystem} until the {@link #close()}
  * method is called.
  */
-public class ZipArchive implements Archive {
-    @NonNull private final Path zipFilePath;
+public class ZipArchive extends AbstractArchive {
     @NonNull private final FileSystem zipFileSystem;
 
-    public ZipArchive(@NonNull Path zipFilePath) throws IOException {
-        this.zipFilePath = zipFilePath;
-        this.zipFileSystem = FileUtils.createZipFilesystem(zipFilePath);
-    }
-
-    @NonNull
-    @Override
-    public Path getPath() {
-        return zipFilePath;
+    public ZipArchive(@NonNull Path path) throws IOException {
+        super(path);
+        this.zipFileSystem = FileUtils.createZipFilesystem(path);
     }
 
     @Override
@@ -53,20 +46,5 @@ public class ZipArchive implements Archive {
     @Override
     public void close() throws IOException {
         zipFileSystem.close();
-    }
-
-    @Override
-    public boolean isBinaryXml(@NonNull Path p, @NonNull byte[] content) {
-        return false;
-    }
-
-    @Override
-    public boolean isProtoXml(@NonNull Path p, @NonNull byte[] content) {
-        return false;
-    }
-
-    @Override
-    public String toString() {
-        return String.format("%s: path=\"%s\"", getClass().getSimpleName(), zipFilePath);
     }
 }
