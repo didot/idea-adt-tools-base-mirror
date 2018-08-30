@@ -43,6 +43,12 @@ public abstract class ManifestProcessorTask extends IncrementalTask {
 
     private File instantRunManifestOutputDirectory;
 
+    private File metadataFeatureManifestOutputDirectory;
+
+    private File bundleManifestOutputDirectory;
+
+    private File instantAppManifestOutputDirectory;
+
     private File reportFile;
 
     @SuppressWarnings("unused")
@@ -68,7 +74,7 @@ public abstract class ManifestProcessorTask extends IncrementalTask {
     /** The processed Manifests files folder. */
     @OutputDirectory
     @InternalID(InternalArtifactType.MERGED_MANIFESTS)
-    @Replace(out = "")
+    @Initial(out = "")
     public Provider<Directory> getManifestOutputDirectory() {
         return manifestOutputDirectory;
     }
@@ -97,6 +103,47 @@ public abstract class ManifestProcessorTask extends IncrementalTask {
 
     public void setAaptFriendlyManifestOutputDirectory(File aaptFriendlyManifestOutputDirectory) {
         this.aaptFriendlyManifestOutputDirectory = aaptFriendlyManifestOutputDirectory;
+    }
+
+    /**
+     * The bundle manifest which is consumed by the bundletool (as opposed to the one packaged with
+     * the apk when built directly).
+     */
+    @OutputDirectory
+    @Optional
+    public File getBundleManifestOutputDirectory() {
+        return bundleManifestOutputDirectory;
+    }
+
+    protected void setBundleManifestOutputDirectory(File bundleManifestOutputDirectory) {
+        this.bundleManifestOutputDirectory = bundleManifestOutputDirectory;
+    }
+
+    /**
+     * The feature manifest which is consumed by its base feature (as opposed to the one packaged
+     * with the feature APK). This manifest, unlike the one packaged with the APK, does not specify
+     * a minSdkVersion. This is used by by both normal features and dynamic-features.
+     */
+    @OutputDirectory
+    @Optional
+    public File getMetadataFeatureManifestOutputDirectory() {
+        return metadataFeatureManifestOutputDirectory;
+    }
+
+    protected void setMetadataFeatureManifestOutputDirectory(
+            File metadataFeatureManifestOutputDirectory) {
+        this.metadataFeatureManifestOutputDirectory = metadataFeatureManifestOutputDirectory;
+    }
+
+    /** The instant app manifest which is used if we are deploying the app as an instant app. */
+    @OutputDirectory
+    @Optional
+    public File getInstantAppManifestOutputDirectory() {
+        return instantAppManifestOutputDirectory;
+    }
+
+    protected void setInstantAppManifestOutputDirectory(File bundleManifestOutputDirectory) {
+        this.instantAppManifestOutputDirectory = bundleManifestOutputDirectory;
     }
 
     @OutputFile

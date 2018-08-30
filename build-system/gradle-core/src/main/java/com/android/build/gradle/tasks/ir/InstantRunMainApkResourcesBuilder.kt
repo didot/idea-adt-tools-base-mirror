@@ -22,10 +22,9 @@ import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.ExistingBuildElements
 import com.android.build.gradle.internal.scope.InternalArtifactType.INSTANT_RUN_MAIN_APK_RESOURCES
 import com.android.build.gradle.internal.scope.InternalArtifactType.INSTANT_RUN_MERGED_MANIFESTS
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.transforms.InstantRunSliceSplitApkBuilder
 import com.android.build.gradle.internal.transforms.InstantRunSplitApkBuilder
 import com.android.builder.internal.aapt.BlockingResourceLinker
@@ -112,10 +111,10 @@ open class InstantRunMainApkResourcesBuilder : AndroidBuilderTask() {
                     "main_resources")
 
     class CreationAction(
-        val variantScope: VariantScope,
+        variantScope: VariantScope,
         private val taskInputType: ArtifactType
     ) :
-        LazyTaskCreationAction<InstantRunMainApkResourcesBuilder>() {
+        VariantTaskCreationAction<InstantRunMainApkResourcesBuilder>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("instantRunMainApkResources")
@@ -131,8 +130,7 @@ open class InstantRunMainApkResourcesBuilder : AndroidBuilderTask() {
         }
 
         override fun configure(task: InstantRunMainApkResourcesBuilder) {
-            task.variantName = variantScope.fullVariantName
-            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
+            super.configure(task)
 
             val artifacts = variantScope.artifacts
             task.resourceFiles = artifacts.getFinalArtifactFiles(taskInputType)

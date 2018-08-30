@@ -96,7 +96,7 @@ java_library(
 
 java_import(
     name = "langtools",
-    jars = ["@local_jdk//:langtools"],
+    jars = ["//prebuilts/studio/jdk:langtools"],
     visibility = ["//visibility:public"],
 )
 
@@ -283,6 +283,7 @@ java_library(
         "//tools/base/annotations",
         "//tools/base/bazel:gradle",
         "//tools/base/perf-logger:studio.perf-logger_testlib",
+        "//tools/base/third_party:com.google.guava_guava",
     ],
 )
 

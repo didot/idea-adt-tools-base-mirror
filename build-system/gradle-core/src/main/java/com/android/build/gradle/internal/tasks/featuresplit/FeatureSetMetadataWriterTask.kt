@@ -18,11 +18,10 @@ package com.android.build.gradle.internal.tasks.featuresplit
 
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.Workers
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.IntegerOption
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.CacheableTask
@@ -41,7 +40,8 @@ import javax.inject.Inject
 
 /** Task to write the FeatureSetMetadata file.  */
 @CacheableTask
-open class FeatureSetMetadataWriterTask @Inject constructor(workerExecutor: WorkerExecutor): AndroidVariantTask() {
+open class FeatureSetMetadataWriterTask @Inject constructor(workerExecutor: WorkerExecutor) :
+    AndroidVariantTask() {
 
     private val workers = Workers.getWorker(workerExecutor)
 
@@ -110,8 +110,8 @@ open class FeatureSetMetadataWriterTask @Inject constructor(workerExecutor: Work
         }
     }
 
-    class CreationAction(private val variantScope: VariantScope) :
-        LazyTaskCreationAction<FeatureSetMetadataWriterTask>() {
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<FeatureSetMetadataWriterTask>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("generate", "FeatureMetadata")
@@ -130,7 +130,8 @@ open class FeatureSetMetadataWriterTask @Inject constructor(workerExecutor: Work
         }
 
         override fun configure(task: FeatureSetMetadataWriterTask) {
-            task.variantName = variantScope.fullVariantName
+            super.configure(task)
+
             task.minSdkVersion = variantScope.minSdkVersion.apiLevel
 
             task.outputFile = outputFile

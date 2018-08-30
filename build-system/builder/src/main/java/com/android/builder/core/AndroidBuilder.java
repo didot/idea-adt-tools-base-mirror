@@ -455,6 +455,9 @@ public class AndroidBuilder {
             @NonNull String outManifestLocation,
             @Nullable String outAaptSafeManifestLocation,
             @Nullable String outInstantRunManifestLocation,
+            @Nullable String outMetadataFeatureManifestLocation,
+            @Nullable String outBundleManifestLocation,
+            @Nullable String outInstantAppManifestLocation,
             ManifestMerger2.MergeType mergeType,
             Map<String, Object> placeHolders,
             @NonNull Collection<Invoker.Feature> optionalFeatures,
@@ -492,10 +495,11 @@ public class AndroidBuilder {
                     mergingReport.log(mLogger);
                     // fall through since these are just warnings.
                 case SUCCESS:
-                    String xmlDocument = mergingReport.getMergedDocument(
-                            MergingReport.MergedManifestKind.MERGED);
-                    String annotatedDocument = mergingReport.getMergedDocument(
-                            MergingReport.MergedManifestKind.BLAME);
+                    String xmlDocument =
+                            mergingReport.getMergedDocument(
+                                    MergingReport.MergedManifestKind.MERGED);
+                    String annotatedDocument =
+                            mergingReport.getMergedDocument(MergingReport.MergedManifestKind.BLAME);
                     if (annotatedDocument != null) {
                         mLogger.verbose(annotatedDocument);
                     }
@@ -503,15 +507,47 @@ public class AndroidBuilder {
                     mLogger.verbose("Merged manifest saved to " + outManifestLocation);
 
                     if (outAaptSafeManifestLocation != null) {
-                        save(mergingReport.getMergedDocument(MergingReport.MergedManifestKind.AAPT_SAFE),
+                        save(
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.AAPT_SAFE),
                                 new File(outAaptSafeManifestLocation));
                     }
 
                     if (outInstantRunManifestLocation != null) {
-                        String instantRunMergedManifest = mergingReport.getMergedDocument(
-                                MergingReport.MergedManifestKind.INSTANT_RUN);
+                        String instantRunMergedManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.INSTANT_RUN);
                         if (instantRunMergedManifest != null) {
                             save(instantRunMergedManifest, new File(outInstantRunManifestLocation));
+                        }
+                    }
+
+                    if (outMetadataFeatureManifestLocation != null) {
+                        // This is the manifest used for merging back to the base. This is created
+                        // by both dynamic-features and normal features.
+                        String featureManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.METADATA_FEATURE);
+                        if (featureManifest != null) {
+                            save(featureManifest, new File(outMetadataFeatureManifestLocation));
+                        }
+                    }
+
+                    if (outBundleManifestLocation != null) {
+                        String bundleMergedManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.BUNDLE);
+                        if (bundleMergedManifest != null) {
+                            save(bundleMergedManifest, new File(outBundleManifestLocation));
+                        }
+                    }
+
+                    if (outInstantAppManifestLocation != null) {
+                        String instantAppManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.INSTANT_APP);
+                        if (instantAppManifest != null) {
+                            save(instantAppManifest, new File(outInstantAppManifestLocation));
                         }
                     }
                     break;

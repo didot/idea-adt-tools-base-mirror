@@ -19,8 +19,9 @@ package com.android.build.gradle.internal.tasks
 import com.android.build.gradle.internal.core.GradleVariantConfiguration
 import com.android.build.gradle.internal.dsl.SigningConfig
 import com.android.build.gradle.internal.dsl.SigningConfigFactory
+import com.android.build.gradle.internal.scope.MutableTaskContainer
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.factory.lazyCreate
+import com.android.build.gradle.internal.tasks.factory.registerTask
 import com.android.testutils.truth.PathSubject.assertThat
 import com.android.utils.capitalize
 import com.google.common.hash.Hashing
@@ -42,7 +43,8 @@ import org.mockito.Mockito.anyString
 import org.mockito.junit.MockitoJUnit
 import java.io.File
 import java.nio.file.Files
-import com.android.build.gradle.internal.tasks.factory.lazyCreate
+
+const val PRE_BUILD_TASKNAME = "preBuildTask"
 
 class ValidateSigningTaskTest {
 
@@ -56,6 +58,9 @@ class ValidateSigningTaskTest {
         @JvmStatic
         fun createProject() {
             project = ProjectBuilder.builder().withProjectDir(temporaryFolder.newFolder()).build()
+                .also {
+                    it.tasks.register(PRE_BUILD_TASKNAME)
+                }
         }
 
         @AfterClass
@@ -79,6 +84,7 @@ class ValidateSigningTaskTest {
     @Before
     fun createDebugKeystoreFile() {
         defaultDebugKeystore = File(temporaryFolder.newFolder(), "debug.keystore")
+
     }
 
     fun initPackagingScope(variantName: String) {
@@ -87,6 +93,9 @@ class ValidateSigningTaskTest {
         `when`(variantScope.getTaskName("validateSigning"))
                 .thenReturn("validateSigning" + variantName.capitalize())
         `when`(variantScope.getIncrementalDir(anyString())).thenReturn(temporaryFolder.newFolder())
+        `when`(variantScope.taskContainer).thenReturn(MutableTaskContainer())
+
+        variantScope.taskContainer.preBuildTask = project!!.tasks.named(PRE_BUILD_TASKNAME)
     }
 
     @Test
@@ -95,7 +104,7 @@ class ValidateSigningTaskTest {
         `when`(variantConfiguration.signingConfig).thenReturn(SigningConfig("release"))
         val configAction =
                 ValidateSigningTask.CreationAction(variantScope, defaultDebugKeystore)
-        val task = project!!.tasks.lazyCreate(configAction, null, null, null).get()
+        val task = project!!.tasks.registerTask(configAction, null, null, null).get()
         assertThat(task.forceRerun()).named("forceRerun").isTrue()
         // If no config file set, throws InvalidUserDataException
         try {
@@ -120,7 +129,7 @@ class ValidateSigningTaskTest {
         `when`(variantConfiguration.signingConfig).thenReturn(dslSigningConfig)
         val configAction =
                 ValidateSigningTask.CreationAction(variantScope, defaultDebugKeystore)
-        val task = project!!.tasks.lazyCreate(configAction, null, null, null).get()
+        val task = project!!.tasks.registerTask(configAction, null, null, null).get()
         assertThat(task.forceRerun()).named("forceRerun").isTrue()
         // If no config file set, throws InvalidUserDataException
         try {
@@ -141,7 +150,7 @@ class ValidateSigningTaskTest {
         `when`(variantConfiguration.signingConfig).thenReturn(dslSigningConfig)
         val configAction =
                 ValidateSigningTask.CreationAction(variantScope, defaultDebugKeystore)
-        val task = project!!.tasks.lazyCreate(configAction, null, null, null).get()
+        val task = project!!.tasks.registerTask(configAction, null, null, null).get()
 
         // Sanity check
         assertThat(defaultDebugKeystore).doesNotExist()

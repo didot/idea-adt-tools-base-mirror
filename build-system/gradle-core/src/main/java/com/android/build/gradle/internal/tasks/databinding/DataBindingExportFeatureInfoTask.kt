@@ -20,10 +20,10 @@ import android.databinding.tool.DataBindingBuilder
 import android.databinding.tool.FeaturePackageInfo
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.Workers
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata
 import com.android.utils.FileUtils
 import org.gradle.api.DefaultTask
@@ -54,7 +54,7 @@ import javax.inject.Inject
  * generated)
  */
 open class DataBindingExportFeatureInfoTask @Inject constructor(workerExecutor: WorkerExecutor)
-    : DefaultTask() {
+    : AndroidVariantTask() {
     @get:OutputDirectory lateinit var outFolder: File
         private set
 
@@ -89,8 +89,8 @@ open class DataBindingExportFeatureInfoTask @Inject constructor(workerExecutor: 
     }
 
     class CreationAction(
-        private val variantScope: VariantScope
-    ) : LazyTaskCreationAction<DataBindingExportFeatureInfoTask>() {
+        variantScope: VariantScope
+    ) : VariantTaskCreationAction<DataBindingExportFeatureInfoTask>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("dataBindingExportFeatureInfo")
@@ -107,6 +107,8 @@ open class DataBindingExportFeatureInfoTask @Inject constructor(workerExecutor: 
         }
 
         override fun configure(task: DataBindingExportFeatureInfoTask) {
+            super.configure(task)
+
             task.outFolder = outFolder
             task.directDependencies = variantScope.getArtifactFileCollection(
                     AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,

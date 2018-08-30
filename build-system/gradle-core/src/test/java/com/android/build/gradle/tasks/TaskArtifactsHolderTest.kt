@@ -19,6 +19,7 @@ package com.android.build.gradle.tasks
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.MutableTaskContainer
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.tasks.injection.JavaTasks
@@ -58,7 +59,9 @@ class TaskArtifactsHolderTest {
         val testDir = projectFolder.newFolder()
         project = ProjectBuilder.builder().withProjectDir(testDir).build()
         Mockito.`when`(variantScope.artifacts).thenReturn(artifacts)
-
+        Mockito.`when`(variantScope.fullVariantName).thenReturn("theVariantName")
+        Mockito.`when`(variantScope.taskContainer).thenReturn(MutableTaskContainer())
+        variantScope.taskContainer.preBuildTask = project.tasks.register("preBuildTask")
     }
 
     /**
@@ -77,6 +80,11 @@ class TaskArtifactsHolderTest {
         }
         test(createConfigAction<KotlinTasks.ValidInputTask>(variantScope), setupMock)
         test(createConfigAction<JavaTasks.ValidInputTask>(variantScope), setupMock)
+
+        // check an @InputFiles annotated field with no ID does not generate an injection error
+        // since the input can be explicitly set during the task configuration.
+        test(createConfigAction<KotlinTasks.NoIDOnInputProvidedTask>(variantScope), {})
+        test(createConfigAction<JavaTasks.NoIDOnInputProvidedTask>(variantScope), {})
     }
 
     @Test
@@ -84,7 +92,7 @@ class TaskArtifactsHolderTest {
         val provider: Provider<Directory> = Mockito.mock(Provider::class.java) as Provider<Directory>
         val setupMock = { taskProvider: TaskProvider<*> ->
             Mockito.`when`(
-                artifacts.appendDirectory(
+                artifacts.createDirectory(
                     MockitoKotlinUtils.safeEq(InternalArtifactType.APP_CLASSES),
                     MockitoKotlinUtils.safeAny(String::class.java, ""),
                     MockitoKotlinUtils.safeEq("out")))
@@ -127,9 +135,9 @@ class TaskArtifactsHolderTest {
         } catch(e: RuntimeException) {
             assertThat(e.message).isEqualTo(
                 "Task: com.android.build.gradle.tasks.injection.KotlinTasks\$MismatchedOutputTypeTask\n" +
-                    "\tMethod: public final org.gradle.api.provider.Provider<org.gradle.api.file.Directory> com.android.build.gradle.tasks.injection.KotlinTasks\$MismatchedOutputTypeTask.getClasses()\n" +
-                    "\tannotated with @org.gradle.api.tasks.OutputDirectory() with ArtifactID \"BUNDLE\"\n" +
-                    "\twhich kind is set to FILE")
+                        "\tMethod: public final org.gradle.api.provider.Provider<org.gradle.api.file.Directory> com.android.build.gradle.tasks.injection.KotlinTasks\$MismatchedOutputTypeTask.getClasses()\n" +
+                        "\tannotated with @org.gradle.api.tasks.OutputDirectory() expecting a DIRECTORY \n" +
+                        "\tbut its ArtifactID \"BUNDLE is set to be a FILE")
         }
 
         try {
@@ -175,8 +183,8 @@ class TaskArtifactsHolderTest {
             assertThat(e.message).isEqualTo(
                 "Task: com.android.build.gradle.tasks.injection.JavaTasks\$MismatchedOutputTypeTask\n" +
                         "\tMethod: public org.gradle.api.provider.Provider<org.gradle.api.file.Directory> com.android.build.gradle.tasks.injection.JavaTasks\$MismatchedOutputTypeTask.getClasses()\n" +
-                        "\tannotated with @org.gradle.api.tasks.OutputDirectory() with ArtifactID \"BUNDLE\"\n" +
-                        "\twhich kind is set to FILE")
+                        "\tannotated with @org.gradle.api.tasks.OutputDirectory() expecting a DIRECTORY \n" +
+                        "\tbut its ArtifactID \"BUNDLE is set to be a FILE")
         }
 
         try {

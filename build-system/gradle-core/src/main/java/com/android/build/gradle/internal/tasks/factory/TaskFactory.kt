@@ -38,26 +38,24 @@ interface TaskFactory {
     @Deprecated("Use lazyFindByName(...)")
     fun findByName(name: String): Task?
 
-    /** Creates a task with the given [EagerTaskCreationAction]  */
-    @Deprecated("Use lazyCreate(...)")
-    fun <T : Task> eagerCreate(creationAction: EagerTaskCreationAction<T>): T
-
     // --- Lazy Actions ---
 
-    fun lazyCreate(name: String): TaskProvider<Task>
+    fun named(name: String): TaskProvider<Task>
 
-    fun <T : Task> lazyCreate(
-        creationAction: LazyTaskCreationAction<T>
+    fun register(name: String): TaskProvider<Task>
+
+    fun <T : Task> register(
+        creationAction: TaskCreationAction<T>
     ): TaskProvider<T>
 
-    fun <T : Task> lazyCreate(
-        creationAction: LazyTaskCreationAction<T>,
+    fun <T : Task> register(
+        creationAction: TaskCreationAction<T>,
         secondaryPreConfigAction: PreConfigAction? = null,
         secondaryAction: TaskConfigAction<in T>? = null,
         secondaryProviderCallback: TaskProviderCallback<T>? = null
     ): TaskProvider<T>
 
-    fun <T: Task> lazyCreate(
+    fun <T: Task> register(
         taskName: String,
         taskType: Class<T>,
         preConfigAction: PreConfigAction? = null,
@@ -65,25 +63,25 @@ interface TaskFactory {
         providerCallback: TaskProviderCallback<T>? = null
     ): TaskProvider<T>
 
-    fun lazyCreate(
+    fun register(
         taskName: String,
         preConfigAction: PreConfigAction? = null,
         action: TaskConfigAction<in Task>? = null,
         providerCallback: TaskProviderCallback<Task>? = null
     ): TaskProvider<Task>
 
-    fun <T: Task> lazyCreate(
+    fun <T: Task> register(
         taskName: String,
         taskType: Class<T>,
         action: Action<in T>
     ): TaskProvider<T>
 
-    fun lazyCreate(
+    fun register(
         taskName: String,
         action: Action<in Task>
     ): TaskProvider<Task>
 
-    fun lazyConfigure(name: String, action: Action<in Task>)
+    fun configure(name: String, action: Action<in Task>)
 
-    fun <T : Task> lazyConfigure(name: String, type: Class<T>, action: Action<in T>)
+    fun <T : Task> configure(name: String, type: Class<T>, action: Action<in T>)
 }

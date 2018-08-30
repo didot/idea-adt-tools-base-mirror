@@ -434,8 +434,9 @@ public class ManifestMerger2 {
                     MergingReport.MergedManifestKind.MERGED, prettyPrint(document));
         }
 
-        if (mOptionalFeatures.contains(Invoker.Feature.ADD_INSTANT_APP_FEATURE_SPLIT_INFO)) {
-            addInstantAppFeatureSplitInfo(document, mFeatureName);
+        if (mOptionalFeatures.contains(Invoker.Feature.ADD_INSTANT_APP_FEATURE_SPLIT_INFO)
+                && !mFeatureName.isEmpty()) {
+            adjustInstantAppFeatureSplitInfo(document, mFeatureName, true);
             mergingReport.setMergedDocument(
                     MergingReport.MergedManifestKind.MERGED, prettyPrint(document));
         }
@@ -444,6 +445,104 @@ public class ManifestMerger2 {
             addTargetSandboxVersionAttribute(document);
             mergingReport.setMergedDocument(
                     MergingReport.MergedManifestKind.MERGED, prettyPrint(document));
+        }
+
+        // This features should occur at the end of all optional features, as they are based off of
+        // the final merged manifest. This is true for all instant app manifests, bundletool manifests,
+        // and feature manifests.
+        if (mOptionalFeatures.contains(Invoker.Feature.ADD_INSTANT_APP_MANIFEST)) {
+            addInstantAppManifest(document, mergingReport);
+        }
+        if (mOptionalFeatures.contains(Invoker.Feature.CREATE_BUNDLETOOL_MANIFEST)) {
+            createBundleToolManifest(document, mergingReport);
+        }
+    }
+
+    private void addInstantAppManifest(
+            @NonNull Document document, @NonNull MergingReport.Builder mergingReport) {
+        // If we haven't already added target sandbox version or split info, add them.
+        if (!mOptionalFeatures.contains(Invoker.Feature.TARGET_SANDBOX_VERSION)) {
+            addTargetSandboxVersionAttribute(document);
+        }
+        if (!mOptionalFeatures.contains(Invoker.Feature.ADD_INSTANT_APP_FEATURE_SPLIT_INFO)
+                && !mFeatureName.isEmpty()) {
+            adjustInstantAppFeatureSplitInfo(document, mFeatureName, true);
+        }
+
+        mergingReport.setMergedDocument(
+                MergingReport.MergedManifestKind.INSTANT_APP, prettyPrint(document));
+
+        // undo any changes we have made to the document.
+        if (!mOptionalFeatures.contains(Invoker.Feature.TARGET_SANDBOX_VERSION)) {
+            removeTargetSandboxVersionAttribute(document);
+        }
+        if (!mOptionalFeatures.contains(Invoker.Feature.ADD_INSTANT_APP_FEATURE_SPLIT_INFO)
+                && !mFeatureName.isEmpty()) {
+            adjustInstantAppFeatureSplitInfo(document, mFeatureName, false);
+        }
+    }
+
+    private void createBundleToolManifest(
+            @NonNull Document document, @NonNull MergingReport.Builder mergingReport) {
+        // add splitName if requested for bundletool and we haven't added it to the merged manifest.
+        if (mOptionalFeatures.contains(Invoker.Feature.ADD_SPLIT_NAME_TO_BUNDLETOOL_MANIFEST)
+                && !mOptionalFeatures.contains(
+                        Invoker.Feature.ADD_INSTANT_APP_FEATURE_SPLIT_INFO)) {
+            adjustInstantAppFeatureSplitInfo(document, mFeatureName, true);
+        }
+
+        mergingReport.setMergedDocument(
+                MergingReport.MergedManifestKind.BUNDLE, prettyPrint(document));
+        if (mOptionalFeatures.contains(Invoker.Feature.CREATE_FEATURE_MANIFEST)) {
+            // feature manifest should be added based on the bundle manifest for merging.
+            if (mOptionalFeatures.contains(Invoker.Feature.STRIP_MIN_SDK_FROM_FEATURE_MANIFEST)) {
+                stripMinSdkFromFeatureManifest(document, mergingReport);
+            } else {
+                mergingReport.setMergedDocument(
+                        MergingReport.MergedManifestKind.METADATA_FEATURE, prettyPrint(document));
+            }
+        }
+
+        // remove split name from the manifest, unless it was requested from before.
+        if (!mOptionalFeatures.contains(Invoker.Feature.ADD_INSTANT_APP_FEATURE_SPLIT_INFO)) {
+            adjustInstantAppFeatureSplitInfo(document, mFeatureName, false);
+        }
+        mergingReport.setMergedDocument(
+                MergingReport.MergedManifestKind.MERGED, prettyPrint(document));
+    }
+
+    /**
+     * This will strip the min sdk from the feature manifest, used to merge it back into the base
+     * module. This is used in dynamic-features, as dynamic-features can have different min sdk than
+     * the base module. It doesn't need to be strictly <= the base module like libraries.
+     *
+     * @param document the resulting document to use for stripping the min sdk from.
+     * @param mergingReport the merging report builder
+     */
+    private void stripMinSdkFromFeatureManifest(
+            @NonNull Document document, @NonNull MergingReport.Builder mergingReport) {
+        // make changes necessary for metadata feature manifest
+        Element manifest = document.getDocumentElement();
+        ImmutableList<Element> usesSdkList =
+                getChildElementsByName(manifest, SdkConstants.TAG_USES_SDK);
+        final Element usesSdk;
+        final String minSdkVersion;
+        if (!usesSdkList.isEmpty()) {
+            usesSdk = usesSdkList.get(0);
+            minSdkVersion =
+                    usesSdk.getAttributeNS(
+                            SdkConstants.ANDROID_URI, SdkConstants.ATTR_MIN_SDK_VERSION);
+            usesSdk.removeAttributeNS(SdkConstants.ANDROID_URI, SdkConstants.ATTR_MIN_SDK_VERSION);
+        } else {
+            usesSdk = null;
+            minSdkVersion = null;
+        }
+        // record amended document
+        mergingReport.setMergedDocument(
+                MergingReport.MergedManifestKind.METADATA_FEATURE, prettyPrint(document));
+        // undo changes necessary for metadata feature manifest
+        if (usesSdk != null && minSdkVersion != null) {
+            setAndroidAttribute(usesSdk, SdkConstants.ATTR_MIN_SDK_VERSION, minSdkVersion);
         }
     }
 
@@ -520,9 +619,10 @@ public class ManifestMerger2 {
      *
      * @param document the document whose attributes are changed
      * @param featureName the value all of the changed attributes are set to
+     * @param addName whether to add the attribute or remove it
      */
-    private static void addInstantAppFeatureSplitInfo(
-            @NonNull Document document, @NonNull String featureName) {
+    private static void adjustInstantAppFeatureSplitInfo(
+            @NonNull Document document, @NonNull String featureName, boolean addName) {
         Element manifest = document.getDocumentElement();
         if (manifest == null) {
             return;
@@ -544,7 +644,11 @@ public class ManifestMerger2 {
                         SdkConstants.TAG_PROVIDER);
         for (String elementName : elementNamesToUpdate) {
             for (Element elementToUpdate : getChildElementsByName(application, elementName)) {
-                setAndroidAttribute(elementToUpdate, SdkConstants.ATTR_SPLIT_NAME, featureName);
+                if (addName) {
+                    setAndroidAttribute(elementToUpdate, SdkConstants.ATTR_SPLIT_NAME, featureName);
+                } else {
+                    removeAndroidAttribute(elementToUpdate, SdkConstants.ATTR_SPLIT_NAME);
+                }
             }
         }
     }
@@ -560,6 +664,19 @@ public class ManifestMerger2 {
             return;
         }
         setAndroidAttribute(manifest, SdkConstants.ATTR_TARGET_SANDBOX_VERSION, "2");
+    }
+
+    /**
+     * Remove "android:targetSandboxVersion" attribute from the manifest element.
+     *
+     * @param document the document whose attributes are changes
+     */
+    private static void removeTargetSandboxVersionAttribute(@NonNull Document document) {
+        Element manifest = document.getDocumentElement();
+        if (manifest == null) {
+            return;
+        }
+        removeAndroidAttribute(manifest, SdkConstants.ATTR_TARGET_SANDBOX_VERSION);
     }
 
     /**
@@ -649,6 +766,18 @@ public class ManifestMerger2 {
         // having multiple processes
         setAndroidAttribute(cp, SdkConstants.ATTR_MULTIPROCESS, SdkConstants.VALUE_TRUE);
         application.appendChild(cp);
+    }
+
+    /**
+     * Remove an Android-namespaced XML attribute on the given node.
+     *
+     * @param node Node in which to remove the attribute; must be part of a document
+     * @param localName Non-prefixed attribute name
+     */
+    private static void removeAndroidAttribute(Element node, String localName) {
+        // removeAttributeNS calculates the prefix.
+        // Setting it with localName will actually prevent it from working properly.
+        node.removeAttributeNS(SdkConstants.ANDROID_URI, localName);
     }
 
     /**
@@ -1246,6 +1375,21 @@ public class ManifestMerger2 {
 
             /** Mark the entry points to the application with splitName */
             ADD_INSTANT_APP_FEATURE_SPLIT_INFO,
+
+            /** Create a bundletool manifest */
+            CREATE_BUNDLETOOL_MANIFEST,
+
+            /** Add the split name to the bundletool manifest. */
+            ADD_SPLIT_NAME_TO_BUNDLETOOL_MANIFEST,
+
+            /** Create a feature manifest to be merged into the base. */
+            CREATE_FEATURE_MANIFEST,
+
+            /** Strip the min sdk from the feature manifest. */
+            STRIP_MIN_SDK_FROM_FEATURE_MANIFEST,
+
+            /** Add instant app manifest. */
+            ADD_INSTANT_APP_MANIFEST,
 
             /** Set the android:debuggable flag to the application. */
             DEBUGGABLE,

@@ -18,9 +18,9 @@ package com.android.build.gradle.internal.tasks
 
 import com.android.annotations.NonNull
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.utils.FileUtils
 import com.google.common.io.Files
 import org.apache.commons.io.Charsets
@@ -96,27 +96,28 @@ open class CheckMultiApkLibrariesTask : AndroidVariantTask() {
         }
     }
 
-    class CreationAction(val scope: VariantScope) :
-        LazyTaskCreationAction<CheckMultiApkLibrariesTask>() {
+    class CreationAction(private val variantScope: VariantScope) :
+        TaskCreationAction<CheckMultiApkLibrariesTask>() {
 
         override val name: String
-            get() = scope.getTaskName("check", "Libraries")
+            get() = variantScope.getTaskName("check", "Libraries")
         override val type: Class<CheckMultiApkLibrariesTask>
             get() = CheckMultiApkLibrariesTask::class.java
 
         override fun configure(task: CheckMultiApkLibrariesTask) {
-            task.variantName = scope.fullVariantName
+            task.variantName = variantScope.fullVariantName
+
             task.featureTransitiveDeps =
-                    scope.getArtifactCollection(
+                    variantScope.getArtifactCollection(
                         AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,
                         AndroidArtifacts.ArtifactScope.MODULE,
                         AndroidArtifacts.ArtifactType.FEATURE_TRANSITIVE_DEPS
                     )
             task.fakeOutputDir =
                     FileUtils.join(
-                        scope.globalScope.intermediatesDir,
+                        variantScope.globalScope.intermediatesDir,
                         "check-libraries",
-                        scope.variantConfiguration.dirName
+                        variantScope.variantConfiguration.dirName
                     )
         }
     }

@@ -20,10 +20,10 @@ import android.databinding.tool.DataBindingBuilder
 import android.databinding.tool.store.FeatureInfoList
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.Workers
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSplitDeclaration
 import com.android.utils.FileUtils
 import org.gradle.api.DefaultTask
@@ -46,7 +46,7 @@ import javax.inject.Inject
 @CacheableTask
 open class DataBindingExportFeatureApplicationIdsTask @Inject constructor(
     workerExecutor: WorkerExecutor
-) : DefaultTask() {
+) : AndroidVariantTask() {
     // where to keep the log of the task
     @get:OutputDirectory lateinit var packageListOutFolder: File
         private set
@@ -68,9 +68,9 @@ open class DataBindingExportFeatureApplicationIdsTask @Inject constructor(
     }
 
     class CreationAction(
-        private val variantScope: VariantScope
+        variantScope: VariantScope
     ) :
-        LazyTaskCreationAction<DataBindingExportFeatureApplicationIdsTask>() {
+        VariantTaskCreationAction<DataBindingExportFeatureApplicationIdsTask>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("dataBindingExportFeaturePackageIds")
@@ -82,10 +82,15 @@ open class DataBindingExportFeatureApplicationIdsTask @Inject constructor(
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
             packageListOutFolder = variantScope.artifacts
-                .appendArtifact(InternalArtifactType.FEATURE_DATA_BINDING_BASE_FEATURE_INFO, taskName)
+                .appendArtifact(
+                    InternalArtifactType.FEATURE_DATA_BINDING_BASE_FEATURE_INFO,
+                    taskName
+                )
         }
 
         override fun configure(task: DataBindingExportFeatureApplicationIdsTask) {
+            super.configure(task)
+
             task.packageListOutFolder = packageListOutFolder
             task.featureDeclarations = variantScope.getArtifactFileCollection(
                     AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,

@@ -18,12 +18,11 @@ package com.android.build.gradle.internal.res.namespaced
 
 import com.android.SdkConstants
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.Workers
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.google.common.base.Suppliers
-import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Internal
@@ -39,7 +38,7 @@ import javax.inject.Inject
  */
 @CacheableTask
 open class StaticLibraryManifestTask @Inject constructor(workerExecutor: WorkerExecutor)
-    : DefaultTask() {
+    : AndroidVariantTask() {
 
     @get:Internal lateinit var packageNameSupplier: Supplier<String> private set
     @get:Input val packageName get() = packageNameSupplier.get()
@@ -56,10 +55,11 @@ open class StaticLibraryManifestTask @Inject constructor(workerExecutor: WorkerE
     }
 
     class CreationAction(
-        private val scope: VariantScope
-    ) : LazyTaskCreationAction<StaticLibraryManifestTask>() {
+        variantScope: VariantScope
+    ) : VariantTaskCreationAction<StaticLibraryManifestTask>(variantScope) {
+
         override val name: String
-            get() = scope.getTaskName("create", "StaticLibraryManifest")
+            get() = variantScope.getTaskName("create", "StaticLibraryManifest")
         override val type: Class<StaticLibraryManifestTask>
             get() = StaticLibraryManifestTask::class.java
 
@@ -67,15 +67,16 @@ open class StaticLibraryManifestTask @Inject constructor(workerExecutor: WorkerE
 
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
-            manifestFile = scope.artifacts.appendArtifact(InternalArtifactType.STATIC_LIBRARY_MANIFEST,
+            manifestFile = variantScope.artifacts.appendArtifact(InternalArtifactType.STATIC_LIBRARY_MANIFEST,
                 taskName,
                 SdkConstants.ANDROID_MANIFEST_XML)
         }
 
         override fun configure(task: StaticLibraryManifestTask) {
+            super.configure(task)
             task.manifestFile = manifestFile
             task.packageNameSupplier =
-                    Suppliers.memoize(scope.variantConfiguration::getOriginalApplicationId)
+                    Suppliers.memoize(variantScope.variantConfiguration::getOriginalApplicationId)
         }
     }
 }

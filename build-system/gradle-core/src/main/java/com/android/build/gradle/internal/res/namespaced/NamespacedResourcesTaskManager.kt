@@ -18,6 +18,7 @@ package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.gradle.internal.tasks.factory.TaskFactory
 import com.android.build.gradle.internal.res.LinkApplicationAndroidResourcesTask
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.GlobalScope
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
@@ -54,17 +55,17 @@ class NamespacedResourcesTaskManager(
 
         // Process dependencies making sure everything we consume will be fully namespaced.
         if (globalScope.projectOptions.get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES)) {
-            val task = taskFactory.lazyCreate(AutoNamespaceDependenciesTask.CreationAction(variantScope))
+            val task = taskFactory.register(AutoNamespaceDependenciesTask.CreationAction(variantScope))
             // Needed for the IDE
             variantScope.taskContainer.sourceGenTask.dependsOn(task)
         }
 
         // Compile
         createCompileResourcesTask()
-        taskFactory.lazyCreate(StaticLibraryManifestTask.CreationAction(variantScope))
-        taskFactory.lazyCreate(LinkLibraryAndroidResourcesTask.CreationAction(variantScope))
+        taskFactory.register(StaticLibraryManifestTask.CreationAction(variantScope))
+        taskFactory.register(LinkLibraryAndroidResourcesTask.CreationAction(variantScope))
         // TODO: also generate a private R.jar holding private resources.
-        taskFactory.lazyCreate(GenerateNamespacedLibraryRFilesTask.CreationAction(variantScope))
+        taskFactory.register(GenerateNamespacedLibraryRFilesTask.CreationAction(variantScope))
         if (variantScope.type.isTestComponent) {
             if (variantScope.testedVariantData!!.type.isAar) {
                 createNamespacedLibraryTestProcessResourcesTask(
@@ -84,14 +85,14 @@ class NamespacedResourcesTaskManager(
                 useAaptToGenerateLegacyMultidexMainDexProguardRules = useAaptToGenerateLegacyMultidexMainDexProguardRules
             )
         }
-        taskFactory.lazyCreate(CompileRClassTask.CreationAction(variantScope))
+        taskFactory.register(CompileRClassTask.CreationAction(variantScope))
     }
 
     private fun createNamespacedAppProcessTask(
             packageOutputType: InternalArtifactType?,
             baseName: String,
             useAaptToGenerateLegacyMultidexMainDexProguardRules: Boolean) {
-       taskFactory.lazyCreate(
+       taskFactory.register(
            LinkApplicationAndroidResourcesTask.NamespacedCreationAction(
                variantScope,
                useAaptToGenerateLegacyMultidexMainDexProguardRules,
@@ -99,18 +100,20 @@ class NamespacedResourcesTaskManager(
            )
        )
         if (packageOutputType != null) {
-            variantScope.artifacts.appendArtifact(
+            variantScope.artifacts.createBuildableArtifact(
                 packageOutputType,
+                BuildArtifactsHolder.OperationType.INITIAL,
                 variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.PROCESSED_RES))
         }
     }
 
     private fun createNamespacedLibraryTestProcessResourcesTask(
             packageOutputType: InternalArtifactType?) {
-        taskFactory.lazyCreate(ProcessAndroidAppResourcesTask.CreationAction(variantScope))
+        taskFactory.register(ProcessAndroidAppResourcesTask.CreationAction(variantScope))
         if (packageOutputType != null) {
-            variantScope.artifacts.appendArtifact(
+            variantScope.artifacts.createBuildableArtifact(
                 packageOutputType,
+                BuildArtifactsHolder.OperationType.INITIAL,
                 variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.PROCESSED_RES))
         }
     }
@@ -120,7 +123,7 @@ class NamespacedResourcesTaskManager(
             val name = "compile${sourceSetName.capitalize()}" +
                     "ResourcesFor${variantScope.fullVariantName.capitalize()}"
             // TODO : figure out when we need explicit task dependency and potentially remove it.
-            taskFactory.lazyCreate(CompileSourceSetResources.CreationAction(
+            taskFactory.register(CompileSourceSetResources.CreationAction(
                     name = name,
                     inputDirectories = artifacts,
                     variantScope = variantScope))

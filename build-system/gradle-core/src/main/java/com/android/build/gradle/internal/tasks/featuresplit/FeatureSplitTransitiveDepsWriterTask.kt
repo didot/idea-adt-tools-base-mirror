@@ -19,10 +19,10 @@ package com.android.build.gradle.internal.tasks.featuresplit
 import com.android.build.api.attributes.VariantAttr
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidVariantTask
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.utils.FileUtils
 import com.google.common.base.Charsets
 import com.google.common.base.Joiner
@@ -71,8 +71,14 @@ open class FeatureSplitTransitiveDepsWriterTask : AndroidVariantTask() {
                 .write(Joiner.on(System.lineSeparator()).join(content))
     }
 
+    /**
+     * Action to create the task that generates the transitive dependency list to be consumed by
+     * other modules.
+     *
+     * This cannot depend on preBuild as it would introduce a dependency cycle.
+     */
     class CreationAction(private val variantScope: VariantScope) :
-        LazyTaskCreationAction<FeatureSplitTransitiveDepsWriterTask>() {
+        TaskCreationAction<FeatureSplitTransitiveDepsWriterTask>() {
 
         override val name: String
             get() = variantScope.getTaskName("generate", "FeatureTransitiveDeps")
@@ -82,8 +88,6 @@ open class FeatureSplitTransitiveDepsWriterTask : AndroidVariantTask() {
         private lateinit var outputFile: File
 
         override fun preConfigure(taskName: String) {
-            super.preConfigure(taskName)
-
             outputFile = variantScope.artifacts
                 .appendArtifact(InternalArtifactType.FEATURE_TRANSITIVE_DEPS,
                     taskName,
@@ -92,6 +96,7 @@ open class FeatureSplitTransitiveDepsWriterTask : AndroidVariantTask() {
 
         override fun configure(task: FeatureSplitTransitiveDepsWriterTask) {
             task.variantName = variantScope.fullVariantName
+
             task.outputFile = outputFile
             task.runtimeJars = variantScope.getArtifactCollection(
                     AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,

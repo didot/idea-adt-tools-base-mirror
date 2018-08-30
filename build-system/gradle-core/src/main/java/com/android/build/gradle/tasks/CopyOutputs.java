@@ -25,7 +25,7 @@ import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
@@ -108,20 +108,19 @@ public class CopyOutputs extends AndroidVariantTask {
                 .into(InternalArtifactType.APK);
     }
 
-    public static class CreationAction extends EagerTaskCreationAction<CopyOutputs> {
+    public static class CreationAction extends VariantTaskCreationAction<CopyOutputs> {
 
-        private final VariantScope variantScope;
-        private final File outputDirectory;
+        private final File destinationDir;
 
-        public CreationAction(VariantScope variantScope, File outputDirectory) {
-            this.variantScope = variantScope;
-            this.outputDirectory = outputDirectory;
+        public CreationAction(VariantScope variantScope, File destinationDir) {
+            super(variantScope);
+            this.destinationDir = destinationDir;
         }
 
         @NonNull
         @Override
         public String getName() {
-            return variantScope.getTaskName("copyOutputs");
+            return getVariantScope().getTaskName("copyOutputs");
         }
 
         @NonNull
@@ -131,16 +130,26 @@ public class CopyOutputs extends AndroidVariantTask {
         }
 
         @Override
-        public void execute(@NonNull CopyOutputs task) {
-            task.setVariantName(variantScope.getFullVariantName());
-            BuildArtifactsHolder artifacts = variantScope.getArtifacts();
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+            getVariantScope()
+                    .getArtifacts()
+                    .appendArtifact(
+                            InternalArtifactType.APK, ImmutableList.of(destinationDir), taskName);
+        }
+
+        @Override
+        public void configure(@NonNull CopyOutputs task) {
+            super.configure(task);
+
+            BuildArtifactsHolder artifacts = getVariantScope().getArtifacts();
             task.fullApks = artifacts.getFinalArtifactFiles(
                     InternalArtifactType.FULL_APK);
             task.abiSplits = artifacts.getFinalArtifactFiles(
                     InternalArtifactType.ABI_PACKAGED_SPLIT);
             task.resourcesSplits = artifacts.getFinalArtifactFiles(
                                     InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT);
-            task.destinationDir = outputDirectory;
+            task.destinationDir = destinationDir;
         }
     }
 }

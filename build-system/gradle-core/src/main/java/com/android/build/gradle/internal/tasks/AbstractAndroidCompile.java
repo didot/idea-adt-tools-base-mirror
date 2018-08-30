@@ -18,5 +18,4 @@ package com.android.build.gradle.internal.tasks;
 
 import org.gradle.api.tasks.compile.AbstractCompile;
 
-public abstract class AbstractAndroidCompile extends AbstractCompile{
-}
+public abstract class AbstractAndroidCompile extends AbstractCompile implements VariantAwareTask {}

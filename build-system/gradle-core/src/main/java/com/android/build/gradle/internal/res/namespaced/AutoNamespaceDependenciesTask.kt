@@ -23,10 +23,9 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactTyp
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType
 import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.utils.toImmutableList
 import com.android.build.gradle.internal.utils.toImmutableMap
 import com.android.builder.symbols.exportToCompiledJava
@@ -386,8 +385,8 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
             }
         }.toImmutableMap { it.toImmutableList() }
 
-    class CreationAction(private val variantScope: VariantScope) :
-        LazyTaskCreationAction<AutoNamespaceDependenciesTask>() {
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<AutoNamespaceDependenciesTask>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("autoNamespace", "Dependencies")
@@ -397,6 +396,7 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
         private lateinit var outputClassesJar: File
         private lateinit var outputRClassesJar: File
         private lateinit var outputStaticLibraries: File
+        private lateinit var outputRewrittenManifests: File
 
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
@@ -413,11 +413,14 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
                 InternalArtifactType.RES_CONVERTED_NON_NAMESPACED_REMOTE_DEPENDENCIES,
                 taskName
             )
+
+            outputRewrittenManifests = variantScope.artifacts.appendArtifact(
+                InternalArtifactType.NAMESPACED_MANIFESTS, taskName)
+
         }
 
         override fun configure(task: AutoNamespaceDependenciesTask) {
-            task.variantName = variantScope.fullVariantName
-            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
+            super.configure(task)
 
             task.rFiles = variantScope.getArtifactCollection(
                     ConsumedConfigType.RUNTIME_CLASSPATH,
@@ -443,9 +446,7 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
                     ArtifactType.PUBLIC_RES
             )
 
-            task.outputRewrittenManifests = variantScope.artifacts.appendArtifact(
-                    InternalArtifactType.NAMESPACED_MANIFESTS, task)
-
+            task.outputRewrittenManifests = outputRewrittenManifests
             task.outputClassesJar = outputClassesJar
             task.outputRClassesJar = outputRClassesJar
             task.outputStaticLibraries = outputStaticLibraries

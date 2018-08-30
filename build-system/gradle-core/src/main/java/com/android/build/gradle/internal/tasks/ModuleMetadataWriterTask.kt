@@ -21,9 +21,8 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactTyp
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.METADATA_VALUES
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.OutputScope
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -94,8 +93,8 @@ open class ModuleMetadataWriterTask : AndroidVariantTask() {
         declaration.save(outputFile)
     }
 
-    class CreationAction(private val variantScope: VariantScope) :
-        LazyTaskCreationAction<ModuleMetadataWriterTask>() {
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<ModuleMetadataWriterTask>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("write", "ModuleMetadata")
@@ -124,7 +123,7 @@ open class ModuleMetadataWriterTask : AndroidVariantTask() {
         }
 
         override fun configure(task: ModuleMetadataWriterTask) {
-            task.variantName = variantScope.fullVariantName
+            super.configure(task)
 
             // default value of the app ID to publish. This may get overwritten by something
             // coming from an application module.

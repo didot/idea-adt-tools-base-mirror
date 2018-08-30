@@ -28,7 +28,7 @@ import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.ApkVariantData;
 import com.android.builder.core.AndroidBuilder;
 import com.android.ide.common.process.ProcessException;
@@ -47,6 +47,7 @@ import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 /** Task to generate micro app data res file. */
 public class GenerateApkDataTask extends AndroidBuilderTask {
@@ -175,23 +176,20 @@ public class GenerateApkDataTask extends AndroidBuilderTask {
         return manifestFile;
     }
 
-    public static class CreationAction extends EagerTaskCreationAction<GenerateApkDataTask> {
+    public static class CreationAction extends VariantTaskCreationAction<GenerateApkDataTask> {
 
-        @NonNull
-        VariantScope scope;
-
-        @Nullable FileCollection apkFileCollection;
+        @Nullable private FileCollection apkFileCollection;
 
         public CreationAction(
                 @NonNull VariantScope scope, @Nullable FileCollection apkFileCollection) {
-            this.scope = scope;
+            super(scope);
             this.apkFileCollection = apkFileCollection;
         }
 
         @Override
         @NonNull
         public String getName() {
-            return scope.getTaskName("handle", "MicroApk");
+            return getVariantScope().getTaskName("handle", "MicroApk");
         }
 
         @Override
@@ -201,15 +199,22 @@ public class GenerateApkDataTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull GenerateApkDataTask task) {
+        public void handleProvider(
+                @NonNull TaskProvider<? extends GenerateApkDataTask> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setMicroApkTask(taskProvider);
+            getVariantScope().getTaskContainer().setGenerateApkDataTask(taskProvider);
+        }
+
+        @Override
+        public void configure(@NonNull GenerateApkDataTask task) {
+            super.configure(task);
+
+            VariantScope scope = getVariantScope();
+
             final ApkVariantData variantData = (ApkVariantData) scope.getVariantData();
             final GradleVariantConfiguration variantConfiguration =
                     variantData.getVariantConfiguration();
-
-            scope.getTaskContainer().setGenerateApkDataTask(task);
-
-            task.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            task.setVariantName(variantConfiguration.getFullName());
 
             task.setResOutputDir(scope.getMicroApkResDirectory());
 

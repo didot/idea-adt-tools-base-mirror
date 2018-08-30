@@ -22,11 +22,10 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.OutputScope
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask
 import com.android.build.gradle.internal.tasks.Workers
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.BooleanOption
 import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
@@ -114,11 +113,11 @@ open class ProcessAndroidAppResourcesTask
         }
     }
 
-    class CreationAction(private val scope: VariantScope) :
-        LazyTaskCreationAction<ProcessAndroidAppResourcesTask>() {
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<ProcessAndroidAppResourcesTask>(variantScope) {
 
         override val name: String
-            get() = scope.getTaskName("process", "Resources")
+            get() = variantScope.getTaskName("process", "Resources")
         override val type: Class<ProcessAndroidAppResourcesTask>
             get() = ProcessAndroidAppResourcesTask::class.java
 
@@ -128,13 +127,13 @@ open class ProcessAndroidAppResourcesTask
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
 
-            val artifacts = scope.artifacts
+            val artifacts = variantScope.artifacts
 
             rClassSource = artifacts.appendArtifact(
                 InternalArtifactType.RUNTIME_R_CLASS_SOURCES,
                 taskName)
 
-            resourceApUnderscore = scope.artifacts
+            resourceApUnderscore = variantScope.artifacts
                 .appendArtifact(
                     InternalArtifactType.PROCESSED_RES,
                     taskName,
@@ -143,43 +142,46 @@ open class ProcessAndroidAppResourcesTask
         }
 
         override fun configure(task: ProcessAndroidAppResourcesTask) {
-            task.variantName = scope.fullVariantName
-            val artifacts = scope.artifacts
+            super.configure(task)
+
+            val artifacts = variantScope.artifacts
             task.manifestFileDirectory =
                     if (artifacts.hasArtifact(InternalArtifactType.AAPT_FRIENDLY_MERGED_MANIFESTS)) {
                         artifacts.getFinalArtifactFiles(InternalArtifactType.AAPT_FRIENDLY_MERGED_MANIFESTS)
+                    } else if (variantScope.globalScope.projectOptions.get(BooleanOption.DEPLOY_AS_INSTANT_APP)) {
+                        artifacts.getFinalArtifactFiles(InternalArtifactType.INSTANT_APP_MANIFEST)
                     } else {
                         artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_MANIFESTS)
                     }
-            task.thisSubProjectStaticLibrary = scope.artifacts.getFinalArtifactFiles(
+            task.thisSubProjectStaticLibrary = variantScope.artifacts.getFinalArtifactFiles(
                 InternalArtifactType.RES_STATIC_LIBRARY)
             task.libraryDependencies =
-                    scope.getArtifactFileCollection(
+                    variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
                             AndroidArtifacts.ArtifactScope.ALL,
                             AndroidArtifacts.ArtifactType.RES_STATIC_LIBRARY)
-            if (scope.globalScope.extension.aaptOptions.namespaced &&
-                scope.globalScope.projectOptions.get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES)) {
+            if (variantScope.globalScope.extension.aaptOptions.namespaced &&
+                variantScope.globalScope.projectOptions.get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES)) {
                 task.convertedLibraryDependencies =
-                        scope
+                        variantScope
                             .artifacts
                             .getArtifactFiles(
                                 InternalArtifactType.RES_CONVERTED_NON_NAMESPACED_REMOTE_DEPENDENCIES)
             }
             task.sharedLibraryDependencies =
-                    scope.getArtifactFileCollection(
+                    variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
                             AndroidArtifacts.ArtifactScope.ALL,
                             AndroidArtifacts.ArtifactType.RES_SHARED_STATIC_LIBRARY)
 
-            task.outputScope = scope.outputScope
+            task.outputScope = variantScope.outputScope
             task.aaptIntermediateDir =
                     FileUtils.join(
-                            scope.globalScope.intermediatesDir, "res-process-intermediate", scope.variantConfiguration.dirName)
+                            variantScope.globalScope.intermediatesDir, "res-process-intermediate", variantScope.variantConfiguration.dirName)
             task.rClassSource = rClassSource
             task.resourceApUnderscore = resourceApUnderscore
-            task.setAndroidBuilder(scope.globalScope.androidBuilder)
-            task.aapt2FromMaven = getAapt2FromMaven(scope.globalScope)
+            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
+            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
         }
     }
 

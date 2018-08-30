@@ -18,12 +18,10 @@ package com.android.build.gradle.internal.res.namespaced
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.IncrementalTask
 import com.android.build.gradle.internal.tasks.Workers
-import com.android.build.gradle.internal.tasks.factory.LazyTaskCreationAction
-import com.android.build.gradle.internal.tasks.factory.dependsOn
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.builder.internal.aapt.v2.Aapt2RenamingConventions
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.ide.common.resources.FileStatus
@@ -180,8 +178,8 @@ open class CompileSourceSetResources
     class CreationAction(
         override val name: String,
         private val inputDirectories: BuildableArtifact,
-        private val variantScope: VariantScope
-    ) : LazyTaskCreationAction<CompileSourceSetResources>() {
+        variantScope: VariantScope
+    ) : VariantTaskCreationAction<CompileSourceSetResources>(variantScope) {
 
         override val type: Class<CompileSourceSetResources>
             get() = CompileSourceSetResources::class.java
@@ -199,10 +197,11 @@ open class CompileSourceSetResources
         }
 
         override fun configure(task: CompileSourceSetResources) {
+            super.configure(task)
+
             task.inputDirectories = inputDirectories
             task.outputDirectory = outputDirectory
             task.partialRDirectory = partialRDirectory
-            task.variantName = variantScope.fullVariantName
             task.isPngCrunching = variantScope.isCrunchPngs
             task.isPseudoLocalize =
                     variantScope.variantData.variantConfiguration.buildType.isPseudoLocalesEnabled

@@ -19,9 +19,10 @@ package com.android.build.gradle.internal.tasks.databinding
 import android.databinding.tool.DataBindingBuilder
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.InternalArtifactType
-import com.android.build.gradle.internal.tasks.factory.EagerTaskCreationAction
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.Workers
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.utils.FileUtils
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.FileCollection
@@ -44,7 +45,7 @@ import javax.inject.Inject
 @CacheableTask
 open class DataBindingMergeDependencyArtifactsTask @Inject constructor(
     workerExecutor: WorkerExecutor
-) : DefaultTask() {
+) : AndroidVariantTask() {
     /**
      * Classes available at Runtime. We extract BR files from there so that even if there is no
      * compile time dependency on a particular artifact, we can still generate the BR file for it.
@@ -85,15 +86,27 @@ open class DataBindingMergeDependencyArtifactsTask @Inject constructor(
     }
 
     class CreationAction(
-        private val variantScope: VariantScope
-    ) : EagerTaskCreationAction<DataBindingMergeDependencyArtifactsTask>() {
+        variantScope: VariantScope
+    ) : VariantTaskCreationAction<DataBindingMergeDependencyArtifactsTask>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("dataBindingMergeDependencyArtifacts")
         override val type: Class<DataBindingMergeDependencyArtifactsTask>
             get() = DataBindingMergeDependencyArtifactsTask::class.java
 
-        override fun execute(task: DataBindingMergeDependencyArtifactsTask) {
+        private lateinit var outFolder: File
+
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            outFolder = variantScope.artifacts.appendArtifact(
+                InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS,
+                taskName
+            )
+        }
+
+        override fun configure(task: DataBindingMergeDependencyArtifactsTask) {
+            super.configure(task)
+
             task.runtimeDependencies = variantScope.getArtifactFileCollection(
                 AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
                 AndroidArtifacts.ArtifactScope.ALL,
@@ -104,10 +117,7 @@ open class DataBindingMergeDependencyArtifactsTask @Inject constructor(
                 AndroidArtifacts.ArtifactScope.ALL,
                 AndroidArtifacts.ArtifactType.DATA_BINDING_ARTIFACT
             )
-            task.outFolder = variantScope.artifacts.appendArtifact(
-                InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS,
-                task
-            )
+            task.outFolder = outFolder
         }
     }
 }
