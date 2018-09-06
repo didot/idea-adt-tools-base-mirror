@@ -1027,6 +1027,8 @@ public final class SdkConstants {
     public static final String TOOLS_URI = "http://schemas.android.com/tools"; //$NON-NLS-1$
     /** Namespace used for auto-adjusting namespaces */
     public static final String AUTO_URI = "http://schemas.android.com/apk/res-auto"; //$NON-NLS-1$
+    /** Namespace used for specifying module distribution */
+    public static final String DIST_URI = "http://schemas.android.com/apk/distribution";
 
     public static final String AAPT_URI = "http://schemas.android.com/aapt"; //$NON-NLS-1$
     /** Namespace for xliff in string resources. */
@@ -1047,6 +1049,7 @@ public final class SdkConstants {
 
     public static final String SHERPA_PREFIX = "app"; //$NON-NLS-1$
     public static final String SHERPA_URI = "http://schemas.android.com/apk/res-auto"; //$NON-NLS-1$
+
     /** Namespace for Instant App attributes in manifest files */
 
     // Tags: Manifest
@@ -1073,6 +1076,7 @@ public final class SdkConstants {
     public static final String TAG_INSTRUMENTATION = "instrumentation";
     public static final String TAG_META_DATA = "meta-data";
     public static final String TAG_RESOURCE = "resource";
+    public static final String TAG_MODULE = "module";
 
     // Tags: Resources
     public static final String TAG_RESOURCES = "resources"; //$NON-NLS-1$
@@ -1283,6 +1287,8 @@ public final class SdkConstants {
     public static final String ATTR_FEATURE_SPLIT = "featureSplit";
     public static final String ATTR_TARGET_SANDBOX_VERSION = "targetSandboxVersion";
     public static final String ATTR_REQUIRED = "required";
+    public static final String ATTR_ON_DEMAND = "onDemand";
+    public static final String MANIFEST_ATTR_TITLE = "title";
 
     // Attributes: Resources
     public static final String ATTR_ATTR = "attr";
@@ -2466,7 +2472,7 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "4.9";
+    public static final String GRADLE_MINIMUM_VERSION = "4.10";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
     public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";
@@ -2505,11 +2511,10 @@ public final class SdkConstants {
 
     public static final String ANDROIDX_MATERIAL_ARTIFACT = "com.google.android.material:material";
     public static final String ANDROIDX_CORE_UI_ARTIFACT = "androidx.core:core-ui";
-    public static final String ANDROIDX_CARD_VIEW_ARTIFACT = "androidx.widget.cardview:cardview";
-    public static final String ANDROIDX_GRID_LAYOUT_ARTIFACT =
-            "androidx.widget.gridlayout:gridlayout";
+    public static final String ANDROIDX_CARD_VIEW_ARTIFACT = "androidx.cardview:cardview";
+    public static final String ANDROIDX_GRID_LAYOUT_ARTIFACT = "androidx.gridlayout:gridlayout";
     public static final String ANDROIDX_RECYCLER_VIEW_ARTIFACT =
-            "androidx.widget.recyclerview:recyclerview";
+            "androidx.recyclerview:recyclerview";
     public static final String ANDROIDX_LEANBACK_ARTIFACT = "androidx.leanback:leanback";
     public static final String ANDROIDX_ANNOTATIONS_ARTIFACT = "androidx.annotations:annotations";
     public static final String ANDROIDX_SUPPORT_LIB_ARTIFACT = "androidx.legacy:legacy-support-v4";

@@ -16,7 +16,6 @@
 
 package com.android.build.gradle.internal;
 
-import static com.android.build.gradle.internal.ide.ArtifactDependencyGraph.DependencyType.ANDROID;
 import static org.gradle.internal.logging.text.StyledTextOutput.Style.Description;
 import static org.gradle.internal.logging.text.StyledTextOutput.Style.Header;
 import static org.gradle.internal.logging.text.StyledTextOutput.Style.Identifier;
@@ -24,8 +23,9 @@ import static org.gradle.internal.logging.text.StyledTextOutput.Style.Info;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.ide.ArtifactDependencyGraph;
-import com.android.build.gradle.internal.ide.ArtifactDependencyGraph.HashableResolvedArtifactResult;
-import com.android.build.gradle.internal.ide.ModelBuilder;
+import com.android.build.gradle.internal.ide.dependencies.BuildMappingUtils;
+import com.android.build.gradle.internal.ide.dependencies.ResolvedArtifact;
+import com.android.build.gradle.internal.ide.dependencies.ResolvedArtifact.DependencyType;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.google.common.collect.ImmutableList;
@@ -74,9 +74,10 @@ public class AndroidDependenciesRenderer extends TextReportRenderer {
 
     public void render(@NonNull VariantScope variant) {
         ImmutableMap<String, String> buildMapping =
-                ModelBuilder.computeBuildMapping(variant.getGlobalScope().getProject().getGradle());
+                BuildMappingUtils.computeBuildMapping(
+                        variant.getGlobalScope().getProject().getGradle());
 
-        Set<HashableResolvedArtifactResult> compileArtifacts =
+        Set<ResolvedArtifact> compileArtifacts =
                 ArtifactDependencyGraph.getAllArtifacts(
                         variant,
                         AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
@@ -92,7 +93,7 @@ public class AndroidDependenciesRenderer extends TextReportRenderer {
         render(ImmutableList.copyOf(compileArtifacts));
         renderer.completeChildren();
 
-        Set<HashableResolvedArtifactResult> runtimeArtifacts =
+        Set<ResolvedArtifact> runtimeArtifacts =
                 ArtifactDependencyGraph.getAllArtifacts(
                         variant,
                         AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
@@ -121,9 +122,9 @@ public class AndroidDependenciesRenderer extends TextReportRenderer {
         super.complete();
     }
 
-    private void render(@NonNull List<HashableResolvedArtifactResult> artifacts) {
+    private void render(@NonNull List<ResolvedArtifact> artifacts) {
         for (int i = 0, count = artifacts.size(); i < count; i++) {
-            HashableResolvedArtifactResult artifact = artifacts.get(i);
+            ResolvedArtifact artifact = artifacts.get(i);
 
             renderer.visit(
                     styledTextOutput -> {
@@ -134,12 +135,12 @@ public class AndroidDependenciesRenderer extends TextReportRenderer {
                         if (id instanceof ProjectComponentIdentifier) {
                             if (artifact.isWrappedModule()) {
                                 String project = ((ProjectComponentIdentifier) id).getProjectPath();
-                                String file = artifact.getFile().getAbsolutePath();
+                                String file = artifact.getArtifactFile().getAbsolutePath();
 
                                 text = String.format("%s (file: %s)", project, file);
-                            } else if (artifact.getDependencyType() == ANDROID) {
+                            } else if (artifact.getDependencyType() == DependencyType.ANDROID) {
                                 String project = ((ProjectComponentIdentifier) id).getProjectPath();
-                                String variant = ArtifactDependencyGraph.getVariant(artifact);
+                                String variant = artifact.getVariantName();
 
                                 text = String.format("%s (variant: %s)", project, variant);
                             } else {
@@ -147,11 +148,11 @@ public class AndroidDependenciesRenderer extends TextReportRenderer {
                             }
 
                         } else if (id instanceof ModuleComponentIdentifier) {
-                            text = ArtifactDependencyGraph.computeAddress(artifact);
+                            text = artifact.computeModelAddress();
 
                         } else {
                             // local files?
-                            text = artifact.getFile().getAbsolutePath();
+                            text = artifact.getArtifactFile().getAbsolutePath();
                         }
 
                         getTextOutput().text(text);

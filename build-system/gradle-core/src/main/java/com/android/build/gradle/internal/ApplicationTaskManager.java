@@ -62,6 +62,8 @@ import com.android.build.gradle.internal.transforms.InstantRunDependenciesApkBui
 import com.android.build.gradle.internal.transforms.InstantRunSliceSplitApkBuilder;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.MultiOutputPolicy;
+import com.android.build.gradle.internal.variant.VariantFactory;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.tasks.MainApkListPersistence;
 import com.android.build.gradle.tasks.MergeResources;
@@ -96,6 +98,7 @@ public class ApplicationTaskManager extends TaskManager {
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
             @NonNull SdkHandler sdkHandler,
+            @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
         super(
@@ -106,6 +109,7 @@ public class ApplicationTaskManager extends TaskManager {
                 dataBindingBuilder,
                 extension,
                 sdkHandler,
+                variantFactory,
                 toolingRegistry,
                 recorder);
     }
@@ -412,15 +416,27 @@ public class ApplicationTaskManager extends TaskManager {
         final VariantType variantType = scope.getVariantConfiguration().getType();
 
         if (variantType.isApk()) {
-            TaskProvider<AppClasspathCheckTask> classpathCheck =
-                    taskFactory.register(new AppClasspathCheckTask.CreationAction(scope));
+            boolean useDependencyConstraints =
+                    scope.getGlobalScope()
+                            .getProjectOptions()
+                            .get(BooleanOption.USE_DEPENDENCY_CONSTRAINTS);
 
-            TaskProvider<? extends Task> task =
-                    (variantType.isTestComponent()
-                            ? taskFactory.register(new TestPreBuildTask.CreationAction(scope))
-                            : taskFactory.register(new AppPreBuildTask.CreationAction(scope)));
+            TaskProvider<? extends Task> task;
 
-            TaskFactoryUtils.dependsOn(task, classpathCheck);
+            if (variantType.isTestComponent()) {
+                task = taskFactory.register(new TestPreBuildTask.CreationAction(scope));
+                if (useDependencyConstraints) {
+                    task.configure(t -> t.setEnabled(false));
+                }
+            } else {
+                task = taskFactory.register(new AppPreBuildTask.CreationAction(scope));
+            }
+
+            if (!useDependencyConstraints) {
+                TaskProvider<AppClasspathCheckTask> classpathCheck =
+                        taskFactory.register(new AppClasspathCheckTask.CreationAction(scope));
+                TaskFactoryUtils.dependsOn(task, classpathCheck);
+            }
 
             if (variantType.isBaseModule() && globalScope.hasDynamicFeatures()) {
                 TaskProvider<CheckMultiApkLibrariesTask> checkMultiApkLibrariesTask =
@@ -506,12 +522,6 @@ public class ApplicationTaskManager extends TaskManager {
         if (scope.getType().isBaseModule()) {
             TaskProvider<PackageBundleTask> packageBundleTask =
                     taskFactory.register(new PackageBundleTask.CreationAction(scope));
-
-            // bundle anchor task does not depend on packageBundleTask, instead it depends
-            // on its BuildableArtifact in order to always generate the final version of it.
-            TaskFactoryUtils.dependsOn(
-                    scope.getTaskContainer().getBundleTask(),
-                    scope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.BUNDLE));
 
             TaskProvider<BundleToApkTask> splitAndMultiApkTask =
                     taskFactory.register(new BundleToApkTask.CreationAction(scope));

@@ -105,7 +105,9 @@ public class UnusedResourceDetectorTest extends AbstractCheckTest {
                         mTest,
                         mR,
                         manifest().minSdk(14),
-                        mAccessibility));
+                        mAccessibility,
+                        // https://issuetracker.google.com/113686968
+                        source("res/raw/.DS_Store", "")));
     }
 
     public void testUnusedIds() throws Exception {
@@ -418,6 +420,40 @@ public class UnusedResourceDetectorTest extends AbstractCheckTest {
                                         + "    public static class layout {\n"
                                         + "        public static final int main1 = 1;\n"
                                         + "        public static final int main2 = 2;\n"
+                                        + "    }\n"
+                                        + "}"),
+                        manifest().minSdk(14))
+                .issues(UnusedResourceDetector.ISSUE) // Not id's
+                .run()
+                .expectClean();
+    }
+
+    public void testKotlin4() {
+        // Regression test for https://issuetracker.google.com/113198298
+        //noinspection all // Sample code
+        lint().files(
+                        mLayout1,
+                        kotlin(
+                                ""
+                                        + "package test.pkg.other\n"
+                                        + "\n"
+                                        + "import android.app.Activity\n"
+                                        + "import android.os.Bundle\n"
+                                        + "import test.pkg.R as RC\n"
+                                        + "\n"
+                                        + "class MainIsUsed : Activity() {\n"
+                                        + "    public override fun onCreate(savedInstanceState: Bundle?) {\n"
+                                        + "        super.onCreate(savedInstanceState)\n"
+                                        + "        setContentView(RC.layout.main)\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        java(
+                                "src/test/pkg/R.java",
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "public class R {\n"
+                                        + "    public static class layout {\n"
+                                        + "        public static final int main = 1;\n"
                                         + "    }\n"
                                         + "}"),
                         manifest().minSdk(14))

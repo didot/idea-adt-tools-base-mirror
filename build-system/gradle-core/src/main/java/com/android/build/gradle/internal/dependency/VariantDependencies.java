@@ -32,7 +32,9 @@ import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.dsl.CoreProductFlavor;
 import com.android.build.gradle.internal.errors.SyncIssueHandler;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.PublishedConfigType;
+import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.variant.TestVariantFactory;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.builder.core.VariantType;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
@@ -124,7 +126,7 @@ public class VariantDependencies {
         private final Set<Configuration> runtimeClasspaths = Sets.newLinkedHashSet();
         private final Set<Configuration> annotationConfigs = Sets.newLinkedHashSet();
         private final Set<Configuration> wearAppConfigs = Sets.newLinkedHashSet();
-        private VariantDependencies testedVariantDependencies;
+        private VariantScope testedVariantScope;
 
         @Nullable private Set<String> featureList;
 
@@ -161,9 +163,8 @@ public class VariantDependencies {
             return this;
         }
 
-        public Builder setTestedVariantDependencies(
-                @NonNull VariantDependencies testedVariantDependencies) {
-            this.testedVariantDependencies = testedVariantDependencies;
+        public Builder setTestedVariantScope(@NonNull VariantScope testedVariantScope) {
+            this.testedVariantScope = testedVariantScope;
             return this;
         }
 
@@ -203,7 +204,7 @@ public class VariantDependencies {
             return this;
         }
 
-        public VariantDependencies build() {
+        public VariantDependencies build(@NonNull VariantScope variantScope) {
             Preconditions.checkNotNull(consumeType);
 
             ObjectFactory factory = project.getObjects();
@@ -224,9 +225,10 @@ public class VariantDependencies {
             compileClasspath.setVisible(false);
             compileClasspath.setDescription("Resolved configuration for compilation for variant: " + variantName);
             compileClasspath.setExtendsFrom(compileClasspaths);
-            if (testedVariantDependencies != null) {
+            if (testedVariantScope != null) {
                 for (Configuration configuration :
-                        testedVariantDependencies.sourceSetImplementationConfigurations) {
+                        testedVariantScope.getVariantDependencies()
+                                .sourceSetImplementationConfigurations) {
                     compileClasspath.extendsFrom(configuration);
                 }
             }
@@ -254,9 +256,10 @@ public class VariantDependencies {
             runtimeClasspath.setVisible(false);
             runtimeClasspath.setDescription("Resolved configuration for runtime for variant: " + variantName);
             runtimeClasspath.setExtendsFrom(runtimeClasspaths);
-            if (testedVariantDependencies != null) {
+            if (testedVariantScope != null) {
                 for (Configuration configuration :
-                        testedVariantDependencies.sourceSetRuntimeConfigurations) {
+                        testedVariantScope.getVariantDependencies()
+                                .sourceSetRuntimeConfigurations) {
                     runtimeClasspath.extendsFrom(configuration);
                 }
             }
@@ -266,6 +269,31 @@ public class VariantDependencies {
             applyVariantAttributes(runtimeAttributes, buildType, consumptionFlavorMap);
             runtimeAttributes.attribute(Usage.USAGE_ATTRIBUTE, runtimeUsage);
             runtimeAttributes.attribute(AndroidTypeAttr.ATTRIBUTE, consumeType);
+
+            if (variantScope
+                    .getGlobalScope()
+                    .getProjectOptions()
+                    .get(BooleanOption.USE_DEPENDENCY_CONSTRAINTS)) {
+                // make compileClasspath match runtimeClasspath
+                compileClasspath
+                        .getIncoming()
+                        .beforeResolve(
+                                new ConstraintHandler(
+                                        runtimeClasspath,
+                                        project.getDependencies().getConstraints()));
+
+                // if this is a test App, then also synchronize the 2 runtime classpaths
+                if (variantType.isApk() && testedVariantScope != null) {
+                    Configuration testedRuntimeClasspath =
+                            testedVariantScope.getVariantDependencies().getRuntimeClasspath();
+                    runtimeClasspath
+                            .getIncoming()
+                            .beforeResolve(
+                                    new ConstraintHandler(
+                                            testedRuntimeClasspath,
+                                            project.getDependencies().getConstraints()));
+                }
+            }
 
             Configuration globalTestedApks = configurations.findByName(CONFIG_NAME_TESTED_APKS);
             if (variantType.isApk() && globalTestedApks != null) {

@@ -43,6 +43,8 @@ data class ConfigTableSchema(
      * artifacts.
      */
     fun pathFor(dimensionValue: String?): ConfigPath {
+        // TODO: Allow dimensionValue to be any ConfigPath simpleName. This would allow construction
+        // of more elaborate multidimensional test cases using this utility method.
         dimensionValue ?: return matchAllArtifacts()
         val index = dimensions.indexOfFirst { it.values.contains(dimensionValue) }
         if (index == -1) {
@@ -57,6 +59,40 @@ data class ConfigTableSchema(
      */
     fun matchArtifact(artifactName: String): ConfigPath {
         return matchDimension(dimensions.size - 1, artifactName)
+    }
+
+    /**
+     * Returns a sequence containing every valid [ConfigPath] in this schema.
+     */
+    fun allPaths(): Sequence<ConfigPath> = allPathsOfLength(dimensions.size)
+
+    /**
+     * Returns a sequence containing every valid [ConfigPath] prefix in this schema with the given
+     * length.
+     */
+    fun allPathsOfLength(desiredPathLength: Int): Sequence<ConfigPath> =
+        if (desiredPathLength > dimensions.size)
+            throw IllegalArgumentException("desiredPathLength ${desiredPathLength} must not be larger than the number of dimensions (${dimensions.size})")
+        else allPathsOfLength(desiredPathLength, emptyList())
+
+    private fun allPathsOfLength(
+        desiredPathLength: Int,
+        prefix: List<String>
+    ): Sequence<ConfigPath> {
+        return when {
+            prefix.size == desiredPathLength - 1 -> dimensions[prefix.size].values.map {
+                ConfigPath(
+                    prefix + it
+                )
+            }.asSequence()
+            prefix.size < desiredPathLength - 1 -> dimensions[prefix.size].values.asSequence().flatMap {
+                allPathsOfLength(
+                    desiredPathLength,
+                    prefix + it
+                )
+            }
+            else -> emptySequence()
+        }
     }
 
     override fun toString(): String
@@ -80,11 +116,16 @@ data class ConfigTableSchema(
 }
 
 /**
+ * Name of the dimension that identifies the artifact.
+ */
+val ARTIFACT_DIMENSION_NAME = "artifact"
+
+/**
  * Default last dimension for a config table. It contains the default three artifacts for each
  * variant (a main artifact, a unit test artifact, and an android test artifact).
  */
 val defaultArtifactDimension = ConfigDimension(
-    "artifact", listOf(
+    ARTIFACT_DIMENSION_NAME, listOf(
         ARTIFACT_NAME_MAIN,
         ARTIFACT_NAME_UNIT_TEST,
         ARTIFACT_NAME_ANDROID_TEST

@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+@file:JvmName("ConfigTableUtil")
 package com.android.projectmodel
 
 /**
@@ -94,55 +95,92 @@ data class ConfigTable(
      * Generates all possible [Variant] instances for this [ConfigTable] by merging every
      * combination of schema dimensions.
      */
-    fun generateVariants(): List<Variant> {
-        val result = ArrayList<Variant>()
-        generateVariants(result, emptyList())
-        return result
-    }
+    fun generateVariants() = generateVariantsFor(generateArtifacts())
 
-    private fun generateVariants(result: MutableList<Variant>, prefix: List<String>) {
-        if (prefix.size < schema.dimensions.size - 1) {
-            val dimension = schema.dimensions[prefix.size]
-            for (dimensionValue in dimension.values) {
-                generateVariants(result, prefix + dimensionValue)
-            }
-        }
+    /**
+     * Generates all possible [Artifact] instances for this [ConfigTable] by merging every
+     * combination of schema dimensions.
+     */
+    fun generateArtifacts(): Map<ConfigPath, Artifact> =
+        schema.allPaths().associate { it to Artifact(
+            // We can rely on segments being non-null since allPaths returns the paths to artifacts,
+            // and null segments indicates a path that never matches any artifact. We can rely on
+            // there being at least one segment because there needs to be at least one dimension
+            // in order for allPaths() to return a non-empty sequence and the number of segments
+            // equals the number of dimensions.
+            name = it.segments!!.last()!!,
+            resolved = configsIntersecting(it).merged()
+        )}
 
-        if (prefix.size == schema.dimensions.size - 1) {
-            val artifacts = schema.dimensions[prefix.size].values.map {
-                val configPath = matchArtifactsWith(prefix + it)
-                Artifact(
-                    name = it,
-                    resolved = configsIntersecting(configPath).merged()
-                )
-            }
+    /**
+     * Given a map of all the [Artifact] instances and their associated [ConfigPath], generates
+     * appropriate [Variant] instances to hold those [Artifact] instances.
+     */
+    fun generateVariantsFor(artifacts:Map<ConfigPath, Artifact>): List<Variant> {
+        val groupedByVariant =
+            artifacts.keys.filter { it.segments != null && it.segments.size == schema.dimensions.size }
+                .groupBy { it.parent() }
 
-            val variantPath = ConfigPath(prefix)
-
-            val mainArtifact = artifacts.find { it.name == ARTIFACT_NAME_MAIN }
-            if (mainArtifact == null) {
-                throw IllegalStateException("No main artifact found")
-            }
-
-            result.add(Variant(
-                name = variantPath.simpleName,
-                configPath = variantPath,
-                mainArtifact = mainArtifact,
-                androidTestArtifact = artifacts.find { it.name == ARTIFACT_NAME_ANDROID_TEST },
-                unitTestArtifact = artifacts.find { it.name == ARTIFACT_NAME_UNIT_TEST },
-                extraArtifacts = artifacts.filter { !defaultArtifactDimension.values.contains(it.name) }
-            ))
-        }
+        return groupedByVariant.map { Variant(it.key, it.value.mapNotNull { artifacts[it] }) }
     }
 }
 
 /**
+ * Trivial schema for a table containing exactly one variant and one artifact. Note that the
+ * main artifact name is required to be [ARTIFACT_NAME_MAIN], so all trivial schemas will always
+ * look exactly like this.
+ */
+internal val TRIVIAL_SCHEMA = ConfigTableSchema(
+    listOf(
+        ConfigDimension(
+            ARTIFACT_DIMENSION_NAME,
+            listOf(ARTIFACT_NAME_MAIN)
+        )
+    )
+)
+
+/**
+ * Path to the main artifact in a [TRIVIAL_SCHEMA].
+ */
+internal val TRIVIAL_MAIN_ARTIFACT_PATH = matchArtifactsWith(listOf(ARTIFACT_NAME_MAIN))
+
+/**
+ * Creates a [ConfigTable] for a project containing exactly one variant of one artifact, given
+ * the resolved [Config] of that artifact. The main artifact is always required to be named
+ * [ARTIFACT_NAME_MAIN], so the schema and artifact paths for trivial [ConfigTable] instances is
+ * always the same.
+ *
+ * This is a convenience method for constructing such trivial instances. In addition to saving
+ * boilerplate, it also saves memory by reusing the same schema instance for all trivial
+ * [ConfigTable] instances.
+ *
+ */
+fun configTableWith(config: Config) = ConfigTable(
+    TRIVIAL_SCHEMA,
+    listOf(
+        ConfigAssociation(
+            TRIVIAL_MAIN_ARTIFACT_PATH,
+            config
+        )
+    )
+)
+
+/**
  * Constructs a [ConfigTable] from the given [ConfigTableSchema]. This is intended primarily
- * as a convenient way to construct hardcoded [ConfigTable] instances.
+ * as a convenient way to construct hardcoded [ConfigTable] instances from Java, in cases where
+ * there may be more than one variant or artifact.
+ */
+fun configTableWith(schema: ConfigTableSchema, associations: Map<String?, Config>) = ConfigTable(
+    schema, associations.map { ConfigAssociation(schema.pathFor(it.key), it.value)}
+)
+
+/**
+ * Constructs a [ConfigTable] from the given [ConfigTableSchema]. This is intended primarily
+ * as a convenient way to construct hardcoded [ConfigTable] instances from Kotlin.
  *
  * @param schema the schema to use for the table
  * @param associations the entries to include in the table, where the keys map onto entries
  * in the schema.
  */
-fun configTableWith(schema: ConfigTableSchema, associations: Map<String?, Config>) = ConfigTable(
-    schema, associations.entries.map { ConfigAssociation(schema.pathFor(it.key), it.value) })
+fun ConfigTableSchema.buildTable(vararg associations: Pair<String?, Config>) = ConfigTable(
+    this, associations.map { ConfigAssociation(this.pathFor(it.first), it.second) })
