@@ -21,8 +21,31 @@ platform(
 java_test(
     name = "test",
     srcs = ["FoundryTest.java"],
-    data = ["//prebuilts/studio/sdk:build-tools/latest"],
+    data = [
+        "//prebuilts/studio/jdk:jdk_runtime",
+        "//prebuilts/studio/sdk:build-tools/latest",
+    ],
     jvm_flags = ["-Djava.security.debug=all"],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "no_mac",
+        "no_windows",
+    ],
     test_class = "FoundryTest",
+)
+
+# CPU, disk and memory benchmark baseline tests to measure go/adt-perfgate
+# foundry remote build execution pool.
+java_test(
+    name = "perfgate-baseline-tests",
+    srcs = ["FoundryPerfgateMetrics.java"],
+    # The memory test stresses memory usage, thus the jvm memory arg.
+    jvm_flags = [
+        "-Xms10000M",
+        "-Xmx10000M",
+    ],
+    test_class = "FoundryPerfgateMetrics",
+    deps = [
+        "//tools/base/perf-logger:studio.perf-logger_testlib",
+    ],
 )

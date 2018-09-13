@@ -1,3 +1,4 @@
+load(":coverage.bzl", "coverage_java_test")
 load(":functions.bzl", "create_java_compiler_args_srcs", "create_option_file", "explicit_target", "label_workspace_path", "workspace_path")
 load(":groovy.bzl", "groovy_impl")
 load(":kotlin.bzl", "kotlin_impl")
@@ -54,7 +55,7 @@ def resources_impl(ctx, name, roots, resources, resources_jar):
 def accumulate_provider(provider, deps, runtime, compile_time):
     deps += [provider]
     runtime += provider.transitive_runtime_jars
-    compile_time += provider.transitive_compile_time_jars
+    compile_time += provider.full_compile_jars
     return deps, runtime, compile_time
 
 def _iml_module_jar_impl(
@@ -100,7 +101,7 @@ def _iml_module_jar_impl(
             roots,
             java_srcs,
             kotlin_srcs,
-            transitive_runtime_jars + transitive_compile_time_jars,
+            transitive_compile_time_jars,
             ctx.attr.package_prefixes,
             kotlin_jar,
             friends,
@@ -542,7 +543,7 @@ def iml_module(
 
     test_tags = tags + test_tags if tags and test_tags else (tags if tags else test_tags)
     if test_srcs:
-        native.java_test(
+        coverage_java_test(
             name = name + "_tests",
             tags = test_tags,
             runtime_deps = manual_test_runtime_deps + [":" + name + "_testlib"],
