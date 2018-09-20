@@ -17,6 +17,7 @@
 package com.android.java.model.impl
 
 import com.android.java.model.JavaLibrary
+import com.android.java.model.LibraryVersion
 import java.io.File
 import java.io.Serializable
 
@@ -27,7 +28,8 @@ data class JavaLibraryImpl(
   private val myProject: String?,
   private val myBuildId: String?,
   private val myName: String,
-  private val myJarFile: File?) : JavaLibrary, Serializable {
+  private val myJarFile: File?,
+  private val myLibraryVersion: LibraryVersion?) : JavaLibrary, Serializable {
 
   override fun getProject(): String? {
     return myProject
@@ -51,5 +53,9 @@ data class JavaLibraryImpl(
 
   override fun getJavadoc(): File? {
     return null
+  }
+
+  override fun getLibraryVersion(): LibraryVersion? {
+    return myLibraryVersion
   }
 }

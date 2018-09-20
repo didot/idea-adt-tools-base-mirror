@@ -1039,6 +1039,8 @@ public final class SdkConstants {
     public static final String XLIFF_PREFIX = "xliff"; //$NON-NLS-1$
     /** Default prefix used for aapt attributes */
     public static final String AAPT_PREFIX = "aapt"; //$NON-NLS-1$
+    /** Default prefix used for distribution attributes */
+    public static final String DIST_PREFIX = "dist"; //$NON-NLS-1$
 
     public static final String R_CLASS = "R"; //$NON-NLS-1$
     public static final String ANDROID_PKG = "android"; //$NON-NLS-1$
@@ -1718,7 +1720,7 @@ public final class SdkConstants {
 
     // Material BottomAppBar Attributes
     public static final String ATTR_FAB_ALIGNMENT_MODE = "fabAlignmentMode";
-    public static final String ATTR_FAB_ATTACHED = "fabAttached";
+    public static final String ATTR_FAB_ANIMATION_MODE = "fabAnimationMode";
     public static final String ATTR_FAB_CRADLE_MARGIN = "fabCradleMargin";
     public static final String ATTR_FAB_CRADLE_ROUNDED_CORNER_RADIUS =
             "fabCradleRoundedCornerRadius";
@@ -1764,11 +1766,11 @@ public final class SdkConstants {
     // Material Chip (ChipDrawable) Attributes
     public static final String ATTR_CHIP_TEXT = "chipText";
     public static final String ATTR_CHIP_ICON = "chipIcon";
-    public static final String ATTR_CHIP_ICON_ENABLED = "chipIconEnabled";
+    public static final String ATTR_CHIP_ICON_VISIBLE = "chipIconVisible";
     public static final String ATTR_CHECKED_ICON = "checkedIcon";
-    public static final String ATTR_CHECKED_ICON_ENABLED = "checkedIconEnabled";
+    public static final String ATTR_CHECKED_ICON_VISIBLE = "checkedIconVisible";
     public static final String ATTR_CLOSE_ICON = "closeIcon";
-    public static final String ATTR_CLOSE_ICON_ENABLED = "closeIconEnabled";
+    public static final String ATTR_CLOSE_ICON_VISIBLE = "closeIconVisible";
 
     // Material TabLayout Attributes
     public static final String ATTR_TAB_INDICATOR_HEIGHT = "tabIndicatorHeight";
@@ -2472,7 +2474,7 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "4.10";
+    public static final String GRADLE_MINIMUM_VERSION = "4.10.1";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
     public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";

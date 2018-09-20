@@ -42,10 +42,14 @@ import java.io.File
 import javax.inject.Inject
 
 /**
- * Task to jar all classes bundled in a feature so that dependent features can compile against those
- * classes without bundling them.
+ * Task to jar all classes in a project. This includes pre/post java classes, and compiled
+ * namespaced R class (if it exists).
+ *
+ * It is used for e.g.:
+ * - dependent features to compile against these classes without bundling them.
+ * - unit tests to compile and run them against these classes.
  */
-open class BundleFeatureClasses @Inject constructor(workerExecutor: WorkerExecutor) : AndroidVariantTask() {
+open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) : AndroidVariantTask() {
 
     val workers: WorkerExecutorFacade = Workers.getWorker(workerExecutor)
 
@@ -104,12 +108,12 @@ open class BundleFeatureClasses @Inject constructor(workerExecutor: WorkerExecut
     }
 
     class CreationAction(variantScope: VariantScope) :
-        VariantTaskCreationAction<BundleFeatureClasses>(variantScope) {
+        VariantTaskCreationAction<BundleAllClasses>(variantScope) {
 
         override val name: String
             get() = variantScope.getTaskName("bundle", "Classes")
-        override val type: Class<BundleFeatureClasses>
-            get() = BundleFeatureClasses::class.java
+        override val type: Class<BundleAllClasses>
+            get() = BundleAllClasses::class.java
 
         private lateinit var outputJar: File
 
@@ -117,10 +121,10 @@ open class BundleFeatureClasses @Inject constructor(workerExecutor: WorkerExecut
             super.preConfigure(taskName)
 
             outputJar = variantScope.artifacts.appendArtifact(
-                InternalArtifactType.FEATURE_CLASSES, taskName, "classes.jar")
+                InternalArtifactType.APP_CLASSES, taskName, "classes.jar")
         }
 
-        override fun configure(task: BundleFeatureClasses) {
+        override fun configure(task: BundleAllClasses) {
             super.configure(task)
             task.outputJar = outputJar
             task.javacClasses =

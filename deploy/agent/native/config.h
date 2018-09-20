@@ -23,19 +23,12 @@
 #include "deploy.pb.h"
 
 namespace swapper {
-class Config {
- public:
-  static bool ParseFromFile(const std::string& file_location);
-  static const Config& GetInstance();
+std::unique_ptr<proto::SwapRequest> ParseFromFile(
+    const std::string& file_location);
 
-  const proto::SwapRequest& GetSwapRequest() const;
+std::unique_ptr<proto::SwapRequest> ParseFromString(
+    const std::string& request_string);
 
- private:
-  static Config instance_;
-  Config() {}
-  Config(proto::AgentConfig* agent_config) : agent_config_(agent_config) {}
-  std::unique_ptr<proto::AgentConfig> agent_config_;
-};
 }  // namespace swapper
 
 #endif

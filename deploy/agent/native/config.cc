@@ -16,31 +16,28 @@
 
 #include "config.h"
 
+#include <unistd.h>
 #include <fstream>
 
 #include "utils/log.h"
 
 namespace swapper {
 
-Config Config::instance_;
-
-bool Config::ParseFromFile(const std::string& file_location) {
-  proto::AgentConfig* config = new proto::AgentConfig();
+std::unique_ptr<proto::SwapRequest> ParseFromFile(
+    const std::string& file_location) {
   std::fstream stream(file_location, std::ios::in | std::ios::binary);
-  std::string config_string((std::istreambuf_iterator<char>(stream)),
-          std::istreambuf_iterator<char>());
-  if (config->ParseFromString(config_string)) {
-    instance_ = Config(config);
-    return true;
-  }
-  delete config;
-  return false;
+  std::string request_string((std::istreambuf_iterator<char>(stream)),
+                             std::istreambuf_iterator<char>());
+  return ParseFromString(request_string);
 }
 
-const Config& Config::GetInstance() { return instance_; }
-
-const proto::SwapRequest& Config::GetSwapRequest() const {
-  return agent_config_->swap_request();
+std::unique_ptr<proto::SwapRequest> ParseFromString(
+    const std::string& request_string) {
+  auto request = std::unique_ptr<proto::SwapRequest>(new proto::SwapRequest());
+  if (!request->ParseFromString(request_string)) {
+    request.reset();
+  }
+  return request;
 }
 
 }  // namespace swapper

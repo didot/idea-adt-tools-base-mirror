@@ -18,18 +18,18 @@
 #include "jni.h"
 #include "jvmti.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <cstring>
-#include <sstream>
 
 #include "android_wrapper.h"
 #include "capabilities.h"
@@ -41,7 +41,7 @@
 #include "jni/jni_class.h"
 #include "jni/jni_object.h"
 #include "jni/jni_util.h"
-
+#include "socket.h"
 #include "utils/log.h"
 
 using std::string;
@@ -55,9 +55,8 @@ const char* kHandlerWrapperClass =
     "com/android/tools/deploy/instrument/ActivityThreadHandlerWrapper";
 #include "instrumentation.jar.cc"
 
-const std::string kInstrumentation_jar_name = std::string("instruments-")
-    + instrumentation_jar_hash
-    + ".jar";
+const std::string kInstrumentation_jar_name =
+    std::string("instruments-") + instrumentation_jar_hash + ".jar";
 
 #define FILE_MODE (S_IRUSR | S_IWUSR)
 
@@ -74,7 +73,8 @@ extern "C" void JNICALL Agent_ClassFileLoadHook(
                  new_class_data);
 }
 
-bool LoadInstrumentationJar(jvmtiEnv* jvmti, JNIEnv* jni, const std::string& jar_path) {
+bool LoadInstrumentationJar(jvmtiEnv* jvmti, JNIEnv* jni,
+                            const std::string& jar_path) {
   // Check for the existence of a breadcrumb class, indicating a previous agent
   // has already loaded instrumentation. If no previous agent has run on this
   // jvm, add our instrumentation classes to the bootstrap class loader.
@@ -83,7 +83,8 @@ bool LoadInstrumentationJar(jvmtiEnv* jvmti, JNIEnv* jni, const std::string& jar
     Log::V("No existing instrumentation found. Loading instrumentation from %s",
            kInstrumentation_jar_name.c_str());
     jni->ExceptionClear();
-    if (jvmti->AddToBootstrapClassLoaderSearch(jar_path.c_str()) != JVMTI_ERROR_NONE) {
+    if (jvmti->AddToBootstrapClassLoaderSearch(jar_path.c_str()) !=
+        JVMTI_ERROR_NONE) {
       return false;
     }
   } else {
@@ -117,17 +118,6 @@ bool Instrument(jvmtiEnv* jvmti, JNIEnv* jni, const std::string& jar) {
   // Check if we need to instrument, or if a previous agent successfully did.
   if (!breadcrumb.CallStaticMethod<jboolean>(
           {"isFinishedInstrumenting", "()Z"})) {
-    vector<NativeBinding> native_bindings;
-
-    native_bindings.emplace_back(kHandlerWrapperClass,
-                                 "getApplicationInfoChangedValue", "()I",
-                                 (void*)&Native_GetAppInfoChanged);
-
-    native_bindings.emplace_back(kHandlerWrapperClass, "tryRedefineClasses",
-                                 "()Z", (void*)&Native_TryRedefineClasses);
-
-    RegisterNatives(jni, native_bindings);
-
     // Instrument the activity thread handler using RetransformClasses.
     // TODO: If we instrument more, make this more general.
 
@@ -159,27 +149,38 @@ bool Instrument(jvmtiEnv* jvmti, JNIEnv* jni, const std::string& jar) {
   return true;
 }
 
-jint DoHotSwap(jvmtiEnv* jvmti, JNIEnv* jni, const Config& config) {
+// This method takes ownership of both the request and socket pointers.
+void DoHotSwap(jvmtiEnv* jvmti, JNIEnv* jni,
+               std::unique_ptr<proto::SwapRequest> request,
+               std::unique_ptr<deploy::Socket> socket) {
   HotSwap code_swap(jvmti, jni);
-  if (!code_swap.DoHotSwap(config.GetSwapRequest())) {
-    // TODO: Log meaningful error.
-    Log::E("Hot swap failed.");
-    return JNI_ERR;
+
+  proto::SwapResponse response;
+  response.set_pid(getpid());
+
+  if (!code_swap.DoHotSwap(*request, response.mutable_error_details())) {
+    response.set_status(proto::SwapResponse::ERROR);
+  } else {
+    response.set_status(proto::SwapResponse::OK);
   }
-  return JNI_OK;
+
+  std::string response_bytes;
+  response.SerializeToString(&response_bytes);
+  socket->Write(response_bytes);
 }
 
-// Check if the jar_path exists. If it doesn't, generate its content using the jar embedded in the
-// .data section of this executable.
-// TODO: Don't write to disk. Have jvmti load the jar directly from a memory mapped fd to agent.so.
+// Check if the jar_path exists. If it doesn't, generate its content using the
+// jar embedded in the .data section of this executable.
+// TODO: Don't write to disk. Have jvmti load the jar directly from a memory
+// mapped fd to agent.so.
 bool WriteJarToDiskIfNecessary(const std::string& jar_path) {
   // If file exists, there is no need to do anything.
-  if (access(jar_path.c_str(), F_OK ) != -1) {
+  if (access(jar_path.c_str(), F_OK) != -1) {
     return true;
   }
 
-  // TODO: Would be more efficient to have the offet and size and use sendfile() to avoid a userland
-  // trip.
+  // TODO: Would be more efficient to have the offet and size and use sendfile()
+  // to avoid a userland trip.
   int fd = open(jar_path.c_str(), O_WRONLY | O_CREAT, FILE_MODE);
   if (fd == -1) {
     Log::E("WriteJarToDiskIfNecessary(). Unable to open().");
@@ -202,7 +203,8 @@ bool WriteJarToDiskIfNecessary(const std::string& jar_path) {
 
 std::string GetInstrumentJarPath(const std::string& package_name) {
 #ifdef __ANDROID__
-  std::string target_jar_dir_ = std::string("/data/data/") + package_name + "/.studio/";
+  std::string target_jar_dir_ =
+      std::string("/data/data/") + package_name + "/.studio/";
   std::string target_jar = target_jar_dir_ + kInstrumentation_jar_name;
   return target_jar;
 #else
@@ -217,44 +219,63 @@ std::string GetInstrumentJarPath(const std::string& package_name) {
 #endif
 }
 
-jint DoHotSwapAndRestart(jvmtiEnv* jvmti, JNIEnv* jni, const Config& config) {
+// This method takes ownership of both the request and socket pointers.
+void DoHotSwapAndRestart(jvmtiEnv* jvmti, JNIEnv* jni,
+                         std::unique_ptr<proto::SwapRequest> request,
+                         std::unique_ptr<deploy::Socket> socket) {
   jvmtiEventCallbacks callbacks;
   callbacks.ClassFileLoadHook = Agent_ClassFileLoadHook;
 
   if (jvmti->SetEventCallbacks(&callbacks, sizeof(jvmtiEventCallbacks)) !=
       JVMTI_ERROR_NONE) {
     Log::E("Error setting event callbacks.");
-    return JNI_ERR;
+    return;
   }
 
-  std::string instrument_jar_path = GetInstrumentJarPath(config.GetSwapRequest().package_name());
-
+  std::string instrument_jar_path =
+      GetInstrumentJarPath(request->package_name());
 
   // Make sure the instrumentation jar is ready on disk.
   if (!WriteJarToDiskIfNecessary(instrument_jar_path)) {
     Log::E("Error writing instrumentation.jar to disk.");
-    return JNI_ERR;
+    return;
   }
 
   if (!LoadInstrumentationJar(jvmti, jni, instrument_jar_path)) {
     Log::E("Error loading instrumentation dex.");
-    return JNI_ERR;
+    return;
   }
+
+  vector<NativeBinding> native_bindings;
+  native_bindings.emplace_back(kHandlerWrapperClass,
+                               "getApplicationInfoChangedValue", "()I",
+                               (void*)&Native_GetAppInfoChanged);
+  native_bindings.emplace_back(kHandlerWrapperClass, "tryRedefineClasses",
+                               "(JJ)Z", (void*)&Native_TryRedefineClasses);
+
+  // Need to register native methods every time; otherwise, the Java methods
+  // could potentially call old versions if a previous agent.so was loaded.
+  RegisterNatives(jni, native_bindings);
 
   if (!Instrument(jvmti, jni, instrument_jar_path)) {
     Log::E("Error instrumenting application.");
-    return JNI_ERR;
+    return;
   }
 
   // Enable hot-swapping via the callback.
   JniClass handlerWrapper(jni, kHandlerWrapperClass);
-  handlerWrapper.CallStaticMethod<void>({"prepareForHotSwap", "()V"});
+
+  // Transfer ownership of these pointers to the callback wrapper, since it will
+  // be the last entity to use them.
+  jvalue args[2];
+  args[0].j = reinterpret_cast<jlong>(request.get());
+  args[1].j = reinterpret_cast<jlong>(socket.release());
+  handlerWrapper.CallStaticMethod<void>({"prepareForHotSwap", "(JJ)V"}, args);
 
   // Perform hot swap through the activity restart callback path.
   AndroidWrapper wrapper(jni);
-  wrapper.RestartActivity(config.GetSwapRequest().package_name().c_str());
-
-  return JNI_OK;
+  wrapper.RestartActivity(request->package_name().c_str());
+  request.release();
 }
 
 // Event that fires when the agent hooks onto a running VM.
@@ -265,37 +286,61 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* input,
 
   Log::V("Prior agent invocations in this VM: %d", run_counter++);
 
-  if (!Config::ParseFromFile(input)) {
+  // Hold ownership of these until we call a DoHotSwap() method.
+  std::unique_ptr<deploy::Socket> socket(new deploy::Socket());
+  std::unique_ptr<proto::SwapRequest> request;
+
+  std::string request_bytes(input);
+  if (request_bytes.empty()) {
+    if (!socket->Open()) {
+      Log::E("Could not open new socket");
+      return JNI_OK;
+    }
+
+    if (!socket->Connect(deploy::Socket::kDefaultAddress, 1000)) {
+      Log::E("Could not connect to socket");
+      return JNI_OK;
+    }
+
+    if (!socket->Read(&request_bytes)) {
+      Log::E("Could not read from socket");
+      return JNI_OK;
+    }
+
+    request = ParseFromString(request_bytes);
+  } else {
+    request = ParseFromFile(request_bytes);
+  }
+
+  if (request == nullptr) {
     Log::E("Could not parse swap request");
-    return JNI_ERR;
+    return JNI_OK;
   }
 
   if (!GetJvmti(vm, jvmti)) {
     Log::E("Error retrieving JVMTI function table.");
-    return JNI_ERR;
+    return JNI_OK;
   }
 
   if (!GetJni(vm, jni)) {
     Log::E("Error retrieving JNI function table.");
-    return JNI_ERR;
+    return JNI_OK;
   }
 
   if (jvmti->AddCapabilities(&REQUIRED_CAPABILITIES) != JVMTI_ERROR_NONE) {
     Log::E("Error setting capabilities.");
-    return JNI_ERR;
+    return JNI_OK;
   }
 
-  const Config& config = Config::GetInstance();
-
-  jint ret = JNI_ERR;
-  if (config.GetSwapRequest().restart_activity()) {
-    ret = DoHotSwapAndRestart(jvmti, jni, config);
+  if (request->restart_activity()) {
+    DoHotSwapAndRestart(jvmti, jni, std::move(request), std::move(socket));
   } else {
-    ret = DoHotSwap(jvmti, jni, config);
-    jvmti->RelinquishCapabilities(&REQUIRED_CAPABILITIES);
-    Log::V("Finished.");
+    DoHotSwap(jvmti, jni, std::move(request), std::move(socket));
   }
-  return ret;
+
+  // We return JNI_OK even if the hot swap fails, since returning JNI_ERR just
+  // causes ART to attempt to re-attach the agent with a null classloader.
+  return JNI_OK;
 }
 
 }  // namespace swapper

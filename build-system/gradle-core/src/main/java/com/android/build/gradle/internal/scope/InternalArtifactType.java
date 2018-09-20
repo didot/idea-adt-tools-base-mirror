@@ -45,9 +45,6 @@ public enum InternalArtifactType implements ArtifactType {
     // the packaged classes published by APK modules.
     // This is for external usage. For usage inside a module use ALL_CLASSES
     APP_CLASSES,
-    // the packaged classes published by feature modules.
-    // This is for external usage. For usage inside a module use ALL_CLASSES
-    FEATURE_CLASSES,
 
     // --- java res ---
     // java processing output
@@ -268,6 +265,7 @@ public enum InternalArtifactType implements ArtifactType {
     METADATA_FEATURE_DECLARATION,
     METADATA_FEATURE_MANIFEST,
     METADATA_INSTALLED_BASE_DECLARATION,
+    METADATA_SIGNING_CONFIG,
 
     INSTANT_RUN_APP_INFO_OUTPUT_FILE;
 
