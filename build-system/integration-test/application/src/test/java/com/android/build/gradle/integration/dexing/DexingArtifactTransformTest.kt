@@ -158,7 +158,12 @@ class DexingArtifactTransformTest {
 
     @Test
     fun testMinifiedDoesNotUseNewPipeline() {
-        project.buildFile.appendText("\nandroid.buildTypes.debug.minifyEnabled true")
+        project.file("config.pro").writeText("-keep class *")
+        project.buildFile.appendText(
+            """
+            |android.buildTypes.debug.minifyEnabled true
+            |android.buildTypes.debug.proguardFiles file('config.pro')""".trimMargin()
+        )
         val result = executor().run("assembleDebug")
         assertThat(result.tasks).doesNotContain(":mergeExtDexDebug")
     }
