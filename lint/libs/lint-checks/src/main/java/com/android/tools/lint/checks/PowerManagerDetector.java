@@ -49,6 +49,7 @@ public class PowerManagerDetector extends Detector implements Detector.UastScann
                             6,
                             Severity.ERROR,
                             IMPLEMENTATION)
+                    .setAndroidSpecific(true)
                     .addMoreInfo(
                             "https://developer.android.com/reference/android/os/PowerManager.html");
 
@@ -56,7 +57,7 @@ public class PowerManagerDetector extends Detector implements Detector.UastScann
     public PowerManagerDetector() {}
 
     @Override
-    public void visitMethod(
+    public void visitMethodCall(
             @NonNull JavaContext context,
             @NonNull UCallExpression call,
             @NonNull PsiMethod method) {

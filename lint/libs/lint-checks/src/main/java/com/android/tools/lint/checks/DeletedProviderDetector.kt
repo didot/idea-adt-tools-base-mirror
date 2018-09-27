@@ -40,7 +40,7 @@ class DeletedProviderDetector : Detector(), SourceCodeScanner {
         return listOf(GET_INSTANCE)
     }
 
-    override fun visitMethod(
+    override fun visitMethodCall(
         context: JavaContext,
         node: UCallExpression,
         method: PsiMethod
@@ -94,6 +94,7 @@ class DeletedProviderDetector : Detector(), SourceCodeScanner {
             category = Category.SECURITY,
             priority = 9,
             severity = Severity.ERROR,
+            androidSpecific = true,
             implementation = Implementation(
                 DeletedProviderDetector::class.java,
                 Scope.JAVA_FILE_SCOPE

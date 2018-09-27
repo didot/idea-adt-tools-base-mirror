@@ -37,6 +37,7 @@ import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.LibraryDexingTask;
 import com.android.build.gradle.internal.tasks.MergeConsumerProguardFilesTask;
 import com.android.build.gradle.internal.tasks.PackageRenderscriptTask;
 import com.android.build.gradle.internal.tasks.factory.PreConfigAction;
@@ -57,7 +58,6 @@ import com.android.build.gradle.tasks.MergeResources;
 import com.android.build.gradle.tasks.MergeSourceSetFolders;
 import com.android.build.gradle.tasks.VerifyLibraryResourcesTask;
 import com.android.build.gradle.tasks.ZipMergingTask;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.profile.Recorder;
@@ -81,7 +81,6 @@ public class LibraryTaskManager extends TaskManager {
             @NonNull GlobalScope globalScope,
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
             @NonNull SdkHandler sdkHandler,
@@ -92,7 +91,6 @@ public class LibraryTaskManager extends TaskManager {
                 globalScope,
                 project,
                 projectOptions,
-                androidBuilder,
                 dataBindingBuilder,
                 extension,
                 sdkHandler,
@@ -221,7 +219,8 @@ public class LibraryTaskManager extends TaskManager {
                     Sets.difference(transform.getScopes(), TransformManager.PROJECT_ONLY);
             if (!difference.isEmpty()) {
                 String scopes = difference.toString();
-                androidBuilder
+                globalScope
+                        .getAndroidBuilder()
                         .getIssueReporter()
                         .reportError(
                                 Type.GENERIC,
@@ -285,6 +284,7 @@ public class LibraryTaskManager extends TaskManager {
                 null,
                 null);
 
+        taskFactory.register(new LibraryDexingTask.CreationAction(variantScope));
 
         // Create a jar with both classes and java resources.  This artifact is not
         // used by the Android application plugin and the task usually don't need to

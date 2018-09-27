@@ -24,6 +24,7 @@ iml_module(
         "//tools/idea/.idea/libraries:protobuf",
         "//prebuilts/r8:d8-master",
         "//tools/base/deploy/deployer:java_version",
+        "//tools/idea/.idea/libraries:sqlite",
     ],
 )
 
@@ -69,6 +70,7 @@ java_library(
         "//tools/base/common:tools.common",
         "//tools/base/ddmlib:tools.ddmlib",
         "//tools/base/deploy/proto:deploy_java_proto",
+        "//tools/idea/.idea/libraries:sqlite",
     ],
 )
 
@@ -87,6 +89,7 @@ java_test(
     srcs = glob(["src/test/java/**/*.java"]),
     data = glob(["src/test/resource/**"]),
     jvm_flags = ["-Dtest.suite.jar=deployer.tests.jar"],
+    tags = ["no_test_windows"],  # b/116693861
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.deployer",

@@ -3,8 +3,10 @@
 #include <string>
 #include <vector>
 
-#include "message_pipe_wrapper.h"
-#include "socket.h"
+#include "tools/base/deploy/common/message_pipe_wrapper.h"
+#include "tools/base/deploy/common/socket.h"
+
+using namespace deploy;
 
 // Server program that connects to instant run agents for a particular
 // application package. The server should be invoked with run-as, and expects an
@@ -20,20 +22,20 @@
 // Note that the installer only sends one message to the server.
 
 // Pipe used for writing data to the installer.
-deploy::MessagePipeWrapper installer_input(STDOUT_FILENO);
+MessagePipeWrapper installer_input(STDOUT_FILENO);
 
 // Pipe used for reading data from the installer.
-deploy::MessagePipeWrapper installer_output(STDIN_FILENO);
+MessagePipeWrapper installer_output(STDIN_FILENO);
 
 // Socket connections to the JVMTI agents.
-std::vector<deploy::MessagePipeWrapper*> agent_sockets;
+std::vector<MessagePipeWrapper*> agent_sockets;
 
 // Reads messages from the connected agent sockets and writes those messages to
 // the server's standard output. Loops until all connected agent sockets return
 // an error or disconnect.
 void ForwardAgentsToInstaller() {
   while (!agent_sockets.empty()) {
-    auto ready = deploy::MessagePipeWrapper::Poll(agent_sockets, -1);
+    auto ready = MessagePipeWrapper::Poll(agent_sockets, -1);
     for (size_t idx : ready) {
       std::string message;
 
@@ -63,9 +65,8 @@ int main(int argc, char** argv) {
   signal(SIGPIPE, SIG_IGN);
 
   // Start a server bound to an abstract socket.
-  deploy::Socket server;
-  if (!server.Open() ||
-      !server.BindAndListen(deploy::Socket::kDefaultAddress)) {
+  Socket server;
+  if (!server.Open() || !server.BindAndListen(Socket::kDefaultAddress)) {
     perror("Could not bind to socket");
     return EXIT_FAILURE;
   }
@@ -75,13 +76,13 @@ int main(int argc, char** argv) {
   std::string message;
   if (!installer_output.Read(&message)) {
     perror("Failed to read from installer");
-    return false;
+    return EXIT_FAILURE;
   }
 
   // Accept socket connections from the agents.
   int socket_count = atoi(argv[1]);
   for (int i = 0; i < socket_count; ++i) {
-    deploy::Socket* socket = new deploy::Socket();
+    Socket* socket = new Socket();
     if (!server.Accept(socket, 1000)) {
       Cleanup();
       return EXIT_FAILURE;

@@ -54,13 +54,14 @@ class AlarmDetector : Detector(), SourceCodeScanner {
             category = Category.CORRECTNESS,
             priority = 6,
             severity = Severity.WARNING,
+            androidSpecific = true,
             implementation = IMPLEMENTATION
         )
     }
 
     override fun getApplicableMethodNames(): List<String>? = listOf("setRepeating")
 
-    override fun visitMethod(
+    override fun visitMethodCall(
         context: JavaContext,
         node: UCallExpression,
         method: PsiMethod

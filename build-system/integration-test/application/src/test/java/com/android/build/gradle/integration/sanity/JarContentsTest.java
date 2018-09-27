@@ -297,6 +297,7 @@ public class JarContentsTest {
                 "com/android/tools/r8/ir/optimize/lambda/",
                 "com/android/tools/r8/ir/optimize/lambda/kotlin/",
                 "com/android/tools/r8/ir/optimize/staticizer/",
+                "com/android/tools/r8/ir/optimize/string/",
                 "com/android/tools/r8/ir/regalloc/",
                 "com/android/tools/r8/ir/synthetic/",
                 "com/android/tools/r8/it/",
@@ -1172,17 +1173,6 @@ public class JarContentsTest {
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "NOTICE");
-        expected.putAll(
-                "com/android/tools/lint/lint-kotlin",
-                "com/",
-                "com/android/",
-                "com/android/tools/",
-                "com/android/tools/lint/",
-                "com/android/tools/lint/kotlin/",
-                "NOTICE",
-                "META-INF/",
-                "META-INF/MANIFEST.MF"
-        );
         expected.putAll(
                 "com/android/tools/dvlib",
                 "com/",

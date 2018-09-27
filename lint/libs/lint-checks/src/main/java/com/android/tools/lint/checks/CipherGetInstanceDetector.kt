@@ -42,7 +42,7 @@ class CipherGetInstanceDetector : Detector(), SourceCodeScanner {
         return listOf(GET_INSTANCE)
     }
 
-    override fun visitMethod(
+    override fun visitMethodCall(
         context: JavaContext,
         node: UCallExpression,
         method: PsiMethod
@@ -146,6 +146,7 @@ class CipherGetInstanceDetector : Detector(), SourceCodeScanner {
             category = Category.SECURITY,
             priority = 9,
             severity = Severity.WARNING,
+            androidSpecific = true,
             implementation = Implementation(
                 CipherGetInstanceDetector::class.java,
                 Scope.JAVA_FILE_SCOPE
@@ -163,6 +164,7 @@ class CipherGetInstanceDetector : Detector(), SourceCodeScanner {
             category = Category.SECURITY,
             priority = 9,
             severity = Severity.WARNING,
+            androidSpecific = true,
             implementation = Implementation(
                 CipherGetInstanceDetector::class.java,
                 Scope.JAVA_FILE_SCOPE

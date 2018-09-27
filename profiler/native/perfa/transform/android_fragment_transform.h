@@ -36,7 +36,8 @@ class AndroidFragmentTransform : public Transform {
         true);
     if (!mi.InstrumentMethod(
             ir::MethodId(GetClassName(), "performResume", "()V"))) {
-      Log::E("Error instrumenting Fragment.performResume");
+      Log::E(
+          "Error instrumenting android.support.v4.app.Fragment.performResume");
     }
 
     slicer::MethodInstrumenter mi_stop(dex_ir);
@@ -46,8 +47,8 @@ class AndroidFragmentTransform : public Transform {
             "wrapOnPause"),
         true);
     if (!mi_stop.InstrumentMethod(
-            ir::MethodId(GetClassName(), "performStop", "()V"))) {
-      Log::E("Error instrumenting Fragment.performStop");
+            ir::MethodId(GetClassName(), "performPause", "()V"))) {
+      Log::E("Error instrumenting android.support.v4.app.Fragment.performPause");
     }
   }
 };

@@ -22,13 +22,11 @@
 
 #include "deploy.pb.h"
 
-namespace swapper {
-std::unique_ptr<proto::SwapRequest> ParseFromFile(
-    const std::string& file_location);
+namespace deploy {
 
 std::unique_ptr<proto::SwapRequest> ParseFromString(
     const std::string& request_string);
 
-}  // namespace swapper
+}  // namespace deploy
 
 #endif

@@ -70,9 +70,9 @@ enum class BooleanOption(
     DEPLOYMENT_PROVIDES_LIST_OF_CHANGES("android.deployment.provideListOfChanges", false),
     ENABLE_RESOURCE_NAMESPACING_DEFAULT("android.enableResourceNamespacingDefault", false),
     NAMESPACED_R_CLASS("android.namespacedRClass", false),
-    ENABLE_DEXING_ARTIFACT_TRANSFORM("android.enableDexingArtifactTransform", false),
     DEPLOY_AS_INSTANT_APP(AndroidProject.PROPERTY_DEPLOY_AS_INSTANT_APP, false),
     ENABLE_SEPARATE_ANNOTATION_PROCESSING("android.enableSeparateAnnotationProcessing", false),
+    FULL_R8("android.enableR8.fullMode", false),
 
     // ---------------
     // Lifecycle flags: Stable stage, Enabled by default, can be disabled
@@ -99,6 +99,7 @@ enum class BooleanOption(
     INJECT_SDK_MAVEN_REPOS("android.injectSdkMavenRepos", true),
     ENABLE_UNCOMPRESSED_NATIVE_LIBS_IN_BUNDLE("android.bundle.enableUncompressedNativeLibs", true),
     USE_DEPENDENCY_CONSTRAINTS("android.dependency.useConstraints", true),
+    ENABLE_DEXING_ARTIFACT_TRANSFORM("android.enableDexingArtifactTransform", true, status=Option.Status.STABLE),
 
     // ---------------
     // Lifecycle flags: Deprecated stage, feature is stable and we want to get rid of the ability to revert to older code path

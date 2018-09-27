@@ -50,7 +50,8 @@ public class AppCompatCallDetector extends Detector implements SourceCodeScanner
                             6,
                             Severity.WARNING,
                             new Implementation(AppCompatCallDetector.class, Scope.JAVA_FILE_SCOPE))
-                    .addMoreInfo("http://developer.android.com/tools/support-library/index.html");
+                    .addMoreInfo("http://developer.android.com/tools/support-library/index.html")
+                    .setAndroidSpecific(true);
 
     private static final String GET_ACTION_BAR = "getActionBar";
     private static final String START_ACTION_MODE = "startActionMode";
@@ -82,7 +83,7 @@ public class AppCompatCallDetector extends Detector implements SourceCodeScanner
     }
 
     @Override
-    public void visitMethod(
+    public void visitMethodCall(
             @NonNull JavaContext context,
             @NonNull UCallExpression node,
             @NonNull PsiMethod method) {

@@ -21,8 +21,8 @@ import com.android.tools.build.gradle.internal.profile.GradleTaskExecutionType;
 import com.android.tools.build.gradle.internal.profile.GradleTransformExecutionType;
 import com.android.tools.perflogger.Analyzer;
 import com.android.tools.perflogger.Benchmark;
-import com.android.tools.perflogger.MedianWindowDeviationAnalyzer;
 import com.android.tools.perflogger.Metric;
+import com.android.tools.perflogger.WindowDeviationAnalyzer;
 import com.google.wireless.android.sdk.stats.GarbageCollectionStats;
 import com.google.wireless.android.sdk.stats.GradleBuildMemorySample;
 import com.google.wireless.android.sdk.stats.GradleBuildProfile;
@@ -62,30 +62,34 @@ public class ProfilerToBenchmarkAdapter {
 
     @NonNull
     private static final Analyzer DEFAULT_ANALYZER =
-            new MedianWindowDeviationAnalyzer.Builder()
+            new WindowDeviationAnalyzer.Builder()
                     .setMetricAggregate(Analyzer.MetricAggregate.MEDIAN)
                     .setRunInfoQueryLimit(50)
                     .setRecentWindowSize(25)
-                    // constant term of 10.0 ms to ignore regressions in trivial tasks
-                    .setConstTerm(10.0)
-                    // recommended value
-                    .setMadCoeff(1.0)
-                    // flag 10% regressions
-                    .setMedianCoeff(0.10)
+                    .addMedianTolerance(new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
+                            // constant term of 10.0 ms to ignore regressions in trivial tasks
+                            .setConstTerm(10.0)
+                            // recommended value
+                            .setMadCoeff(1.0)
+                            // flag 10% regressions
+                            .setMedianCoeff(0.10)
+                            .build())
                     .build();
 
     @NonNull
     private static final Analyzer MIN_ANALYZER =
-            new MedianWindowDeviationAnalyzer.Builder()
+            new WindowDeviationAnalyzer.Builder()
                     .setMetricAggregate(Analyzer.MetricAggregate.MIN)
                     .setRunInfoQueryLimit(50)
                     .setRecentWindowSize(25)
-                    // constant term of 10.0 ms to ignore regressions in trivial tasks
-                    .setConstTerm(10.0)
-                    // recommended value
-                    .setMadCoeff(1.0)
-                    // flag 10% regressions
-                    .setMedianCoeff(0.10)
+                    .addMedianTolerance(new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
+                        // constant term of 10.0 ms to ignore regressions in trivial tasks
+                        .setConstTerm(10.0)
+                        // recommended value
+                        .setMadCoeff(1.0)
+                        // flag 10% regressions
+                        .setMedianCoeff(0.10)
+                        .build())
                     .build();
 
     @NonNull
@@ -128,7 +132,6 @@ public class ProfilerToBenchmarkAdapter {
         }
         Metric totalBuildTime = new Metric("TOTAL_BUILD_TIME");
         Metric totalGcTime = new Metric("TOTAL_GC_TIME");
-        Metric totalBuildTimeNoGc = new Metric("TOTAL_BUILD_TIME_NO_GC");
 
         consolidatedTimingsPerIterations
                 .stream()
@@ -150,12 +153,6 @@ public class ProfilerToBenchmarkAdapter {
                                     new Metric.MetricSample(
                                             consolidatedRunTimings.startTime,
                                             consolidatedRunTimings.gcTime));
-                            totalBuildTimeNoGc.addSamples(
-                                    benchmark,
-                                    new Metric.MetricSample(
-                                            consolidatedRunTimings.startTime,
-                                            consolidatedRunTimings.buildTime
-                                                    - consolidatedRunTimings.gcTime));
                             consolidatedRunTimings.timingsForTasks.forEach(
                                     (type, timing) ->
                                             addMetricSample(
@@ -176,11 +173,15 @@ public class ProfilerToBenchmarkAdapter {
                                                     consolidatedRunTimings.startTime,
                                                     timing));
                         });
+
+        // set analyzers
         metrics.values().forEach(it -> setAnalyzers(it, benchmark));
+        setAnalyzers(totalBuildTime, benchmark);
+
+        // commit all metrics
         metrics.values().forEach(Metric::commit);
         totalBuildTime.commit();
         totalGcTime.commit();
-        totalBuildTimeNoGc.commit();
     }
 
     /**

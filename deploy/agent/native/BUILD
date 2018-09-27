@@ -10,8 +10,6 @@ cc_binary(
     name = "libswap.so",
     srcs = [
         "agent.cc",
-        "android_wrapper.cc",
-        "android_wrapper.h",
         "capabilities.h",
         "config.cc",
         "config.h",
@@ -76,10 +74,7 @@ android_cc_binary(
         "armeabi-v7a",
         "arm64-v8a",
     ],
-    binary = select({
-        "//tools/base/bazel:windows": ":libswap.so",
-        "//conditions:default": ":libswap.so.stripped",
-    }),
+    binary = ":libswap.so",
     filename = "libswap.so",
     tags = [
         "no_windows",
@@ -91,8 +86,8 @@ cc_binary(
     srcs = [
         "agent_server.cc",
     ],
-    copts = ANDROID_COPTS + ["-Itools/base/deploy/common"],
-    linkopts = ANDROID_LINKOPTS + ["-pthread"],
+    copts = ANDROID_COPTS,
+    linkopts = ANDROID_LINKOPTS,
     tags = ["no_windows"],
     visibility = ["//visibility:public"],
     deps = [
@@ -107,7 +102,7 @@ android_cc_binary(
         "armeabi-v7a",
         "arm64-v8a",
     ],
-    binary = ":agent_server.stripped",
+    binary = ":agent_server",
     filename = "agent_server",
     tags = ["no_windows"],
     visibility = ["//visibility:public"],

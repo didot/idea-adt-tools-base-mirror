@@ -58,7 +58,8 @@ public class ReadParcelableDetector extends Detector implements SourceCodeScanne
                             3,
                             Severity.WARNING,
                             new Implementation(ReadParcelableDetector.class, Scope.JAVA_FILE_SCOPE))
-                    .addMoreInfo("http://developer.android.com/reference/android/os/Parcel.html");
+                    .addMoreInfo("http://developer.android.com/reference/android/os/Parcel.html")
+                    .setAndroidSpecific(true);
 
     /** Constructs a new {@link ReadParcelableDetector} check */
     public ReadParcelableDetector() {}
@@ -78,7 +79,7 @@ public class ReadParcelableDetector extends Detector implements SourceCodeScanne
     }
 
     @Override
-    public void visitMethod(
+    public void visitMethodCall(
             @NonNull JavaContext context,
             @NonNull UCallExpression node,
             @NonNull PsiMethod method) {

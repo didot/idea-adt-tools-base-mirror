@@ -31,7 +31,6 @@
 #include <string>
 #include <vector>
 
-#include "android_wrapper.h"
 #include "capabilities.h"
 #include "config.h"
 #include "hotswap.h"
@@ -48,7 +47,7 @@ using std::string;
 using std::unique_ptr;
 using std::vector;
 
-namespace swapper {
+namespace deploy {
 
 const char* kBreadcrumbClass = "com/android/tools/deploy/instrument/Breadcrumb";
 const char* kHandlerWrapperClass =
@@ -152,7 +151,7 @@ bool Instrument(jvmtiEnv* jvmti, JNIEnv* jni, const std::string& jar) {
 // This method takes ownership of both the request and socket pointers.
 void DoHotSwap(jvmtiEnv* jvmti, JNIEnv* jni,
                std::unique_ptr<proto::SwapRequest> request,
-               std::unique_ptr<deploy::Socket> socket) {
+               std::unique_ptr<Socket> socket) {
   HotSwap code_swap(jvmti, jni);
 
   proto::SwapResponse response;
@@ -222,7 +221,7 @@ std::string GetInstrumentJarPath(const std::string& package_name) {
 // This method takes ownership of both the request and socket pointers.
 void DoHotSwapAndRestart(jvmtiEnv* jvmti, JNIEnv* jni,
                          std::unique_ptr<proto::SwapRequest> request,
-                         std::unique_ptr<deploy::Socket> socket) {
+                         std::unique_ptr<Socket> socket) {
   jvmtiEventCallbacks callbacks;
   callbacks.ClassFileLoadHook = Agent_ClassFileLoadHook;
 
@@ -267,15 +266,21 @@ void DoHotSwapAndRestart(jvmtiEnv* jvmti, JNIEnv* jni,
 
   // Transfer ownership of these pointers to the callback wrapper, since it will
   // be the last entity to use them.
+
+  auto socket_raw = socket.release();
+
   jvalue args[2];
-  args[0].j = reinterpret_cast<jlong>(request.get());
-  args[1].j = reinterpret_cast<jlong>(socket.release());
+  args[0].j = reinterpret_cast<jlong>(request.release());
+  args[1].j = reinterpret_cast<jlong>(socket_raw);
   handlerWrapper.CallStaticMethod<void>({"prepareForHotSwap", "(JJ)V"}, args);
 
-  // Perform hot swap through the activity restart callback path.
-  AndroidWrapper wrapper(jni);
-  wrapper.RestartActivity(request->package_name().c_str());
-  request.release();
+  proto::SwapResponse response;
+  response.set_pid(getpid());
+  response.set_status(proto::SwapResponse::NEED_ACTIVITY_RESTART);
+
+  std::string response_bytes;
+  response.SerializeToString(&response_bytes);
+  socket_raw->Write(response_bytes);
 }
 
 // Event that fires when the agent hooks onto a running VM.
@@ -287,31 +292,26 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* input,
   Log::V("Prior agent invocations in this VM: %d", run_counter++);
 
   // Hold ownership of these until we call a DoHotSwap() method.
-  std::unique_ptr<deploy::Socket> socket(new deploy::Socket());
+  std::unique_ptr<Socket> socket(new Socket());
   std::unique_ptr<proto::SwapRequest> request;
 
-  std::string request_bytes(input);
-  if (request_bytes.empty()) {
-    if (!socket->Open()) {
-      Log::E("Could not open new socket");
-      return JNI_OK;
-    }
-
-    if (!socket->Connect(deploy::Socket::kDefaultAddress, 1000)) {
-      Log::E("Could not connect to socket");
-      return JNI_OK;
-    }
-
-    if (!socket->Read(&request_bytes)) {
-      Log::E("Could not read from socket");
-      return JNI_OK;
-    }
-
-    request = ParseFromString(request_bytes);
-  } else {
-    request = ParseFromFile(request_bytes);
+  if (!socket->Open()) {
+    Log::E("Could not open new socket");
+    return JNI_OK;
   }
 
+  if (!socket->Connect(Socket::kDefaultAddress, 1000)) {
+    Log::E("Could not connect to socket");
+    return JNI_OK;
+  }
+
+  std::string request_bytes;
+  if (!socket->Read(&request_bytes)) {
+    Log::E("Could not read from socket");
+    return JNI_OK;
+  }
+
+  request = ParseFromString(request_bytes);
   if (request == nullptr) {
     Log::E("Could not parse swap request");
     return JNI_OK;
@@ -343,4 +343,4 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* input,
   return JNI_OK;
 }
 
-}  // namespace swapper
+}  // namespace deploy

@@ -59,7 +59,7 @@ class LocaleDetector : Detector(), SourceCodeScanner {
         }
     }
 
-    override fun visitMethod(
+    override fun visitMethodCall(
         context: JavaContext,
         node: UCallExpression,
         method: PsiMethod
@@ -216,6 +216,7 @@ class LocaleDetector : Detector(), SourceCodeScanner {
             category = Category.I18N,
             priority = 6,
             severity = Severity.WARNING,
+            androidSpecific = true,
             implementation = IMPLEMENTATION
         )
     }

@@ -69,7 +69,8 @@ public class HardwareIdDetector extends Detector implements SourceCodeScanner {
                             Severity.WARNING,
                             IMPLEMENTATION)
                     .addMoreInfo(
-                            "https://developer.android.com/training/articles/user-data-ids.html");
+                            "https://developer.android.com/training/articles/user-data-ids.html")
+                    .setAndroidSpecific(true);
 
     private static final String BLUETOOTH_ADAPTER_GET_ADDRESS = "getAddress";
     private static final String WIFI_INFO_GET_MAC_ADDRESS = "getMacAddress";
@@ -104,7 +105,7 @@ public class HardwareIdDetector extends Detector implements SourceCodeScanner {
     }
 
     @Override
-    public void visitMethod(
+    public void visitMethodCall(
             @NonNull JavaContext context,
             @NonNull UCallExpression node,
             @NonNull PsiMethod method) {

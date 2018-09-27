@@ -296,8 +296,9 @@ internal class UElementVisitor constructor(
                 context.setJavaFile(null)
                 context.uastFile = null
             }
-        } catch (ignore: ProcessCanceledException) {
+        } catch (e: ProcessCanceledException) {
             // Cancelling inspections in the IDE
+            throw e
         } catch (e: Throwable) {
             // Don't allow lint bugs to take down the whole build. TRY to log this as a
             // lint error instead!
@@ -1024,6 +1025,8 @@ internal class UElementVisitor constructor(
                 }
             }
 
+            annotationHandler?.visitSimpleNameReferenceExpression(mContext, node)
+
             return super.visitSimpleNameReferenceExpression(node)
         }
 
@@ -1053,7 +1056,7 @@ internal class UElementVisitor constructor(
                         if (function != null) {
                             for (v in list) {
                                 val scanner = v.uastScanner
-                                scanner.visitMethod(mContext, node, function)
+                                scanner.visitMethodCall(mContext, node, function)
                             }
                         }
                     }

@@ -16,7 +16,6 @@
 
 package com.android.tools.lint
 
-import com.android.SdkConstants
 import com.android.SdkConstants.ANDROID_URI
 import com.android.SdkConstants.ATTR_NAME
 import com.android.SdkConstants.FN_PUBLIC_TXT
@@ -43,7 +42,6 @@ import com.google.common.base.Charsets
 import com.google.common.io.Files
 import com.google.common.truth.Truth.assertThat
 import org.intellij.lang.annotations.Language
-import org.junit.Assume
 import org.junit.ClassRule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -752,8 +750,6 @@ class ProjectInitializerTest {
 
     @Test
     fun testSrcJar() {
-        // b/111699656
-        Assume.assumeFalse(SdkConstants.currentPlatform() == SdkConstants.PLATFORM_WINDOWS)
         // Checks that source files can be read from srcjar files as well
         val root = temp.newFolder()
         val projects = lint().files(
@@ -802,6 +798,52 @@ class ProjectInitializerTest {
                 "--quiet",
                 "--check",
                 "SdCardPath",
+                "--project",
+                descriptorFile.path
+            ),
+
+            null, null
+        )
+    }
+
+    @Test
+    fun testNonAndroidProject() {
+        val root = temp.newFolder()
+        val projects = lint().files(
+            java(
+                "C.java", """
+                    @SuppressWarnings({"MethodMayBeStatic", "ClassNameDiffersFromFileName"})
+                    public class C {
+                      String path = "/sdcard/file";
+                    }"""
+            ).indented()
+        ).createProjects(root)
+        val projectDir = projects[0]
+
+        @Language("XML")
+        val descriptor = """
+            <project incomplete="true">
+            <sdk dir='${TestUtils.getSdk()}'/>
+            <root dir="$projectDir" />
+            <module name="M" android="false" library="true">
+                <src file="C.java" />
+            </module>
+            </project>""".trimIndent()
+        val descriptorFile = File(root, "project.xml")
+        Files.asCharSink(descriptorFile, Charsets.UTF_8).write(descriptor)
+
+        MainTest.checkDriver(
+            """
+            No issues found.
+            """,
+            "",
+
+            // Expected exit code
+            ERRNO_SUCCESS,
+
+            // Args
+            arrayOf(
+                "--quiet",
                 "--project",
                 descriptorFile.path
             ),

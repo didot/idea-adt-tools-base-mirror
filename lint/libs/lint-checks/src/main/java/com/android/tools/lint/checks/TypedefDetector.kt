@@ -92,6 +92,7 @@ class TypedefDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         annotation: UAnnotation,
         qualifiedName: String,
         method: PsiMethod?,
+        referenced: PsiElement?,
         annotations: List<UAnnotation>,
         allMemberAnnotations: List<UAnnotation>,
         allClassAnnotations: List<UAnnotation>,
@@ -598,6 +599,7 @@ class TypedefDetector : AbstractAnnotationDetector(), SourceCodeScanner {
             category = Category.CORRECTNESS,
             priority = 6,
             severity = Severity.ERROR,
+            androidSpecific = true,
             implementation = IMPLEMENTATION
         )
 
