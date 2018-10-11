@@ -82,7 +82,7 @@ enum class BooleanOption(
     ENABLE_EXTRACT_ANNOTATIONS("android.enableExtractAnnotations", true),
     ENABLE_AAPT2_WORKER_ACTIONS("android.enableAapt2WorkerActions", true),
     ENABLE_D8_DESUGARING("android.enableD8.desugaring", true),
-    ENABLE_R8("android.enableR8", true, status = Option.Status.STABLE),
+    ENABLE_R8("android.enableR8", false, status = Option.Status.STABLE),
     /** Set to true by default, but has effect only if R8 is enabled. */
     ENABLE_R8_DESUGARING("android.enableR8.desugaring", true),
     // Marked as stable to avoid reporting deprecation twice.
