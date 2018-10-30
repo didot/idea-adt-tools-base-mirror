@@ -119,6 +119,7 @@ import com.android.build.gradle.internal.tasks.MergeAaptProguardFilesCreationAct
 import com.android.build.gradle.internal.tasks.PackageForUnitTest;
 import com.android.build.gradle.internal.tasks.PrepareLintJar;
 import com.android.build.gradle.internal.tasks.ProcessJavaResTask;
+import com.android.build.gradle.internal.tasks.SigningConfigWriterTask;
 import com.android.build.gradle.internal.tasks.SigningReportTask;
 import com.android.build.gradle.internal.tasks.SourceSetsTask;
 import com.android.build.gradle.internal.tasks.TestServerTask;
@@ -1806,6 +1807,11 @@ public abstract class TaskManager {
         setJavaCompilerTask(javacTask, variantScope);
         createPostCompilationTasks(variantScope);
 
+        // Add a task to produce the signing config file
+        taskFactory.register(
+                new SigningConfigWriterTask.CreationAction(
+                        variantScope, getValidateSigningTask(variantScope)));
+
         createPackagingTask(variantScope, null /* buildInfoGeneratorTask */);
 
         taskFactory.configure(
@@ -2938,8 +2944,13 @@ public abstract class TaskManager {
         taskFactory.register(new InstallVariantTask.CreationAction(variantScope));
     }
 
+    @Nullable
     protected TaskProvider<? extends Task> getValidateSigningTask(
             @NonNull VariantScope variantScope) {
+        if (variantScope.getVariantConfiguration().getSigningConfig() == null) {
+            return null;
+        }
+
         // FIXME create one per signing config instead of one per variant.
         TaskProvider<? extends ValidateSigningTask> validateSigningTask =
                 variantScope.getTaskContainer().getValidateSigningTask();
