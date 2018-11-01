@@ -41,8 +41,6 @@ class ApplicationIdTextResourceTest {
                     android {
                         featureVariants.all { variant ->
                             task "appId${"$"}variant.name"(dependsOn: variant.applicationIdTextResource) << {
-                                assert variant.applicationId.equals(
-                                    "com.example.android.instantapp.instantappsimpleproject")
                                 assert variant.applicationIdTextResource.asString().equals(
                                     "newAppId")
                             }
@@ -65,8 +63,6 @@ class ApplicationIdTextResourceTest {
                     android {
                         featureVariants.all { variant ->
                             task "appId${"$"}variant.name"(dependsOn: variant.applicationIdTextResource) << {
-                                assert variant.applicationId.equals(
-                                    "com.example.android.instantapp.instantappsimpleproject.feature")
                                 assert variant.applicationIdTextResource.asString().equals(
                                     "newAppId")
                             }
@@ -89,8 +85,6 @@ class ApplicationIdTextResourceTest {
                     android {
                         applicationVariants.all { variant ->
                             task "appId${"$"}variant.name"(dependsOn: variant.applicationIdTextResource) << {
-                                assert variant.applicationId.equals(
-                                    "newAppId")
                                 assert variant.applicationIdTextResource.asString().equals(
                                     "newAppId")
                             }
