@@ -5518,6 +5518,44 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                 + "1 errors, 0 warnings");
     }
 
+    public void test118555413() {
+        // Regression test for issue 118555413: NPE enforcing @RequiresApi on classes
+        //noinspection all // Sample code
+        lint().files(
+                        manifest().minSdk(15),
+                        java(
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import android.os.Build;\n"
+                                        + "\n"
+                                        + "@SuppressWarnings(\"unused\")\n"
+                                        + "public class WorkManagerTest {\n"
+                                        + "\n"
+                                        + "    public void test() {\n"
+                                        + "        SystemJobScheduler[] schedulers = new SystemJobScheduler[100]; // ERROR\n"
+                                        + "    }\n"
+                                        + "}"),
+                        java(
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import android.support.annotation.RequiresApi;\n"
+                                        + "\n"
+                                        + "@RequiresApi(23)\n"
+                                        + "public class SystemJobScheduler {\n"
+                                        + "}\n"),
+                        mSupportClasspath,
+                        mSupportJar)
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/WorkManagerTest.java:9: Error: Call requires API level 23 (current min is 15): SystemJobScheduler [NewApi]\n"
+                                + "        SystemJobScheduler[] schedulers = new SystemJobScheduler[100]; // ERROR\n"
+                                + "                                          ~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "1 errors, 0 warnings");
+    }
+
     public void testIgnoreAttributesWithinVector() {
         lint().files(
                         xml(
@@ -5538,6 +5576,91 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                 + "res/drawable/ic_drawable.xml:4: Error: <vector> requires API level 21 (current min is 1) or building with Android Gradle plugin 1.4 or higher [NewApi]\n"
                                 + "<vector android:width=\"24dp\" android:height=\"24dp\" android:viewportHeight=\"24.0\" android:viewportWidth=\"24.0\">\n"
                                 + " ~~~~~~\n"
+                                + "1 errors, 0 warnings");
+    }
+
+    public void testSourceJars() {
+        // Make sure that resolving files through srcjars is working properly
+
+        //noinspection all // Sample code
+        lint().files(
+                        manifest().minSdk(15),
+                        jar(
+                                "libs/library.srcjar",
+                                java(
+                                        ""
+                                                + "package test.pkg.library;\n"
+                                                + "\n"
+                                                + "import android.support.annotation.RequiresApi;\n"
+                                                + "import android.os.Build;\n"
+                                                + "@SuppressWarnings({\"WeakerAccess\", \"unused\"})\n"
+                                                + "public class Library {\n"
+                                                + "    @RequiresApi(19)\n"
+                                                + "    public void requiresKitKat() {\n"
+                                                + "    }\n"
+                                                + "}\n")),
+                        java(
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import test.pkg.library.Library;\n"
+                                        + "@SuppressWarnings({\"WeakerAccess\", \"unused\"})\n"
+                                        + "public class TestRequiresApi {\n"
+                                        + "    public void caller() {\n"
+                                        + "        new Library().requiresKitKat(); // ERROR - requires 19\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        mSupportClasspath,
+                        mSupportJar)
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/TestRequiresApi.java:7: Error: Call requires API level 19 (current min is 15): requiresKitKat [NewApi]\n"
+                                + "        new Library().requiresKitKat(); // ERROR - requires 19\n"
+                                + "                      ~~~~~~~~~~~~~~\n"
+                                + "1 errors, 0 warnings");
+    }
+
+    public void testSourceJarsKotlin() {
+        // Make sure that resolving files through srcjars is working properly, including
+        // sources in srcjars only provided as Kotlin sources, not as compiled libraries
+
+        //noinspection all // Sample code
+        lint().files(
+                        manifest().minSdk(15),
+                        jar(
+                                "libs/library.srcjar",
+                                kotlin(
+                                        ""
+                                                + "package test.pkg\n"
+                                                + "\n"
+                                                + "import android.support.annotation.RequiresApi\n"
+                                                + "\n"
+                                                + "class Library {\n"
+                                                + "    @RequiresApi(19)\n"
+                                                + "    fun requiresKitKat() {\n"
+                                                + "    }\n"
+                                                + "}\n"
+                                                + " ")),
+                        kotlin(
+                                ""
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "import test.pkg.library.Library\n"
+                                        + "\n"
+                                        + "class TestRequiresApi {\n"
+                                        + "    fun caller() {\n"
+                                        + "        Library().requiresKitKat() // ERROR - requires 19\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        mSupportClasspath,
+                        mSupportJar)
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/TestRequiresApi.kt:7: Error: Call requires API level 19 (current min is 15): requiresKitKat [NewApi]\n"
+                                + "        Library().requiresKitKat() // ERROR - requires 19\n"
+                                + "                  ~~~~~~~~~~~~~~\n"
                                 + "1 errors, 0 warnings");
     }
 
