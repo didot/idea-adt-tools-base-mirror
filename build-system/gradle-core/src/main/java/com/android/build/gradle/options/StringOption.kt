@@ -65,6 +65,9 @@ enum class StringOption(
 
     SUPPRESS_UNSUPPORTED_OPTION_WARNINGS("android.suppressUnsupportedOptionWarnings"),
 
+    // Jetifier: List of regular expressions for libraries that should not be jetified
+    JETIFIER_BLACKLIST("android.jetifier.blacklist"),
+
     ;
 
     override fun parse(value: Any): String {
