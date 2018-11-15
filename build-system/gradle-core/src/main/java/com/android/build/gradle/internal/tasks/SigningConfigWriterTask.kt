@@ -16,37 +16,30 @@
 
 package com.android.build.gradle.internal.tasks
 
-import com.android.annotations.VisibleForTesting
-import com.android.build.gradle.internal.dsl.CoreSigningConfig
+import com.android.build.gradle.internal.dsl.SigningConfig
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.tasks.AnnotationProcessingTaskCreationAction
-import com.google.gson.GsonBuilder
-import org.apache.commons.io.FileUtils
 import org.gradle.api.file.Directory
+import org.gradle.api.provider.Provider
+import java.io.IOException
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
-import java.io.IOException
-
-import org.gradle.api.provider.Provider
-import java.io.File
 
 /**
  * Task that writes the SigningConfig information and publish it for dynamic-feature modules.
  */
 open class SigningConfigWriterTask : AndroidVariantTask() {
 
-    @Suppress("PropertyName")
-    @VisibleForTesting
-    internal val PERSISTED_FILE_NAME = "signing-config.json"
-
     @get:OutputDirectory
     var outputDirectory: Provider<Directory>? = null
         internal set
 
     @get:Input
-    lateinit var signingConfig: CoreSigningConfig
+    @get:Optional
+    var signingConfig: SigningConfig? = null
         internal set
 
     @TaskAction
@@ -54,10 +47,7 @@ open class SigningConfigWriterTask : AndroidVariantTask() {
     fun fullTaskAction() {
         val out = outputDirectory
             ?: throw RuntimeException("OutputDirectory not set.")
-        val outputFile = File(out.get().asFile, PERSISTED_FILE_NAME)
-        val gsonBuilder = GsonBuilder()
-        val gson = gsonBuilder.create()
-        FileUtils.write(outputFile, gson.toJson(signingConfig))
+        SigningConfigMetadata.save(out.get().asFile, signingConfig)
     }
 
     class CreationAction(variantScope: VariantScope) :
@@ -71,7 +61,7 @@ open class SigningConfigWriterTask : AndroidVariantTask() {
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
             outputDirectory = variantScope.artifacts.createDirectory(
-                InternalArtifactType.METADATA_SIGNING_CONFIG,
+                InternalArtifactType.FEATURE_SIGNING_CONFIG,
                 taskName)
         }
 
@@ -79,7 +69,10 @@ open class SigningConfigWriterTask : AndroidVariantTask() {
             super.configure(task)
 
             task.outputDirectory = outputDirectory
-            task.signingConfig = variantScope.variantConfiguration.signingConfig!!
+            // convert to a serializable signing config. Objects from DSL are not serializable.
+            task.signingConfig = variantScope.variantConfiguration.signingConfig?.let {
+                SigningConfig(it.name).initWith(it)
+            }
         }
     }
 }
