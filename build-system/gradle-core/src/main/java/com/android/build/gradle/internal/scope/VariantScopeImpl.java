@@ -1810,4 +1810,37 @@ public class VariantScopeImpl extends GenericVariantScopeImpl implements Variant
                         ? InternalArtifactType.INSTANT_RUN_MERGED_MANIFESTS
                         : InternalArtifactType.MERGED_MANIFESTS;
     }
+
+    @NonNull
+    @Override
+    public FileCollection getSigningConfigFileCollection() {
+        VariantType variantType = getType();
+        if (variantType.isTestComponent()) {
+            // Only androidTest APKs need a signing config
+            Preconditions.checkState(
+                    variantType.isApk(), "Unexpected variant type: " + variantType);
+            if (this.getTestedVariantData()
+                    .getVariantConfiguration()
+                    .getType()
+                    .isDynamicFeature()) {
+                return getArtifactFileCollection(
+                        ConsumedConfigType.COMPILE_CLASSPATH,
+                        AndroidArtifacts.ArtifactScope.MODULE,
+                        AndroidArtifacts.ArtifactType.FEATURE_SIGNING_CONFIG);
+            } else {
+                return getArtifacts()
+                        .getFinalArtifactFiles(InternalArtifactType.SIGNING_CONFIG)
+                        .get();
+            }
+        } else {
+            return variantType.isBaseModule()
+                    ? getArtifacts()
+                            .getFinalArtifactFiles(InternalArtifactType.SIGNING_CONFIG)
+                            .get()
+                    : getArtifactFileCollection(
+                            ConsumedConfigType.COMPILE_CLASSPATH,
+                            AndroidArtifacts.ArtifactScope.MODULE,
+                            AndroidArtifacts.ArtifactType.FEATURE_SIGNING_CONFIG);
+        }
+    }
 }
