@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -138,9 +138,12 @@ public class ResourceRepositoryTest2 extends TestCase {
 
     @Override
     protected void tearDown() throws Exception {
-        super.tearDown();
-
-        deleteFile(mTempDir);
+        try {
+            deleteFile(mTempDir);
+        }
+        finally {
+            super.tearDown();
+        }
     }
 
     private static void deleteFile(File dir) {
