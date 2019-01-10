@@ -2,18 +2,24 @@
 # Invoked by Android Build Launchcontrol for continuous builds.
 
 readonly dist_dir="$1"
+readonly build_number="$2"
 
 readonly script_dir="$(dirname "$0")"
 
 # Grab the location of the command_log file for bazel daemon so we can search it later.
 readonly command_log="$("${script_dir}"/bazel info --config=remote command_log)"
 
+# Conditionally add --auth_credentials option for BYOB machines.
+if [[ -r "${HOME}/.android-studio-alphasource.json" ]]; then
+  auth_options="--auth_credentials=${HOME}/.android-studio-alphasource.json"
+fi
+
 # Run Bazel with coverage instrumentation
 "${script_dir}/bazel" \
   --max_idle_secs=60 \
   test \
   --config=remote \
-  --auth_credentials="$HOME"/.android-studio-alphasource.json \
+  ${auth_options} \
   --test_tag_filters=-no_linux,-no_test_linux \
   --define agent_coverage=true \
   -- \
@@ -45,7 +51,7 @@ readonly testlogs_dir="$(${script_dir}/bazel info bazel-testlogs --config=remote
   run \
   //tools/base:coverage_report \
   --config=remote \
-  --auth_credentials="$HOME"/.android-studio-alphasource.json \
+  ${auth_options} \
   -- \
   tools/base/coverage_report \
   $production_targets_file \
@@ -55,6 +61,9 @@ readonly testlogs_dir="$(${script_dir}/bazel info bazel-testlogs --config=remote
 # Resolve to sourcefiles and convert to LCOV
 python "${script_dir}/jacoco_to_lcov.py" || exit $?
 
+# Generate LCOV style HTML report
+genhtml -o "./out/html" "./out/lcov" -p $(pwd) --no-function-coverage || exit $?
+
 if [[ -d "${dist_dir}" ]]; then
   # Copy the report to ab/ outputs
   mkdir "${dist_dir}/coverage"
@@ -63,6 +72,16 @@ if [[ -d "${dist_dir}" ]]; then
   cp -pv "./out/worstNoFiles" "${dist_dir}/coverage"
   cp -pv "./out/missing" "${dist_dir}/coverage"
   cp -pv "./out/fake" "${dist_dir}/coverage"
+  # HTML report needs to be zipped for fast uploads
+  pushd "./out"
+  zip -r "html.zip" "./html"
+  popd
+  mv -v "./out/html.zip" "${dist_dir}/coverage"
+
+  # Upload the LCOV data to GCS if running on BYOB
+  if [[ "$build_number" ]]; then
+    gsutil cp "./out/lcov" "gs://android-devtools-archives/ab-studio-coverage/${build_number}/" || exit $?
+  fi
 
   # Link to test results
   echo "<meta http-equiv=\"refresh\" content=\"0; URL='https://source.cloud.google.com/results/invocations/${upsalite_id}'\" />" > "${dist_dir}"/upsalite_test_results.html

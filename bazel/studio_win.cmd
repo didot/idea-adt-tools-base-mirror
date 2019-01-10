@@ -12,8 +12,8 @@ set TESTTAGFILTERSPOST=-no_windows,-no_test_windows,-qa_sanity,-qa_fast,-qa_unre
 set TESTTAGFILTERSPSQ=-no_windows,-no_test_windows,-qa_sanity,-qa_fast,-qa_unreliable,-no_psq
 set TESTTAGFILTERS=%TESTTAGFILTERSPOST%
 
-set CONFIGOPTIONSPOST=--config=local --config=remote_common --config=postsubmit
-set CONFIGOPTIONSPSQ=--config=local --config=remote_common --config=presubmit
+set CONFIGOPTIONSPOST=--config=postsubmit
+set CONFIGOPTIONSPSQ=--config=presubmit
 set CONFIGOPTIONS=%CONFIGOPTIONSPOST%
 
 set AUTHCREDS=--auth_credentials=C:\buildbot\android-studio-alphasource.json
@@ -44,7 +44,7 @@ set TARGETS=
 for /f %%i in (%SCRIPTDIR%targets.win) do set TARGETS=!TARGETS! %%i
 
 @rem Run Bazel
-CALL %SCRIPTDIR%bazel.cmd --max_idle_secs=60 test %CONFIGOPTIONS% %AUTHCREDS% --build_tag_filters=-no_windows --test_tag_filters=%TESTTAGFILTERS% -- %TARGETS%
+CALL %SCRIPTDIR%bazel.cmd --max_idle_secs=60 test %CONFIGOPTIONS% %AUTHCREDS% --config=remote --build_tag_filters=-no_rbe_windows,-no_windows --test_tag_filters=-no_rbe_windows,%TESTTAGFILTERS% -- %TARGETS%
 SET EXITCODE=%errorlevel%
 
 IF NOT EXIST %DISTDIR%\ GOTO ENDSCRIPT
@@ -56,8 +56,6 @@ SET UPSALITEID=%%F
 echo "<meta http-equiv="refresh" content="0; URL='https://source.cloud.google.com/results/invocations/%UPSALITEID%" />" > %DISTDIR%\upsalite_test_results.html
 
 :ENDSCRIPT
-@rem Lets run bazel clean to make sure any file handles of bazel are properly shut down
-CALL %SCRIPTDIR%bazel.cmd clean --expunge
 @rem On windows we must explicitly shut down bazel.  Otherwise file handles remain open.
 CALL %SCRIPTDIR%bazel.cmd shutdown
 @rem We also must call the kill-processes.py python script and kill all processes still open

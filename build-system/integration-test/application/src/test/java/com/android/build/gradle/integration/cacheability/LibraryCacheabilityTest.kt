@@ -19,7 +19,8 @@ package com.android.build.gradle.integration.cacheability
 import com.google.common.truth.Truth.assertThat
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
-import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp
+import com.android.build.gradle.integration.common.fixture.app.HelloWorldLibraryApp
+import com.android.build.gradle.integration.common.truth.TaskStateList
 import com.android.build.gradle.integration.common.truth.TaskStateList.ExecutionState.UP_TO_DATE
 import com.android.build.gradle.integration.common.truth.TaskStateList.ExecutionState.FROM_CACHE
 import com.android.build.gradle.integration.common.truth.TaskStateList.ExecutionState.DID_WORK
@@ -38,12 +39,13 @@ import org.junit.runners.JUnit4
 import java.io.File
 
 /**
- * Tests cacheability of tasks.
+ * Tests cacheability of tasks. Similar to [CacheabilityTest], but builds the release version of a
+ * library module in order to verify the cacheability of a different set of tasks.
  *
  * See https://guides.gradle.org/using-build-cache/ for information on the Gradle build cache.
  */
 @RunWith(JUnit4::class)
-class CacheabilityTest {
+class LibraryCacheabilityTest {
 
     companion object {
 
@@ -56,48 +58,48 @@ class CacheabilityTest {
         private val EXPECTED_TASK_STATES =
             mapOf(
                 UP_TO_DATE to setOf(
-                    ":clean",
-                    ":preBuild",
-                    ":generateDebugResources",
-                    ":compileDebugSources"
+                    ":app:clean",
+                    ":lib:clean",
+                    ":lib:compileReleaseSources",
+                    ":lib:generateReleaseResources",
+                    ":lib:preBuild",
+                    ":lib:preReleaseBuild"
                 ),
                 FROM_CACHE to setOf(
-                    ":preDebugBuild",
-                    ":generateDebugBuildConfig",
-                    ":javaPreCompileDebug",
-                    ":generateDebugResValues",
-                    ":mergeDebugResources",
-                    ":compileDebugJavaWithJavac",
-                    ":checkDebugDuplicateClasses",
-                    ":mergeDebugShaders",
-                    ":mergeDebugAssets",
-                    ":mergeExtDexDebug",
-                    ":mergeDexDebug",
-                    ":mergeDebugJniLibFolders",
-                    ":processDebugManifest",
-                    ":processDebugResources",
-                    ":mainApkListPersistenceDebug",
-                    ":validateSigningDebug",
-                    ":signingConfigWriterDebug"
+                    ":lib:compileReleaseJavaWithJavac",
+                    ":lib:extractReleaseAnnotations",
+                    ":lib:generateReleaseBuildConfig",
+                    ":lib:generateReleaseResValues",
+                    ":lib:generateReleaseRFile",
+                    ":lib:javaPreCompileRelease",
+                    ":lib:mergeReleaseJniLibFolders",
+                    ":lib:mergeReleaseShaders",
+                    ":lib:mergeReleaseResources",
+                    ":lib:packageReleaseAssets",
+                    ":lib:packageReleaseResources",
+                    ":lib:processReleaseManifest",
+                    ":lib:verifyReleaseResources"
                 ),
                 DID_WORK to setOf(
-                    ":checkDebugManifest",
-                    ":prepareLintJar",
-                    ":createDebugCompatibleScreenManifests",
-                    ":compileDebugShaders",
-                    ":transformClassesWithDexBuilderForDebug",
-                    ":transformNativeLibsWithMergeJniLibsForDebug",
-                    ":transformNativeLibsWithStripDebugSymbolForDebug",
-                    ":transformResourcesWithMergeJavaResForDebug",
-                    ":packageDebug"
+                    ":lib:bundleReleaseAar",
+                    ":lib:checkReleaseManifest",
+                    ":lib:compileReleaseShaders",
+                    ":lib:mergeReleaseConsumerProguardFiles",
+                    ":lib:prepareLintJar",
+                    ":lib:transformClassesAndResourcesWithSyncLibJarsForRelease",
+                    ":lib:transformNativeLibsWithMergeJniLibsForRelease",
+                    ":lib:transformNativeLibsWithStripDebugSymbolForRelease",
+                    ":lib:transformNativeLibsWithSyncJniLibsForRelease",
+                    ":lib:transformResourcesWithMergeJavaResForRelease"
                 ),
                 SKIPPED to setOf(
-                    ":compileDebugAidl",
-                    ":compileDebugRenderscript",
-                    ":generateDebugSources",
-                    ":generateDebugAssets",
-                    ":processDebugJavaRes",
-                    ":assembleDebug"
+                    ":lib:packageReleaseRenderscript",
+                    ":lib:assembleRelease",
+                    ":lib:compileReleaseAidl",
+                    ":lib:compileReleaseRenderscript",
+                    ":lib:generateReleaseAssets",
+                    ":lib:generateReleaseSources",
+                    ":lib:processReleaseJavaRes"
                 ),
                 FAILED to setOf()
             )
@@ -109,15 +111,16 @@ class CacheabilityTest {
          * list is Bug 69668176.
          */
         private val NOT_YET_CACHEABLE = setOf(
-            ":checkDebugManifest" /* Bug 74595857 */,
-            ":prepareLintJar" /* Bug 120413672 */,
-            ":createDebugCompatibleScreenManifests" /* Bug 120412436 */,
-            ":compileDebugShaders" /* Bug 120413401 */,
-            ":transformClassesWithDexBuilderForDebug" /* Bug 74595921 */,
-            ":transformNativeLibsWithMergeJniLibsForDebug" /* Bug 74595223 */,
-            ":transformNativeLibsWithStripDebugSymbolForDebug" /* Bug 120414535 */,
-            ":transformResourcesWithMergeJavaResForDebug" /* Bug 74595224 */,
-            ":packageDebug" /* Bug 74595859 */
+            ":lib:bundleReleaseAar" /*Bug 121275773 */,
+            ":lib:checkReleaseManifest" /* Bug 74595857 */,
+            ":lib:compileReleaseShaders" /* Bug 120413401 */,
+            ":lib:mergeReleaseConsumerProguardFiles" /* Bug 121276920 */,
+            ":lib:prepareLintJar" /* Bug 120413672 */,
+            ":lib:transformClassesAndResourcesWithSyncLibJarsForRelease" /* Bug 121275815 */,
+            ":lib:transformNativeLibsWithMergeJniLibsForRelease" /* Bug 74595223 */,
+            ":lib:transformNativeLibsWithStripDebugSymbolForRelease" /* Bug 120414535 */,
+            ":lib:transformNativeLibsWithSyncJniLibsForRelease" /* Bug 121275531 */,
+            ":lib:transformResourcesWithMergeJavaResForRelease"  /* Bug 74595224 */
         )
 
         /**
@@ -128,7 +131,7 @@ class CacheabilityTest {
 
     @get:Rule
     var projectCopy1 = GradleTestProject.builder()
-        .fromTestApp(HelloWorldApp.forPlugin("com.android.application"))
+        .fromTestApp(HelloWorldLibraryApp())
         .withGradleBuildCacheDirectory(File("../$GRADLE_BUILD_CACHE_DIR"))
         .withName("projectCopy1")
         .dontOutputLogOnFailure()
@@ -136,47 +139,35 @@ class CacheabilityTest {
 
     @get:Rule
     var projectCopy2 = GradleTestProject.builder()
-        .fromTestApp(HelloWorldApp.forPlugin("com.android.application"))
+        .fromTestApp(HelloWorldLibraryApp())
         .withGradleBuildCacheDirectory(File("../$GRADLE_BUILD_CACHE_DIR"))
         .withName("projectCopy2")
         .dontOutputLogOnFailure()
         .create()
-
-    @Before
-    fun setUp() {
-        // Normally the APK name wouldn't include the project name. However, because the current
-        // test project has only one module located at the root project (as opposed to residing in a
-        // subdirectory under the root project), the APK name in this test does include the project
-        // name, which would break relocatability. To fix that, we need to apply the following
-        // workaround to use a generic name for the APK that is independent of the project name.
-        //
-        // NOTE: This project setup is not configured by default in Android Studio, so we assume
-        // that not many users have this setup. However, if we later find that users do run into
-        // cacheability issues because of this, we will need to think of a proper fix.
-        TestFileUtils.appendToFile(projectCopy1.buildFile, "archivesBaseName = 'project'")
-        TestFileUtils.appendToFile(projectCopy2.buildFile, "archivesBaseName = 'project'")
-    }
 
     @Test
     fun testRelocatability() {
         // Build the first project
         val buildCacheDir = File(projectCopy1.testDir.parent, GRADLE_BUILD_CACHE_DIR)
         FileUtils.deleteRecursivelyIfExists(buildCacheDir)
-        projectCopy1.executor().withArgument("--build-cache").run("clean", "assembleDebug")
+        // The task :lib:assembleRelease is run in order to run the VerifyLibraryResources task,
+        // which is only created for release variants
+        projectCopy1.executor().withArgument("--build-cache").run("clean", ":lib:assembleRelease")
 
         // Check that the build cache has been populated
         assertThat(buildCacheDir).exists()
 
         // Build the second project
         val result =
-            projectCopy2.executor().withArgument("--build-cache").run("clean", "assembleDebug")
+            projectCopy2.executor().withArgument("--build-cache")
+                .run("clean", ":lib:assembleRelease")
 
         // When running this test with bazel, StripDebugSymbolTransform does not run as the NDK
         // directory is not available. We need to remove that task from the expected tasks' states.
         var expectedDidWorkTasks = EXPECTED_TASK_STATES[DID_WORK]!!
-        if (result.findTask(":transformNativeLibsWithStripDebugSymbolForDebug") == null) {
+        if (result.findTask(":lib:transformNativeLibsWithStripDebugSymbolForRelease") == null) {
             expectedDidWorkTasks =
-                    expectedDidWorkTasks.minus(":transformNativeLibsWithStripDebugSymbolForDebug")
+                    expectedDidWorkTasks.minus(":lib:transformNativeLibsWithStripDebugSymbolForRelease")
         }
 
         // Check that the tasks' states are as expected
