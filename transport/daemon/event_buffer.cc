@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "perfd/event_buffer.h"
-#include "perfd/event_writer.h"
+#include "event_buffer.h"
+#include "event_writer.h"
 
 #include "utils/log.h"
 

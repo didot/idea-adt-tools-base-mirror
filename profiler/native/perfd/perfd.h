@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,29 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef PERFD_COMMANDS_BEGIN_SESSION_H_
-#define PERFD_COMMANDS_BEGIN_SESSION_H_
+#ifndef PERFD_H_
+#define PERFD_H_
+
+#include <unordered_map>
 
 #include "daemon/daemon.h"
-#include "proto/profiler.grpc.pb.h"
 
 namespace profiler {
 
-class BeginSession : public CommandT<BeginSession> {
+class Perfd final {
  public:
-  BeginSession(const proto::Command& command, const proto::BeginSession& data)
-      : CommandT(command), data_(data) {}
-
-  static Command* Create(const proto::Command& command) {
-    return new BeginSession(command, command.begin_session());
-  }
-
-  virtual grpc::Status ExecuteOn(Daemon* daemon) override;
-
- private:
-  proto::BeginSession data_;
+  static int Initialize(Daemon* daemon);
 };
 
 }  // namespace profiler
 
-#endif  // PERFD_COMMANDS_BEGIN_SESSION_H_
+#endif  // PERFD_H_

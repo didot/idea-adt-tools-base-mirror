@@ -20,10 +20,10 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "perfd/commands/command.h"
-#include "perfd/event_buffer.h"
-#include "perfd/event_writer.h"
-#include "perfd/profiler_component.h"
+#include "commands/command.h"
+#include "event_buffer.h"
+#include "event_writer.h"
+#include "profiler_component.h"
 #include "proto/common.grpc.pb.h"
 #include "proto/profiler.grpc.pb.h"
 #include "utils/clock.h"
@@ -51,10 +51,14 @@ class Daemon {
   // Assumes callers are from the same thread. |component| may not be null.
   // |component| cannot be 'const &' because we need to call its non-const
   // methods that return 'Service*'.
-  void RegisterComponent(ProfilerComponent* component);
+  // Daemon takes responsibily for the lifetime of the component.
+  // Note: This API is part of the legacy pipeline, new clients do not need to
+  // call this API.
+  void RegisterProfilerComponent(std::unique_ptr<ProfilerComponent> component);
 
-  const std::vector<ProfilerComponent*>& GetComponents() const {
-    return components_;
+  const std::vector<std::unique_ptr<ProfilerComponent>>& GetProfilerComponents()
+      const {
+    return profiler_components_;
   }
 
   // Starts running server at |server_address| with the services that have been
@@ -122,6 +126,14 @@ class Daemon {
     return agent_status_map_;
   }
 
+  // Registers a function callback for a specific command.
+  // Each command may only be registered once.
+  void RegisterCommandHandler(
+      proto::Command::CommandType type,
+      const std::function<Command*(proto::Command)>& command) {
+    commands_[type] = command;
+  }
+
  private:
   // True if there is an JVMTI agent attached to an app. False otherwise.
   bool IsAppAgentAlive(int32_t app_pid, const std::string& app_name);
@@ -136,7 +148,7 @@ class Daemon {
   // Builder of the gRPC server.
   grpc::ServerBuilder builder_;
   // Profiler components that have been registered.
-  std::vector<ProfilerComponent*> components_;
+  std::vector<std::unique_ptr<ProfilerComponent>> profiler_components_;
   // Clock that timestamps profiling data
   Clock* clock_;
   // Config object for profiling settings

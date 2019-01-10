@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "circular_buffer.h"
+#include "utils/circular_buffer.h"
 
 #include <gtest/gtest.h>
 

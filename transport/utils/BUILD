@@ -3,7 +3,7 @@ load("//tools/base/bazel:android.bzl", "select_android")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
-    name = "profiler_utils",
+    name = "utils",
     srcs = [
         "activity_manager.cc",
         "background_queue.cc",
@@ -94,17 +94,17 @@ cc_library(
         "uid_fetcher.h",
     ],
     copts = [
-        "-Itools/base/profiler/native",
-        "-I$(GENDIR)/tools/base/profiler",
+        "-Itools/base/transport",
+        "-I$(GENDIR)/tools/base/transport",
     ],
     tags = ["no_windows"],
     deps = [
-        "//tools/base/profiler/proto:profiler_cc_proto",
+        "//tools/base/transport/proto:cc_proto",
     ],
 )
 
 cc_test(
-    name = "profiler_utils_test",
+    name = "utils_test",
     srcs = [
         "activity_manager_test.cc",
         "background_queue_test.cc",
@@ -114,7 +114,6 @@ cc_test(
         "current_process_test.cc",
         "file_cache_test.cc",
         "file_reader_test.cc",
-        "fs/file_system_test.cc",
         "memory_map_test.cc",
         "native_backtrace_test.cc",
         "producer_consumer_queue_test.cc",
@@ -126,17 +125,20 @@ cc_test(
         "uid_fetcher_test.cc",
     ],
     copts = [
-        "-Itools/base/profiler/native",
-        "-I$(GENDIR)/tools/base/profiler",
+        "-Itools/base/transport/tests",
+        "-Itools/base/transport",
+        "-I$(GENDIR)/tools/base/transport",
     ],
     data = [
-        "//tools/base/profiler/native/testdata:utils",
+        "//tools/base/transport/tests/testdata",
     ],
     linkstatic = 1,
     tags = ["no_windows"],
     deps = [
-        ":profiler_utils",
+        ":utils",
         "//external:gmock_main",
-        "//tools/base/profiler/native/test:testutils",
+        "//tools/base/transport/daemon",
+        "//tools/base/transport/proto:cc_proto",
+        "//tools/base/transport/tests/test:testutils",
     ],
 )

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,27 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "network_connection_count_sampler.h"
+#include <string>
 
-#include "daemon/event_buffer.h"
-
-#include "proto/common.pb.h"
-#include "proto/network.pb.h"
+#include "test/utils.h"
 
 namespace profiler {
 
-using proto::Event;
-
-void NetworkConnectionCountSampler::Sample() {
-  sampler_.Refresh();
-  auto data = sampler_.Sample(uid_);
-
-  Event event;
-  event.set_pid(session().info().pid());
-  event.set_kind(Event::NETWORK_CONNECTION_COUNT);
-  auto speed = event.mutable_network_connections();
-  speed->set_num_connections(data.connection_data().connection_number());
-  buffer()->Add(event);
+std::string TestUtils::getUtilsTestData(const std::string &path) {
+  return path;
 }
 
 }  // namespace profiler

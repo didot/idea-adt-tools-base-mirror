@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "tokenizer.h"
+#include "utils/tokenizer.h"
 
 #include <gtest/gtest.h>
 

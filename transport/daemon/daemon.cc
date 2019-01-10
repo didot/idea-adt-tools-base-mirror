@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "perfd/daemon.h"
+#include "daemon.h"
 
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -23,10 +23,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include "commands/begin_session.h"
-#include "commands/end_session.h"
-#include "perfd/connector.h"
-#include "perfd/generic_component.h"
+#include "connector.h"
 #include "utils/android_studio_version.h"
 #include "utils/config.h"
 #include "utils/current_process.h"
@@ -157,12 +154,13 @@ bool RunAgent(const string& app_name, const string& package_name,
 
 Daemon::Daemon(Clock* clock, Config* config, FileCache* file_cache,
                EventBuffer* buffer)
-    : clock_(clock), config_(config), file_cache_(file_cache), buffer_(buffer) {
-  commands_[proto::Command::BEGIN_SESSION] = &BeginSession::Create;
-  commands_[proto::Command::END_SESSION] = &EndSession::Create;
-}
+    : clock_(clock),
+      config_(config),
+      file_cache_(file_cache),
+      buffer_(buffer) {}
 
-void Daemon::RegisterComponent(ProfilerComponent* component) {
+void Daemon::RegisterProfilerComponent(
+    std::unique_ptr<ProfilerComponent> component) {
   if (component == nullptr) return;
   Service* public_service = component->GetPublicService();
   if (public_service != nullptr) {
@@ -172,7 +170,7 @@ void Daemon::RegisterComponent(ProfilerComponent* component) {
   if (internal_service != nullptr) {
     builder_.RegisterService(internal_service);
   }
-  components_.push_back(component);
+  profiler_components_.push_back(std::move(component));
 }
 
 void Daemon::RunServer(const string& server_address) {

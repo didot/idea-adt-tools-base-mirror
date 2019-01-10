@@ -25,7 +25,7 @@ TEST(CurrentProcess, GetDir) {
   int length = output.length();
   // The output is expected to end with "/".
   EXPECT_EQ("/", output.substr(length - 1));
-  // This test is under "utils/" directory. The test process's executable
+  // This test is under "util/" directory. The test process's executable
   // is expected to be under a directory of the same name.
   const string kExpectedTail{"/utils/"};
   EXPECT_STREQ(kExpectedTail.c_str(),

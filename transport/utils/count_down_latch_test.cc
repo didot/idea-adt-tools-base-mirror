@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "count_down_latch.h"
+#include "utils/count_down_latch.h"
 
 #include <thread>
 

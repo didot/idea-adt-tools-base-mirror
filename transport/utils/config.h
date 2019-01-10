@@ -22,8 +22,8 @@ namespace profiler {
 
 // This is a Unix abstract socket name that is passed to bind() with the
 // '@' replaced by '\0'. It designates an abstract socket of name
-// "AndroidStudioProfilerAgent" (removing the "@" prefix).
-const char* const kAgentSocketName = "@AndroidStudioProfilerAgent";
+// "AndroidStudioTransportAgent" (removing the "@" prefix).
+const char* const kAgentSocketName = "@AndroidStudioTransportAgent";
 
 // Default config file path if none are found on the command line. The path
 // points to a profiler::proto::AgentConfig file.

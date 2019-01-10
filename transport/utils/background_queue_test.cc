@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "background_queue.h"
+#include "utils/background_queue.h"
 
 #include <gtest/gtest.h>
 #include "utils/count_down_latch.h"

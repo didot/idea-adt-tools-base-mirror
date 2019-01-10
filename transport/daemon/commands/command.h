@@ -17,7 +17,6 @@
 #define PERFD_COMMANDS_COMMAND_H_
 
 #include <grpc++/grpc++.h>
-#include "perfd/daemon.h"
 #include "proto/profiler.grpc.pb.h"
 
 namespace profiler {

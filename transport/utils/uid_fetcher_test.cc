@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#include "uid_fetcher.h"
+#include "utils/uid_fetcher.h"
 #include "test/utils.h"
 
 #include <gtest/gtest.h>
