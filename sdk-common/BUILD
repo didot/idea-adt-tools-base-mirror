@@ -49,6 +49,9 @@ iml_module(
         "//tools/idea/.idea/libraries:aia-manifest-proto-1.0-jarjar",
         "//tools/idea/.idea/libraries:javax-inject",
         "//tools/idea/.idea/libraries:jetbrains-annotations-java5",
+        "//tools/idea/.idea/libraries:Trove4j",
+        "//tools/idea/.idea/libraries:aapt-proto",
+        "//tools/idea/.idea/libraries:protobuf",
     ],
 )
 
@@ -79,6 +82,7 @@ kotlin_library(
         "//tools/base/layoutlib-api:tools.layoutlib-api",
         "//tools/base/repository:tools.repository",
         "//tools/base/sdklib:tools.sdklib",
+        "//tools/base/third_party:com.android.tools.build_aapt2-proto",
         "//tools/base/third_party:com.google.code.gson_gson",
         "//tools/base/third_party:com.google.guava_guava",
         "//tools/base/third_party:com.google.protobuf_protobuf-java",
@@ -87,6 +91,7 @@ kotlin_library(
         "//tools/base/third_party:org.bouncycastle_bcpkix-jdk15on",
         "//tools/base/third_party:org.bouncycastle_bcprov-jdk15on",
         "//tools/base/third_party:org.jetbrains.kotlin_kotlin-reflect",
+        "//tools/base/third_party:org.jetbrains.trove4j_trove4j",
     ],
 )
 
@@ -126,9 +131,11 @@ kotlin_test(
         "//tools/base/repository:tools.repository",
         "//tools/base/sdklib:tools.sdklib",
         "//tools/base/testutils:tools.testutils",
+        "//tools/base/third_party:com.android.tools.build_aapt2-proto",
         "//tools/base/third_party:com.google.code.gson_gson",
         "//tools/base/third_party:com.google.jimfs_jimfs",
         "//tools/base/third_party:com.google.truth_truth",
+        "//tools/base/third_party:net.sf.kxml_kxml2",
         "//tools/base/third_party:nl.jqno.equalsverifier_equalsverifier",
         "//tools/base/third_party:org.easymock_easymock",
         "//tools/base/third_party:org.mockito_mockito-core",

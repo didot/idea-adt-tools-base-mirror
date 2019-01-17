@@ -24,8 +24,9 @@ import com.android.fakeadbserver.FakeAdbServer;
 import java.net.Socket;
 
 /**
- * ShellCommandHandlers is a pre-supplied convenience construct to plug in and handle custom shell
- * commands. This reflects the "shell:command" local service a stated in the ADB protocol.
+ * ShellCommandHandler is a pre-supplied convenience construct to plug in and handle custom shell
+ * commands. This reflects the "shell:command" local service as stated in the ADB protocol, tied to
+ * a specific command separated by space.
  */
 public abstract class ShellCommandHandler extends CommandHandler {
 

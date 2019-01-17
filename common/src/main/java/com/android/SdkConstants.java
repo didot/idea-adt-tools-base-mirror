@@ -984,6 +984,8 @@ public final class SdkConstants {
 
     // ---- XML ----
 
+    /** URI of the reserved "xml" prefix. */
+    public static final String XML_NAMESPACE_URI = "http://www.w3.org/XML/1998/namespace";
     /** URI of the reserved "xmlns" prefix */
     public static final String XMLNS_URI = "http://www.w3.org/2000/xmlns/"; //$NON-NLS-1$
     /** The "xmlns" attribute name */
@@ -2599,7 +2601,7 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "5.1-milestone-1";
+    public static final String GRADLE_MINIMUM_VERSION = "5.1.1";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
     public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";

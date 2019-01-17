@@ -17,7 +17,9 @@
 package com.android.build.gradle.tasks
 
 import com.android.SdkConstants
+import com.android.build.gradle.AndroidConfig
 import com.android.build.gradle.internal.core.GradleVariantConfiguration
+import com.android.build.gradle.internal.dsl.AaptOptions
 import com.android.build.gradle.internal.dsl.ProductFlavor
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.GlobalScope
@@ -27,7 +29,7 @@ import com.android.build.gradle.internal.scope.OutputScope
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.variant.BaseVariantData
 import com.android.builder.core.AndroidBuilder
-import com.android.ide.common.build.ApkData
+import com.android.build.gradle.internal.scope.ApkData
 import com.google.common.truth.Truth.assertThat
 import org.gradle.api.Project
 import org.gradle.api.file.Directory
@@ -66,6 +68,8 @@ class ProcessLibraryManifestTest {
     @Mock lateinit var mainSplit: ApkData
     @Mock lateinit var androidBuilder: AndroidBuilder
     @Mock lateinit var mergedFlavor: ProductFlavor
+    @Mock lateinit var extension: AndroidConfig
+    @Mock lateinit var aaptOptions: AaptOptions
 
     @Before
     @Throws(IOException::class)
@@ -83,7 +87,12 @@ class ProcessLibraryManifestTest {
         `when`(variantScope.getIncrementalDir(anyString())).thenReturn(temporaryFolder.newFolder())
         `when`(variantScope.taskContainer).thenReturn(MutableTaskContainer())
 
+        `when`(aaptOptions.namespaced).thenReturn(false)
+
+        `when`(extension.aaptOptions).thenReturn(aaptOptions)
+
         `when`(globalScope.androidBuilder).thenReturn(androidBuilder)
+        `when`(globalScope.extension).thenReturn(extension)
         `when`(outputScope.mainSplit).thenReturn(mainSplit)
         `when`(variantConfiguration.mergedFlavor).thenReturn(mergedFlavor)
         `when`(mainSplit.fullName).thenReturn("fooRelease")

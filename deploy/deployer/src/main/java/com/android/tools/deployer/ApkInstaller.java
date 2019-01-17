@@ -75,6 +75,10 @@ public class ApkInstaller {
                 return "The device has been disconnected.";
             case SHELL_UNRESPONSIVE:
                 return "The device timed out while trying to install the application.";
+            case INSTALL_FAILED_INSUFFICIENT_STORAGE:
+                return "The device needs more free storage to install the application (extra space is needed in addition to APK size).";
+            case MULTI_APKS_NO_SUPPORTED_BELOW21:
+                return "Multi-APK app installation is not supported on devices with API level < 21.";
             default:
                 return "Installation failed";
         }

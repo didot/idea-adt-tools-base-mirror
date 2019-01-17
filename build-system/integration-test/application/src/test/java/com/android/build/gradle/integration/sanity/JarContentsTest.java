@@ -162,16 +162,12 @@ public class JarContentsTest {
         expected.putAll(
                 "com/android/tools/build/aapt2:osx",
                 "aapt2",
-                "lib64/",
-                "lib64/libc++.dylib",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "NOTICE");
         expected.putAll(
                 "com/android/tools/build/aapt2:linux",
                 "aapt2",
-                "lib64/",
-                "lib64/libc++.so",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "NOTICE");
@@ -838,7 +834,6 @@ public class JarContentsTest {
                 "com/",
                 "com/android/",
                 "com/android/sdklib/",
-                "com/android/sdklib/build/",
                 "com/android/sdklib/devices/",
                 "com/android/sdklib/devices/devices.xml",
                 "com/android/sdklib/devices/nexus.xml",
@@ -925,6 +920,7 @@ public class JarContentsTest {
                 "com/android/ide/common/blame/",
                 "com/android/io/",
                 "com/android/prefs/",
+                "com/android/resources/",
                 "com/android/sdklib/",
                 "com/android/support/",
                 "com/android/tools/",
