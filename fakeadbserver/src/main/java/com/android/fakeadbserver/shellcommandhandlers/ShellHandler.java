@@ -25,7 +25,7 @@ import java.net.Socket;
 /**
  * ShellHandler is a pre-supplied convenience construct to plug in and handle general shell
  * commands. This reflects the "shell:command" local service as stated in the ADB protocol. Note:
- * this handler runs *after* {@link ShellCommandHandler}s, and only if {@link ShellCommandHandler}s
+ * this handler runs *after* {@link SimpleShellHandler}s, and only if {@link SimpleShellHandler}s
  * don't already handle the given command.
  */
 public abstract class ShellHandler extends CommandHandler {
@@ -37,9 +37,9 @@ public abstract class ShellHandler extends CommandHandler {
      * @param responseSocket Socket for this connection.
      * @param device Target device for the command, if any.
      * @param cmd The whole command line.
-     * @return a boolean, with true meaning keep the connection alive, false to close the connection
+     * @return true if the command was accepted
      */
-    public abstract boolean invoke(
+    public abstract boolean accept(
             @NonNull FakeAdbServer fakeAdbServer,
             @NonNull Socket responseSocket,
             @NonNull DeviceState device,

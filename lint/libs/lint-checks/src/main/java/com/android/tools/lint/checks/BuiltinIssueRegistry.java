@@ -17,12 +17,12 @@
 package com.android.tools.lint.checks;
 
 import com.android.annotations.NonNull;
-import com.android.annotations.VisibleForTesting;
 import com.android.tools.lint.client.api.IssueRegistry;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.detector.api.ApiKt;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.Scope;
+import com.google.common.annotations.VisibleForTesting;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -134,6 +134,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(GradleDetector.DATA_BINDING_WITHOUT_KAPT);
         issues.add(GradleDetector.DEPENDENCY);
         issues.add(GradleDetector.DEPRECATED);
+        issues.add(GradleDetector.DEPRECATED_CONFIGURATION);
         issues.add(GradleDetector.DEPRECATED_LIBRARY);
         issues.add(GradleDetector.DEV_MODE_OBSOLETE);
         issues.add(GradleDetector.DUPLICATE_CLASSES);

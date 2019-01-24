@@ -26,11 +26,11 @@ import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.ide.FilterDataImpl;
 import com.android.utils.Pair;
 import com.android.utils.StringHelper;
-import com.google.common.base.Joiner;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
-import java.util.Collection;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -64,15 +64,11 @@ public class OutputFactory {
     }
 
     public ApkData addMainOutput(String defaultFilename) {
-        String baseName = variantConfiguration.getBaseName();
         ApkData mainOutput =
-                // the main output basename comes from the variant configuration.
-                // the main output should not have a dirName set as all the getXXXOutputDirectory
-                // in variant scope already include the variant name.
-                // TODO : we probably should clean this up, having the getXXXOutputDirectory APIs
-                // return the top level folder and have all users use the getDirName() as part of
-                // the task output folder configuration.
-                new Main(baseName, variantConfiguration.getFullName(), "", defaultFilename);
+                new Main(
+                        variantConfiguration.getBaseName(),
+                        variantConfiguration.getFullName(),
+                        defaultFilename);
         outputScopeBuilder.addMainSplit(mainOutput);
         return mainOutput;
     }
@@ -116,37 +112,21 @@ public class OutputFactory {
     }
 
     public ApkData addConfigurationSplit(OutputFile.FilterType filterType, String filterValue) {
-        ImmutableList<FilterData> filtersList =
-                ImmutableList.of(new FilterDataImpl(filterType, filterValue));
-        String filterName = getFilterNameForSplits(filtersList);
-        String baseName = variantConfiguration.computeBaseNameWithSplits(filterName);
-        return addConfigurationSplit(filtersList, getOutputFileName(baseName), filterValue);
+        String baseName = variantConfiguration.computeBaseNameWithSplits(filterValue);
+        return addConfigurationSplit(filterType, filterValue, getOutputFileName(baseName));
     }
 
+    @VisibleForTesting
     public ApkData addConfigurationSplit(
             OutputFile.FilterType filterType, String filterValue, String fileName) {
-        ImmutableList<FilterData> filtersList =
-                ImmutableList.of(new FilterDataImpl(filterType, filterValue));
-        String filterDisplayName = getFilterNameForSplits(filtersList);
-        return addConfigurationSplit(filtersList, fileName, filterDisplayName);
-    }
-
-    @NonNull
-    public static String getFilterNameForSplits(Collection<FilterData> filters) {
-        return Joiner.on("-")
-                .join(filters.stream().map(FilterData::getIdentifier).collect(Collectors.toList()));
-    }
-
-    private ApkData addConfigurationSplit(
-            ImmutableList<FilterData> filtersList, String fileName, String filterDisplayName) {
         ApkData apkData =
                 new ConfigurationSplitApkData(
-                        filterDisplayName,
-                        variantConfiguration.computeBaseNameWithSplits(filterDisplayName),
+                        filterType,
+                        filterValue,
+                        variantConfiguration.computeBaseNameWithSplits(filterValue),
                         variantConfiguration.getFullName(),
                         variantConfiguration.getDirName(),
-                        fileName,
-                        filtersList);
+                        fileName);
         outputScopeBuilder.addSplit(apkData);
         return apkData;
     }
@@ -157,12 +137,11 @@ public class OutputFactory {
 
     private static final class Main extends ApkData {
 
-        private final String baseName, fullName, dirName;
+        private final String baseName, fullName;
 
-        private Main(String baseName, String fullName, String dirName, String fileName) {
+        private Main(String baseName, String fullName, String fileName) {
             this.baseName = baseName;
             this.fullName = fullName;
-            this.dirName = dirName;
             setOutputFileName(fileName);
         }
 
@@ -190,15 +169,20 @@ public class OutputFactory {
             return fullName;
         }
 
+        // The main output should not have a dirName set as all the getXXXOutputDirectory
+        // in variant scope already include the variant name.
+        // TODO: We probably should clean this up, having the getXXXOutputDirectory APIs
+        // return the top level folder and have all users use the getDirName() as part of
+        // the task output folder configuration.
         @NonNull
         @Override
         public String getDirName() {
-            return dirName;
+            return "";
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(super.hashCode(), baseName, fullName, dirName);
+            return Objects.hash(super.hashCode(), baseName, fullName);
         }
 
         @Override
@@ -214,8 +198,7 @@ public class OutputFactory {
             }
             Main that = (Main) o;
             return Objects.equals(baseName, that.baseName)
-                    && Objects.equals(fullName, that.fullName)
-                    && Objects.equals(dirName, that.dirName);
+                    && Objects.equals(fullName, that.fullName);
         }
     }
 
@@ -255,14 +238,9 @@ public class OutputFactory {
         @NonNull
         @Override
         public String getDirName() {
-            if (getFilters().isEmpty()) {
-                return UNIVERSAL;
-            }
-            StringBuilder sb = new StringBuilder();
-            for (FilterData filter : getFilters()) {
-                sb.append(filter.getIdentifier()).append(File.separatorChar);
-            }
-            return sb.toString();
+            Preconditions.checkState(
+                    getFilters().isEmpty(), "Universal APKs shouldn't have any filters set.");
+            return UNIVERSAL;
         }
 
         @Override
@@ -371,13 +349,13 @@ public class OutputFactory {
         private final ImmutableList<FilterData> filters;
 
         public ConfigurationSplitApkData(
+                @NonNull OutputFile.FilterType filterType,
                 @NonNull String filterName,
                 @NonNull String baseName,
                 @NonNull String fullName,
                 @NonNull String dirName,
-                String fileName,
-                ImmutableList<FilterData> filters) {
-            this.filters = filters;
+                @NonNull String fileName) {
+            this.filters = ImmutableList.of(new FilterDataImpl(filterType, filterName));
             this.filterName = filterName;
             this.baseName = baseName;
             this.fullName = fullName;

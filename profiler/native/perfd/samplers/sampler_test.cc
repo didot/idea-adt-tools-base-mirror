@@ -16,8 +16,8 @@
 #include <gtest/gtest.h>
 #include <vector>
 
-#include "perfd/daemon.h"
-#include "perfd/event_buffer.h"
+#include "daemon/daemon.h"
+#include "daemon/event_buffer.h"
 #include "perfd/samplers/sampler.h"
 #include "perfd/sessions/session.h"
 #include "proto/agent_service.grpc.pb.h"
@@ -37,7 +37,6 @@ class FakeSampler final : public Sampler {
               int64_t sampling_interval_ms, int64_t id, int32_t event_count)
       : Sampler(session, buffer, sampling_interval_ms),
         event_count_(event_count),
-        session_id_(id),
         group_id_(id),
         latch_(event_count) {}
 
@@ -47,7 +46,7 @@ class FakeSampler final : public Sampler {
     }
 
     proto::Event event;
-    event.set_session_id(session_id_);
+    event.set_pid(session().info().pid());
     event.set_group_id(group_id_);
     buffer()->Add(event);
     latch_.CountDown();
@@ -61,7 +60,6 @@ class FakeSampler final : public Sampler {
   virtual const char* name() override { return "FakeSampler"; }
 
   int32_t event_count_;
-  int64_t session_id_;
   int64_t group_id_;
   CountDownLatch latch_;
 };

@@ -104,6 +104,7 @@ public final class GradleTestProject implements TestRule {
     public static final String DEFAULT_COMPILE_SDK_VERSION;
 
     public static final String DEFAULT_BUILD_TOOL_VERSION;
+    public static final String DEFAULT_NDK_SIDE_BY_SIDE_VERSION = "19.0.5232133";
     public static final boolean APPLY_DEVICEPOOL_PLUGIN =
             Boolean.parseBoolean(System.getenv().getOrDefault("APPLY_DEVICEPOOL_PLUGIN", "false"));
 
@@ -213,7 +214,7 @@ public final class GradleTestProject implements TestRule {
 
     @Nullable private final Path profileDirectory;
 
-    @NonNull private final GradleTestProjectBuilder.HeapSizeRequirement heapSize;
+    @NonNull private final GradleTestProjectBuilder.MemoryRequirement heapSize;
     @Nullable private final List<Path> repoDirectories;
 
     @NonNull private final File androidHome;
@@ -237,7 +238,7 @@ public final class GradleTestProject implements TestRule {
             boolean withoutNdk,
             boolean withDependencyChecker,
             @NonNull Collection<String> gradleProperties,
-            @NonNull GradleTestProjectBuilder.HeapSizeRequirement heapSize,
+            @NonNull GradleTestProjectBuilder.MemoryRequirement heapSize,
             @Nullable String compileSdkVersion,
             @Nullable String buildToolsVersion,
             @Nullable Path profileDirectory,
@@ -297,7 +298,7 @@ public final class GradleTestProject implements TestRule {
     private GradleTestProject(
             @NonNull String subProject,
             @NonNull GradleTestProject rootProject,
-            @NonNull GradleTestProjectBuilder.HeapSizeRequirement heapSize) {
+            @NonNull GradleTestProjectBuilder.MemoryRequirement heapSize) {
         name = subProject.substring(subProject.lastIndexOf(':') + 1);
 
         testDir = new File(rootProject.getTestDir(), subProject.replace(":", "/"));
@@ -1475,7 +1476,7 @@ public final class GradleTestProject implements TestRule {
     }
 
     @NonNull
-    GradleTestProjectBuilder.HeapSizeRequirement getHeapSize() {
+    GradleTestProjectBuilder.MemoryRequirement getHeapSize() {
         return heapSize;
     }
 

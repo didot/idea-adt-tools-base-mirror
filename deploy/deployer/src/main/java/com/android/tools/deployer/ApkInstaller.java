@@ -45,6 +45,7 @@ public class ApkInstaller {
                 if (service.prompt(sb.toString())) {
                     adb.uninstall(packageName);
                     result = adb.install(apks, options.getFlags());
+                    message = message(result);
                 }
                 break;
             default:
@@ -52,7 +53,8 @@ public class ApkInstaller {
         }
 
         if (result != AdbClient.InstallResult.OK) {
-            throw new DeployerException(DeployerException.Error.INSTALL_FAILED, result, message);
+            throw new DeployerException(
+                    DeployerException.Error.INSTALL_FAILED, result, message, result.getReason());
         }
     }
 
@@ -80,7 +82,7 @@ public class ApkInstaller {
             case MULTI_APKS_NO_SUPPORTED_BELOW21:
                 return "Multi-APK app installation is not supported on devices with API level < 21.";
             default:
-                return "Installation failed";
+                return "Installation failed due to:";
         }
     }
 }

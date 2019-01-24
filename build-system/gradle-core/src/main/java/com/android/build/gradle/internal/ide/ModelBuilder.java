@@ -27,7 +27,6 @@ import static com.android.builder.model.AndroidProject.PROJECT_TYPE_DYNAMIC_FEAT
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.VariantOutput;
 import com.android.build.api.artifact.ArtifactType;
 import com.android.build.api.artifact.BuildableArtifact;
@@ -52,7 +51,7 @@ import com.android.build.gradle.internal.ide.level2.GlobalLibraryMapImpl;
 import com.android.build.gradle.internal.incremental.BuildInfoWriterTask;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.publishing.PublishingSpecs;
-import com.android.build.gradle.internal.scope.ApkInfo;
+import com.android.build.gradle.internal.scope.ApkData;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
@@ -98,6 +97,7 @@ import com.android.builder.model.Version;
 import com.android.builder.model.level2.DependencyGraphs;
 import com.android.builder.model.level2.GlobalLibraryMap;
 import com.android.utils.Pair;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -988,8 +988,8 @@ public class ModelBuilder<Extension extends AndroidConfig>
                                 InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT),
                         ImmutableList.of(variantScope.getApkLocation()));
             case LIBRARY:
-                ApkInfo mainApkInfo =
-                        ApkInfo.of(VariantOutput.OutputType.MAIN, ImmutableList.of(), 0);
+                ApkData mainApkInfo =
+                        ApkData.of(VariantOutput.OutputType.MAIN, ImmutableList.of(), 0);
                 return BuildOutputSupplier.of(
                         ImmutableList.of(
                                 new EarlySyncBuildOutput(
@@ -1071,8 +1071,8 @@ public class ModelBuilder<Extension extends AndroidConfig>
                         ImmutableList.of(InternalArtifactType.MERGED_MANIFESTS),
                         ImmutableList.of(variantData.getScope().getManifestOutputDirectory()));
             case LIBRARY:
-                ApkInfo mainApkInfo =
-                        ApkInfo.of(VariantOutput.OutputType.MAIN, ImmutableList.of(), 0);
+                ApkData mainApkInfo =
+                        ApkData.of(VariantOutput.OutputType.MAIN, ImmutableList.of(), 0);
                 return BuildOutputSupplier.of(
                         ImmutableList.of(
                                 new EarlySyncBuildOutput(

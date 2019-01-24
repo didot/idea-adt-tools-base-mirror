@@ -15,7 +15,7 @@
  */
 #include "network_connection_count_sampler.h"
 
-#include "perfd/event_buffer.h"
+#include "daemon/event_buffer.h"
 
 #include "proto/common.pb.h"
 #include "proto/network.pb.h"
@@ -29,7 +29,7 @@ void NetworkConnectionCountSampler::Sample() {
   auto data = sampler_.Sample(uid_);
 
   Event event;
-  event.set_session_id(session().info().session_id());
+  event.set_pid(session().info().pid());
   event.set_kind(Event::NETWORK_CONNECTION_COUNT);
   auto speed = event.mutable_network_connections();
   speed->set_num_connections(data.connection_data().connection_number());

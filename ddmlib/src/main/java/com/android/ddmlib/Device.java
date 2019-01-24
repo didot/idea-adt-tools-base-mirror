@@ -18,10 +18,10 @@ package com.android.ddmlib;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.annotations.concurrency.GuardedBy;
 import com.android.ddmlib.log.LogReceiver;
 import com.android.sdklib.AndroidVersion;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
@@ -32,8 +32,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -115,6 +117,8 @@ final class Device implements IDevice {
 
     /** Cached list of hardware characteristics */
     private Set<String> mHardwareCharacteristics;
+
+    @Nullable private Set<String> mAdbFeatures;
 
     @Nullable private AndroidVersion mVersion;
     private String mName;
@@ -305,9 +309,28 @@ final class Device implements IDevice {
                 return mHasScreenRecorder;
             case PROCSTATS:
                 return getVersion().isGreaterOrEqualThan(19);
+            case ABB:
+                return getAdbFeatures().contains("abb");
             default:
                 return false;
         }
+    }
+
+    @NonNull
+    Set<String> getAdbFeatures() {
+        if (mAdbFeatures != null) {
+            return mAdbFeatures;
+        }
+
+        try {
+            String response = AdbHelper.getFeatures(AndroidDebugBridge.getSocketAddress(), this);
+            mAdbFeatures = new HashSet<String>(Arrays.asList(response.split(",")));
+        } catch (TimeoutException | AdbCommandRejectedException | IOException e) {
+            Log.e(LOG_TAG, "Error obtaining features: " + e);
+            return new HashSet<String>();
+        }
+
+        return mAdbFeatures;
     }
 
     // The full list of features can be obtained from /etc/permissions/features*
@@ -502,9 +525,9 @@ final class Device implements IDevice {
         executeShellCommand(getScreenRecorderCommand(remoteFilePath, options), receiver, 0, null);
     }
 
-    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
-    static String getScreenRecorderCommand(@NonNull String remoteFilePath,
-            @NonNull ScreenRecorderOptions options) {
+    @VisibleForTesting
+    static String getScreenRecorderCommand(
+            @NonNull String remoteFilePath, @NonNull ScreenRecorderOptions options) {
         StringBuilder sb = new StringBuilder();
 
         sb.append("screenrecord");

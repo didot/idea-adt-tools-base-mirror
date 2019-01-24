@@ -22,7 +22,6 @@ import static com.android.build.gradle.internal.pipeline.ExtendedContentType.NAT
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.api.transform.QualifiedContent;
 import com.android.build.api.transform.QualifiedContent.ContentType;
 import com.android.build.api.transform.QualifiedContent.Scope;
@@ -30,6 +29,7 @@ import com.android.build.api.transform.QualifiedContent.ScopeType;
 import com.android.build.api.transform.Transform;
 import com.android.build.gradle.internal.InternalScope;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
+import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.PreConfigAction;
 import com.android.build.gradle.internal.tasks.factory.TaskConfigAction;
 import com.android.build.gradle.internal.tasks.factory.TaskFactory;
@@ -41,6 +41,7 @@ import com.android.builder.model.AndroidProject;
 import com.android.builder.profile.Recorder;
 import com.android.utils.FileUtils;
 import com.android.utils.StringHelper;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -169,9 +170,7 @@ public class TransformManager extends FilterableStreamCollection {
      */
     @NonNull
     public <T extends Transform> Optional<TaskProvider<TransformTask>> addTransform(
-            @NonNull TaskFactory taskFactory,
-            @NonNull TransformVariantScope scope,
-            @NonNull T transform) {
+            @NonNull TaskFactory taskFactory, @NonNull VariantScope scope, @NonNull T transform) {
         return addTransform(taskFactory, scope, transform, null, null, null);
     }
 
@@ -194,7 +193,7 @@ public class TransformManager extends FilterableStreamCollection {
     @NonNull
     public <T extends Transform> Optional<TaskProvider<TransformTask>> addTransform(
             @NonNull TaskFactory taskFactory,
-            @NonNull TransformVariantScope scope,
+            @NonNull VariantScope scope,
             @NonNull T transform,
             @Nullable PreConfigAction preConfigAction,
             @Nullable TaskConfigAction<TransformTask> configAction,
@@ -203,6 +202,10 @@ public class TransformManager extends FilterableStreamCollection {
         if (!validateTransform(transform)) {
             // validate either throws an exception, or records the problem during sync
             // so it's safe to just return null here.
+            return Optional.empty();
+        }
+
+        if (!transform.applyToVariant(new VariantInfoImpl(scope))) {
             return Optional.empty();
         }
 
