@@ -31,7 +31,7 @@ import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
-import com.android.tools.lint.detector.api.LintUtils;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
@@ -54,41 +54,33 @@ import org.jetbrains.uast.UReferenceExpression;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
-/**
- * Checks looking for issues related to the JobScheduler API
- */
+/** Checks looking for issues related to the JobScheduler API */
 public class JobSchedulerDetector extends Detector implements SourceCodeScanner {
 
     @SuppressWarnings("unchecked")
-    public static final Implementation IMPLEMENTATION = new Implementation(
-            JobSchedulerDetector.class,
-            Scope.JAVA_FILE_SCOPE);
+    public static final Implementation IMPLEMENTATION =
+            new Implementation(JobSchedulerDetector.class, Scope.JAVA_FILE_SCOPE);
 
-    /**
-     * Issues that negatively affect battery life
-     */
-    public static final Issue ISSUE = Issue.create(
-            "JobSchedulerService",
-            "JobScheduler problems",
-
-            "This check looks for various common mistakes in using the " +
-                    "JobScheduler API: the service class must extend `JobService`, " +
-                    "the service must be registered in the manifest and the registration " +
-                    "must require the permission `android.permission.BIND_JOB_SERVICE`.",
-
-            Category.CORRECTNESS,
-            5,
-            Severity.WARNING,
-            IMPLEMENTATION)
-            .addMoreInfo("https://developer.android.com/topic/performance/scheduling.html");
+    /** Issues that negatively affect battery life */
+    public static final Issue ISSUE =
+            Issue.create(
+                            "JobSchedulerService",
+                            "JobScheduler problems",
+                            "This check looks for various common mistakes in using the "
+                                    + "JobScheduler API: the service class must extend `JobService`, "
+                                    + "the service must be registered in the manifest and the registration "
+                                    + "must require the permission `android.permission.BIND_JOB_SERVICE`.",
+                            Category.CORRECTNESS,
+                            5,
+                            Severity.WARNING,
+                            IMPLEMENTATION)
+                    .addMoreInfo("https://developer.android.com/topic/performance/scheduling.html")
+                    .setAndroidSpecific(true);
 
     private static final String CLASS_JOB_SERVICE = "android.app.job.JobService";
 
-    /**
-     * Constructs a new {@link JobSchedulerDetector}
-     */
-    public JobSchedulerDetector() {
-    }
+    /** Constructs a new {@link JobSchedulerDetector} */
+    public JobSchedulerDetector() {}
 
     @Nullable
     @Override
@@ -97,7 +89,9 @@ public class JobSchedulerDetector extends Detector implements SourceCodeScanner 
     }
 
     @Override
-    public void visitConstructor(@NonNull JavaContext context, @NonNull UCallExpression node,
+    public void visitConstructor(
+            @NonNull JavaContext context,
+            @NonNull UCallExpression node,
             @NonNull PsiMethod constructor) {
         List<UExpression> arguments = node.getValueArguments();
         if (arguments.size() < 2) {
@@ -107,8 +101,8 @@ public class JobSchedulerDetector extends Detector implements SourceCodeScanner 
         if (componentName instanceof UReferenceExpression) {
             PsiElement resolved = ((UReferenceExpression) componentName).resolve();
             if (resolved instanceof PsiVariable) {
-                componentName = UastLintUtils.findLastAssignment((PsiVariable)resolved,
-                        componentName);
+                componentName =
+                        UastLintUtils.findLastAssignment((PsiVariable) resolved, componentName);
             }
         }
         if (!(componentName instanceof UCallExpression)) {
@@ -135,8 +129,10 @@ public class JobSchedulerDetector extends Detector implements SourceCodeScanner 
         JavaEvaluator evaluator = context.getEvaluator();
         if (evaluator.inheritsFrom(serviceClass, CLASS_SERVICE, false)
                 && !evaluator.inheritsFrom(serviceClass, CLASS_JOB_SERVICE, false)) {
-            String message = String.format("Scheduled job class %1$s must extend "
-                    + "android.app.job.JobService", serviceClass.getName());
+            String message =
+                    String.format(
+                            "Scheduled job class %1$s must extend android.app.job.JobService",
+                            serviceClass.getName());
             context.report(ISSUE, componentName, context.getLocation(componentName), message);
         } else {
             ensureBindServicePermission(context, serviceType.getCanonicalText(), classRef);
@@ -168,7 +164,7 @@ public class JobSchedulerDetector extends Detector implements SourceCodeScanner 
         Element service = XmlUtils.getFirstSubTagByName(application, TAG_SERVICE);
 
         while (service != null) {
-            String name = LintUtils.resolveManifestName(service).replace('$', '.');
+            String name = Lint.resolveManifestName(service).replace('$', '.');
             if (fqcn.equals(name)) {
                 // Check that it has the desired permission
                 String permission = service.getAttributeNS(ANDROID_URI, ATTR_PERMISSION);
@@ -178,13 +174,17 @@ public class JobSchedulerDetector extends Detector implements SourceCodeScanner 
                     LintClient client = context.getClient();
                     Location secondary = client.findManifestSourceLocation(service);
                     if (secondary != null) {
-                        location = location.withSecondary(secondary, "Service declaration here",
-                                false);
+                        location =
+                                location.withSecondary(
+                                        secondary, "Service declaration here", false);
                     }
 
-                    context.report(ISSUE, typeReference, location,
+                    context.report(
+                            ISSUE,
+                            typeReference,
+                            location,
                             "The manifest registration for this service does not declare "
-                                + "`android:permission=\"android.permission.BIND_JOB_SERVICE\"`");
+                                    + "`android:permission=\"android.permission.BIND_JOB_SERVICE\"`");
                 }
                 return;
             }
@@ -193,7 +193,10 @@ public class JobSchedulerDetector extends Detector implements SourceCodeScanner 
         }
 
         // Service not found in the manifest; flag it
-        context.report(ISSUE, typeReference, context.getLocation(typeReference),
+        context.report(
+                ISSUE,
+                typeReference,
+                context.getLocation(typeReference),
                 "Did not find a manifest registration for this service");
     }
 }

@@ -22,14 +22,14 @@ import com.android.resources.Density;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ScreenOrientation;
 import com.google.common.base.Splitter;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
+import com.google.common.collect.Streams;
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Objects;
+import java.util.*;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Represents the configuration for Resource Folders. All the properties have a default value which
@@ -73,8 +73,7 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
 
     static {
         // get the default qualifiers.
-        FolderConfiguration defaultConfig = new FolderConfiguration();
-        defaultConfig.createDefault();
+        FolderConfiguration defaultConfig = createDefault();
         DEFAULT_QUALIFIERS = defaultConfig.mQualifiers;
         for (int i = 0; i < DEFAULT_QUALIFIERS.length; i++) {
             NULL_QUALIFIERS[i] = DEFAULT_QUALIFIERS[i].getNullQualifier();
@@ -305,6 +304,128 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
     }
 
     /**
+     * Parse a config line returned by 'am get-config' to extra the language configurations.
+     *
+     * <p>The line should be stripped of the 'config: ' prefix.
+     *
+     * @param qualifierString the list of dash-separated qualifier
+     * @return a list of language-rRegion
+     */
+    @NonNull
+    public static Set<String> getLanguageConfigFromQualifiers(@NonNull String qualifierString) {
+        // because the format breaks the normal list of dash-separated qualifiers, we have to
+        // process things differently.
+        // the string will look like this:
+        // [mcc-][mnc-]lang-rRegion[,lang-rRegion[...]][-other-qualifiers[-...]]
+        //
+        // So the language + region qualifiers are grouped and potentially repeated with comma
+        // separation. To solve this we need to remove extraneous qualifiers before and after
+        // and then split by comma.
+
+        if (qualifierString.isEmpty()) {
+            return ImmutableSet.of();
+        }
+
+        // create a folder config to handle the qualifiers.
+        final FolderConfiguration config = new FolderConfiguration();
+
+        // search for qualifiers manually
+        int start = 0;
+        int qualifierIndex = 0;
+        boolean stop = false;
+
+        while (qualifierIndex < INDEX_LOCALE && !stop) {
+            int end = qualifierString.indexOf('-', start);
+
+            String qualifier =
+                    (end == -1)
+                            ? qualifierString.substring(start)
+                            : qualifierString.substring(start, end);
+
+            // TODO: Perform case normalization later (on a per qualifier basis)
+            qualifier = qualifier.toLowerCase(Locale.US);
+
+            while (qualifierIndex < INDEX_LOCALE
+                    && !DEFAULT_QUALIFIERS[qualifierIndex].checkAndSet(qualifier, config)) {
+                qualifierIndex++;
+            }
+
+            if (end == -1) {
+                stop = true;
+            } else if (qualifierIndex != INDEX_LOCALE) {
+                start = end + 1;
+            }
+        }
+
+        if (stop) {
+            // reach end of string before locale, return.
+            return ImmutableSet.of();
+        }
+
+        // record start of languages.
+        int languageStart = start;
+
+        // now do the same backward.
+        int end = qualifierString.length() - 1;
+        qualifierIndex = INDEX_COUNT - 1;
+
+        while (qualifierIndex > INDEX_LOCALE && !stop) {
+            start = qualifierString.lastIndexOf('-', end);
+
+            String qualifier =
+                    (start == -1) ? qualifierString : qualifierString.substring(start + 1, end + 1);
+
+            // TODO: Perform case normalization later (on a per qualifier basis)
+            qualifier = qualifier.toLowerCase(Locale.US);
+
+            while (qualifierIndex > INDEX_LOCALE
+                    && !checkQualifier(config, qualifierIndex, qualifier)) {
+                qualifierIndex--;
+            }
+
+            if (start == -1) {
+                stop = true;
+            } else if (qualifierIndex != INDEX_LOCALE) {
+                end = start - 1;
+            }
+        }
+
+        String languages = qualifierString.substring(languageStart, end + 1);
+
+        return Streams.stream(Splitter.on(",").split(languages))
+                .map(
+                        locale -> {
+                            DEFAULT_QUALIFIERS[INDEX_LOCALE].checkAndSet(locale, config);
+                            if (config.getLocaleQualifier() != null) {
+                                return config.getLocaleQualifier().getLanguage();
+                            }
+                            return null;
+                        })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+    }
+
+    private static boolean checkQualifier(
+            @NonNull FolderConfiguration config,
+            int qualifierIndex,
+            @NonNull String qualifierValue) {
+        if (DEFAULT_QUALIFIERS[qualifierIndex].checkAndSet(qualifierValue, config)) {
+            return true;
+        }
+
+        // account for broken WideGamut/HDR order (b/78136980)
+
+        if (qualifierIndex == INDEX_HIGH_DYNAMIC_RANGE) {
+            return DEFAULT_QUALIFIERS[INDEX_WIDE_COLOR_GAMUT].checkAndSet(qualifierValue, config);
+        } else if (qualifierIndex == INDEX_WIDE_COLOR_GAMUT) {
+            return DEFAULT_QUALIFIERS[INDEX_HIGH_DYNAMIC_RANGE].checkAndSet(qualifierValue, config);
+        }
+
+        return false;
+    }
+
+
+    /**
      * Creates a {@link FolderConfiguration} matching the given folder name.
      *
      * @param folderName the folder name
@@ -507,6 +628,30 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
     @Nullable
     public ResourceQualifier getQualifier(int index) {
         return mQualifiers[index];
+    }
+
+    /** Performs the given action on each non-default qualifier */
+    public void forEach(@NonNull Consumer<? super ResourceQualifier> action) {
+        for (int i = 0; i < INDEX_COUNT; i++) {
+            ResourceQualifier qualifier = mQualifiers[i];
+            if (qualifier != null && qualifier != NULL_QUALIFIERS[i]) {
+                action.accept(qualifier);
+            }
+        }
+    }
+
+    /** Returns true if the given predicate matches any non-default qualifier */
+    public boolean any(Predicate<? super ResourceQualifier> predicate) {
+        for (int i = 0; i < INDEX_COUNT; i++) {
+            ResourceQualifier qualifier = mQualifiers[i];
+            if (qualifier != null && qualifier != NULL_QUALIFIERS[i]) {
+                if (predicate.test(qualifier)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     public void setCountryCodeQualifier(CountryCodeQualifier qualifier) {
@@ -906,16 +1051,6 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
     }
 
     /**
-     * Returns the folder configuration as a unique key.
-     */
-    @NonNull
-    public String getUniqueKey() {
-        String qualifierString = getQualifierString();
-        // TODO: Do we need the dash at the beginning?
-        return qualifierString.isEmpty() ? "" : SdkConstants.RES_QUALIFIER_SEP + qualifierString;
-    }
-
-    /**
      * Returns the folder configuration as a qualifier string, e.g.
      * for the folder values-en-rUS this returns "en-rUS". For the
      * default configuration it returns "".
@@ -1036,14 +1171,13 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
     /**
      * Returns the best matching {@link Configurable} for this configuration.
      *
-     * @param configurables the list of {@link Configurable} to choose from.
-     *
-     * @return an item from the given list of {@link Configurable} or null.
-     *
-     * See http://d.android.com/guide/topics/resources/resources-i18n.html#best-match
+     * @param configurables the list of {@link Configurable} to choose from
+     * @return an item from the given list of {@link Configurable} or null
+     * @see "http://d.android.com/guide/topics/resources/resources-i18n.html#best-match"
      */
     @Nullable
-    public <T extends Configurable> T findMatchingConfigurable(@Nullable List<T> configurables) {
+    public <T extends Configurable> T findMatchingConfigurable(
+            @Nullable Collection<T> configurables) {
         // Because we skip qualifiers where reference configuration doesn't have a valid qualifier,
         // we can end up with more than one match. In this case, we just take the first one.
         List<T> matches = findMatchingConfigurables(configurables);
@@ -1055,42 +1189,41 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
      * {@link ResourceQualifier} if it's not valid and assumes that all resources match it.
      *
      * @param configurables the list of {@code Configurable} to choose from.
-     *
      * @return a list of items from the above list. This may be empty.
      */
     @NonNull
     public <T extends Configurable> List<T> findMatchingConfigurables(
-            @Nullable List<T> configurables) {
+            @Nullable Collection<T> configurables) {
         if (configurables == null) {
             return Collections.emptyList();
         }
 
         //
-        // 1: eliminate resources that contradict the reference configuration
-        // 2: pick next qualifier type
-        // 3: check if any resources use this qualifier, if no, back to 2, else move on to 4.
-        // 4: eliminate resources that don't use this qualifier.
-        // 5: if more than one resource left, go back to 2.
+        // 1: Eliminate resources that contradict the reference configuration.
+        // 2: Pick next qualifier type.
+        // 3: Check if any resources use this qualifier, if no, back to 2, else move on to 4.
+        // 4: Eliminate resources that don't use this qualifier.
+        // 5: If more than one resource left, go back to 2.
         //
         // The precedence of the qualifiers is more important than the number of qualifiers that
         // exactly match the device.
 
-        // 1: eliminate resources that contradict
+        // 1: Eliminate resources that contradict.
         ArrayList<T> matchingConfigurables = new ArrayList<>();
         for (T res : configurables) {
-            final FolderConfiguration configuration = res.getConfiguration();
-            if (configuration != null && configuration.isMatchFor(this)) {
+            FolderConfiguration configuration = res.getConfiguration();
+            if (configuration.isMatchFor(this)) {
                 matchingConfigurables.add(res);
             }
         }
 
-        // if there is at most one match, just take it
+        // If there is at most one match, just take it.
         if (matchingConfigurables.size() < 2) {
             return matchingConfigurables;
         }
 
-        // 2. Loop on the qualifiers, and eliminate matches
-        final int count = getQualifierCount();
+        // 2. Loop on the qualifiers, and eliminate matches.
+        int count = getQualifierCount();
         for (int q = 0; q < count; q++) {
             // Look to see if one configurable has this qualifier.
             // At the same time also record the best match value for the qualifier (if applicable).
@@ -1140,7 +1273,7 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
                         // this resource, so we reject it.
                         matchingConfigurables.remove(configurable);
                     } else {
-                        // looks like we keep this resource, move on to the next one.
+                        // Looks like we keep this resource, move on to the next one.
                         //noinspection AssignmentToForLoopParameter
                         i++;
                     }
@@ -1180,10 +1313,11 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
             ResourceQualifier referenceQualifier = referenceConfig.mQualifiers[i];
 
             // it's only a non match if both qualifiers are non-null, and they don't match.
-            if (testQualifier != null && testQualifier != testQualifier.getNullQualifier() &&
-                    referenceQualifier != null &&
-                    referenceQualifier != referenceQualifier.getNullQualifier() &&
-                    !testQualifier.isMatchFor(referenceQualifier)) {
+            if (testQualifier != null
+                    && !testQualifier.equals(testQualifier.getNullQualifier())
+                    && referenceQualifier != null
+                    && !referenceQualifier.equals(referenceQualifier.getNullQualifier())
+                    && !testQualifier.isMatchFor(referenceQualifier)) {
                 return false;
             }
         }
@@ -1207,33 +1341,34 @@ public final class FolderConfiguration implements Comparable<FolderConfiguration
     }
 
     /**
-     * Creates default qualifiers with no values for all indices.
+     * Creates a FolderConfiguration with default qualifiers with no values for all indices.
      */
-    public void createDefault() {
-        mQualifiers[INDEX_COUNTRY_CODE] = new CountryCodeQualifier();
-        mQualifiers[INDEX_NETWORK_CODE] = new NetworkCodeQualifier();
-        mQualifiers[INDEX_LOCALE] = new LocaleQualifier();
-        mQualifiers[INDEX_LAYOUT_DIR] = new LayoutDirectionQualifier();
-        mQualifiers[INDEX_SMALLEST_SCREEN_WIDTH] = new SmallestScreenWidthQualifier();
-        mQualifiers[INDEX_SCREEN_WIDTH] = new ScreenWidthQualifier();
-        mQualifiers[INDEX_SCREEN_HEIGHT] = new ScreenHeightQualifier();
-        mQualifiers[INDEX_SCREEN_LAYOUT_SIZE] = new ScreenSizeQualifier();
-        mQualifiers[INDEX_SCREEN_RATIO] = new ScreenRatioQualifier();
-        mQualifiers[INDEX_SCREEN_ROUND] = new ScreenRoundQualifier();
-        mQualifiers[INDEX_WIDE_COLOR_GAMUT] = new WideGamutColorQualifier();
-        mQualifiers[INDEX_HIGH_DYNAMIC_RANGE] = new HighDynamicRangeQualifier();
-        mQualifiers[INDEX_SCREEN_ORIENTATION] = new ScreenOrientationQualifier();
-        mQualifiers[INDEX_UI_MODE] = new UiModeQualifier();
-        mQualifiers[INDEX_NIGHT_MODE] = new NightModeQualifier();
-        mQualifiers[INDEX_PIXEL_DENSITY] = new DensityQualifier();
-        mQualifiers[INDEX_TOUCH_TYPE] = new TouchScreenQualifier();
-        mQualifiers[INDEX_KEYBOARD_STATE] = new KeyboardStateQualifier();
-        mQualifiers[INDEX_TEXT_INPUT_METHOD] = new TextInputMethodQualifier();
-        mQualifiers[INDEX_NAVIGATION_STATE] = new NavigationStateQualifier();
-        mQualifiers[INDEX_NAVIGATION_METHOD] = new NavigationMethodQualifier();
-        mQualifiers[INDEX_SCREEN_DIMENSION] = new ScreenDimensionQualifier();
-        mQualifiers[INDEX_VERSION] = new VersionQualifier();
-        mQualifierString = null;
+    public static FolderConfiguration createDefault() {
+        FolderConfiguration config = new FolderConfiguration();
+        config.mQualifiers[INDEX_COUNTRY_CODE] = new CountryCodeQualifier();
+        config.mQualifiers[INDEX_NETWORK_CODE] = new NetworkCodeQualifier();
+        config.mQualifiers[INDEX_LOCALE] = new LocaleQualifier();
+        config.mQualifiers[INDEX_LAYOUT_DIR] = new LayoutDirectionQualifier();
+        config.mQualifiers[INDEX_SMALLEST_SCREEN_WIDTH] = new SmallestScreenWidthQualifier();
+        config.mQualifiers[INDEX_SCREEN_WIDTH] = new ScreenWidthQualifier();
+        config.mQualifiers[INDEX_SCREEN_HEIGHT] = new ScreenHeightQualifier();
+        config.mQualifiers[INDEX_SCREEN_LAYOUT_SIZE] = new ScreenSizeQualifier();
+        config.mQualifiers[INDEX_SCREEN_RATIO] = new ScreenRatioQualifier();
+        config.mQualifiers[INDEX_SCREEN_ROUND] = new ScreenRoundQualifier();
+        config.mQualifiers[INDEX_WIDE_COLOR_GAMUT] = new WideGamutColorQualifier();
+        config.mQualifiers[INDEX_HIGH_DYNAMIC_RANGE] = new HighDynamicRangeQualifier();
+        config.mQualifiers[INDEX_SCREEN_ORIENTATION] = new ScreenOrientationQualifier();
+        config.mQualifiers[INDEX_UI_MODE] = new UiModeQualifier();
+        config.mQualifiers[INDEX_NIGHT_MODE] = new NightModeQualifier();
+        config.mQualifiers[INDEX_PIXEL_DENSITY] = new DensityQualifier();
+        config.mQualifiers[INDEX_TOUCH_TYPE] = new TouchScreenQualifier();
+        config.mQualifiers[INDEX_KEYBOARD_STATE] = new KeyboardStateQualifier();
+        config.mQualifiers[INDEX_TEXT_INPUT_METHOD] = new TextInputMethodQualifier();
+        config.mQualifiers[INDEX_NAVIGATION_STATE] = new NavigationStateQualifier();
+        config.mQualifiers[INDEX_NAVIGATION_METHOD] = new NavigationMethodQualifier();
+        config.mQualifiers[INDEX_SCREEN_DIMENSION] = new ScreenDimensionQualifier();
+        config.mQualifiers[INDEX_VERSION] = new VersionQualifier();
+        return config;
     }
 
     /**

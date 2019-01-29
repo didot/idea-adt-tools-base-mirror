@@ -24,7 +24,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tests that verify the hashcode and equals behavior for [PathString]
+ * Tests for [ConfigPath].
  */
 class ConfigPathTest {
 
@@ -40,6 +40,52 @@ class ConfigPathTest {
     private val barBarBaz = matchArtifactsWith("bar/bar/baz")
     private val fooAnyBaz = matchArtifactsWith("foo/*/baz")
     private val barAnyBaz = matchArtifactsWith("bar/*/baz")
+
+    /**
+     * Tests that the "simpleName" method produces correct strings in the style of Gradle
+     * variants.
+     */
+    @Test
+    fun testSimpleName() {
+        val expected = listOf(
+            none to "",
+            all to "main",
+            foo to "foo",
+            fooBarBaz to "fooBarBaz",
+            anyBarBaz to "barBaz",
+            fooBarAny to "fooBar",
+            fooAnyAny to "foo",
+            anyAnyBaz to "baz",
+            fooAnyBaz to "fooBaz",
+            matchArtifactsWith("FOO/bAR/bAz/") to "fooBarBaz"
+        )
+
+        for (next in expected) {
+            Truth.assertThat(next.first.simpleName).isEqualTo(next.second)
+        }
+    }
+
+    @Test
+    fun testToConfigPath() {
+        val expected = listOf(
+            emptySubmodulePath to matchAllArtifacts(),
+            submodulePathOf("foo") to matchArtifactsWith("foo"),
+            submodulePathForString("foo/bar/baz") to matchArtifactsWith("foo/bar/baz")
+        )
+
+        for ((submodulePath, configPath) in expected) {
+            Truth.assertThat(submodulePath.toConfigPath()).isEqualTo(configPath)
+        }
+    }
+
+    @Test
+    fun testContainsSubmodulePath() {
+        Truth.assertThat(anyBarBaz.contains(submodulePathForString("bing/bar/baz"))).isTrue()
+        Truth.assertThat(anyBarBaz.contains(submodulePathForString("bing/bar/baz/bong"))).isTrue()
+        Truth.assertThat(anyBarBaz.contains(submodulePathForString("bing/bar"))).isFalse()
+        Truth.assertThat(anyBarBaz.contains(submodulePathForString("bing/bong"))).isFalse()
+        Truth.assertThat(anyBarBaz.contains(submodulePathForString(""))).isFalse()
+    }
 
     @Test
     fun testMatchesEverything() {
@@ -297,5 +343,30 @@ class ConfigPathTest {
                         path2)).isEqualTo(result)
             }
         }
+    }
+
+    @Test
+    fun testOperatorPlusNoArtifacts() {
+        val path = matchNoArtifacts() + "child"
+        assertThat(path).isEqualTo(matchNoArtifacts())
+    }
+
+    @Test
+    fun testOperatorPlus() {
+        val path = matchArtifactsWith("foo") + "child"
+        assertThat(path).isEqualTo(matchArtifactsWith("foo/child"))
+    }
+
+    @Test
+    fun testOperatorPlusAllArtifacts() {
+        val path = matchAllArtifacts() + "child"
+        assertThat(path).isEqualTo(matchArtifactsWith("child"))
+    }
+
+    @Test
+    fun testParent() {
+        assertThat(matchAllArtifacts().parent()).isEqualTo(matchAllArtifacts())
+        assertThat(matchNoArtifacts().parent()).isEqualTo(matchNoArtifacts())
+        assertThat(matchArtifactsWith("foo/bar").parent()).isEqualTo(matchArtifactsWith("foo"))
     }
 }

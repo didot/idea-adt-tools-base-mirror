@@ -19,13 +19,12 @@ package com.android.build.gradle.internal.api.dsl.options
 import com.android.build.api.artifact.ArtifactType
 import com.android.build.api.artifact.BuildArtifactTransformBuilder
 import com.android.build.api.artifact.BuildableArtifact
-import com.android.build.api.artifact.InputArtifactProvider
-import com.android.build.api.artifact.OutputFileProvider
 import com.android.build.api.dsl.options.BuildArtifactsOptions
 import com.android.build.gradle.internal.api.artifact.BuildArtifactTransformBuilderImpl
+import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.build.gradle.internal.api.dsl.sealing.NestedSealable
-import com.android.build.gradle.internal.scope.BuildArtifactHolder
-import com.android.builder.errors.EvalIssueReporter
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
+import com.android.build.gradle.internal.scope.DelayedActionsExecutor
 import org.gradle.api.Project
 import org.gradle.api.Task
 import java.io.File
@@ -35,36 +34,15 @@ import java.io.File
  */
 class BuildArtifactsOptionsImpl(
         private val project: Project,
-        private val artifactHolder: BuildArtifactHolder,
-        issueReporter: EvalIssueReporter)
-    : BuildArtifactsOptions, NestedSealable(issueReporter) {
-
-    /**
-     * Wrapper to convert a [BuildArtifactTransformBuilder.SimpleConfigurationAction] to a
-     * [BuildArtifactTransformBuilder.ConfigurationAction].
-     */
-    private class ConfigurationActionWrapper<in T : Task>(
-            val action : BuildArtifactTransformBuilder.SimpleConfigurationAction<T>)
-        : BuildArtifactTransformBuilder.ConfigurationAction<T> {
-        override fun accept(task: T, input: InputArtifactProvider, output: OutputFileProvider) {
-            action.accept(task, input.artifact, output.file)
-        }
-    }
-
-    /**
-     * Convert function that is used in the simple transform case to function that is used in the
-     * generic case.
-     */
-    inline private fun <T>convertFunction(
-            crossinline function : T.(input: BuildableArtifact, output: File) -> Unit) :
-            T.(InputArtifactProvider, OutputFileProvider) -> Unit {
-        return { input, output -> function(this, input.artifact, output.file) }
-    }
+        private val artifactsHolder: BuildArtifactsHolder,
+        private val artifactsActionsExecutor: DelayedActionsExecutor,
+        dslScope: DslScope)
+    : BuildArtifactsOptions, NestedSealable(dslScope) {
 
     override fun <T : Task> appendTo(artifactType: ArtifactType,
             taskName: String,
             taskType: Class<T>,
-            configurationAction: BuildArtifactTransformBuilder.SimpleConfigurationAction<T>) {
+            configurationAction: BuildArtifactTransformBuilder.ConfigurationAction<T>) {
         appendTo(artifactType, taskName, taskType, configurationAction, null)
     }
 
@@ -79,21 +57,20 @@ class BuildArtifactsOptionsImpl(
     private fun <T : Task> appendTo(artifactType: ArtifactType,
             taskName : String,
             taskType : Class<T>,
-            action : BuildArtifactTransformBuilder.SimpleConfigurationAction<T>?,
+            action : BuildArtifactTransformBuilder.ConfigurationAction<T>?,
             function : (T.(BuildableArtifact, File) -> Unit)?) {
         val builder =
-        BuildArtifactTransformBuilderImpl(
-                project,
-                artifactHolder,
-                taskName,
-                taskType,
-                issueReporter)
-                .input(artifactType)
-                .output(artifactType, BuildArtifactTransformBuilder.OperationType.APPEND)
-                .outputFile(artifactType.name(), artifactType) // TODO: create appropriate file name
+                BuildArtifactTransformBuilderImpl(
+                        project,
+                        artifactsHolder,
+                        artifactsActionsExecutor,
+                        taskName,
+                        taskType,
+                        dslScope)
+                        .append(artifactType)
         when {
-            action != null -> builder.create(ConfigurationActionWrapper(action))
-            function != null -> builder.create(convertFunction(function))
+            action != null -> builder.create(action)
+            function != null -> builder.create(function)
             else -> throw RuntimeException("unreachable")
         }
     }
@@ -102,7 +79,7 @@ class BuildArtifactsOptionsImpl(
             artifactType: ArtifactType,
             taskName: String,
             taskType: Class<T>,
-            configurationAction: BuildArtifactTransformBuilder.SimpleConfigurationAction<T>) {
+            configurationAction: BuildArtifactTransformBuilder.ConfigurationAction<T>) {
         replace(artifactType, taskName, taskType, configurationAction, null)
     }
 
@@ -117,20 +94,20 @@ class BuildArtifactsOptionsImpl(
     fun <T : Task> replace(artifactType: ArtifactType,
             taskName: String,
             taskType: Class<T>,
-            action: BuildArtifactTransformBuilder.SimpleConfigurationAction<T>?,
+            action: BuildArtifactTransformBuilder.ConfigurationAction<T>?,
             function : (T.(BuildableArtifact, File) -> Unit)?) {
-        val builder = BuildArtifactTransformBuilderImpl(
-                project,
-                artifactHolder,
-                taskName,
-                taskType,
-                issueReporter)
-                .input(artifactType)
-                .output(artifactType, BuildArtifactTransformBuilder.OperationType.REPLACE)
-                .outputFile(artifactType.name(), artifactType) // TODO: create appropriate file name
+        val builder =
+                BuildArtifactTransformBuilderImpl(
+                        project,
+                        artifactsHolder,
+                        artifactsActionsExecutor,
+                        taskName,
+                        taskType,
+                        dslScope)
+                        .replace(artifactType)
         when {
-            action != null -> builder.create(ConfigurationActionWrapper(action))
-            function != null -> builder.create(convertFunction(function))
+            action != null -> builder.create(action)
+            function != null -> builder.create(function)
             else -> throw RuntimeException("unreachable")
         }
     }
@@ -140,8 +117,9 @@ class BuildArtifactsOptionsImpl(
             handleSealableSubItem(
                     BuildArtifactTransformBuilderImpl(
                             project,
-                            artifactHolder,
+                            artifactsHolder,
+                            artifactsActionsExecutor,
                             taskName,
                             taskType,
-                            issueReporter))
+                            dslScope))
 }

@@ -17,6 +17,8 @@
 package com.android.tools.lint.gradle;
 
 import static com.android.SdkConstants.DOT_XML;
+import static com.android.tools.lint.client.api.LintBaseline.VARIANT_ALL;
+import static com.android.tools.lint.client.api.LintBaseline.VARIANT_FATAL;
 import static com.android.tools.lint.gradle.SyncOptions.createOutputPath;
 import static com.android.tools.lint.gradle.SyncOptions.validateOutputFile;
 
@@ -26,18 +28,16 @@ import com.android.builder.model.AndroidProject;
 import com.android.builder.model.LintOptions;
 import com.android.builder.model.Variant;
 import com.android.tools.lint.LintCliFlags;
+import com.android.tools.lint.LintFixPerformer;
+import com.android.tools.lint.LintStats;
 import com.android.tools.lint.Reporter;
 import com.android.tools.lint.TextReporter;
 import com.android.tools.lint.Warning;
+import com.android.tools.lint.XmlReporter;
 import com.android.tools.lint.checks.BuiltinIssueRegistry;
-import com.android.tools.lint.checks.GradleDetector;
 import com.android.tools.lint.checks.UnusedResourceDetector;
 import com.android.tools.lint.client.api.IssueRegistry;
 import com.android.tools.lint.client.api.LintBaseline;
-import com.android.tools.lint.detector.api.ApiKt;
-import com.android.tools.lint.detector.api.Issue;
-import com.android.tools.lint.detector.api.LintUtils;
-import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.gradle.api.LintExecutionRequest;
 import com.android.tools.lint.gradle.api.VariantInputs;
 import com.android.utils.Pair;
@@ -61,13 +61,11 @@ import org.gradle.tooling.provider.model.ToolingModelBuilder;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
 /**
- * Class responsible for driving lint from within Gradle.
- * The purpose of this class is to isolate all lint API access to this
- * single class, such that Gradle can load this driver in its own
- * class loader and thereby have lint itself run in its own
- * class loader, such that classes in the Gradle plugins (such as
- * the Kotlin compiler) does not interfere with classes used by lint
- * (such as a different bundled version of the Kotlin compiler.)
+ * Class responsible for driving lint from within Gradle. The purpose of this class is to isolate
+ * all lint API access to this single class, such that Gradle can load this driver in its own class
+ * loader and thereby have lint itself run in its own class loader, such that classes in the Gradle
+ * plugins (such as the Kotlin compiler) does not interfere with classes used by lint (such as a
+ * different bundled version of the Kotlin compiler.)
  */
 @SuppressWarnings("unused") // Used vi reflection from LintExecutionRequest
 public class LintGradleExecution {
@@ -83,8 +81,8 @@ public class LintGradleExecution {
     public void analyze() throws IOException {
         ToolingModelBuilderRegistry toolingRegistry = descriptor.getToolingRegistry();
         if (toolingRegistry != null) {
-            AndroidProject modelProject = createAndroidProject(descriptor.getProject(),
-                    toolingRegistry);
+            AndroidProject modelProject =
+                    createAndroidProject(descriptor.getProject(), toolingRegistry);
             String variantName = descriptor.getVariantName();
 
             if (variantName != null) {
@@ -129,51 +127,60 @@ public class LintGradleExecution {
         String message;
         if (isAndroid) {
             if (isFatalOnly()) {
-                message = ""
-                        + "Lint found fatal errors while assembling a release target.\n"
-                        + "\n"
-                        + "To proceed, either fix the issues identified by lint, or modify your build script as follows:\n"
-                        + "...\n"
-                        + "android {\n"
-                        + "    lintOptions {\n"
-                        + "        checkReleaseBuilds false\n"
-                        + "        // Or, if you prefer, you can continue to check for errors in release builds,\n"
-                        + "        // but continue the build even when errors are found:\n"
-                        + "        abortOnError false\n"
-                        + "    }\n"
-                        + "}\n"
-                        + "...";
+                message =
+                        ""
+                                + "Lint found fatal errors while assembling a release target.\n"
+                                + "\n"
+                                + "To proceed, either fix the issues identified by lint, or modify your build script as follows:\n"
+                                + "...\n"
+                                + "android {\n"
+                                + "    lintOptions {\n"
+                                + "        checkReleaseBuilds false\n"
+                                + "        // Or, if you prefer, you can continue to check for errors in release builds,\n"
+                                + "        // but continue the build even when errors are found:\n"
+                                + "        abortOnError false\n"
+                                + "    }\n"
+                                + "}\n"
+                                + "...";
             } else {
-                message = ""
-                        + "Lint found errors in the project; aborting build.\n"
-                        + "\n"
-                        + "Fix the issues identified by lint, or add the following to your build script to proceed with errors:\n"
-                        + "...\n"
-                        + "android {\n"
-                        + "    lintOptions {\n"
-                        + "        abortOnError false\n"
-                        + "    }\n"
-                        + "}\n"
-                        + "...";
+                message =
+                        ""
+                                + "Lint found errors in the project; aborting build.\n"
+                                + "\n"
+                                + "Fix the issues identified by lint, or add the following to your build script to proceed with errors:\n"
+                                + "...\n"
+                                + "android {\n"
+                                + "    lintOptions {\n"
+                                + "        abortOnError false\n"
+                                + "    }\n"
+                                + "}\n"
+                                + "...";
             }
         } else {
-            message = ""
-                    + "Lint found errors in the project; aborting build.\n"
-                    + "\n"
-                    + "Fix the issues identified by lint, or add the following to your build script to proceed with errors:\n"
-                    + "...\n"
-                    + "lintOptions {\n"
-                    + "    abortOnError false\n"
-                    + "}\n"
-                    + "...";
+            message =
+                    ""
+                            + "Lint found errors in the project; aborting build.\n"
+                            + "\n"
+                            + "Fix the issues identified by lint, or add the following to your build script to proceed with errors:\n"
+                            + "...\n"
+                            + "lintOptions {\n"
+                            + "    abortOnError false\n"
+                            + "}\n"
+                            + "...";
         }
 
-        if (warnings != null && client != null &&
+        if (warnings != null
+                && client != null
+                &&
                 // See if there's at least one text reporter
-                client.getFlags().getReporters().stream().
-                        noneMatch(reporter -> reporter instanceof TextReporter)) {
-            List<Warning> errors = warnings.stream().filter(
-                    warning -> warning.severity.isError()).collect(Collectors.toList());
+                client.getFlags()
+                        .getReporters()
+                        .stream()
+                        .noneMatch(reporter -> reporter instanceof TextReporter)) {
+            List<Warning> errors =
+                    warnings.stream()
+                            .filter(warning -> warning.severity.isError())
+                            .collect(Collectors.toList());
             if (!errors.isEmpty()) {
                 String prefix = "Errors found:\n\n";
                 if (errors.size() > 3) {
@@ -184,10 +191,10 @@ public class LintGradleExecution {
                 StringWriter writer = new StringWriter();
                 LintCliFlags flags = client.getFlags();
                 flags.setExplainIssues(false);
-                TextReporter reporter = Reporter
-                        .createTextReporter(client, flags, null, writer, false);
+                TextReporter reporter =
+                        Reporter.createTextReporter(client, flags, null, writer, false);
                 try {
-                    Reporter.Stats stats = new Reporter.Stats(errors.size(), 0);
+                    LintStats stats = LintStats.Companion.create(errors.size(), 0);
                     reporter.setWriteStats(false);
                     reporter.write(stats, errors);
                     message += "\n\n" + prefix + writer.toString();
@@ -203,7 +210,9 @@ public class LintGradleExecution {
     private Pair<List<Warning>, LintBaseline> runLint(
             @Nullable Variant variant,
             @NonNull VariantInputs variantInputs,
-            boolean report, boolean isAndroid) {
+            boolean report,
+            boolean isAndroid,
+            boolean allowFix) {
         IssueRegistry registry = createIssueRegistry(isAndroid);
         LintCliFlags flags = new LintCliFlags();
         LintGradleClient client =
@@ -216,13 +225,18 @@ public class LintGradleExecution {
                         variant,
                         variantInputs,
                         descriptor.getBuildTools(),
-                        isAndroid);
+                        isAndroid,
+                        variant != null ? variant.getName() : null);
         boolean fatalOnly = descriptor.isFatalOnly();
         if (fatalOnly) {
             flags.setFatalOnly(true);
         }
         LintOptions lintOptions = descriptor.getLintOptions();
+        boolean fix = false;
         if (lintOptions != null) {
+            // IDEA: Find out if we're on a CI server (how? $DISPLAY available etc?)
+            // and if so turn off auto-suggest. Other clues include setting
+            // temp dir etc.
             syncOptions(
                     lintOptions,
                     client,
@@ -231,18 +245,36 @@ public class LintGradleExecution {
                     descriptor.getProject(),
                     descriptor.getReportsDir(),
                     report,
-                    fatalOnly);
+                    fatalOnly,
+                    allowFix);
         } else {
             // Set up some default reporters
-            flags.getReporters().add(Reporter.createTextReporter(client, flags, null,
-                    new PrintWriter(System.out, true), false));
-            File html = validateOutputFile(createOutputPath(descriptor.getProject(), null, ".html",
-                    null, flags.isFatalOnly()));
-            File xml = validateOutputFile(createOutputPath(descriptor.getProject(), null, DOT_XML,
-                    null, flags.isFatalOnly()));
+            flags.getReporters()
+                    .add(
+                            Reporter.createTextReporter(
+                                    client, flags, null, new PrintWriter(System.out, true), false));
+            File html =
+                    validateOutputFile(
+                            createOutputPath(
+                                    descriptor.getProject(),
+                                    null,
+                                    ".html",
+                                    null,
+                                    flags.isFatalOnly()));
+            File xml =
+                    validateOutputFile(
+                            createOutputPath(
+                                    descriptor.getProject(),
+                                    null,
+                                    DOT_XML,
+                                    null,
+                                    flags.isFatalOnly()));
             try {
                 flags.getReporters().add(Reporter.createHtmlReporter(client, html, flags));
-                flags.getReporters().add(Reporter.createXmlReporter(client, xml, false));
+                flags.getReporters()
+                        .add(
+                                Reporter.createXmlReporter(
+                                        client, xml, false, flags.isIncludeXmlFixes()));
             } catch (IOException e) {
                 throw new GradleException(e.getMessage(), e);
             }
@@ -253,6 +285,11 @@ public class LintGradleExecution {
         flags.setWriteBaselineIfMissing(report && !fatalOnly);
 
         Pair<List<Warning>, LintBaseline> warnings;
+
+        if (allowFix & descriptor.getAutoFix()) { // Explicit fix Gradle target
+            flags.setAutoFix(true);
+        }
+
         try {
             warnings = client.run(registry);
         } catch (IOException e) {
@@ -274,9 +311,11 @@ public class LintGradleExecution {
             @NonNull Project project,
             @Nullable File reportsDir,
             boolean report,
-            boolean fatalOnly) {
+            boolean fatalOnly,
+            boolean allowAutoFix) {
         if (options != null) {
-            SyncOptions.syncTo(options,
+            SyncOptions.syncTo(
+                    options,
                     client,
                     flags,
                     variant != null ? variant.getName() : null,
@@ -285,14 +324,20 @@ public class LintGradleExecution {
                     report);
         }
 
+        client.syncConfigOptions();
+
+        if (!allowAutoFix && flags.isAutoFix()) {
+            flags.setAutoFix(false);
+        }
+
         boolean displayEmpty = !(fatalOnly || flags.isQuiet());
         for (Reporter reporter : flags.getReporters()) {
             reporter.setDisplayEmpty(displayEmpty);
         }
     }
 
-    protected static AndroidProject createAndroidProject(@NonNull Project gradleProject,
-            @NonNull ToolingModelBuilderRegistry toolingRegistry) {
+    protected static AndroidProject createAndroidProject(
+            @NonNull Project gradleProject, @NonNull ToolingModelBuilderRegistry toolingRegistry) {
         String modelName = AndroidProject.class.getName();
         ToolingModelBuilder modelBuilder = toolingRegistry.getBuilder(modelName);
 
@@ -313,42 +358,9 @@ public class LintGradleExecution {
 
     private static BuiltinIssueRegistry createIssueRegistry(boolean isAndroid) {
         if (isAndroid) {
-            return new LintGradleIssueRegistry();
+            return new BuiltinIssueRegistry();
         } else {
             return new NonAndroidIssueRegistry();
-        }
-    }
-
-    // Issue registry when Lint is run inside Gradle: we replace the Gradle
-    // detector with a local implementation which directly references Groovy
-    // for parsing. In Studio on the other hand, the implementation is replaced
-    // by a PSI-based check. (This is necessary for now since we don't have a
-    // tool-agnostic API for the Groovy AST and we don't want to add a 6.3MB dependency
-    // on Groovy itself quite yet.
-    private static class LintGradleIssueRegistry extends BuiltinIssueRegistry {
-        private boolean mInitialized;
-
-        public LintGradleIssueRegistry() {}
-
-        @NonNull
-        @Override
-        public List<Issue> getIssues() {
-            List<Issue> issues = super.getIssues();
-            if (!mInitialized) {
-                mInitialized = true;
-                for (Issue issue : issues) {
-                    if (issue.getImplementation().getDetectorClass() == GradleDetector.class) {
-                        issue.setImplementation(GroovyGradleDetector.IMPLEMENTATION);
-                    }
-                }
-            }
-
-            return issues;
-        }
-
-        @Override
-        public int getApi() {
-            return ApiKt.CURRENT_API;
         }
     }
 
@@ -356,18 +368,18 @@ public class LintGradleExecution {
     public void lintSingleVariant(@NonNull Variant variant) {
         VariantInputs variantInputs = descriptor.getVariantInputs(variant.getName());
         if (variantInputs != null) {
-            runLint(variant, variantInputs, true, true);
+            runLint(variant, variantInputs, true, true, true);
         }
     }
 
     /**
-     * Runs lint for a non-Android project (such as a project that only applies the
-     * Kotlin Gradle plugin, not the Android Gradle plugin
+     * Runs lint for a non-Android project (such as a project that only applies the Kotlin Gradle
+     * plugin, not the Android Gradle plugin
      */
     public void lintNonAndroid() {
         VariantInputs variantInputs = descriptor.getVariantInputs("");
         if (variantInputs != null) {
-            runLint(null, variantInputs, true, false);
+            runLint(null, variantInputs, true, false, true);
         }
     }
 
@@ -383,13 +395,15 @@ public class LintGradleExecution {
 
         Map<Variant, List<Warning>> warningMap = Maps.newHashMap();
         List<LintBaseline> baselines = Lists.newArrayList();
+        boolean first = true;
         for (Variant variant : modelProject.getVariants()) {
             // we are not running lint on all the variants, so skip the ones where we don't have
             // a variant inputs (see TaskManager::isLintVariant)
             final VariantInputs variantInputs = descriptor.getVariantInputs(variant.getName());
             if (variantInputs != null) {
                 Pair<List<Warning>, LintBaseline> pair =
-                        runLint(variant, variantInputs, false, true);
+                        runLint(variant, variantInputs, false, true, first);
+                first = false;
                 List<Warning> warnings = pair.getFirst();
                 warningMap.put(variant, warnings);
                 LintBaseline baseline = pair.getSecond();
@@ -419,21 +433,13 @@ public class LintGradleExecution {
         }
 
         List<Warning> mergedWarnings = LintGradleClient.merge(warningMap, modelProject);
-        int errorCount = 0;
-        int warningCount = 0;
-        for (Warning warning : mergedWarnings) {
-            if (warning.severity == Severity.ERROR || warning.severity == Severity.FATAL) {
-                errorCount++;
-            } else if (warning.severity == Severity.WARNING) {
-                warningCount++;
-            }
-        }
+        LintStats stats = LintStats.Companion.create(mergedWarnings, baselines);
+        int errorCount = stats.getErrorCount();
 
         // We pick the first variant to generate the full report and don't generate if we don't
         // have any variants.
         if (!modelProject.getVariants().isEmpty()) {
-            Set<Variant> allVariants =
-                    Sets.newTreeSet(Comparator.comparing(Variant::getName));
+            Set<Variant> allVariants = Sets.newTreeSet(Comparator.comparing(Variant::getName));
 
             allVariants.addAll(modelProject.getVariants());
             Variant variant = allVariants.iterator().next();
@@ -442,16 +448,18 @@ public class LintGradleExecution {
             LintCliFlags flags = new LintCliFlags();
             VariantInputs variantInputs = descriptor.getVariantInputs(variant.getName());
             assert variantInputs != null : variant.getName();
-            LintGradleClient client = new LintGradleClient(
-                    descriptor.getGradlePluginVersion(),
-                    registry,
-                    flags,
-                    descriptor.getProject(),
-                    getSdkHome(),
-                    variant,
-                    variantInputs,
-                    descriptor.getBuildTools(),
-                    true);
+            LintGradleClient client =
+                    new LintGradleClient(
+                            descriptor.getGradlePluginVersion(),
+                            registry,
+                            flags,
+                            descriptor.getProject(),
+                            getSdkHome(),
+                            variant,
+                            variantInputs,
+                            descriptor.getBuildTools(),
+                            true,
+                            isFatalOnly() ? VARIANT_FATAL : VARIANT_ALL);
             syncOptions(
                     lintOptions,
                     client,
@@ -460,40 +468,14 @@ public class LintGradleExecution {
                     descriptor.getProject(),
                     getReportsDir(),
                     true,
-                    isFatalOnly());
+                    isFatalOnly(),
+                    true);
 
-            // Compute baseline counts. This is tricky because an error could appear in
-            // multiple variants, and in that case it should only be counted as filtered
-            // from the baseline once, but if there are errors that appear only in individual
-            // variants, then they shouldn't count as one. To correctly account for this we
-            // need to ask the baselines themselves to merge their results. Right now they
-            // only contain the remaining (fixed) issues; to address this we'd need to move
-            // found issues to a different map such that at the end we can successively
-            // merge the baseline instances together to a final one which has the full set
-            // of filtered and remaining counts.
-            int baselineErrorCount = 0;
-            int baselineWarningCount = 0;
-            int fixedCount = 0;
-            if (!baselines.isEmpty()) {
-                // Figure out the actual overlap; later I could stash these into temporary
-                // objects to compare
-                // For now just combine them in a dumb way
-                for (LintBaseline baseline : baselines) {
-                    baselineErrorCount =
-                            Math.max(baselineErrorCount, baseline.getFoundErrorCount());
-                    baselineWarningCount =
-                            Math.max(baselineWarningCount, baseline.getFoundWarningCount());
-                    fixedCount = Math.max(fixedCount, baseline.getFixedCount());
-                }
+            // When running the individual variant scans we turn off auto fixing
+            // so perform it manually here when we have the merged results
+            if (flags.isAutoFix()) {
+                new LintFixPerformer(client, !flags.isQuiet()).fix(mergedWarnings);
             }
-
-            Reporter.Stats stats =
-                    new Reporter.Stats(
-                            errorCount,
-                            warningCount,
-                            baselineErrorCount,
-                            baselineWarningCount,
-                            fixedCount);
 
             for (Reporter reporter : flags.getReporters()) {
                 reporter.write(stats, mergedWarnings);
@@ -509,49 +491,24 @@ public class LintGradleExecution {
                 if (!ok) {
                     System.err.println("Couldn't create baseline folder " + dir);
                 } else {
-                    Reporter reporter = Reporter.createXmlReporter(client, baselineFile, true);
+                    XmlReporter reporter =
+                            Reporter.createXmlReporter(client, baselineFile, true, false);
+                    reporter.setBaselineAttributes(
+                            client, flags.isFatalOnly() ? VARIANT_FATAL : VARIANT_ALL);
                     reporter.write(stats, mergedWarnings);
                     System.err.println("Created baseline file " + baselineFile);
                     if (LintGradleClient.continueAfterBaseLineCreated()) {
                         return;
                     }
                     System.err.println("(Also breaking build in case this was not intentional.)");
-                    String message =
-                            ""
-                                    + "Created baseline file "
-                                    + baselineFile
-                                    + "\n"
-                                    + "\n"
-                                    + "Also breaking the build in case this was not intentional. If you\n"
-                                    + "deliberately created the baseline file, re-run the build and this\n"
-                                    + "time it should succeed without warnings.\n"
-                                    + "\n"
-                                    + "If not, investigate the baseline path in the lintOptions config\n"
-                                    + "or verify that the baseline file has been checked into version\n"
-                                    + "control.\n"
-                                    + "\n"
-                                    + "You can set the system property lint.baselines.continue=true\n"
-                                    + "if you want to create many missing baselines in one go.";
+                    String message = client.getBaselineCreationMessage(baselineFile);
                     throw new GradleException(message);
                 }
             }
 
-            if (baselineErrorCount > 0 || baselineWarningCount > 0) {
-                System.out.println(
-                        String.format(
-                                "%1$s were filtered out because "
-                                        + "they were listed in the baseline file, %2$s\n",
-                                LintUtils.describeCounts(
-                                        baselineErrorCount, baselineWarningCount, false, true),
-                                baselineFile));
-            }
-            if (fixedCount > 0) {
-                System.out.println(
-                        String.format(
-                                "%1$d errors/warnings were listed in the "
-                                        + "baseline file (%2$s) but not found in the project; perhaps they have "
-                                        + "been fixed?\n",
-                                fixedCount, baselineFile));
+            LintBaseline firstBaseline = baselines.isEmpty() ? null : baselines.get(0);
+            if (baselineFile != null && firstBaseline != null) {
+                client.emitBaselineDiagnostics(firstBaseline, baselineFile, stats);
             }
 
             if (flags.isSetExitCode() && errorCount > 0) {

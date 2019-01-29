@@ -28,18 +28,20 @@ import com.android.build.api.transform.Status;
 import com.android.build.api.transform.TransformException;
 import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
-import com.android.builder.packaging.TypedefRemover;
-import com.android.builder.packaging.ZipEntryFilter;
+import com.android.builder.packaging.JarMerger;
 import com.android.ide.common.internal.WaitableExecutor;
 import com.android.utils.FileUtils;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
-import org.gradle.api.file.FileCollection;
 
 /**
  * A Transforms that takes the project/project local streams for CLASSES and RESOURCES,
@@ -65,10 +67,9 @@ public class LibraryIntermediateJarsTransform extends LibraryBaseTransform {
     public LibraryIntermediateJarsTransform(
             @NonNull File mainClassLocation,
             @NonNull File resJarLocation,
-            @Nullable FileCollection typedefRecipe,
-            @NonNull String packageName,
+            @NonNull Supplier<String> packageNameSupplier,
             boolean packageBuildConfig) {
-        super(mainClassLocation, null, typedefRecipe, packageName, packageBuildConfig);
+        super(mainClassLocation, null, null, packageNameSupplier, packageBuildConfig);
         this.resJarLocation = resJarLocation;
     }
 
@@ -93,9 +94,7 @@ public class LibraryIntermediateJarsTransform extends LibraryBaseTransform {
     @Override
     public void transform(@NonNull TransformInvocation invocation)
             throws TransformException, InterruptedException, IOException {
-        if (typedefRecipe != null && !typedefRecipe.getSingleFile().exists()) {
-            throw new IllegalStateException("Type def recipe not found: " + typedefRecipe);
-        }
+        Preconditions.checkState(typedefRecipe == null, "Type def recipe should be null");
         final boolean incrementalDisabled = !invocation.isIncremental();
         List<Pattern> excludePatterns = computeExcludeList();
 
@@ -169,17 +168,13 @@ public class LibraryIntermediateJarsTransform extends LibraryBaseTransform {
         // compilation. For instance, META-INF pattern will include files like service loaders
         // for annotation processors, or kotlin modules. Both of them are needed by the consuming
         // compiler.
-        final ZipEntryFilter filter =
+        final Predicate<String> filter =
                 archivePath ->
                         (CLASS_PATTERN.matcher(archivePath).matches()
                                         || META_INF_PATTERN.matcher(archivePath).matches())
                                 && checkEntry(excludePatterns, archivePath);
-        TypedefRemover typedefRemover =
-                typedefRecipe != null
-                        ? new TypedefRemover().setTypedefFile(typedefRecipe.getSingleFile())
-                        : null;
 
-        handleJarOutput(mainClassInputs, mainClassLocation, filter, typedefRemover);
+        handleJarOutput(mainClassInputs, mainClassLocation, filter);
     }
 
     private void handleMainRes(
@@ -190,27 +185,42 @@ public class LibraryIntermediateJarsTransform extends LibraryBaseTransform {
         // Only remove the classes files here. Because the main class jar (above) is only consumed
         // as a jar of classes, we need to include the META-INF files here as well so that
         // the file find their way in the APK.
-        final ZipEntryFilter filter = archivePath -> !CLASS_PATTERN.matcher(archivePath).matches();
+        final Predicate<String> filter =
+                archivePath -> !CLASS_PATTERN.matcher(archivePath).matches();
 
-        handleJarOutput(resJarInputs, resJarLocation, filter, null);
+        handleJarOutput(resJarInputs, resJarLocation, filter);
     }
 
     private static void handleJarOutput(
             @NonNull List<QualifiedContent> inputs,
             @NonNull File toFile,
-            @Nullable ZipEntryFilter filter,
-            @Nullable TypedefRemover typedefRemover)
+            @Nullable Predicate<String> filter)
             throws IOException {
-        if (inputs.size() == 1) {
+        if (inputs.isEmpty()) {
+            try (JarMerger jarMerger = new JarMerger(toFile.toPath())) {
+                // At configuration time, we don't know whether file will exist, so we need to
+                // create it always, because we publish it. Creating an empty jar was causing issues
+                // on windows, because javac would not release the file handle, so add an entry.
+                jarMerger.addEntry("META-INF/", new ByteArrayInputStream(new byte[0]));
+            }
+        } else if (inputs.size() == 1) {
             QualifiedContent content = inputs.get(0);
 
             if (content instanceof JarInput) {
                 copyJarWithContentFilter(content.getFile(), toFile, filter);
             } else {
-                jarFolderToLocation(content.getFile(), toFile, filter, typedefRemover);
+                jarFolderToLocation(content.getFile(), toFile, filter);
             }
         } else {
-            mergeInputsToLocation(inputs, toFile, true, filter, typedefRemover);
+            mergeInputsToLocation(inputs, toFile, true, filter, null);
+        }
+    }
+
+    protected static void jarFolderToLocation(
+            @NonNull File fromFolder, @NonNull File toFile, @Nullable Predicate<String> filter)
+            throws IOException {
+        try (JarMerger jarMerger = new JarMerger(toFile.toPath())) {
+            jarMerger.addDirectory(fromFolder.toPath(), filter, null, null);
         }
     }
 }

@@ -15,10 +15,15 @@
  */
 package com.android.build.gradle.internal.variant;
 
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.ANDROID_RES;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
+
 import android.databinding.tool.LayoutXmlProcessor;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.OutputFile;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.api.AndroidSourceSet;
 import com.android.build.gradle.internal.TaskManager;
@@ -28,26 +33,15 @@ import com.android.build.gradle.internal.dsl.Splits;
 import com.android.build.gradle.internal.dsl.VariantOutputFactory;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.build.gradle.internal.scope.GlobalScope;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
+import com.android.build.gradle.internal.scope.MutableTaskContainer;
 import com.android.build.gradle.internal.scope.OutputFactory;
 import com.android.build.gradle.internal.scope.OutputScope;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.gradle.internal.scope.TaskContainer;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.scope.VariantScopeImpl;
-import com.android.build.gradle.internal.tasks.CheckManifest;
-import com.android.build.gradle.internal.tasks.GenerateApkDataTask;
-import com.android.build.gradle.tasks.AidlCompile;
-import com.android.build.gradle.tasks.BinaryFileProviderTask;
-import com.android.build.gradle.tasks.ExternalNativeBuildTask;
-import com.android.build.gradle.tasks.GenerateBuildConfig;
-import com.android.build.gradle.tasks.GenerateResValues;
-import com.android.build.gradle.tasks.ManifestProcessorTask;
-import com.android.build.gradle.tasks.MergeResources;
-import com.android.build.gradle.tasks.MergeSourceSetFolders;
-import com.android.build.gradle.tasks.NdkCompile;
-import com.android.build.gradle.tasks.PackageSplitAbi;
-import com.android.build.gradle.tasks.PackageSplitRes;
-import com.android.build.gradle.tasks.RenderscriptCompile;
-import com.android.build.gradle.tasks.ShaderCompile;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.builder.core.VariantType;
 import com.android.builder.model.SourceProvider;
 import com.android.builder.profile.Recorder;
@@ -55,8 +49,8 @@ import com.android.ide.common.blame.MergingLog;
 import com.android.ide.common.blame.SourceFile;
 import com.android.utils.StringHelper;
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.io.File;
@@ -65,23 +59,24 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.ConfigurableFileTree;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logging;
-import org.gradle.api.tasks.Copy;
+import org.gradle.api.resources.TextResource;
 import org.gradle.api.tasks.Sync;
-import org.gradle.api.tasks.compile.JavaCompile;
 
 /** Base data about a variant. */
-public abstract class BaseVariantData implements TaskContainer {
+public abstract class BaseVariantData {
 
     @NonNull
     protected final TaskManager taskManager;
@@ -91,57 +86,20 @@ public abstract class BaseVariantData implements TaskContainer {
     private VariantDependencies variantDependency;
 
     // Needed for ModelBuilder.  Should be removed once VariantScope can replace BaseVariantData.
-    @NonNull
-    private final VariantScope scope;
-
-    public Task preBuildTask;
-
-    public Task sourceGenTask;
-    public Task resourceGenTask;
-    public Task assetGenTask;
-    public CheckManifest checkManifestTask;
-    public PackageSplitRes packageSplitResourcesTask;
-    public PackageSplitAbi packageSplitAbiTask;
-
-    // FIX ME : move all AndroidTask<> above to Scope and use these here.
-    private Map<TaskKind, Task> registeredTasks = new ConcurrentHashMap<>();
-
-    public RenderscriptCompile renderscriptCompileTask;
-    public AidlCompile aidlCompileTask;
-    public MergeResources mergeResourcesTask;
-    public ManifestProcessorTask processManifest;
-    public MergeSourceSetFolders mergeAssetsTask;
-    public GenerateBuildConfig generateBuildConfigTask;
-    public GenerateResValues generateResValuesTask;
-    public Copy copyApkTask;
-    public GenerateApkDataTask generateApkDataTask;
-    public ShaderCompile shaderCompileTask;
-
-    public Sync processJavaResourcesTask;
-    public NdkCompile ndkCompileTask;
-
-    public JavaCompile javacTask;
-
-    @NonNull
-    public Collection<ExternalNativeBuildTask> externalNativeBuildTasks = Lists.newArrayList();
-    // empty anchor compile task to set all compilations tasks as dependents.
-    public Task compileTask;
-    /** JavaCompile, keeping it for backwards compatibility */
-    public Task javaCompilerTask;
-
-    public BinaryFileProviderTask binaryFileProviderTask;
-
-    public Task obfuscationTask;
+    @NonNull protected final VariantScope scope;
 
     private ImmutableList<ConfigurableFileTree> defaultJavaSources;
 
     private List<File> extraGeneratedSourceFolders = Lists.newArrayList();
     private List<ConfigurableFileTree> extraGeneratedSourceFileTrees;
+    private List<ConfigurableFileTree> externalAptJavaOutputFileTrees;
     private final ConfigurableFileCollection extraGeneratedResFolders;
     private Map<Object, FileCollection> preJavacGeneratedBytecodeMap;
     private FileCollection preJavacGeneratedBytecodeLatest;
     private final ConfigurableFileCollection allPreJavacGeneratedBytecode;
     private final ConfigurableFileCollection allPostJavacGeneratedBytecode;
+
+    private FileCollection rawAndroidResources = null;
 
     private Set<String> densityFilters;
     private Set<String> languageFilters;
@@ -163,6 +121,9 @@ public abstract class BaseVariantData implements TaskContainer {
 
     private final MultiOutputPolicy multiOutputPolicy;
 
+    private final MutableTaskContainer taskContainer;
+    public TextResource applicationIdTextResource;
+
     public BaseVariantData(
             @NonNull GlobalScope globalScope,
             @NonNull AndroidConfig androidConfig,
@@ -181,7 +142,7 @@ public abstract class BaseVariantData implements TaskContainer {
         // eventually, this will require a more open ended comparison.
         multiOutputPolicy =
                 (androidConfig.getGeneratePureSplits()
-                                        || variantConfiguration.getType() == VariantType.FEATURE)
+                                        || variantConfiguration.getType().isHybrid()) // == FEATURE
                                 && variantConfiguration.getMinSdkVersionValue() >= 21
                         ? MultiOutputPolicy.SPLITS
                         : MultiOutputPolicy.MULTI_APK;
@@ -219,6 +180,8 @@ public abstract class BaseVariantData implements TaskContainer {
         preJavacGeneratedBytecodeLatest = globalScope.getProject().files();
         allPreJavacGeneratedBytecode = project.files();
         allPostJavacGeneratedBytecode = project.files();
+
+        taskContainer = scope.getTaskContainer();
     }
 
     @NonNull
@@ -226,20 +189,29 @@ public abstract class BaseVariantData implements TaskContainer {
         if (layoutXmlProcessor == null) {
             File resourceBlameLogDir = scope.getResourceBlameLogDir();
             final MergingLog mergingLog = new MergingLog(resourceBlameLogDir);
-            layoutXmlProcessor = new LayoutXmlProcessor(
-                    getVariantConfiguration().getOriginalApplicationId(),
-                    taskManager.getDataBindingBuilder()
-                            .createJavaFileWriter(scope.getClassOutputForDataBinding()),
-                    file -> {
-                        SourceFile input = new SourceFile(file);
-                        SourceFile original = mergingLog.find(input);
-                        // merged log api returns the file back if original cannot be found.
-                        // it is not what we want so we alter the response.
-                        return original == input ? null : original.getSourceFile();
-                    }
-            );
+            layoutXmlProcessor =
+                    new LayoutXmlProcessor(
+                            getVariantConfiguration().getOriginalApplicationId(),
+                            taskManager
+                                    .getDataBindingBuilder()
+                                    .createJavaFileWriter(scope.getClassOutputForDataBinding()),
+                            file -> {
+                                SourceFile input = new SourceFile(file);
+                                SourceFile original = mergingLog.find(input);
+                                // merged log api returns the file back if original cannot be found.
+                                // it is not what we want so we alter the response.
+                                return original == input ? null : original.getSourceFile();
+                            },
+                            scope.getGlobalScope()
+                                    .getProjectOptions()
+                                    .get(BooleanOption.USE_ANDROID_X));
         }
         return layoutXmlProcessor;
+    }
+
+    @NonNull
+    public TaskContainer getTaskContainer() {
+        return taskContainer;
     }
 
     @NonNull
@@ -252,30 +224,9 @@ public abstract class BaseVariantData implements TaskContainer {
         return outputFactory;
     }
 
-    @Override
-    public void addTask(TaskKind taskKind, Task task) {
-        registeredTasks.put(taskKind, task);
-    }
-
-    @Nullable
-    @Override
-    public Task getTaskByKind(TaskKind name) {
-        return registeredTasks.get(name);
-    }
-
     @NonNull
     public MultiOutputPolicy getMultiOutputPolicy() {
         return multiOutputPolicy;
-    }
-
-    @Nullable
-    @Override
-    public <U extends Task> U getTaskByType(Class<U> taskType) {
-        // Using Class::isInstance instead of Class::equal because the tasks are decorated by
-        // Gradle.
-        Optional<Task> requestedTask =
-                registeredTasks.values().stream().filter(taskType::isInstance).findFirst();
-        return requestedTask.isPresent() ? taskType.cast(requestedTask.get()) : null;
     }
 
     @NonNull
@@ -366,30 +317,28 @@ public abstract class BaseVariantData implements TaskContainer {
     }
 
     public void registerJavaGeneratingTask(@NonNull Task task, @NonNull Collection<File> generatedSourceFolders) {
-        Preconditions.checkNotNull(javacTask);
-        sourceGenTask.dependsOn(task);
+        TaskFactoryUtils.dependsOn(taskContainer.getSourceGenTask(), task);
 
-        final Project project = scope.getGlobalScope().getProject();
         if (extraGeneratedSourceFileTrees == null) {
             extraGeneratedSourceFileTrees = new ArrayList<>();
         }
 
+        final Project project = scope.getGlobalScope().getProject();
         for (File f : generatedSourceFolders) {
             ConfigurableFileTree fileTree = project.fileTree(f).builtBy(task);
             extraGeneratedSourceFileTrees.add(fileTree);
-            javacTask.source(fileTree);
         }
 
         addJavaSourceFoldersToModel(generatedSourceFolders);
     }
 
     public void registerExternalAptJavaOutput(@NonNull ConfigurableFileTree folder) {
-        Preconditions.checkNotNull(javacTask);
+        if (externalAptJavaOutputFileTrees == null) {
+            externalAptJavaOutputFileTrees = new ArrayList<>();
+        }
 
-        javacTask.source(folder);
-        // Disable incremental compilation when annotation processor is present. (b/65519025)
-        // TODO: remove once https://github.com/gradle/gradle/issues/2996 is fixed.
-        javacTask.getOptions().setIncremental(false);
+        externalAptJavaOutputFileTrees.add(folder);
+
         addJavaSourceFoldersToModel(folder.getDir());
     }
 
@@ -447,11 +396,9 @@ public abstract class BaseVariantData implements TaskContainer {
      * @param splits the splits configuration from the build.gradle.
      */
     public void calculateFilters(Splits splits) {
-        List<File> folders = Lists.newArrayList(getGeneratedResFolders());
-        folders.addAll(variantConfiguration.getSourceFiles(SourceProvider::getResDirectories));
-        densityFilters = getFilters(folders, DiscoverableFilterType.DENSITY, splits);
-        languageFilters = getFilters(folders, DiscoverableFilterType.LANGUAGE, splits);
-        abiFilters = getFilters(folders, DiscoverableFilterType.ABI, splits);
+        densityFilters = getFilters(DiscoverableFilterType.DENSITY, splits);
+        languageFilters = getFilters(DiscoverableFilterType.LANGUAGE, splits);
+        abiFilters = getFilters(DiscoverableFilterType.ABI, splits);
     }
 
     /**
@@ -479,33 +426,44 @@ public abstract class BaseVariantData implements TaskContainer {
         }
     }
 
-    /**
-     * Returns the list of generated res folders for this variant.
-     */
-    private List<File> getGeneratedResFolders() {
-        List<File> generatedResFolders = Lists.newArrayList(
-                scope.getRenderscriptResOutputDir(),
-                scope.getGeneratedResOutputDir());
-        if (extraGeneratedResFolders != null) {
-            generatedResFolders.addAll(extraGeneratedResFolders.getFiles());
-        }
-        if (scope.getMicroApkTask() != null
-                && getVariantConfiguration().getBuildType().isEmbedMicroApp()) {
-            generatedResFolders.add(scope.getMicroApkResDirectory());
-        }
-        return generatedResFolders;
-    }
-
     @NonNull
-    public List<String> discoverListOfResourceConfigs() {
-        List<String> resFoldersOnDisk = new ArrayList<String>();
-        Set<File> resourceFolders =
-                variantConfiguration.getSourceFiles(SourceProvider::getResDirectories);
-        resFoldersOnDisk.addAll(getAllFilters(
-                resourceFolders,
-                DiscoverableFilterType.LANGUAGE.folderPrefix,
-                DiscoverableFilterType.DENSITY.folderPrefix));
-        return resFoldersOnDisk;
+    public FileCollection getAllRawAndroidResources() {
+        if (rawAndroidResources == null) {
+            Project project = scope.getGlobalScope().getProject();
+            Iterator<Object> builtBy =
+                    Lists.newArrayList(
+                                    taskContainer.getRenderscriptCompileTask(),
+                                    taskContainer.getGenerateResValuesTask(),
+                                    taskContainer.getGenerateApkDataTask(),
+                                    extraGeneratedResFolders.getBuiltBy())
+                            .stream()
+                            .filter(Objects::nonNull)
+                            .iterator();
+            FileCollection allRes = project.files().builtBy(builtBy);
+
+            FileCollection libraries =
+                    scope.getArtifactCollection(RUNTIME_CLASSPATH, ALL, ANDROID_RES)
+                            .getArtifactFiles();
+            allRes = allRes.plus(libraries);
+
+            Iterator<BuildableArtifact> sourceSets = getAndroidResources().values().iterator();
+            FileCollection mainSourceSet = sourceSets.next().get();
+            FileCollection generated =
+                    project.files(
+                            scope.getRenderscriptResOutputDir(),
+                            scope.getGeneratedResOutputDir(),
+                            scope.getMicroApkResDirectory(),
+                            extraGeneratedResFolders);
+            allRes = allRes.plus(mainSourceSet.plus(generated));
+
+            while (sourceSets.hasNext()) {
+                allRes = allRes.plus(sourceSets.next().get());
+            }
+
+            rawAndroidResources = allRes;
+        }
+
+        return rawAndroidResources;
     }
 
     /**
@@ -513,51 +471,27 @@ public abstract class BaseVariantData implements TaskContainer {
      */
     private enum DiscoverableFilterType {
 
-        DENSITY("drawable-") {
+        DENSITY {
             @NonNull
             @Override
             Collection<String> getConfiguredFilters(@NonNull Splits splits) {
                 return splits.getDensityFilters();
             }
-
-            @Override
-            boolean isAuto(@NonNull Splits splits) {
-                return splits.getDensity().isAuto();
-            }
-
-        }, LANGUAGE("values-") {
+        },
+        LANGUAGE {
             @NonNull
             @Override
             Collection<String> getConfiguredFilters(@NonNull Splits splits) {
                 return splits.getLanguageFilters();
             }
-
-            @Override
-            boolean isAuto(@NonNull Splits splits) {
-                return splits.getLanguage().isAuto();
-            }
-        }, ABI("") {
+        },
+        ABI {
             @NonNull
             @Override
             Collection<String> getConfiguredFilters(@NonNull Splits splits) {
                 return splits.getAbiFilters();
             }
-
-            @Override
-            boolean isAuto(@NonNull Splits splits) {
-                // so far, we never auto-discover abi filters.
-                return false;
-            }
         };
-
-        /**
-         * Sets the folder prefix that filter specific resources must start with.
-         */
-        private String folderPrefix;
-
-        DiscoverableFilterType(String folderPrefix) {
-            this.folderPrefix = folderPrefix;
-        }
 
         /**
          * Returns the applicable filters configured in the build.gradle for this filter type.
@@ -566,63 +500,21 @@ public abstract class BaseVariantData implements TaskContainer {
          */
         @NonNull
         abstract Collection<String> getConfiguredFilters(@NonNull Splits splits);
-
-        /**
-         * Returns true if the user wants the build system to auto discover the splits for this
-         * split type.
-         * @param splits the build.gradle splits configuration.
-         * @return true to use auto-discovery, false to use the build.gradle configuration.
-         */
-        abstract boolean isAuto(@NonNull Splits splits);
     }
 
     /**
      * Gets the list of filter values for a filter type either from the user specified build.gradle
      * settings or through a discovery mechanism using folders names.
-     * @param resourceFolders the list of source folders to discover from.
      * @param filterType the filter type
      * @param splits the variant's configuration for splits.
      * @return a possibly empty list of filter value for this filter type.
      */
     @NonNull
     private static Set<String> getFilters(
-            @NonNull List<File> resourceFolders,
             @NonNull DiscoverableFilterType filterType,
             @NonNull Splits splits) {
 
-        Set<String> filtersList = new HashSet<String>();
-        if (filterType.isAuto(splits)) {
-            filtersList.addAll(getAllFilters(resourceFolders, filterType.folderPrefix));
-        } else {
-            filtersList.addAll(filterType.getConfiguredFilters(splits));
-        }
-        return filtersList;
-    }
-
-    /**
-     * Discover all sub-folders of all the resource folders which names are
-     * starting with one of the provided prefixes.
-     * @param resourceFolders the list of resource folders
-     * @param prefixes the list of prefixes to look for folders.
-     * @return a possibly empty list of folders.
-     */
-    @NonNull
-    private static List<String> getAllFilters(Iterable<File> resourceFolders, String... prefixes) {
-        List<String> providedResFolders = new ArrayList<>();
-        for (File resFolder : resourceFolders) {
-            File[] subResFolders = resFolder.listFiles();
-            if (subResFolders != null) {
-                for (File subResFolder : subResFolders) {
-                    for (String prefix : prefixes) {
-                        if (subResFolder.getName().startsWith(prefix)) {
-                            providedResFolders
-                                    .add(subResFolder.getName().substring(prefix.length()));
-                        }
-                    }
-                }
-            }
-        }
-        return providedResFolders;
+        return new HashSet<>(filterType.getConfiguredFilters(splits));
     }
 
     /**
@@ -632,7 +524,8 @@ public abstract class BaseVariantData implements TaskContainer {
      */
     @NonNull
     public List<ConfigurableFileTree> getJavaSources() {
-        if (extraGeneratedSourceFileTrees == null || extraGeneratedSourceFileTrees.isEmpty()) {
+        // Shortcut for the common cases, otherwise we build the full list below.
+        if (extraGeneratedSourceFileTrees == null && externalAptJavaOutputFileTrees == null) {
             return getDefaultJavaSources();
         }
 
@@ -643,9 +536,32 @@ public abstract class BaseVariantData implements TaskContainer {
         sourceSets.addAll(getDefaultJavaSources());
 
         // then the third party ones
-        sourceSets.addAll(extraGeneratedSourceFileTrees);
+        if (extraGeneratedSourceFileTrees != null) {
+            sourceSets.addAll(extraGeneratedSourceFileTrees);
+        }
+        if (externalAptJavaOutputFileTrees != null) {
+            sourceSets.addAll(externalAptJavaOutputFileTrees);
+        }
 
         return sourceSets.build();
+    }
+
+    public LinkedHashMap<String, BuildableArtifact> getAndroidResources() {
+        return getVariantConfiguration()
+                .getSortedSourceProviders()
+                .stream()
+                .collect(
+                        Collectors.toMap(
+                                SourceProvider::getName,
+                                (provider) ->
+                                        ((AndroidSourceSet) provider)
+                                                .getRes()
+                                                .getBuildableArtifact(),
+                                (u, v) -> {
+                                    throw new IllegalStateException(
+                                            String.format("Duplicate key %s", u));
+                                },
+                                LinkedHashMap::new));
     }
 
     /**
@@ -668,44 +584,58 @@ public abstract class BaseVariantData implements TaskContainer {
             }
 
             // then all the generated src folders.
-            if (scope.hasOutput(TaskOutputHolder.TaskOutputType.NOT_NAMESPACED_R_CLASS_SOURCES)) {
-                FileCollection rClassSource =
-                        scope.getOutput(
-                                TaskOutputHolder.TaskOutputType.NOT_NAMESPACED_R_CLASS_SOURCES);
+            if (scope.getArtifacts()
+                    .hasArtifact(InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES)) {
+                BuildableArtifact rClassSource =
+                        scope.getArtifacts()
+                                .getFinalArtifactFiles(
+                                        InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES);
                 sourceSets.add(
-                        project.fileTree(rClassSource.getSingleFile()).builtBy(rClassSource));
+                        project.fileTree(Iterables.getOnlyElement(rClassSource.get()))
+                                .builtBy(rClassSource));
             }
 
             // for the other, there's no duplicate so no issue.
-            if (scope.getGenerateBuildConfigTask() != null) {
+            if (taskContainer.getGenerateBuildConfigTask() != null) {
                 sourceSets.add(
                         project.fileTree(scope.getBuildConfigSourceOutputDir())
-                                .builtBy(scope.getGenerateBuildConfigTask().getName()));
+                                .builtBy(taskContainer.getGenerateBuildConfigTask().getName()));
             }
 
-            if (scope.getAidlCompileTask() != null) {
-                sourceSets.add(
-                        project.fileTree(scope.getAidlSourceOutputDir())
-                                .builtBy(scope.getAidlCompileTask().getName()));
+            if (taskContainer.getAidlCompileTask() != null) {
+                // FIXME we need to get a configurableFileTree directly from the BuildableArtifact.
+                FileCollection aidlFC =
+                        scope.getArtifacts()
+                                .getFinalArtifactFiles(InternalArtifactType.AIDL_SOURCE_OUTPUT_DIR)
+                                .get();
+                sourceSets.add(project.fileTree(aidlFC.getSingleFile()).builtBy(aidlFC));
             }
 
             if (scope.getGlobalScope().getExtension().getDataBinding().isEnabled()
-                    && scope.getDataBindingExportBuildInfoTask() != null) {
+                    && scope.getTaskContainer().getDataBindingExportBuildInfoTask() != null) {
                 sourceSets.add(
                         project.fileTree(scope.getClassOutputForDataBinding())
-                                .builtBy(scope.getDataBindingExportBuildInfoTask().getName()));
-                FileCollection baseClassSource =
-                        scope.getOutput(
-                                TaskOutputHolder.TaskOutputType.DATA_BINDING_BASE_CLASS_SOURCE_OUT);
+                                .builtBy(
+                                        scope.getTaskContainer()
+                                                .getDataBindingExportBuildInfoTask()));
+                BuildableArtifact baseClassSource =
+                        scope.getArtifacts()
+                                .getFinalArtifactFiles(
+                                        InternalArtifactType.DATA_BINDING_BASE_CLASS_SOURCE_OUT);
                 sourceSets.add(
-                        project.fileTree(baseClassSource.getSingleFile()).builtBy(baseClassSource));
+                        project.fileTree(baseClassSource.get().getSingleFile())
+                                .builtBy(baseClassSource));
             }
 
             if (!variantConfiguration.getRenderscriptNdkModeEnabled()
-                    && scope.getRenderscriptCompileTask() != null) {
-                sourceSets.add(
-                        project.fileTree(scope.getRenderscriptSourceOutputDir())
-                                .builtBy(scope.getRenderscriptCompileTask().getName()));
+                    && taskContainer.getRenderscriptCompileTask() != null) {
+                // FIXME we need to get a configurableFileTree directly from the BuildableArtifact.
+                FileCollection rsFC =
+                        scope.getArtifacts()
+                                .getFinalArtifactFiles(
+                                        InternalArtifactType.RENDERSCRIPT_SOURCE_OUTPUT_DIR)
+                                .get();
+                sourceSets.add(project.fileTree(rsFC.getSingleFile()).builtBy(rsFC));
             }
 
             defaultJavaSources = sourceSets.build();
@@ -720,36 +650,34 @@ public abstract class BaseVariantData implements TaskContainer {
      * <p>This includes all the source folders except for the ones containing R and buildConfig.
      */
     @NonNull
-    public List<File> getJavaSourceFoldersForCoverage() {
-        // Build the list of source folders.
-        List<File> sourceFolders = Lists.newArrayList();
+    public FileCollection getJavaSourceFoldersForCoverage() {
+        ConfigurableFileCollection fc = scope.getGlobalScope().getProject().files();
 
         // First the actual source folders.
         List<SourceProvider> providers = variantConfiguration.getSortedSourceProviders();
         for (SourceProvider provider : providers) {
             for (File sourceFolder : provider.getJavaDirectories()) {
                 if (sourceFolder.isDirectory()) {
-                    sourceFolders.add(sourceFolder);
+                    fc.from(sourceFolder);
                 }
             }
         }
 
-        File sourceFolder;
         // then all the generated src folders, except the ones for the R/Manifest and
         // BuildConfig classes.
-        sourceFolder = aidlCompileTask.getSourceOutputDir();
-        if (sourceFolder.isDirectory()) {
-            sourceFolders.add(sourceFolder);
-        }
+        fc.from(
+                scope.getArtifacts()
+                        .getFinalArtifactFiles(InternalArtifactType.AIDL_SOURCE_OUTPUT_DIR)
+                        .get());
 
         if (!variantConfiguration.getRenderscriptNdkModeEnabled()) {
-            sourceFolder = renderscriptCompileTask.getSourceOutputDir();
-            if (sourceFolder.isDirectory()) {
-                sourceFolders.add(sourceFolder);
-            }
+            fc.from(
+                    scope.getArtifacts()
+                            .getFinalArtifactFiles(
+                                    InternalArtifactType.RENDERSCRIPT_SOURCE_OUTPUT_DIR));
         }
 
-        return sourceFolders;
+        return fc;
     }
 
     @Override
@@ -766,6 +694,8 @@ public abstract class BaseVariantData implements TaskContainer {
 
     @NonNull
     public File getJavaResourcesForUnitTesting() {
+        // FIXME we need to revise this API as it force-configure the tasks
+        Sync processJavaResourcesTask = taskContainer.getProcessJavaResourcesTask().get();
         if (processJavaResourcesTask != null) {
             return processJavaResourcesTask.getOutputs().getFiles().getSingleFile();
         } else {

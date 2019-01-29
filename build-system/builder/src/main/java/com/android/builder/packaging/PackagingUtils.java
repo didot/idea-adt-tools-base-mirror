@@ -21,8 +21,9 @@ import static com.google.common.base.Preconditions.checkState;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.apkzlib.zfile.NativeLibrariesPackagingMode;
 import com.android.builder.core.DefaultManifestParser;
+import com.android.builder.errors.EvalIssueReporter;
+import com.android.tools.build.apkzlib.zfile.NativeLibrariesPackagingMode;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -35,6 +36,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 
 /**
@@ -176,21 +178,39 @@ public class PackagingUtils {
 
     @NonNull
     public static Predicate<String> getNoCompressPredicate(
-            @Nullable Collection<String> aaptOptionsNoCompress, @NonNull File manifest) {
+            @Nullable Collection<String> aaptOptionsNoCompress,
+            @NonNull File manifest,
+            @NonNull BooleanSupplier isInExecutionPhase,
+            @NonNull EvalIssueReporter issueReporter) {
         checkState(manifest.exists());
 
         NativeLibrariesPackagingMode packagingMode =
-                getNativeLibrariesLibrariesPackagingMode(manifest);
+                getNativeLibrariesLibrariesPackagingMode(
+                        manifest, isInExecutionPhase, issueReporter);
 
         return getNoCompressPredicateForExtensions(
                 getAllNoCompressExtensions(aaptOptionsNoCompress, packagingMode));
     }
 
     @NonNull
+    public static List<String> getNoCompressGlobsForBundle(
+            @NonNull Collection<String> aaptOptionsNoCompress) {
+        return getAllNoCompressExtensions(
+                        aaptOptionsNoCompress, NativeLibrariesPackagingMode.COMPRESSED)
+                .stream()
+                .map(s -> "**" + s)
+                .sorted()
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @NonNull
     public static NativeLibrariesPackagingMode getNativeLibrariesLibrariesPackagingMode(
-            @NonNull File manifest) {
+            @NonNull File manifest,
+            @NonNull BooleanSupplier isInExecutionPhase,
+            @NonNull EvalIssueReporter issueReporter) {
         checkState(manifest.exists());
-        DefaultManifestParser parser = new DefaultManifestParser(manifest);
+        DefaultManifestParser parser =
+                new DefaultManifestParser(manifest, isInExecutionPhase, issueReporter);
         Boolean extractNativeLibs = parser.getExtractNativeLibs();
 
         // The default is "true", so we only package *.so files differently if the user explicitly

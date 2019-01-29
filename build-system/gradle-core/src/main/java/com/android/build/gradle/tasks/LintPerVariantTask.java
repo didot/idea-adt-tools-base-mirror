@@ -19,16 +19,32 @@ package com.android.build.gradle.tasks;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.VariantAwareTask;
 import com.android.utils.StringHelper;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.TaskAction;
 
-public class LintPerVariantTask extends LintBaseTask {
+public class LintPerVariantTask extends LintBaseTask implements VariantAwareTask {
 
     private VariantInputs variantInputs;
     private boolean fatalOnly;
+
+    private String variantName;
+
+    @Internal
+    @NonNull
+    @Override
+    public String getVariantName() {
+        return variantName;
+    }
+
+    @Override
+    public void setVariantName(String variantName) {
+        this.variantName = variantName;
+    }
 
     @InputFiles
     @Optional
@@ -61,11 +77,11 @@ public class LintPerVariantTask extends LintBaseTask {
         }
     }
 
-    public static class ConfigAction extends BaseConfigAction<LintPerVariantTask> {
+    public static class CreationAction extends BaseCreationAction<LintPerVariantTask> {
 
         private final VariantScope scope;
 
-        public ConfigAction(@NonNull VariantScope scope) {
+        public CreationAction(@NonNull VariantScope scope) {
             super(scope.getGlobalScope());
             this.scope = scope;
         }
@@ -83,26 +99,24 @@ public class LintPerVariantTask extends LintBaseTask {
         }
 
         @Override
-        public void execute(@NonNull LintPerVariantTask lint) {
-            super.execute(lint);
+        public void configure(@NonNull LintPerVariantTask lint) {
+            super.configure(lint);
 
-            lint.setVariantName(scope.getVariantConfiguration().getFullName());
+            lint.setVariantName(scope.getFullVariantName());
 
             lint.variantInputs = new VariantInputs(scope);
 
             lint.setDescription(
                     StringHelper.appendCapitalized(
-                            "Runs lint on the ",
-                            scope.getVariantConfiguration().getFullName(),
-                            " build."));
+                            "Runs lint on the ", lint.getVariantName(), " build."));
         }
     }
 
-    public static class VitalConfigAction extends BaseConfigAction<LintPerVariantTask> {
+    public static class VitalCreationAction extends BaseCreationAction<LintPerVariantTask> {
 
         private final VariantScope scope;
 
-        public VitalConfigAction(@NonNull VariantScope scope) {
+        public VitalCreationAction(@NonNull VariantScope scope) {
             super(scope.getGlobalScope());
             this.scope = scope;
         }
@@ -120,16 +134,17 @@ public class LintPerVariantTask extends LintBaseTask {
         }
 
         @Override
-        public void execute(@NonNull LintPerVariantTask task) {
-            super.execute(task);
+        public void configure(@NonNull LintPerVariantTask task) {
+            super.configure(task);
 
-            String variantName = scope.getVariantData().getVariantConfiguration().getFullName();
-            task.setVariantName(variantName);
+            task.setVariantName(scope.getFullVariantName());
 
             task.variantInputs = new VariantInputs(scope);
             task.fatalOnly = true;
             task.setDescription(
-                    "Runs lint on just the fatal issues in the " + variantName + " build.");
+                    "Runs lint on just the fatal issues in the "
+                            + task.getVariantName()
+                            + " build.");
         }
     }
 }

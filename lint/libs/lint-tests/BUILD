@@ -5,9 +5,11 @@ kotlin_library(
     name = "lint-tests",
     srcs = ["src/main/java"],
     pom = ":pom",
+    resource_strip_prefix = "tools/base/lint/libs/lint-tests",
     visibility = ["//visibility:public"],
     deps = [
         "//prebuilts/tools/common/lint-psi/intellij-core",
+        "//prebuilts/tools/common/lint-psi/kotlin-compiler",
         "//prebuilts/tools/common/lint-psi/uast",
         "//tools/base/annotations",
         "//tools/base/build-system/builder-model",
@@ -21,6 +23,7 @@ kotlin_library(
         "//tools/base/testutils:tools.testutils",
         "//tools/base/third_party:com.google.guava_guava",
         "//tools/base/third_party:junit_junit",
+        "//tools/base/third_party:org.codehaus.groovy_groovy-all",
         "//tools/base/third_party:org.jetbrains.kotlin_kotlin-reflect",
         "//tools/base/third_party:org.jetbrains.kotlin_kotlin-stdlib",
         "//tools/base/third_party:org.jetbrains.trove4j_trove4j",
@@ -32,6 +35,7 @@ kotlin_library(
 
 kotlin_test(
     name = "tests",
+    timeout = "long",
     srcs = ["src/test/java"],
     data = [
         "//prebuilts/studio/sdk:platform-tools",
@@ -45,12 +49,21 @@ kotlin_test(
         # TODO: Inject the cache directory into tests.
         "-Duser.home=/tmp",
     ],
+    tags = [
+        "no_test_windows",  # b/73306170
+        "slow",
+    ],
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":lint-tests",
         "//prebuilts/tools/common/lint-psi/intellij-core",
+        "//prebuilts/tools/common/lint-psi/kotlin-compiler",
         "//prebuilts/tools/common/lint-psi/uast",
         "//prebuilts/tools/common/m2/repository/org/mockito/mockito-all/1.9.5:jar",
+        "//tools/analytics-library/protos/src/main/proto",
+        "//tools/analytics-library/shared:tools.analytics-shared",
+        "//tools/analytics-library/testing:tools.analytics-testing",
+        "//tools/analytics-library/tracker:tools.analytics-tracker",
         "//tools/base/annotations",
         "//tools/base/apkparser:tools.binary-resources",
         "//tools/base/apkparser/analyzer:tools.analyzer",

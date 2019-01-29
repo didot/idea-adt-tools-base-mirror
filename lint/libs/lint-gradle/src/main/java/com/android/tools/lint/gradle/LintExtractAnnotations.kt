@@ -45,8 +45,10 @@ class LintExtractAnnotations {
         try {
             val projectEnvironment = LintCoreProjectEnvironment.create(parentDisposable, appEnv)
             projectEnvironment.registerPaths(roots)
-            val parsedUnits = Extractor.createUnitsForFiles(projectEnvironment.project,
-                    sourceFiles)
+            val parsedUnits = Extractor.createUnitsForFiles(
+                projectEnvironment.project,
+                sourceFiles
+            )
 
             val ktFiles = ArrayList<File>()
             for (file in sourceFiles) {
@@ -54,7 +56,7 @@ class LintExtractAnnotations {
                     ktFiles.add(file)
                 }
             }
-            KotlinLintAnalyzerFacade.analyze(ktFiles, roots, projectEnvironment.project)
+            KotlinLintAnalyzerFacade().analyze(ktFiles, roots, projectEnvironment.project)
 
             val displayInfo = logger.isEnabled(LogLevel.INFO)
             val extractor = Extractor(null, classDir.files, displayInfo, false, false)

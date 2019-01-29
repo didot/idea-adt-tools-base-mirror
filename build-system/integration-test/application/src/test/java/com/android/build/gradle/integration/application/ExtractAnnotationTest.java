@@ -24,6 +24,8 @@ import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.testutils.apk.Aar;
 import com.google.common.truth.Truth;
+import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -35,7 +37,7 @@ import org.junit.Test;
  *
  * <pre>
  *     $ cd tools
- *     $ ./gradlew :base:integration-test:test -D:base:integration-test:test.single=ExtractAnnotationTest
+ *     $ ./gradlew :base:build-system:integration-test:application:test -D:base:build-system:integration-test:application:test.single=ExtractAnnotationTest
  * </pre>
  */
 public class ExtractAnnotationTest {
@@ -140,6 +142,17 @@ public class ExtractAnnotationTest {
 
         GradleBuildResult result = project.executor().run("assembleDebug");
 
-        Truth.assertThat(result.getNotUpToDateTasks()).isEmpty();
+        Truth.assertThat(result.getDidWorkTasks()).isEmpty();
+
+        // Make sure that annotations.zip contains no timestamps (for making it binary identical on every build)
+        assertThat(
+                        Files.readAttributes(
+                                        debugAar.getEntryAsZip("annotations.zip")
+                                                .getEntry(
+                                                        "com/android/tests/extractannotations/annotations.xml"),
+                                        BasicFileAttributes.class)
+                                .lastModifiedTime()
+                                .toMillis())
+                .isEqualTo(0L);
     }
 }

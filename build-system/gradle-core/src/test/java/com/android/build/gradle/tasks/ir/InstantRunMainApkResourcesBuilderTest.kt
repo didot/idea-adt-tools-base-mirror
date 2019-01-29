@@ -16,21 +16,26 @@
 
 package com.android.build.gradle.tasks.ir
 
+import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl
+import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.build.gradle.internal.core.GradleVariantConfiguration
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.BuildOutput
-import com.android.build.gradle.internal.scope.GlobalScope
 import com.android.build.gradle.internal.scope.ExistingBuildElements
+import com.android.build.gradle.internal.scope.GlobalScope
+import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.MutableTaskContainer
 import com.android.build.gradle.internal.scope.OutputFactory
 import com.android.build.gradle.internal.scope.OutputScope
-import com.android.build.gradle.internal.scope.TaskOutputHolder
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.options.ProjectOptions
+import com.android.builder.core.VariantTypeImpl
+import com.android.builder.errors.EvalIssueReporter
 import com.android.builder.utils.FileCache
 import com.android.ide.common.build.ApkInfo
 import com.android.utils.ILogger
-import com.google.common.collect.ImmutableMap
-import com.google.common.collect.ImmutableSet
 import com.google.common.collect.Iterables
 import com.google.common.truth.Truth.assertThat
 import org.apache.commons.io.FileUtils
@@ -60,19 +65,21 @@ open class InstantRunMainApkResourcesBuilderTest {
     @Rule @JvmField
     var manifestFileFolder = TemporaryFolder()
 
-    @Mock private lateinit var resources: FileCollection
-    private lateinit var manifestFiles: FileCollection
-    @Mock lateinit internal var fileTree: FileTree
+    @Mock private lateinit var resources: BuildableArtifact
+    @Mock private lateinit var fileCollection: FileCollection
+    private lateinit var manifestFiles: BuildableArtifact
+    @Mock internal lateinit var fileTree: FileTree
     @Mock internal var buildContext: InstantRunBuildContext? = null
     @Mock internal var logger: ILogger? = null
     @Mock private lateinit var variantConfiguration: GradleVariantConfiguration
+    @Mock private lateinit var buildArtifactsHolder: BuildArtifactsHolder
     @Mock private lateinit var variantScope: VariantScope
     @Mock private lateinit var globalScope: GlobalScope
     @Mock private lateinit var fileCache: FileCache
-    private val projectOptions = ProjectOptions(ImmutableMap.of())
+    @Mock private lateinit var dslScope: DslScope
+    @Mock private lateinit var issueReporter: EvalIssueReporter
+    @Mock private lateinit var projectOptions: ProjectOptions
     private val outputScope = OutputScope()
-
-
 
     internal lateinit var project: Project
     internal lateinit var task: InstantRunMainApkResourcesBuilder
@@ -87,29 +94,42 @@ open class InstantRunMainApkResourcesBuilderTest {
         `when`(variantScope.fullVariantName).thenReturn("variantName")
         `when`(variantConfiguration.baseName).thenReturn("variantName")
         `when`(globalScope.buildCache).thenReturn(fileCache)
+        `when`(globalScope.project).thenReturn(project)
         `when`(globalScope.projectOptions).thenReturn(projectOptions)
         `when`(variantScope.getTaskName(any(String::class.java))).thenReturn("taskFoo")
         `when`(variantScope.globalScope).thenReturn(globalScope)
         `when`(variantScope.outputScope).thenReturn(outputScope)
-        `when`(variantScope.getOutput(TaskOutputHolder.TaskOutputType.MERGED_RES))
+        `when`(variantScope.artifacts).thenReturn(buildArtifactsHolder)
+        `when`(variantConfiguration.type).thenReturn(VariantTypeImpl.BASE_APK)
+
+        `when`(variantScope.taskContainer).thenReturn(MutableTaskContainer())
+        variantScope.taskContainer.preBuildTask = project.tasks.register("preBuildTask")
+
+        `when`(buildArtifactsHolder.getFinalArtifactFiles(InternalArtifactType.MERGED_RES))
                 .thenReturn(resources)
-        manifestFiles = project.files(manifestFileFolder.root)
-        `when`(variantScope.getOutput(TaskOutputHolder.TaskOutputType.INSTANT_RUN_MERGED_MANIFESTS))
-                .thenReturn(manifestFiles)
-        `when`(resources.asFileTree).thenReturn(fileTree)
+        `when`(dslScope.issueReporter).thenReturn(issueReporter)
+        `when`(resources.get()).thenReturn(fileCollection)
+        `when`(fileCollection.asFileTree).thenReturn(fileTree)
     }
 
     @Test
-    fun tesConfigAction() {
+    fun testConfigAction() {
         task = project.tasks.create("test", InstantRunMainApkResourcesBuilder::class.java)
-        val configAction = InstantRunMainApkResourcesBuilder.ConfigAction(
+        val configAction = InstantRunMainApkResourcesBuilder.CreationAction(
                 variantScope,
-                TaskOutputHolder.TaskOutputType.MERGED_RES)
+                InternalArtifactType.MERGED_RES)
 
         val outDir = temporaryFolder.newFolder()
-        `when`(variantScope.instantRunMainApkResourcesDir).thenReturn(outDir)
+        manifestFiles = BuildableArtifactImpl(project.files(), dslScope)
+        `when`(buildArtifactsHolder.getFinalArtifactFiles(
+            InternalArtifactType.INSTANT_RUN_MERGED_MANIFESTS)).thenReturn(manifestFiles)
+        `when`(buildArtifactsHolder.appendArtifact(
+            InternalArtifactType.INSTANT_RUN_MAIN_APK_RESOURCES,
+            task.name,
+            "out")).thenReturn(outDir)
 
-        configAction.execute(task)
+        configAction.preConfigure(task.name)
+        configAction.configure(task)
         assertThat(task.resourceFiles).isEqualTo(resources)
         assertThat(task.manifestFiles).isEqualTo(manifestFiles)
         assertThat(task.outputDirectory).isEqualTo(outDir)
@@ -119,8 +139,8 @@ open class InstantRunMainApkResourcesBuilderTest {
     // should be tested elsewhere.
     open class InstantRunMainApkResourcesBuilderForTest: InstantRunMainApkResourcesBuilder() {
         @Throws(IOException::class)
-        override fun processSplit(apkInfo: ApkInfo, manifestFile: File?): File? {
-            return File(outputDirectory, apkInfo.baseName)
+        override fun processSplit(apkData: ApkInfo, manifestFile: File?): File? {
+            return File(outputDirectory, apkData.baseName)
         }
     }
 
@@ -128,12 +148,11 @@ open class InstantRunMainApkResourcesBuilderTest {
     fun testSingleApkData() {
         task = project.tasks.create("test", InstantRunMainApkResourcesBuilderForTest::class.java)
 
-        val configAction = InstantRunMainApkResourcesBuilder.ConfigAction(
+        val configAction = InstantRunMainApkResourcesBuilder.CreationAction(
                 variantScope,
-                TaskOutputHolder.TaskOutputType.MERGED_RES)
+                InternalArtifactType.MERGED_RES)
 
         val outDir = temporaryFolder.newFolder()
-        `when`(variantScope.instantRunMainApkResourcesDir).thenReturn(outDir)
 
         val manifestFile = manifestFileFolder.newFile()
         FileUtils.write(manifestFile,
@@ -144,25 +163,33 @@ open class InstantRunMainApkResourcesBuilderTest {
                 "      android:versionName=\"1.0\">\n" +
                 "</manifest>\n")
 
-        BuildOutput(TaskOutputHolder.TaskOutputType.INSTANT_RUN_MERGED_MANIFESTS,
+        BuildOutput(InternalArtifactType.INSTANT_RUN_MERGED_MANIFESTS,
                 OutputFactory("test", variantConfiguration, outputScope).addMainApk(),
                 manifestFile)
                 .save(manifestFileFolder.root)
 
-        `when`(fileTree.files).thenReturn(
-                ImmutableSet.copyOf(manifestFileFolder.root.listFiles()))
-        configAction.execute(task)
+        manifestFiles = BuildableArtifactImpl(
+            project.files(manifestFileFolder.root.listFiles()), dslScope)
+        `when`(buildArtifactsHolder.getFinalArtifactFiles(
+            InternalArtifactType.INSTANT_RUN_MERGED_MANIFESTS)).thenReturn(manifestFiles)
+        `when`(buildArtifactsHolder.appendArtifact(
+            InternalArtifactType.INSTANT_RUN_MAIN_APK_RESOURCES,
+            task.name,
+            "out")).thenReturn(outDir)
+
+        configAction.preConfigure(task.name)
+        configAction.configure(task)
 
         task.doFullTaskAction()
         val resultingFiles = outDir.listFiles()
         assertThat(resultingFiles).hasLength(1)
         assertThat(resultingFiles[0].name).isEqualTo("output.json")
         val buildArtifacts = ExistingBuildElements.from(
-                TaskOutputHolder.TaskOutputType.INSTANT_RUN_MAIN_APK_RESOURCES, outDir)
+                InternalArtifactType.INSTANT_RUN_MAIN_APK_RESOURCES, outDir)
         assertThat(buildArtifacts.size()).isEqualTo(1)
         val buildArtifact = Iterables.getOnlyElement(buildArtifacts)
         assertThat(buildArtifact.type).isEqualTo(
-                TaskOutputHolder.TaskOutputType.INSTANT_RUN_MAIN_APK_RESOURCES)
+                InternalArtifactType.INSTANT_RUN_MAIN_APK_RESOURCES)
         assertThat(buildArtifact.apkInfo.type.toString()).isEqualTo("MAIN")
     }
 }

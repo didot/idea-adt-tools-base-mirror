@@ -26,7 +26,10 @@
 #include "perfd/cpu/simpleperf.h"
 #include "perfd/cpu/simpleperf_manager.h"
 #include "perfd/cpu/thread_monitor.h"
+#include "perfd/termination_service.h"
+#include "proto/agent_service.grpc.pb.h"
 #include "proto/cpu.grpc.pb.h"
+#include "utils/activity_manager.h"
 #include "utils/current_process.h"
 #include "utils/device_info.h"
 
@@ -35,15 +38,42 @@ namespace profiler {
 // CPU profiler specific service for desktop clients (e.g., Android Studio).
 class CpuServiceImpl final : public profiler::proto::CpuService::Service {
  public:
-  CpuServiceImpl(const Clock& clock, CpuCache* cpu_cache,
-                 CpuUsageSampler* usage_sampler, ThreadMonitor* thread_monitor)
+  CpuServiceImpl(Clock* clock, CpuCache* cpu_cache,
+                 CpuUsageSampler* usage_sampler, ThreadMonitor* thread_monitor,
+                 const profiler::proto::AgentConfig::CpuConfig& cpu_config,
+                 TerminationService* termination_service)
+      : CpuServiceImpl(
+            clock, cpu_cache, usage_sampler, thread_monitor, cpu_config,
+            termination_service, ActivityManager::Instance(),
+            std::unique_ptr<SimpleperfManager>(new SimpleperfManager(clock)),
+            // Number of millis to wait between atrace dumps when profiling.
+            // The average user will run a capture around 20 seconds, however to
+            // support longer captures we should dump the data (causing a
+            // hitch). This data dump enables us to have long captures.
+            std::unique_ptr<AtraceManager>(
+                new AtraceManager(clock, 1000 * 30))) {}
+
+  CpuServiceImpl(Clock* clock, CpuCache* cpu_cache,
+                 CpuUsageSampler* usage_sampler, ThreadMonitor* thread_monitor,
+                 const profiler::proto::AgentConfig::CpuConfig& cpu_config,
+                 TerminationService* termination_service,
+                 ActivityManager* activity_manager,
+                 std::unique_ptr<SimpleperfManager> simpleperf_manager,
+                 std::unique_ptr<AtraceManager> atrace_manager)
       : cache_(*cpu_cache),
         clock_(clock),
         usage_sampler_(*usage_sampler),
         thread_monitor_(*thread_monitor),
-        simpleperf_manager_(clock, simpleperf_),
-        // Number of millis to wait between atrace dumps when profiling.
-        atrace_manager_(clock, 500) {}
+        cpu_config_(cpu_config),
+        activity_manager_(activity_manager),
+        simpleperf_manager_(std::move(simpleperf_manager)),
+        atrace_manager_(std::move(atrace_manager)) {
+    termination_service->RegisterShutdownCallback([this](int signal) {
+      this->activity_manager_->Shutdown();
+      this->simpleperf_manager_->Shutdown();
+      this->atrace_manager_->Shutdown();
+    });
+  }
 
   grpc::Status GetData(grpc::ServerContext* context,
                        const profiler::proto::CpuDataRequest* request,
@@ -53,6 +83,15 @@ class CpuServiceImpl final : public profiler::proto::CpuService::Service {
       grpc::ServerContext* context,
       const profiler::proto::GetThreadsRequest* request,
       profiler::proto::GetThreadsResponse* response) override;
+
+  grpc::Status GetTraceInfo(
+      grpc::ServerContext* context,
+      const profiler::proto::GetTraceInfoRequest* request,
+      profiler::proto::GetTraceInfoResponse* response) override;
+
+  grpc::Status GetTrace(grpc::ServerContext* context,
+                        const profiler::proto::GetTraceRequest* request,
+                        profiler::proto::GetTraceResponse* response) override;
 
   // TODO: Handle the case if there is no such a running process.
   grpc::Status StartMonitoringApp(
@@ -80,38 +119,41 @@ class CpuServiceImpl final : public profiler::proto::CpuService::Service {
       const profiler::proto::ProfilingStateRequest* request,
       profiler::proto::ProfilingStateResponse* response) override;
 
+  grpc::Status StartStartupProfiling(
+      grpc::ServerContext* context,
+      const profiler::proto::StartupProfilingRequest* request,
+      profiler::proto::StartupProfilingResponse* response) override;
+
+  int64_t GetEarliestDataTime(int32_t pid);
+
+  grpc::Status GetCpuCoreConfig(
+      grpc::ServerContext* context,
+      const profiler::proto::CpuCoreConfigRequest* request,
+      profiler::proto::CpuCoreConfigResponse* response) override;
+
+  // Visible for testing.
+  SimpleperfManager* simpleperf_manager() { return simpleperf_manager_.get(); }
+
  private:
   // Stops profiling process of |pid|, regardless of whether it is alive or
   // dead. If |response| is not null, populate it with the capture data (trace);
   // otherwise, discard any capture result.
-  void StopProfilingAndCleanUp(
+  void DoStopProfilingApp(
       int32_t pid, profiler::proto::CpuProfilingAppStopResponse* response);
 
   // Data cache that will be queried to serve requests.
   CpuCache& cache_;
   // Clock that timestamps start profiling requests.
-  const Clock& clock_;
+  Clock* clock_;
   // The monitor that samples CPU usage data.
   CpuUsageSampler& usage_sampler_;
   // The monitor that detects thread activities (i.e., state changes).
   ThreadMonitor& thread_monitor_;
-  const Simpleperf simpleperf_{CurrentProcess::dir(),
-                               DeviceInfo::is_emulator()};
-  SimpleperfManager simpleperf_manager_;
-  AtraceManager atrace_manager_;
-  // Absolute on-device path to the trace file. Activity manager or simpleperf
-  // determines the path and populate the file with trace data.
-  std::string trace_path_;
-  // The timestamp when the last start profiling request was processed
-  // successfully. Map from an app name to its corresponding timestamp.
-  std::map<std::string, int64_t> last_start_profiling_timestamps_;
-  // The last start profiling requests processed successfully.
-  // Map from an app name to its corresponding request.
-  std::map<std::string, profiler::proto::CpuProfilingAppStartRequest>
-      last_start_profiling_requests_;
-  // Map a pid to its corresponding app name. It's used for sanity check if an
-  // app has restarted and got a new pid.
-  std::map<int, std::string> app_pids_;
+
+  const proto::AgentConfig::CpuConfig& cpu_config_;
+  ActivityManager* activity_manager_;
+  std::unique_ptr<SimpleperfManager> simpleperf_manager_;
+  std::unique_ptr<AtraceManager> atrace_manager_;
 };
 
 }  // namespace profiler

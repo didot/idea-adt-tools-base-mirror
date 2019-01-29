@@ -21,6 +21,7 @@ import static com.android.testutils.truth.PathSubject.assertThat;
 import static org.junit.Assert.assertTrue;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.fixture.app.EmptyAndroidTestApp;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.fixture.app.MultiModuleTestProject;
@@ -95,14 +96,14 @@ public class D8DesugaringTest {
                         + "        implementation project(':lib')\n"
                         + "        androidTestImplementation"
                         + " 'com.android.support:support-v4:"
-                        + GradleTestProject.SUPPORT_LIB_VERSION
+                        + TestVersions.SUPPORT_LIB_VERSION
                         + "'\n"
                         + "        testImplementation 'junit:junit:4.12'\n"
                         + "        androidTestImplementation 'com.android.support.test:runner:"
-                        + GradleTestProject.TEST_SUPPORT_LIB_VERSION
+                        + TestVersions.TEST_SUPPORT_LIB_VERSION
                         + "'\n"
                         + "        androidTestImplementation 'com.android.support.test:rules:"
-                        + GradleTestProject.TEST_SUPPORT_LIB_VERSION
+                        + TestVersions.TEST_SUPPORT_LIB_VERSION
                         + "'\n"
                         + "    }\n"
                         + "}\n");
@@ -192,6 +193,26 @@ public class D8DesugaringTest {
         Apk androidApk =
                 project.getSubproject(":app").getApk(GradleTestProject.ApkType.DEBUG, "base");
         assertThat(androidApk).hasClass("Lcom/example/helloworld/InterfaceWithDefault;");
+        assertThat(androidApk).hasDexVersion(35);
+    }
+
+    @Test
+    public void checkWithProguard() throws IOException, InterruptedException {
+        // Regression test for http://b/72624896
+        TestFileUtils.appendToFile(
+                project.getSubproject(":app").getBuildFile(),
+                "android.buildTypes.debug.minifyEnabled true");
+        TestFileUtils.addMethod(
+                FileUtils.join(
+                        project.getSubproject(":app").getMainSrcDir(),
+                        "com/example/helloworld/HelloWorld.java"),
+                "Runnable r = () -> {};");
+        project.executor()
+                .with(BooleanOption.ENABLE_D8, true)
+                .with(BooleanOption.ENABLE_D8_DESUGARING, true)
+                .run("assembleBaseDebug");
+        Apk androidApk =
+                project.getSubproject(":app").getApk(GradleTestProject.ApkType.DEBUG, "base");
         assertThat(androidApk).hasDexVersion(35);
     }
 

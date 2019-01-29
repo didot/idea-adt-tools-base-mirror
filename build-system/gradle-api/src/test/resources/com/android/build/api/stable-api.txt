@@ -1,3 +1,11 @@
+Stable Android Gradle Plugin API.
+-------------------------------------------------------------------------
+ATTENTION REVIEWER: If this needs to be changed, please make sure changes
+below are backwards compatible.
+-------------------------------------------------------------------------
+Sha256 of below classes:
+a368f5086e7e086f47b4424467f5bf26ebec74fb28c7b1157442008937f4ff20
+-------------------------------------------------------------------------
 com.android.build.api.attributes.BuildTypeAttr
 com.android.build.api.attributes.ProductFlavorAttr
 com.android.build.api.attributes.VariantAttr
@@ -38,8 +46,10 @@ com.android.build.api.transform.SecondaryFile.<init>: com.android.build.api.tran
 com.android.build.api.transform.SecondaryFile.getFile: java.io.File ()
 com.android.build.api.transform.SecondaryFile.getFileCollection: org.gradle.api.file.FileCollection (org.gradle.api.Project)
 com.android.build.api.transform.SecondaryFile.incremental: com.android.build.api.transform.SecondaryFile (java.io.File)
+com.android.build.api.transform.SecondaryFile.incremental: com.android.build.api.transform.SecondaryFile (java.util.function.Supplier<org.gradle.api.file.FileCollection>)
 com.android.build.api.transform.SecondaryFile.incremental: com.android.build.api.transform.SecondaryFile (org.gradle.api.file.FileCollection)
 com.android.build.api.transform.SecondaryFile.nonIncremental: com.android.build.api.transform.SecondaryFile (java.io.File)
+com.android.build.api.transform.SecondaryFile.nonIncremental: com.android.build.api.transform.SecondaryFile (java.util.function.Supplier<org.gradle.api.file.FileCollection>)
 com.android.build.api.transform.SecondaryFile.nonIncremental: com.android.build.api.transform.SecondaryFile (org.gradle.api.file.FileCollection)
 com.android.build.api.transform.SecondaryFile.supportsIncrementalBuild: boolean ()
 com.android.build.api.transform.SecondaryInput
@@ -66,8 +76,8 @@ com.android.build.api.transform.Transform.transform: void (com.android.build.api
 com.android.build.api.transform.Transform.transform: void (com.android.build.api.transform.TransformInvocation) throws com.android.build.api.transform.TransformException, java.lang.InterruptedException, java.io.IOException
 com.android.build.api.transform.TransformException
 com.android.build.api.transform.TransformException.<init>: com.android.build.api.transform.TransformException (java.lang.String)
-com.android.build.api.transform.TransformException.<init>: com.android.build.api.transform.TransformException (java.lang.Throwable)
 com.android.build.api.transform.TransformException.<init>: com.android.build.api.transform.TransformException (java.lang.String, java.lang.Throwable)
+com.android.build.api.transform.TransformException.<init>: com.android.build.api.transform.TransformException (java.lang.Throwable)
 com.android.build.api.transform.TransformInput
 com.android.build.api.transform.TransformInput.getDirectoryInputs: java.util.Collection<com.android.build.api.transform.DirectoryInput> ()
 com.android.build.api.transform.TransformInput.getJarInputs: java.util.Collection<com.android.build.api.transform.JarInput> ()

@@ -18,7 +18,8 @@ package com.android.build.gradle.integration.testing;
 
 import com.android.build.gradle.integration.common.category.DeviceTests;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
-import com.android.build.gradle.integration.common.fixture.app.AndroidTestApp;
+import com.android.build.gradle.integration.common.fixture.TestVersions;
+import com.android.build.gradle.integration.common.fixture.app.AndroidTestModule;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
@@ -33,7 +34,7 @@ public class TestingSupportLibraryConnectedTest {
     public GradleTestProject project =
             GradleTestProject.builder().fromTestApp(helloWorldApp).create();
 
-    public static final AndroidTestApp helloWorldApp = HelloWorldApp.noBuildFile();
+    public static final AndroidTestModule helloWorldApp = HelloWorldApp.noBuildFile();
 
     static {
         /* Junit 4 now maps tests annotated with @Ignore and tests that throw
@@ -76,7 +77,7 @@ public class TestingSupportLibraryConnectedTest {
                                 + "    }\n"
                                 + "}\n"));
 
-        helloWorldApp.addFile(
+        helloWorldApp.replaceFile(
                 new TestSourceFile(
                         "src/main",
                         "AndroidManifest.xml",
@@ -86,7 +87,6 @@ public class TestingSupportLibraryConnectedTest {
                                 + "      android:versionCode=\"1\"\n"
                                 + "      android:versionName=\"1.0\">\n"
                                 + "\n"
-                                + "    <uses-sdk android:minSdkVersion=\"18\" />\n"
                                 + "    <application android:label=\"@string/app_name\">\n"
                                 + "        <activity android:name=\".HelloWorld\"\n"
                                 + "                  android:label=\"@string/app_name\">\n"
@@ -116,16 +116,17 @@ public class TestingSupportLibraryConnectedTest {
                         + "'\n"
                         + "    defaultConfig {\n"
                         + "        testInstrumentationRunner \"android.support.test.runner.AndroidJUnitRunner\"\n"
+                        + "        minSdkVersion 18\n"
                         + "    }\n"
                         + "    dependencies {\n"
                         + "        androidTestCompile 'com.android.support:support-annotations:"
-                        + GradleTestProject.SUPPORT_LIB_VERSION
+                        + TestVersions.SUPPORT_LIB_VERSION
                         + "'\n"
                         + "        androidTestCompile 'com.android.support.test:runner:"
-                        + GradleTestProject.TEST_SUPPORT_LIB_VERSION
+                        + TestVersions.TEST_SUPPORT_LIB_VERSION
                         + "'\n"
                         + "        androidTestCompile 'com.android.support.test:rules:"
-                        + GradleTestProject.TEST_SUPPORT_LIB_VERSION
+                        + TestVersions.TEST_SUPPORT_LIB_VERSION
                         + "'\n"
                         + "    }\n"
                         + "}\n");

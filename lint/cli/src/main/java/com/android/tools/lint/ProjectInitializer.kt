@@ -18,17 +18,26 @@ package com.android.tools.lint
 
 import com.android.SdkConstants
 import com.android.SdkConstants.ANDROID_MANIFEST_XML
+import com.android.SdkConstants.ATTR_PATH
+import com.android.SdkConstants.DOT_CLASS
 import com.android.SdkConstants.DOT_JAR
+import com.android.SdkConstants.DOT_JAVA
+import com.android.SdkConstants.DOT_KT
+import com.android.SdkConstants.DOT_XML
 import com.android.SdkConstants.FD_JARS
 import com.android.SdkConstants.FD_RES
+import com.android.SdkConstants.FN_PUBLIC_TXT
+import com.android.SdkConstants.FN_RESOURCE_TEXT
 import com.android.SdkConstants.VALUE_FALSE
 import com.android.SdkConstants.VALUE_TRUE
+import com.android.ide.common.repository.ResourceVisibilityLookup
 import com.android.sdklib.AndroidTargetHash
 import com.android.sdklib.AndroidTargetHash.PLATFORM_HASH_PREFIX
 import com.android.sdklib.SdkVersionInfo
 import com.android.tools.lint.client.api.IssueRegistry
 import com.android.tools.lint.client.api.LintClient
 import com.android.tools.lint.detector.api.Location
+import com.android.tools.lint.detector.api.Platform
 import com.android.tools.lint.detector.api.Project
 import com.android.tools.lint.detector.api.Severity
 import com.android.utils.XmlUtils.getFirstSubTag
@@ -37,10 +46,12 @@ import com.google.common.collect.ArrayListMultimap
 import com.google.common.collect.Multimap
 import com.google.common.io.ByteStreams
 import com.google.common.io.Files
+import com.intellij.util.io.URLUtil
 import org.w3c.dom.Element
 import org.w3c.dom.Node
 import java.io.File
 import java.io.IOException
+import java.util.EnumSet
 import java.util.HashSet
 import java.util.regex.Pattern
 import java.util.zip.ZipException
@@ -60,6 +71,7 @@ private const val TAG_RESOURCE = "resource"
 private const val TAG_AAR = "aar"
 private const val TAG_JAR = "jar"
 private const val TAG_SDK = "sdk"
+private const val TAG_JDK_BOOT_CLASS_PATH = "jdk-boot-classpath"
 private const val TAG_LINT_CHECKS = "lint-checks"
 private const val TAG_BASELINE = "baseline"
 private const val TAG_MERGED_MANIFEST = "merged-manifest"
@@ -68,6 +80,7 @@ private const val TAG_AIDL = "aidl"
 private const val TAG_PROGUARD = "proguard"
 private const val ATTR_COMPILE_SDK_VERSION = "compile-sdk-version"
 private const val ATTR_TEST = "test"
+private const val ATTR_GENERATED = "generated"
 private const val ATTR_NAME = "name"
 private const val ATTR_FILE = "file"
 private const val ATTR_EXTRACTED = "extracted"
@@ -76,14 +89,19 @@ private const val ATTR_JAR = "jar"
 private const val ATTR_ANDROID = "android"
 private const val ATTR_LIBRARY = "library"
 private const val ATTR_MODULE = "module"
+private const val ATTR_INCOMPLETE = "incomplete"
+private const val DOT_SRCJAR = ".srcjar"
+
 /**
  * Compute a list of lint [Project] instances from the given XML descriptor files.
  * Each descriptor is considered completely separate from the other (e.g. you can't
  * have library definitions in one referenced from another descriptor.
  */
 fun computeMetadata(client: LintClient, descriptor: File): ProjectMetadata {
-    val initializer = ProjectInitializer(client, descriptor,
-            descriptor.parentFile ?: descriptor)
+    val initializer = ProjectInitializer(
+        client, descriptor,
+        descriptor.parentFile ?: descriptor
+    )
     return initializer.computeMetadata()
 }
 
@@ -92,20 +110,34 @@ fun computeMetadata(client: LintClient, descriptor: File): ProjectMetadata {
  * set of projects, any SDK or cache directories configured within the file, etc
  */
 data class ProjectMetadata(
-        /** List of projects. Will be empty if there was an error in the configuration. */
-        val projects: List<Project> = emptyList(),
-        /** A baseline file to apply, if any */
-        val baseline: File? = null,
-        /** The SDK to use, if overriding the default */
-        val sdk: File? = null,
-        /** The cache directory to use, if overriding the default */
-        val cache: File? = null,
-        /** A map from module to a merged manifest for that module, if any */
-        val mergedManifests: Map<Project, File?> = emptyMap(),
-        /** A map from module to a baseline to apply to that module, if any */
-        val moduleBaselines: Map<Project, File?> = emptyMap(),
-        /** A map from module to a list of custom rule JAR files to apply, if any */
-        val lintChecks: Map<Project, List<File>> = emptyMap())
+    /** List of projects. Will be empty if there was an error in the configuration. */
+    val projects: List<Project> = emptyList(),
+    /** A baseline file to apply, if any */
+    val baseline: File? = null,
+    /** The SDK to use, if overriding the default */
+    val sdk: File? = null,
+    /** The cache directory to use, if overriding the default */
+    val cache: File? = null,
+    /** A map from module to a merged manifest for that module, if any */
+    val mergedManifests: Map<Project, File?> = emptyMap(),
+    /** A map from module to a baseline to apply to that module, if any */
+    val moduleBaselines: Map<Project, File?> = emptyMap(),
+    /** List of custom check JAR files to apply everywhere */
+    val globalLintChecks: List<File> = emptyList(),
+    /** A map from module to a list of custom rule JAR files to apply, if any */
+    val lintChecks: Map<Project, List<File>> = emptyMap(),
+    /** list of boot classpath jars to use for non-Android projects */
+    val jdkBootClasspath: List<File> = emptyList(),
+    /** Target platforms we're analyzing  */
+    val platforms: EnumSet<Platform>? = null,
+    /**
+     * If true, the project metadata being passed in only represents a small
+     * subset of the real project sources, so only lint checks which can be run
+     * without full project context should be attempted. This is what happens for
+     * "on-the-fly" checks running in the IDE.
+     */
+    val incomplete: Boolean = false
+)
 
 /**
  * Class which handles initialization of a project hierarchy from a config XML file.
@@ -119,8 +151,11 @@ data class ProjectMetadata(
  * @param root the root project directory (relative paths in the config file are considered
  *             relative to this directory)
  */
-private class ProjectInitializer(val client: LintClient, val file: File,
-        var root: File) {
+private class ProjectInitializer(
+    val client: LintClient,
+    val file: File,
+    var root: File
+) {
 
     /** map from module name to module instance */
     private val modules = mutableMapOf<String, ManualProject>()
@@ -145,9 +180,16 @@ private class ProjectInitializer(val client: LintClient, val file: File,
      * (which in turn can be looked up in [dependencies])
      */
     private val jarAarMap = mutableMapOf<File, String>()
+    /**
+     * Map from module name to resource visibility lookup
+     */
+    private val visibility = mutableMapOf<String, ResourceVisibilityLookup>()
 
     /** A cache directory to use, if specified */
     private var cache: File? = null
+
+    /** Whether we're analyzing an Android project */
+    private var android: Boolean = false
 
     /** Compute a list of lint [Project] instances from the given XML descriptor */
     fun computeMetadata(): ProjectMetadata {
@@ -177,9 +219,11 @@ private class ProjectInitializer(val client: LintClient, val file: File,
             node != null -> client.xmlParser.getLocation(file, node)
             else -> Location.create(file)
         }
-        LintClient.report(client = client, issue = IssueRegistry.LINT_ERROR, message = message,
-                location = location,
-                file = file)
+        LintClient.report(
+            client = client, issue = IssueRegistry.LINT_ERROR, message = message,
+            location = location,
+            file = file
+        )
     }
 
     private fun parseModules(projectElement: Element): ProjectMetadata {
@@ -188,12 +232,18 @@ private class ProjectInitializer(val client: LintClient, val file: File,
             return ProjectMetadata()
         }
 
+        val incomplete = projectElement.getAttribute(ATTR_INCOMPLETE) == VALUE_TRUE
+        android = projectElement.getAttribute(ATTR_ANDROID) == VALUE_TRUE
+
+        val globalLintChecks = mutableListOf<File>()
+
         // First gather modules and sources, and collect dependency information.
         // The dependency information is captured into a separate map since dependencies
         // may refer to modules we have not encountered yet.
         var child = getFirstSubTag(projectElement)
         var sdk: File? = null
         var baseline: File? = null
+        val jdkBootClasspath = mutableListOf<File>()
         while (child != null) {
             val tag = child.tagName
             when (tag) {
@@ -203,8 +253,21 @@ private class ProjectInitializer(val client: LintClient, val file: File,
                 TAG_CLASSPATH -> {
                     globalClasspath.add(getFile(child, this.root))
                 }
+                TAG_LINT_CHECKS -> {
+                    globalLintChecks.add(getFile(child, this.root))
+                }
                 TAG_SDK -> {
                     sdk = getFile(child, this.root)
+                }
+                TAG_JDK_BOOT_CLASS_PATH -> {
+                    val path = child.getAttribute(ATTR_PATH)
+                    if (path.isNotEmpty()) {
+                        for (s in path.split(File.pathSeparatorChar)) {
+                            jdkBootClasspath += getFile(s, child, this.root)
+                        }
+                    } else {
+                        jdkBootClasspath += getFile(child, this.root)
+                    }
                 }
                 TAG_BASELINE -> {
                     baseline = getFile(child, this.root)
@@ -268,14 +331,45 @@ private class ProjectInitializer(val client: LintClient, val file: File,
             }
         }
 
+        computeResourceVisibility()
+
         return ProjectMetadata(
-                projects = sortedModules,
-                sdk = sdk,
-                baseline = baseline,
-                lintChecks = lintChecks,
-                cache = cache,
-                moduleBaselines = baselines,
-                mergedManifests = mergedManifests)
+            projects = sortedModules,
+            sdk = sdk,
+            baseline = baseline,
+            globalLintChecks = globalLintChecks,
+            lintChecks = lintChecks,
+            cache = cache,
+            moduleBaselines = baselines,
+            mergedManifests = mergedManifests,
+            incomplete = incomplete,
+            jdkBootClasspath = jdkBootClasspath,
+            platforms = if (android) Platform.ANDROID_SET else Platform.JDK_SET
+        )
+    }
+
+    private fun computeResourceVisibility() {
+        // TODO: We don't have dependency information from one AAR to another; we'll
+        // need to assume that all of them are in a flat hierarchy
+        for (module in modules.values) {
+            val aarDeps = mutableListOf<ResourceVisibilityLookup>()
+            for (dependencyName in dependencies.get(module)) {
+                val visibility = visibility[dependencyName] ?: continue
+                aarDeps.add(visibility)
+            }
+
+            if (aarDeps.isEmpty()) {
+                continue
+            } else {
+                val visibilityLookup = if (aarDeps.size == 1) {
+                    aarDeps[0]
+                } else {
+                    // Must create a composite
+                    ResourceVisibilityLookup.create(aarDeps)
+                }
+                module.setResourceVisibility(visibilityLookup)
+            }
+        }
     }
 
     private fun parseModule(moduleElement: Element) {
@@ -284,19 +378,28 @@ private class ProjectInitializer(val client: LintClient, val file: File,
         val android = moduleElement.getAttribute(ATTR_ANDROID) != VALUE_FALSE
         val buildApi: String = moduleElement.getAttribute(ATTR_COMPILE_SDK_VERSION)
 
+        if (android) {
+            this.android = true
+        }
+
         // Special case: if the module is a path (with an optional :suffix),
         // use this as the module directory, otherwise fall back to the default root
         name.indexOf(':', name.lastIndexOf(File.separatorChar))
         val dir =
-                if (name.contains(File.separator) && name.indexOf(':', name.lastIndexOf(File.separator)) != -1) {
-                    File(name.substring(0, name.indexOf(':', name.lastIndexOf(File.separator))))
-                } else {
-                    root
-                }
+            if (name.contains(File.separator) && name.indexOf(
+                    ':',
+                    name.lastIndexOf(File.separator)
+                ) != -1
+            ) {
+                File(name.substring(0, name.indexOf(':', name.lastIndexOf(File.separator))))
+            } else {
+                root
+            }
         val module = ManualProject(client, dir, name, library, android)
-        modules.put(name, module)
+        modules[name] = module
 
         val sources = mutableListOf<File>()
+        val generatedSources = mutableListOf<File>()
         val testSources = mutableListOf<File>()
         val resources = mutableListOf<File>()
         val manifests = mutableListOf<File>()
@@ -317,9 +420,12 @@ private class ProjectInitializer(val client: LintClient, val file: File,
                 }
                 TAG_SRC -> {
                     val file = getFile(child, dir)
-                    when (child.getAttribute(ATTR_TEST) == VALUE_TRUE) {
-                        false -> sources.add(file)
-                        true -> testSources.add(file)
+                    when (child.getAttribute(ATTR_GENERATED) == VALUE_TRUE) {
+                        true -> generatedSources.add(file)
+                        false -> when (child.getAttribute(ATTR_TEST) == VALUE_TRUE) {
+                            false -> sources.add(file)
+                            true -> testSources.add(file)
+                        }
                     }
                 }
                 TAG_RESOURCE -> {
@@ -368,7 +474,9 @@ private class ProjectInitializer(val client: LintClient, val file: File,
 
         // Compute source roots
         val sourceRoots = computeSourceRoots(sources)
-        val testSourceRoots = computeTestSourceRoots(testSources, sourceRoots)
+        val testSourceRoots = computeUniqueSourceRoots("test", testSources, sourceRoots)
+        val generatedSourceRoots =
+            computeUniqueSourceRoots("generated", generatedSources, sourceRoots)
 
         val resourceRoots = mutableListOf<File>()
         if (!resources.isEmpty()) {
@@ -383,9 +491,12 @@ private class ProjectInitializer(val client: LintClient, val file: File,
             }
         }
 
+        handleSrcJars(sources, resources, manifests, classes, sourceRoots)
+
         module.setManifests(manifests)
         module.setResources(resourceRoots, resources)
         module.setTestSources(testSourceRoots, testSources)
+        module.setGeneratedSources(generatedSourceRoots, generatedSources)
         module.setSources(sourceRoots, sources)
         module.setClasspath(classes, true)
         module.setClasspath(classpath, false)
@@ -395,6 +506,65 @@ private class ProjectInitializer(val client: LintClient, val file: File,
         this.lintChecks[module] = lintChecks
         this.mergedManifests[module] = mergedManifest
         this.baselines[module] = baseline
+
+        client.registerProject(module.dir, module)
+    }
+
+    private fun handleSrcJars(
+        sources: MutableList<File>,
+        resources: MutableList<File>,
+        manifests: MutableList<File>,
+        classes: MutableList<File>,
+        sourceRoots: MutableList<File>
+    ) {
+        // Finds any .srcjar files in the first parameter, and if so, removes it, and
+        // then expands the contents (based on the file type) into all the individual lists --
+        // sources, manifests, bytecode, etc:
+        handleSrcJars(sources, sources, resources, manifests, classes, sourceRoots)
+        handleSrcJars(resources, sources, resources, manifests, classes, sourceRoots)
+        handleSrcJars(manifests, sources, resources, manifests, classes, sourceRoots)
+        handleSrcJars(classes, sources, resources, manifests, classes, sourceRoots)
+    }
+
+    private fun handleSrcJars(
+        list: MutableList<File>,
+        sources: MutableList<File>,
+        resources: MutableList<File>,
+        manifests: MutableList<File>,
+        classes: MutableList<File>,
+        sourceRoots: MutableList<File>
+    ) {
+        val iterator = list.listIterator()
+        if (iterator.hasNext()) {
+            val file = iterator.next()
+            if (file.path.endsWith(DOT_SRCJAR)) {
+                iterator.remove()
+
+                sourceRoots.add(file)
+
+                // Expand into child content
+                ZipFile(file).use { zipFile ->
+                    val entries = zipFile.entries()
+                    while (entries.hasMoreElements()) {
+                        val zipEntry = entries.nextElement()
+                        if (zipEntry.isDirectory) {
+                            continue
+                        }
+                        val path = file.path + URLUtil.JAR_SEPARATOR + zipEntry.name
+                        val newFile = File(path)
+                        if (path.endsWith(ANDROID_MANIFEST_XML)) {
+                            manifests.add(newFile)
+                        } else if (path.endsWith(DOT_XML)) {
+                            resources.add(newFile)
+                        } else if (path.endsWith(DOT_JAVA) || path.endsWith(DOT_KT)) {
+                            sources.add(newFile)
+                        } else if (path.endsWith(DOT_CLASS)) {
+                            classes.add(newFile)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun parseAar(element: Element, dir: File): String? {
@@ -415,8 +585,7 @@ private class ProjectInitializer(val client: LintClient, val file: File,
                 // Expand into temp dir
                 val cacheDir = if (cache != null) {
                     File(cache, "aars")
-                }
-                else {
+                } else {
                     client.getCacheDir("aars", true)
                 }
                 val target = File(cacheDir, name)
@@ -459,8 +628,13 @@ private class ProjectInitializer(val client: LintClient, val file: File,
             project.setClasspath(jarList, false)
         }
 
-        jarAarMap.put(aarFile, name)
-        modules.put(name, project)
+        jarAarMap[aarFile] = name
+        modules[name] = project
+
+        val publicResources = File(expanded, FN_PUBLIC_TXT)
+        val allResources = File(expanded, FN_RESOURCE_TEXT)
+        visibility[name] = ResourceVisibilityLookup.create(publicResources, allResources, name)
+
         return name
     }
 
@@ -479,8 +653,8 @@ private class ProjectInitializer(val client: LintClient, val file: File,
         val project = ManualProject(client, jarFile, name, true, false)
         project.reportIssues = false
         project.setClasspath(listOf(jarFile), false)
-        jarAarMap.put(jarFile, name)
-        modules.put(name, project)
+        jarAarMap[jarFile] = name
+        modules[name] = project
         return name
     }
 
@@ -502,24 +676,30 @@ private class ProjectInitializer(val client: LintClient, val file: File,
         }
     }
 
-    private fun computeTestSourceRoots(testSources: MutableList<File>,
-            sourceRoots: MutableList<File>): List<File> {
+    private fun computeUniqueSourceRoots(
+        type: String,
+        typeSources: MutableList<File>,
+        sourceRoots: MutableList<File>
+    ): List<File> {
         when {
-            !testSources.isNotEmpty() -> return emptyList()
+            typeSources.isEmpty() -> return emptyList()
             else -> {
-                val testSourceRoots = computeSourceRoots(testSources)
+                val typeSourceRoots = computeSourceRoots(typeSources)
 
                 // We don't allow the test sources and product sources to overlap
-                for (root in testSourceRoots) {
+                for (root in typeSourceRoots) {
                     if (sourceRoots.contains(root)) {
-                        reportError("Tests cannot be in the same source root as production files; " +
-                                "source root $root is also a test root")
+                        reportError(
+                            "${type.capitalize()} sources cannot be in the same " +
+                                    "source root as production files; " +
+                                    "source root $root is also a test root"
+                        )
                         break
                     }
                 }
 
-                testSourceRoots.removeAll(sourceRoots)
-                return testSourceRoots
+                typeSourceRoots.removeAll(sourceRoots)
+                return typeSourceRoots
             }
         }
     }
@@ -548,10 +728,10 @@ private class ProjectInitializer(val client: LintClient, val file: File,
                 // But what if the source file itself was just passed as "Foo.java" ?
                 // In that case it is relative to the pwd, so we get the *absolute*
                 // path of the file instead, and take its parent path.
-                val root = findRoot(file) ?: file.parentFile ?: file.absoluteFile.parentFile ?:
-                        continue
+                val root = findRoot(file) ?: file.parentFile ?: file.absoluteFile.parentFile
+                ?: continue
 
-                dirToRootCache.put(parent.path, root)
+                dirToRootCache[parent.path] = root
 
                 if (!sourceRoots.contains(root)) {
                     sourceRoots.add(root)
@@ -566,8 +746,12 @@ private class ProjectInitializer(val client: LintClient, val file: File,
      * produces a full path to the file. If [attribute] is specified, only the specific
      * file attribute name is checked.
      */
-    private fun getFile(element: Element, dir: File, attribute: String? = null,
-            required: Boolean = false): File {
+    private fun getFile(
+        element: Element,
+        dir: File,
+        attribute: String? = null,
+        required: Boolean = false
+    ): File {
         var path: String
         if (attribute != null) {
             path = element.getAttribute(attribute)
@@ -589,20 +773,36 @@ private class ProjectInitializer(val client: LintClient, val file: File,
             }
             return File("")
         }
+
+        return getFile(path, element, dir)
+    }
+
+    private fun getFile(
+        path: String,
+        element: Element,
+        dir: File
+    ): File {
         var source = File(path)
-        if (!source.isAbsolute && !source.exists()) {
-            source = File(dir, path)
+        if (!source.isAbsolute) {
             if (!source.exists()) {
-                source = File(root, path)
+                source = File(dir, path)
+                if (!source.exists()) {
+                    source = File(root, path)
+                }
+            } else {
+                // Relative path: make it absolute
+                return source.absoluteFile
             }
         }
 
         if (!source.exists()) {
             val relativePath = if (SdkConstants.currentPlatform() == SdkConstants.PLATFORM_WINDOWS)
                 dir.canonicalPath.replace(File.separator, "\\\\")
-                else dir.canonicalPath
-            reportError("$path ${if (!File(path).isAbsolute) "(relative to " +
-                    relativePath + ") " else ""}does not exist", element)
+            else dir.canonicalPath
+            reportError(
+                "$path ${if (!File(path).isAbsolute) "(relative to " +
+                        relativePath + ") " else ""}does not exist", element
+            )
         }
         return source
     }
@@ -640,8 +840,13 @@ private class ProjectInitializer(val client: LintClient, val file: File,
  * with custom source locations, custom library types, etc.
  */
 private class ManualProject
-constructor(client: LintClient, dir: File, name: String, library: Boolean,
-        private var android: Boolean) : Project(client, dir, dir) {
+constructor(
+    client: LintClient,
+    dir: File,
+    name: String,
+    library: Boolean,
+    private var android: Boolean
+) : Project(client, dir, dir) {
 
     init {
         setName(name)
@@ -707,6 +912,12 @@ constructor(client: LintClient, dir: File, name: String, library: Boolean,
         addFilteredFiles(sources)
     }
 
+    /** Sets the given generated source files and their roots for this module */
+    fun setGeneratedSources(sourceRoots: List<File>, sources: List<File>) {
+        this.generatedSourceFolders = sourceRoots
+        addFilteredFiles(sources)
+    }
+
     /**
      * Adds the given files to the set of filtered files for this project. With
      * a filter applied, lint won't look at all sources in for example the source
@@ -723,25 +934,36 @@ constructor(client: LintClient, dir: File, name: String, library: Boolean,
 
     /** Sets the global class path for this module */
     fun setClasspath(allClasses: List<File>, useForAnalysis: Boolean) =
-            if (useForAnalysis) {
-                this.javaClassFolders = allClasses
-            } else {
-                this.javaLibraries = allClasses
-            }
+        if (useForAnalysis) {
+            this.javaClassFolders = allClasses
+        } else {
+            this.javaLibraries = allClasses
+        }
 
     fun setCompileSdkVersion(buildApi: String) {
         if (!buildApi.isEmpty()) {
             buildTargetHash = if (Character.isDigit(buildApi[0]))
                 PLATFORM_HASH_PREFIX + buildApi
-            else
-                buildApi
+            else buildApi
             val version = AndroidTargetHash.getPlatformVersion(buildApi)
             if (version != null) {
                 buildSdk = version.featureLevel
             } else {
-                client.log(Severity.WARNING, null,
-                        "Unexpected build target format: %1\$s", buildApi)
+                client.log(
+                    Severity.WARNING, null,
+                    "Unexpected build target format: %1\$s", buildApi
+                )
             }
         }
+    }
+
+    private var resourceVisibility: ResourceVisibilityLookup? = null
+
+    fun setResourceVisibility(resourceVisibility: ResourceVisibilityLookup?) {
+        this.resourceVisibility = resourceVisibility
+    }
+
+    override fun getResourceVisibility(): ResourceVisibilityLookup {
+        return resourceVisibility ?: super.getResourceVisibility()
     }
 }

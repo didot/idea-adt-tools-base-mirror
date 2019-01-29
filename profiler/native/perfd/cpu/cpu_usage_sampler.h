@@ -21,10 +21,9 @@
 #include <mutex>
 #include <unordered_set>
 
-#include "perfd/cpu/procfs_files.h"
-#include "perfd/daemon.h"
 #include "proto/cpu.grpc.pb.h"
 #include "utils/clock.h"
+#include "utils/procfs_files.h"
 
 namespace profiler {
 
@@ -33,10 +32,8 @@ class CpuCache;
 class CpuUsageSampler {
  public:
   // Creates a CPU usage data collector that saves data to |cpu_cache|.
-  CpuUsageSampler(Daemon::Utilities* utilities, CpuCache* cpu_cache)
-      : clock_(utilities->clock()),
-        cache_(*cpu_cache),
-        usage_files_(new ProcfsFiles()) {}
+  CpuUsageSampler(Clock* clock, CpuCache* cpu_cache)
+      : clock_(clock), cache_(*cpu_cache), usage_files_(new ProcfsFiles()) {}
 
   // Starts collecting usage data for process with ID of |pid|, if not already.
   profiler::proto::CpuStartResponse::Status AddProcess(int32_t pid);
@@ -67,7 +64,7 @@ class CpuUsageSampler {
   std::unordered_set<int32_t> pids_{};
   std::mutex pids_mutex_;
   // Clock that timestamps sample data.
-  const Clock& clock_;
+  Clock* clock_;
   // Cache where collected data will be saved.
   CpuCache& cache_;
   // Files that are used to sample CPU usage. Configurable for testing.

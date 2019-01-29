@@ -1,21 +1,24 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 
+# managed by go/iml_to_build
 iml_module(
     name = "studio.perf-logger",
-    srcs = ["src/main/java"],
     iml_files = ["perf-logger.iml"],
-    tags = ["managed"],
-    test_srcs = ["src/test/java"],
+    tags = [
+        "no_test_windows",  # b/77288863
+    ],
+    test_srcs = [
+        "src/main/java",
+        "src/test/java",
+    ],
     visibility = ["//visibility:public"],
-    exports = ["//tools/idea/.idea/libraries:gson"],
     # do not sort: must match IML order
     deps = [
-        "//tools/idea/platform/annotations[module]",
-        "//tools/idea/platform/platform-api[module]",
-        "//tools/base/testutils:studio.testutils[module]",
-        "//tools/idea/.idea/libraries:gson",
-        "//tools/idea/.idea/libraries:Guava",
+        "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
+        "//tools/idea/.idea/libraries:gson[test]",
+        "//tools/idea/.idea/libraries:Guava[test]",
         "//tools/idea/.idea/libraries:JUnit4[test]",
         "//tools/idea/.idea/libraries:truth[test]",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations[module, test]",
     ],
 )

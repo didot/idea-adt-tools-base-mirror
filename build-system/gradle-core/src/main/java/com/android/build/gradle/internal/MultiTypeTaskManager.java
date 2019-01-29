@@ -16,18 +16,20 @@
 
 package com.android.build.gradle.internal;
 
-import static com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType.JAVAC;
+import static com.android.build.gradle.internal.scope.InternalArtifactType.JAVAC;
 
 import android.databinding.tool.DataBindingBuilder;
 import com.android.annotations.NonNull;
 import com.android.build.api.transform.QualifiedContent;
 import com.android.build.gradle.AndroidConfig;
+import com.android.build.gradle.internal.scope.AnchorOutputType;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.VariantType;
+import com.android.builder.core.VariantTypeImpl;
 import com.android.builder.profile.Recorder;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
@@ -45,61 +47,61 @@ public class MultiTypeTaskManager extends TaskManager {
             @NonNull GlobalScope globalScope,
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
             @NonNull SdkHandler sdkHandler,
+            @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
         super(
                 globalScope,
                 project,
                 projectOptions,
-                androidBuilder,
                 dataBindingBuilder,
                 extension,
                 sdkHandler,
+                variantFactory,
                 toolingRegistry,
                 recorder);
+        FeatureTaskManager featureTaskManager =
+                new FeatureTaskManager(
+                        globalScope,
+                        project,
+                        projectOptions,
+                        dataBindingBuilder,
+                        extension,
+                        sdkHandler,
+                        variantFactory,
+                        toolingRegistry,
+                        recorder);
         delegates =
                 ImmutableMap.of(
-                        VariantType.FEATURE,
-                        new FeatureTaskManager(
-                                globalScope,
-                                project,
-                                projectOptions,
-                                androidBuilder,
-                                dataBindingBuilder,
-                                extension,
-                                sdkHandler,
-                                toolingRegistry,
-                                recorder),
-                        VariantType.LIBRARY,
-                        new LibraryTaskManager(
-                                globalScope,
-                                project,
-                                projectOptions,
-                                androidBuilder,
-                                dataBindingBuilder,
-                                extension,
-                                sdkHandler,
-                                toolingRegistry,
-                                recorder));
+                        VariantTypeImpl.FEATURE, featureTaskManager,
+                        VariantTypeImpl.BASE_FEATURE, featureTaskManager,
+                        VariantTypeImpl.LIBRARY,
+                                new LibraryTaskManager(
+                                        globalScope,
+                                        project,
+                                        projectOptions,
+                                        dataBindingBuilder,
+                                        extension,
+                                        sdkHandler,
+                                        variantFactory,
+                                        toolingRegistry,
+                                        recorder));
     }
 
     @Override
     public void createTasksForVariantScope(@NonNull VariantScope variantScope) {
-        delegates
-                .get(variantScope.getVariantData().getType())
-                .createTasksForVariantScope(variantScope);
+        delegates.get(variantScope.getType()).createTasksForVariantScope(variantScope);
     }
 
     @NonNull
     @Override
     protected Set<? super QualifiedContent.Scope> getResMergingScopes(
             @NonNull VariantScope variantScope) {
-        VariantType variantType = variantScope.getVariantData().getType();
-        if (variantType.isForTesting()) {
+        VariantType variantType = variantScope.getType();
+        if (variantType.isTestComponent()) {
             variantType = variantScope.getTestedVariantData().getType();
         }
         return delegates.get(variantType).getResMergingScopes(variantScope);
@@ -110,10 +112,13 @@ public class MultiTypeTaskManager extends TaskManager {
         // This task manager is used when creating the unit tests of a variant so we need to do this.
         // FIXME remove when we remove the unit test of a feature (Since the aar variant is already tested with unit tests).
         // create an anchor collection for usage inside the same module (unit tests basically)
-        ConfigurableFileCollection fileCollection =
-                scope.createAnchorOutput(TaskOutputHolder.AnchorOutputType.ALL_CLASSES);
-        fileCollection.from(scope.getOutput(JAVAC));
-        fileCollection.from(scope.getVariantData().getAllPreJavacGeneratedBytecode());
-        fileCollection.from(scope.getVariantData().getAllPostJavacGeneratedBytecode());
+        ConfigurableFileCollection files =
+                scope.getGlobalScope()
+                        .getProject()
+                        .files(
+                                scope.getArtifacts().getArtifactFiles(JAVAC),
+                                scope.getVariantData().getAllPreJavacGeneratedBytecode(),
+                                scope.getVariantData().getAllPostJavacGeneratedBytecode());
+        scope.getArtifacts().appendArtifact(AnchorOutputType.ALL_CLASSES, files);
     }
 }

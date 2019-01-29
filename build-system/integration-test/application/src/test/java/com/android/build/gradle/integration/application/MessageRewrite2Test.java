@@ -17,7 +17,6 @@
 package com.android.build.gradle.integration.application;
 
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
-import static com.android.testutils.truth.PathSubject.assertThat;
 
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
@@ -54,7 +53,7 @@ public class MessageRewrite2Test {
 
                     GradleBuildResult result =
                             project.executor().expectFailure().run("assembleDebug");
-                    assertThat(result.getStderr())
+                    assertThat(result.getStdout())
                             .contains(
                                     FileUtils.join("src", "main", "res", "values", "strings.xml"));
                 });
@@ -73,7 +72,7 @@ public class MessageRewrite2Test {
 
                     GradleBuildResult result =
                             project.executor().expectFailure().run("assembleDebug");
-                    assertThat(result.getStderr())
+                    assertThat(result.getStdout())
                             .contains(
                                     FileUtils.join("src", "main", "res", "values", "strings.xml"));
                 });

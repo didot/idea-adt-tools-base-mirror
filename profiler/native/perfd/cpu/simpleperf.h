@@ -14,22 +14,37 @@
  * limitations under the License.
  */
 
-#ifndef CPU_SIMPLEPERF_H_
-#define CPU_SIMPLEPERF_H_
+#ifndef PERFD_CPU_SIMPLEPERF_H_
+#define PERFD_CPU_SIMPLEPERF_H_
 
 #include <string>
 
 #include "utils/bash_command.h"
+#include "utils/current_process.h"
+#include "utils/device_info.h"
 
 namespace profiler {
+
+// The constant is used when profiling startup of an application with
+// simpleperf, in which case simpleperf profiling starts before application
+// launch, so pid is not available. The value is not -1 because system libraries
+// may use it as pid is not available value. (e.g
+// |ProcessManager::GetPidForBinary|).
+const int kStartupProfilingPid = -12345;
 
 // Service to manage interactions related with simpleperf profiling tool
 // (e.g. invoking simpleperf commands, enabling simpleperf on the device, etc.).
 // Designed to be easily inherited and used in tests.
 class Simpleperf {
  public:
-  explicit Simpleperf(const std::string& simpleperf_dir, const bool is_emulator)
-      : simpleperf_dir_(simpleperf_dir), is_emulator_(is_emulator) {}
+  explicit Simpleperf()
+      : Simpleperf(CurrentProcess::dir(), DeviceInfo::is_emulator(),
+                   DeviceInfo::is_user_build()) {}
+  explicit Simpleperf(const std::string& simpleperf_dir, const bool is_emulator,
+                      const bool is_user_build)
+      : simpleperf_dir_(simpleperf_dir),
+        is_emulator_(is_emulator),
+        is_user_build_(is_user_build) {}
   ~Simpleperf() = default;
 
   // Invoke `simpleperf record` given the |pid| of the process to be profiled,
@@ -46,7 +61,9 @@ class Simpleperf {
   virtual bool EnableProfiling() const;
 
   // Kill simpleperf and returns true if it was killed successfully.
-  virtual bool KillSimpleperf(int simpleperf_pid) const;
+  // Technically this function could be const, but we mark it not for testing.
+  // |pkg_name| represents the process name currently being profiled.
+  virtual bool KillSimpleperf(int simpleperf_pid, const std::string& pkg_name);
 
   // Invokes `simpleperf report-sample` passing |input_path| as input file and
   // |output_path| as the protobuf output file. Adds the command output to
@@ -78,10 +95,11 @@ class Simpleperf {
  private:
   const std::string simpleperf_dir_;
   const bool is_emulator_;
+  const bool is_user_build_;
 
   // Returns a string with the full simpleperf path (e.g. /path/simpleperf_arm).
   std::string GetSimpleperfPath(const std::string& abi_arch) const;
 };
 }  // namespace profiler
 
-#endif  // CPU_SIMPLEPERF_H_
+#endif  // PERFD_CPU_SIMPLEPERF_H_

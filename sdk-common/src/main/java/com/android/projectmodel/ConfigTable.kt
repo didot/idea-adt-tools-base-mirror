@@ -13,10 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+@file:JvmName("ConfigTableUtil")
 package com.android.projectmodel
 
 /**
- * A config table holds the set of [Config] instances for an [AndroidProject] and describes how they
+ * A config table holds the set of [Config] instances for an [AndroidSubmodule] and describes how they
  * are shared among build types, [Artifact] instances, and [Variant] instances.
  *
  * New properties may be added in the future; clients that invoke the constructor are encouraged to
@@ -44,19 +45,36 @@ data class ConfigTable(
      * Returns the list of [Config] instances that have any intersection with the table region
      * described by the given path.
      *
-     * For example, if [Variant.configPath] is passed to this method, it will return all [Config]
-     * instances that have any possibility of being used by an [Artifact] in that [Variant]. It
-     * will include [Config] instances that only apply to specific [Artifact] instances, but will
-     * exclude [Config] instances that don't apply to the [Variant] at all.
+     * For example, if given the path to a [Variant], it will return all [Config] instances that
+     * have any possibility of being used by an [Artifact] in that [Variant]. It will include
+     * [Config] instances that only apply to specific [Artifact] instances, but will exclude
+     * [Config] instances that don't apply to the [Variant] at all.
+     *
+     * If given the path to an [Artifact], it will return all the [Config] instances for that
+     * [Artifact].
      */
     fun configsIntersecting(searchCriteria: ConfigPath): List<Config> =
             filterIntersecting(searchCriteria).configs
 
     /**
+     * Returns the list of [Config] instances that have any intersection with the given path.
+     *
+     * For example, if given the path to a [Variant], it will return all [Config] instances that
+     * have any possibility of being used by an [Artifact] in that [Variant]. It will include
+     * [Config] instances that only apply to specific [Artifact] instances, but will exclude
+     * [Config] instances that don't apply to the [Variant] at all.
+     *
+     * If given the path to an [Artifact], it will return all the [Config] instances for that
+     * [Artifact].
+     */
+    fun configsIntersecting(searchCriteria: SubmodulePath): List<Config> =
+        filterIntersecting(searchCriteria.toConfigPath()).configs
+
+    /**
      * Returns the list of [Config] instances that do not apply to any [Artifact] within the table
      * region described by the given [ConfigPath].
      *
-     * For example, if given a [Variant.configPath], it will return all [Config] instances
+     * For example, if given the path to a [Variant], it will return all [Config] instances
      * that are not used by any [Artifact] with that [Variant].
      */
     fun configsNotIntersecting(searchCriteria: ConfigPath): List<Config> =
@@ -89,4 +107,97 @@ data class ConfigTable(
             !it.path.intersects(searchCriteria)
         })
     }
+
+    /**
+     * Generates all possible [Variant] instances for this [ConfigTable] by merging every
+     * combination of schema dimensions.
+     */
+    fun generateVariants() = generateVariantsFor(generateArtifacts())
+
+    /**
+     * Generates all possible [Artifact] instances for this [ConfigTable] by merging every
+     * combination of schema dimensions.
+     */
+    fun generateArtifacts(): Map<ConfigPath, Artifact> =
+        schema.allPaths().associate { it to Artifact(
+            // We can rely on segments being non-null since allPaths returns the paths to artifacts,
+            // and null segments indicates a path that never matches any artifact. We can rely on
+            // there being at least one segment because there needs to be at least one dimension
+            // in order for allPaths() to return a non-empty sequence and the number of segments
+            // equals the number of dimensions.
+            name = it.segments!!.last()!!,
+            resolved = configsIntersecting(it).merged()
+        )}
+
+    /**
+     * Given a map of all the [Artifact] instances and their associated [ConfigPath], generates
+     * appropriate [Variant] instances to hold those [Artifact] instances.
+     */
+    fun generateVariantsFor(artifacts:Map<ConfigPath, Artifact>): List<Variant> {
+        val groupedByVariant =
+            artifacts.keys.filter { it.segments != null && it.segments.size == schema.dimensions.size }
+                .groupBy { it.parent() }
+
+        return groupedByVariant.map { Variant(it.key, it.value.mapNotNull { artifacts[it] }) }
+    }
 }
+
+/**
+ * Trivial schema for a table containing exactly one variant and one artifact. Note that the
+ * main artifact name is required to be [ARTIFACT_NAME_MAIN], so all trivial schemas will always
+ * look exactly like this.
+ */
+internal val TRIVIAL_SCHEMA = ConfigTableSchema(
+    listOf(
+        ConfigDimension(
+            ARTIFACT_DIMENSION_NAME,
+            listOf(ARTIFACT_NAME_MAIN)
+        )
+    )
+)
+
+/**
+ * Path to the main artifact in a [TRIVIAL_SCHEMA].
+ */
+internal val TRIVIAL_MAIN_ARTIFACT_PATH = matchArtifactsWith(listOf(ARTIFACT_NAME_MAIN))
+
+/**
+ * Creates a [ConfigTable] for a project containing exactly one variant of one artifact, given
+ * the resolved [Config] of that artifact. The main artifact is always required to be named
+ * [ARTIFACT_NAME_MAIN], so the schema and artifact paths for trivial [ConfigTable] instances is
+ * always the same.
+ *
+ * This is a convenience method for constructing such trivial instances. In addition to saving
+ * boilerplate, it also saves memory by reusing the same schema instance for all trivial
+ * [ConfigTable] instances.
+ *
+ */
+fun configTableWith(config: Config) = ConfigTable(
+    TRIVIAL_SCHEMA,
+    listOf(
+        ConfigAssociation(
+            TRIVIAL_MAIN_ARTIFACT_PATH,
+            config
+        )
+    )
+)
+
+/**
+ * Constructs a [ConfigTable] from the given [ConfigTableSchema]. This is intended primarily
+ * as a convenient way to construct hardcoded [ConfigTable] instances from Java, in cases where
+ * there may be more than one variant or artifact.
+ */
+fun configTableWith(schema: ConfigTableSchema, associations: Map<String?, Config>) = ConfigTable(
+    schema, associations.map { ConfigAssociation(schema.pathFor(it.key), it.value)}
+)
+
+/**
+ * Constructs a [ConfigTable] from the given [ConfigTableSchema]. This is intended primarily
+ * as a convenient way to construct hardcoded [ConfigTable] instances from Kotlin.
+ *
+ * @param schema the schema to use for the table
+ * @param associations the entries to include in the table, where the keys map onto entries
+ * in the schema.
+ */
+fun ConfigTableSchema.buildTable(vararg associations: Pair<String?, Config>) = ConfigTable(
+    this, associations.map { ConfigAssociation(this.pathFor(it.first), it.second) })

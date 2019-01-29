@@ -18,8 +18,9 @@ package com.android.build.gradle.internal.tasks
 
 import com.android.annotations.VisibleForTesting
 import com.android.build.gradle.internal.packaging.createDefaultDebugStore
-import com.android.build.gradle.internal.scope.TaskConfigAction
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.builder.core.BuilderConstants
 import com.android.builder.model.SigningConfig
 import com.android.builder.signing.DefaultSigningConfig
@@ -116,24 +117,27 @@ open class ValidateSigningTask : AndroidVariantTask() {
 
     /**
      * Always re-run if the store file is not present to prevent the task being UP-TO-DATE
-     * if the keystore is deleted after the first run. (See [ConfigAction.execute])
+     * if the keystore is deleted after the first run. (See [CreationAction.execute])
      * Other changes, such as the first time it is run, or if the project is cleaned, or if
      * the plugin classpath is changed will also cause this task to be re-run.
      */
     @VisibleForTesting
     fun forceRerun() = signingConfig.storeFile?.isFile != true
 
-    class ConfigAction(
-            private val variantScope: VariantScope,
-            private val defaultDebugKeystoreLocation: File) :
-            TaskConfigAction<ValidateSigningTask> {
+    class CreationAction(
+        variantScope: VariantScope,
+        private val defaultDebugKeystoreLocation: File
+    ) :
+        VariantTaskCreationAction<ValidateSigningTask>(variantScope) {
 
-        override fun getName() = variantScope.getTaskName("validateSigning")
+        override val name: String
+            get() = variantScope.getTaskName("validateSigning")
+        override val type: Class<ValidateSigningTask>
+            get() = ValidateSigningTask::class.java
 
-        override fun getType() = ValidateSigningTask::class.java
+        override fun configure(task: ValidateSigningTask) {
+            super.configure(task)
 
-        override fun execute(task: ValidateSigningTask) {
-            task.variantName = variantScope.fullVariantName
             task.signingConfig =
                     variantScope.variantConfiguration.signingConfig ?:
                             throw IllegalStateException(

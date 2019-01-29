@@ -19,8 +19,9 @@ package com.android.builder.symbols
 import com.android.SdkConstants
 import com.android.ide.common.symbols.Symbol
 import com.android.ide.common.symbols.SymbolIo
-import com.android.ide.common.symbols.SymbolJavaType
 import com.android.ide.common.symbols.SymbolTable
+import com.android.ide.common.symbols.parseArrayLiteral
+import com.android.ide.common.symbols.valueStringToInt
 import com.android.resources.ResourceType
 import com.android.testutils.apk.Zip
 import com.android.utils.PathUtils
@@ -30,6 +31,7 @@ import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.IOException
 import java.lang.reflect.Field
 import java.net.URLClassLoader
 import java.nio.file.Files
@@ -49,35 +51,19 @@ class BytecodeRClassWriterTest {
 
         val symbols = SymbolTable.builder()
                 .tablePackage("com.example.foo")
-                .add(Symbol.createSymbol(ResourceType.ID,
-                        "foo",
-                        SymbolJavaType.INT,
-                        "0x0"))
+                .add(Symbol.NormalSymbol(ResourceType.ID, "foo", 0x0))
                 .add(
-                        Symbol.createSymbol(
+                    Symbol.NormalSymbol(
                                 ResourceType.DRAWABLE,
                                 "bar",
-                                SymbolJavaType.INT,
-                                "0x1"))
+                                0x1))
+                .add(Symbol.AttributeSymbol("beep", 0x3))
+                .add(Symbol.AttributeSymbol("boop", 0x5))
                 .add(
-                        Symbol.createSymbol(
-                                ResourceType.ATTR,
-                                "beep",
-                                SymbolJavaType.INT,
-                                "0x3"))
-                .add(
-                        Symbol.createSymbol(
-                                ResourceType.ATTR,
-                                "boop",
-                                SymbolJavaType.INT,
-                                "0x5"))
-                .add(
-                        Symbol.createSymbol(
-                                ResourceType.STYLEABLE,
+                    Symbol.StyleableSymbol(
                                 "styles",
-                                SymbolJavaType.INT_LIST,
-                                "{ 0x2, 0x4 }",
-                                listOf("style1", "style2")))
+                                ImmutableList.of(0x2, 0x4),
+                                ImmutableList.of("style1", "style2")))
                 .build()
 
         exportToCompiledJava(listOf(symbols), rJar.toPath())
@@ -85,7 +71,7 @@ class BytecodeRClassWriterTest {
         Zip(rJar).use {
             assertThat(it.entries).hasSize(5)
 
-            assertThat<String, Iterable<String>>(it.entries.map { f -> f.toString() }).containsExactly(
+            assertThat(it.entries.map { f -> f.toString() }).containsExactly(
                     "/com/example/foo/R.class",
                     "/com/example/foo/R\$id.class",
                     "/com/example/foo/R\$drawable.class",
@@ -102,38 +88,24 @@ class BytecodeRClassWriterTest {
 
         val appSymbols = SymbolTable.builder()
                 .tablePackage("com.example.foo.app")
+                .add(Symbol.AttributeSymbol("beep", 0x1))
+                .add(Symbol.AttributeSymbol("boop", 0x3))
                 .add(
-                        Symbol.createSymbol(
-                                ResourceType.ATTR,
-                                "beep",
-                                SymbolJavaType.INT,
-                                "0x1"))
-                .add(
-                        Symbol.createSymbol(
-                                ResourceType.ATTR,
-                                "boop",
-                                SymbolJavaType.INT,
-                                "0x3"))
-                .add(
-                        Symbol.createSymbol(
-                                ResourceType.STYLEABLE,
+                    Symbol.StyleableSymbol(
                                 "styles",
-                                SymbolJavaType.INT_LIST,
-                                "{ 0x1004, 0x1002 }",
-                                listOf("styles_boop", "styles_beep")))
+                        ImmutableList.of(0x1004, 0x1002),
+                                ImmutableList.of("styles_boop", "styles_beep")))
                 .add(
-                        Symbol.createSymbol(
-                                ResourceType.STYLEABLE,
+                    Symbol.StyleableSymbol(
                                 "other_style",
-                                SymbolJavaType.INT_LIST,
-                                "{ 0x1004, 0x1002 }",
-                                listOf("foo", "bar.two")))
-                .add(Symbol.createSymbol(ResourceType.STRING, "libstring", SymbolJavaType.INT, "0x4"))
+                        ImmutableList.of(0x1004, 0x1002),
+                                ImmutableList.of("foo", "bar.two")))
+                .add(Symbol.NormalSymbol(ResourceType.STRING, "libstring", 0x4))
                 .build()
 
         val librarySymbols = SymbolTable.builder()
                 .tablePackage("com.example.foo.lib")
-                .add(Symbol.createSymbol(ResourceType.STRING, "libstring", SymbolJavaType.INT, "0x4"))
+                .add(Symbol.NormalSymbol(ResourceType.STRING, "libstring",0x4))
                 .build()
 
         // The existing path: Symbol table --com.android.builder.symbols.exportToJava--> R.java --javac--> R classes
@@ -141,8 +113,7 @@ class BytecodeRClassWriterTest {
         val appRDotJava = SymbolIo.exportToJava(appSymbols, rDotJavaDir, false)
         val libRDotJava = SymbolIo.exportToJava(librarySymbols, rDotJavaDir, false)
         val javac = ToolProvider.getSystemJavaCompiler()
-        val manager = javac.getStandardFileManager(
-                null, null, null)
+        val manager = javac.getStandardFileManager(null, null, null)
         // Use javac to compile R.java into R.class, R$id.class. etc.
         val source = manager.getJavaFileObjectsFromFiles(ImmutableList.of(libRDotJava, appRDotJava)) as Iterable<JavaFileObject>
         javac.getTask(null,
@@ -195,15 +166,15 @@ class BytecodeRClassWriterTest {
         try {
             parseArrayLiteral(3, "{0x1,0x2}")
             fail("Expected failure - too few listed values")
-        } catch (e: IllegalArgumentException) {
-            // Expected.
+        } catch (e: IOException) {
+            assertThat(e).hasMessageThat().contains("should have 3 item(s)")
         }
 
         try {
             parseArrayLiteral(1, "{0x1,0x2}")
             fail("Expected failure - too many listed values")
-        } catch (e: IllegalArgumentException) {
-            // Expected.
+        } catch (e: IOException) {
+            assertThat(e).hasMessageThat().contains("should have 1 item(s)")
         }
 
     }
@@ -227,10 +198,11 @@ class BytecodeRClassWriterTest {
     }
 
     private fun files(dir: Path) =
-            Files.walk(dir)
-                    .filter { Files.isRegularFile(it) }
+            Files.walk(dir).use {
+                it.filter { Files.isRegularFile(it) }
                     .map { className(dir.relativize(it)) }
                     .toList()
+            }
 
     private fun className(relativePath: Path): String =
             PathUtils.toSystemIndependentPath(relativePath)

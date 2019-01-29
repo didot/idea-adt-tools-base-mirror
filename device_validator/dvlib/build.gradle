@@ -5,6 +5,8 @@ apply plugin: 'sdk-java-lib'
 dependencies {
     compile project(':base:common')
     testCompile libs.junit
+  implementation 'org.jetbrains:annotations:15.0'
+  implementation 'org.jetbrains:annotations:15.0'
 }
 
 group = 'com.android.tools'

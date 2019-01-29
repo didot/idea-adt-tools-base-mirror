@@ -40,8 +40,9 @@ public class CmakeInjectedAbiSplitTest {
     @ClassRule
     public static GradleTestProject sProject =
             GradleTestProject.builder()
-                    .fromTestApp(HelloWorldJniApp.builder().build())
-                    .addFile(HelloWorldJniApp.cmakeLists("."))
+                    .fromTestApp(HelloWorldJniApp.builder().withCmake().build())
+                    .setCmakeVersion("3.10.4819442")
+                    .setWithCmakeDirInLocalProp(true)
                     .create();
 
     @BeforeClass
@@ -134,7 +135,7 @@ public class CmakeInjectedAbiSplitTest {
 
     private static void checkApkContent(Apk apk, Abi... abis) throws IOException {
         List<Abi> abiList = Arrays.asList(abis);
-        for (Abi abi : NdkHelper.getAbiList()) {
+        for (Abi abi : NdkHelper.getAbiList(sProject)) {
             String path = "lib/" + abi.getName() + '/' + "libhello-jni.so";
             if (abiList.contains(abi)) {
                 assertThat(apk).contains(path);

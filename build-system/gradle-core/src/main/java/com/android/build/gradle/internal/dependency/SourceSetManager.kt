@@ -17,11 +17,13 @@
 package com.android.build.gradle.internal.dependency
 
 import com.android.build.gradle.api.AndroidSourceSet
+import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.build.gradle.internal.dsl.AndroidSourceSetFactory
 import com.android.build.gradle.internal.errors.DeprecationReporter
-import com.android.build.gradle.internal.variant2.DeprecatedConfigurationAction
+import com.android.build.gradle.internal.scope.DelayedActionsExecutor
+import com.android.build.gradle.internal.variant2.RenamedConfigurationAction
+import com.android.builder.errors.EvalIssueException
 import com.android.builder.errors.EvalIssueReporter
-import java.util.HashSet
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.Project
@@ -35,11 +37,11 @@ val dependencyUrl = "http://d.android.com/r/tools/update-dependency-configuratio
 class SourceSetManager(
         project: Project,
         private val publishPackage: Boolean,
-        private val deprecationReporter: DeprecationReporter,
-        private val issueReporter: EvalIssueReporter) {
+        private val dslScope : DslScope,
+        private val buildArtifactActions: DelayedActionsExecutor) {
     val sourceSetsContainer: NamedDomainObjectContainer<AndroidSourceSet> = project.container(
             AndroidSourceSet::class.java,
-            AndroidSourceSetFactory(project.objects, project, publishPackage))
+            AndroidSourceSetFactory(project, publishPackage, dslScope, buildArtifactActions))
     private val configurations: ConfigurationContainer = project.configurations
     private val logger: Logger = Logging.getLogger(this.javaClass)
 
@@ -50,17 +52,17 @@ class SourceSetManager(
     }
 
     @JvmOverloads
-    fun setUpSourceSet(name: String, isForTesting: Boolean = false): AndroidSourceSet {
+    fun setUpSourceSet(name: String, isTestComponent: Boolean = false): AndroidSourceSet {
         val sourceSet = sourceSetsContainer.maybeCreate(name)
         if (!configuredSourceSets.contains(name)) {
-            createConfigurationsForSourceSet(sourceSet, isForTesting)
+            createConfigurationsForSourceSet(sourceSet, isTestComponent)
             configuredSourceSets.add(name)
         }
         return sourceSet
     }
 
     private fun createConfigurationsForSourceSet(
-            sourceSet: AndroidSourceSet, isForTesting: Boolean) {
+            sourceSet: AndroidSourceSet, isTestComponent: Boolean) {
         val apiName = sourceSet.apiConfigurationName
         val implementationName = sourceSet.implementationConfigurationName
         val runtimeOnlyName = sourceSet.runtimeOnlyConfigurationName
@@ -75,34 +77,35 @@ class SourceSetManager(
                 compileName,
                 getDeprecatedConfigDesc("Compile", sourceSet.name, implementationName),
                 "compile" == compileName || "testCompile" == compileName /*canBeResolved*/)
-        compile.allDependencies
+        compile.dependencies
                 .whenObjectAdded(
-                        DeprecatedConfigurationAction(
-                                "$implementationName' and '$apiName",
+                        RenamedConfigurationAction(
+                                if (isTestComponent) implementationName
+                                else "$implementationName' and '$apiName",
                                 compileName,
-                                deprecationReporter,
+                                dslScope.deprecationReporter,
                                 dependencyUrl,
                                 DeprecationReporter.DeprecationTarget.CONFIG_NAME))
 
         val packageConfigDescription: String
-        if (publishPackage) {
-            packageConfigDescription = getDeprecatedConfigDesc("Publish",
-                    sourceSet.name,
-                    runtimeOnlyName)
+        packageConfigDescription = if (publishPackage) {
+            getDeprecatedConfigDesc("Publish",
+                sourceSet.name,
+                runtimeOnlyName)
         } else {
-            packageConfigDescription = getDeprecatedConfigDesc("Apk",
-                    sourceSet.name,
-                    runtimeOnlyName)
+            getDeprecatedConfigDesc("Apk",
+                sourceSet.name,
+                runtimeOnlyName)
         }
 
         val apkName = sourceSet.packageConfigurationName
         val apk = createConfiguration(apkName, packageConfigDescription)
-        apk.allDependencies
+        apk.dependencies
                 .whenObjectAdded(
-                        DeprecatedConfigurationAction(
+                        RenamedConfigurationAction(
                                 runtimeOnlyName,
                                 apkName,
-                                deprecationReporter,
+                                dslScope.deprecationReporter,
                                 dependencyUrl,
                                 DeprecationReporter.DeprecationTarget.CONFIG_NAME))
 
@@ -110,25 +113,25 @@ class SourceSetManager(
         val provided = createConfiguration(
                 providedName,
                 getDeprecatedConfigDesc("Provided", sourceSet.name, compileOnlyName))
-        provided.allDependencies
+        provided.dependencies
                 .whenObjectAdded(
-                        DeprecatedConfigurationAction(
+                        RenamedConfigurationAction(
                                 compileOnlyName,
                                 providedName,
-                                deprecationReporter,
+                                dslScope.deprecationReporter,
                                 dependencyUrl,
                                 DeprecationReporter.DeprecationTarget.CONFIG_NAME))
 
         // then the new configurations.
         val api = createConfiguration(apiName, getConfigDesc("API", sourceSet.name))
         api.extendsFrom(compile)
-        if (isForTesting) {
-            api.allDependencies
+        if (isTestComponent) {
+            api.dependencies
                     .whenObjectAdded(
-                            DeprecatedConfigurationAction(
+                            RenamedConfigurationAction(
                                     implementationName,
                                     apiName,
-                                    deprecationReporter,
+                                    dslScope.deprecationReporter,
                                     dependencyUrl,
                                     DeprecationReporter.DeprecationTarget.CONFIG_NAME))
         }
@@ -196,12 +199,16 @@ class SourceSetManager(
             if (!configuredSourceSets.contains(sourceSet.name)) {
                 val message = ("The SourceSet '${sourceSet.name}' is not recognized " +
                         "by the Android Gradle Plugin. Perhaps you misspelled something?")
-                issueReporter.reportError(EvalIssueReporter.Type.GENERIC, message)
+                dslScope.issueReporter.reportError(EvalIssueReporter.Type.GENERIC, EvalIssueException(message))
             }
         }
     }
 
     fun executeAction(action: Action<NamedDomainObjectContainer<AndroidSourceSet>>) {
         action.execute(sourceSetsContainer)
+    }
+
+    fun runBuildableArtifactsActions() {
+        buildArtifactActions.runAll()
     }
 }

@@ -19,6 +19,9 @@ package com.android.build.api.dsl.options
 import com.android.build.api.dsl.Initializable
 import org.gradle.api.Incubating
 
+/**
+ * This interface is not currently usable. It is a work in progress.
+ */
 @Incubating
 interface DexOptions : Initializable<DexOptions> {
 
@@ -62,7 +65,7 @@ interface DexOptions : Initializable<DexOptions> {
     var javaMaxHeapSize: String?
 
     /** List of additional parameters to be passed to `dx`.  */
-    var additionalParameters: List<String>
+    var additionalParameters: MutableList<String>
 
     /**
      * Returns the maximum number of concurrent processes that can be used to dex. Defaults to 4.

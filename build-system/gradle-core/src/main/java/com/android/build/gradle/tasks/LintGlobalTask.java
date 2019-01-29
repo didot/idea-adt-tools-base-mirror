@@ -64,11 +64,11 @@ public class LintGlobalTask extends LintBaseTask {
         }
     }
 
-    public static class GlobalConfigAction extends BaseConfigAction<LintGlobalTask> {
+    public static class GlobalCreationAction extends BaseCreationAction<LintGlobalTask> {
 
         private final Collection<VariantScope> variantScopes;
 
-        public GlobalConfigAction(
+        public GlobalCreationAction(
                 @NonNull GlobalScope globalScope, @NonNull Collection<VariantScope> variantScopes) {
             super(globalScope);
             this.variantScopes = variantScopes;
@@ -87,11 +87,10 @@ public class LintGlobalTask extends LintBaseTask {
         }
 
         @Override
-        public void execute(@NonNull LintGlobalTask lintTask) {
-            super.execute(lintTask);
+        public void configure(@NonNull LintGlobalTask lintTask) {
+            super.configure(lintTask);
 
             lintTask.setDescription("Runs lint on all variants.");
-            lintTask.setVariantName("");
 
             lintTask.allInputs = getGlobalScope().getProject().files();
             lintTask.variantInputMap =

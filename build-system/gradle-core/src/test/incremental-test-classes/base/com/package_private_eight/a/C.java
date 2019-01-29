@@ -22,6 +22,7 @@ apply from: "../commonLocalRepo.gradle"
 android {
     compileSdkVersion rootProject.latestCompileSdk
     buildToolsVersion = rootProject.buildToolsVersion
+    defaultConfig.minSdkVersion rootProject.supportLibMinSdk
     dataBinding {
         enabled = true
         addDefaultAdapters = false
@@ -29,5 +30,12 @@ android {
 }
 
 dependencies {
-    compile "com.android.databinding:library:${rootProject.buildVersion}"
+    def useAndroidX = project.findProperty("android.useAndroidX")
+    if (useAndroidX == null) {
+        throw new IllegalArgumentException("must provide androidX property")
+    } else if (useAndroidX == "true") {
+        implementation "androidx.databinding:databinding-runtime:${rootProject.buildVersion}"
+    } else {
+        implementation "com.android.databinding:library:${rootProject.buildVersion}"
+    }
 }

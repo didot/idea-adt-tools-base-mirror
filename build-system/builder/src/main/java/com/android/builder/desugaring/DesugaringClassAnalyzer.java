@@ -16,9 +16,13 @@
 
 package com.android.builder.desugaring;
 
+import static com.android.utils.PathUtils.toSystemIndependentPath;
+
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
+import com.android.builder.dexing.ClassFileInput;
+import com.android.builder.utils.ZipEntryUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
@@ -27,6 +31,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -61,8 +66,10 @@ public class DesugaringClassAnalyzer {
         } else if (Files.isRegularFile(path)) {
             if (path.toString().endsWith(SdkConstants.DOT_JAR)) {
                 return analyzeJar(path);
-            } else {
+            } else if (ClassFileInput.CLASS_MATCHER.test(toSystemIndependentPath(path))) {
                 return ImmutableList.of(analyzeClass(path));
+            } else {
+                return ImmutableList.of();
             }
         } else {
             throw new IOException("Unable to process " + path.toString());
@@ -82,11 +89,13 @@ public class DesugaringClassAnalyzer {
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry zipEntry = entries.nextElement();
-
-                if (!zipEntry.getName().endsWith(SdkConstants.DOT_CLASS)) {
+                if (!ZipEntryUtils.isValidZipEntryName(zipEntry)) {
+                    throw new InvalidPathException(
+                            zipEntry.getName(), "Entry name contains invalid characters");
+                }
+                if (!ClassFileInput.CLASS_MATCHER.test(zipEntry.getName())) {
                     continue;
                 }
-
                 try (BufferedInputStream inputStream =
                         new BufferedInputStream(zip.getInputStream(zipEntry))) {
                     data.add(analyze(jar, inputStream));
@@ -107,7 +116,8 @@ public class DesugaringClassAnalyzer {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
                             throws IOException {
-                        if (file.toString().endsWith(SdkConstants.DOT_CLASS)) {
+                        Path relative = dir.relativize(file);
+                        if (ClassFileInput.CLASS_MATCHER.test(toSystemIndependentPath(relative))) {
                             data.add(analyzeClass(file));
                         }
 
@@ -141,7 +151,7 @@ public class DesugaringClassAnalyzer {
     static DesugaringData analyze(@NonNull Path path, @NonNull InputStream is) throws IOException {
         ClassReader reader = new ClassReader(is);
         Visitor visitor = new Visitor(path);
-        reader.accept(visitor, 0);
+        reader.accept(visitor, ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
 
         return new DesugaringData(visitor.getPath(), visitor.getType(), visitor.getDependencies());
     }

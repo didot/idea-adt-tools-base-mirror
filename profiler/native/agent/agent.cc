@@ -43,10 +43,11 @@ namespace profiler {
 
 using grpc::Status;
 using proto::AgentService;
-using proto::CommonData;
+using proto::HeartBeatRequest;
 using proto::HeartBeatResponse;
+using proto::InternalCpuService;
+using proto::InternalEnergyService;
 using proto::InternalEventService;
-using proto::InternalIoService;
 using proto::InternalNetworkService;
 using std::lock_guard;
 
@@ -71,12 +72,18 @@ Agent::Agent(const Config& config)
     // Pre-O, we don't need to start the socket thread, as the agent
     // communicates to perfd via a fixed port.
     ConnectToPerfd(config.GetAgentConfig().service_address());
+    StartHeartbeat();
   }
 
 #ifdef NDEBUG
   gpr_set_log_verbosity(static_cast<gpr_log_severity>(SHRT_MAX));
 #endif
+}
 
+void Agent::StartHeartbeat() {
+  if (heartbeat_thread_.joinable()) {
+    return;
+  }
   heartbeat_thread_ = std::thread(&Agent::RunHeartbeatThread, this);
 }
 
@@ -95,26 +102,6 @@ void Agent::SubmitNetworkTasks(const std::vector<NetworkServiceTask>& tasks) {
       } else {
         grpc::ClientContext ctx;
         task(network_stub(), ctx);
-      }
-    }
-  });
-}
-
-void Agent::SubmitIoTasks(const std::vector<IoServiceTask>& tasks) {
-  background_queue_.EnqueueTask([this, tasks] {
-    for (auto task : tasks) {
-      if (can_grpc_target_change_) {
-        bool success = false;
-        do {
-          // Each grpc call needs a new ClientContext.
-          grpc::ClientContext ctx;
-          Config::SetClientContextTimeout(&ctx, kGrpcTimeoutSec);
-          Status status = task(io_stub(), ctx);
-          success = status.ok();
-        } while (!success);
-      } else {
-        grpc::ClientContext ctx;
-        task(io_stub(), ctx);
       }
     }
   });
@@ -140,12 +127,68 @@ void Agent::SubmitEventTasks(const std::vector<EventServiceTask>& tasks) {
   });
 }
 
+void Agent::SubmitEnergyTasks(const std::vector<EnergyServiceTask>& tasks) {
+  background_queue_.EnqueueTask([this, tasks] {
+    for (auto task : tasks) {
+      if (can_grpc_target_change_) {
+        bool success = false;
+        do {
+          // Each grpc call needs a new ClientContext.
+          grpc::ClientContext ctx;
+          Config::SetClientContextTimeout(&ctx, kGrpcTimeoutSec);
+          Status status = task(energy_stub(), ctx);
+          success = status.ok();
+        } while (!success);
+      } else {
+        grpc::ClientContext ctx;
+        task(energy_stub(), ctx);
+      }
+    }
+  });
+}
+
+void Agent::SubmitCpuTasks(const std::vector<CpuServiceTask>& tasks) {
+  background_queue_.EnqueueTask([this, tasks] {
+    for (auto task : tasks) {
+      if (can_grpc_target_change_) {
+        bool success = false;
+        do {
+          // Each grpc call needs a new ClientContext.
+          grpc::ClientContext ctx;
+          Config::SetClientContextTimeout(&ctx, kGrpcTimeoutSec);
+          Status status = task(cpu_stub(), ctx);
+          success = status.ok();
+        } while (!success);
+      } else {
+        grpc::ClientContext ctx;
+        task(cpu_stub(), ctx);
+      }
+    }
+  });
+}
+
 proto::AgentService::Stub& Agent::agent_stub() {
   std::unique_lock<std::mutex> lock(connect_mutex_);
   while (!grpc_target_initialized_ || agent_stub_.get() == nullptr) {
     connect_cv_.wait(lock);
   }
   return *(agent_stub_.get());
+}
+
+proto::InternalCpuService::Stub& Agent::cpu_stub() {
+  std::unique_lock<std::mutex> lock(connect_mutex_);
+  while (!grpc_target_initialized_ || cpu_stub_.get() == nullptr) {
+    connect_cv_.wait(lock);
+  }
+  return *(cpu_stub_.get());
+}
+
+proto::InternalEnergyService::Stub& Agent::energy_stub() {
+  std::unique_lock<std::mutex> lock(connect_mutex_);
+  while (!grpc_target_initialized_ || energy_stub_.get() == nullptr) {
+    connect_cv_.wait(lock);
+  }
+  return *(energy_stub_.get());
 }
 
 proto::InternalEventService::Stub& Agent::event_stub() {
@@ -164,14 +207,6 @@ proto::InternalNetworkService::Stub& Agent::network_stub() {
   return *(network_stub_.get());
 }
 
-proto::InternalIoService::Stub& Agent::io_stub() {
-  std::unique_lock<std::mutex> lock(connect_mutex_);
-  while (!grpc_target_initialized_ || io_stub_.get() == nullptr) {
-    connect_cv_.wait(lock);
-  }
-  return *(io_stub_.get());
-}
-
 MemoryComponent& Agent::memory_component() {
   std::unique_lock<std::mutex> lock(connect_mutex_);
   while (!grpc_target_initialized_ || memory_component_ == nullptr) {
@@ -183,6 +218,15 @@ MemoryComponent& Agent::memory_component() {
 void Agent::AddPerfdStatusChangedCallback(PerfdStatusChanged callback) {
   lock_guard<std::mutex> guard(callback_mutex_);
   perfd_status_changed_callbacks_.push_back(callback);
+}
+
+void Agent::AddPerfdConnectedCallback(std::function<void()> callback) {
+  lock_guard<std::mutex> connect_guard(connect_mutex_);
+  if (grpc_target_initialized_) {
+    background_queue_.EnqueueTask([callback] { callback(); });
+  }
+  lock_guard<std::mutex> perfd_connected_guard(perfd_connected_mutex_);
+  perfd_connected_callbacks_.push_back(callback);
 }
 
 void Agent::RunHeartbeatThread() {
@@ -206,13 +250,13 @@ void Agent::RunHeartbeatThread() {
     // lowest common.
     deadline += std::chrono::duration_cast<std::chrono::milliseconds>(offset);
     context.set_deadline(deadline);
-    CommonData data;
-    data.set_process_id(getpid());
+    HeartBeatRequest request;
+    request.set_pid(getpid());
 
     // Status returns OK if it succeeds, else it returns a standard grpc error
     // code.
     const grpc::Status status =
-        agent_stub().HeartBeat(&context, data, &response);
+        agent_stub().HeartBeat(&context, request, &response);
 
     int64_t elapsed_ns = stopwatch.GetElapsed() - start_ns;
     // Use status to determine if perfd is alive.
@@ -289,9 +333,10 @@ void Agent::ConnectToPerfd(const std::string& target) {
   }
 
   agent_stub_ = AgentService::NewStub(channel_);
+  cpu_stub_ = InternalCpuService::NewStub(channel_);
+  energy_stub_ = InternalEnergyService::NewStub(channel_);
   event_stub_ = InternalEventService::NewStub(channel_);
   network_stub_ = InternalNetworkService::NewStub(channel_);
-  io_stub_ = InternalIoService::NewStub(channel_);
   memory_component_->Connect(channel_);
 
   if (!grpc_target_initialized_) {
@@ -302,6 +347,12 @@ void Agent::ConnectToPerfd(const std::string& target) {
     // all tasks that have been called once everything has been initialized
     // the first time.
     connect_cv_.notify_all();
+    background_queue_.EnqueueTask([this] {
+      lock_guard<std::mutex> guard(perfd_connected_mutex_);
+      for (auto callback : perfd_connected_callbacks_) {
+        callback();
+      }
+    });
   }
 }
 

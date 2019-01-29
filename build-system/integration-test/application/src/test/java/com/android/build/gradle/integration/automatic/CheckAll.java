@@ -21,7 +21,7 @@ import static com.google.common.base.Preconditions.checkState;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.TestProjectPaths;
-import com.android.build.gradle.integration.common.runner.CheckAllRunner;
+import com.android.build.gradle.integration.common.runner.FilterableParameterized;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import java.io.File;
@@ -38,9 +38,10 @@ import org.junit.runners.Parameterized;
  *
  * <p>You can run only one test like this:
  *
- * <p>{@code ./gradlew :base:integration-test:automaticTest --tests=*[abiPureSplits]}
+ * <p>{@code ./gradlew :base:build-system:integration-test:application:automaticTest
+ * --tests=*[abiPureSplits]}
  */
-@RunWith(CheckAllRunner.class)
+@RunWith(FilterableParameterized.class)
 public class CheckAll {
 
     @Parameterized.Parameters(name = "{0}")
@@ -109,6 +110,9 @@ public class CheckAll {
                     "databindingAndDagger",
                     "databinding",
                     "databindingAndKotlin",
+                    "databindingAndJetifier",
+                    "databindingMultiModule",
+                    "databindingWithFeatures",
 
                     // These are all right:
                     "genFolderApi", // Has a required injectable property

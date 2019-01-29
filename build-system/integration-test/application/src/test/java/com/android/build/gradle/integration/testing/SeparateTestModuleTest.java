@@ -4,6 +4,7 @@ import static com.android.testutils.truth.FileSubject.assertThat;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.builder.model.TestedTargetVariant;
 import com.android.builder.model.Variant;
@@ -35,10 +36,12 @@ public class SeparateTestModuleTest {
                         + "android {\n"
                         + "  defaultConfig {\n"
                         + "    testInstrumentationRunner 'android.support.test.runner.AndroidJUnitRunner'\n"
+                        + "    minSdkVersion 16\n"
+                        + "    targetSdkVersion 16\n"
                         + "  }\n"
                         + "  dependencies {\n"
                         + "    implementation ('com.android.support.test:runner:"
-                        + GradleTestProject.TEST_SUPPORT_LIB_VERSION
+                        + TestVersions.TEST_SUPPORT_LIB_VERSION
                         + "', {\n"
                         + "      exclude group: 'com.android.support', module: 'support-annotations'\n"
                         + "    })\n"
@@ -58,7 +61,9 @@ public class SeparateTestModuleTest {
         addInstrumentationToManifest();
         project.execute("clean", ":test:assembleDebug");
 
-        assertThat(testProject.file("build/intermediates/manifests/full/debug/AndroidManifest.xml"))
+        assertThat(
+                        testProject.file(
+                                "build/intermediates/merged_manifests/debug/AndroidManifest.xml"))
                 .containsAllOf(
                         "package=\"com.example.android.testing.blueprint.test\"",
                         "android:name=\"android.support.test.runner.AndroidJUnitRunner\"",
@@ -70,7 +75,9 @@ public class SeparateTestModuleTest {
         GradleTestProject testProject = project.getSubproject("test");
         project.execute("clean", ":test:assembleDebug");
 
-        assertThat(testProject.file("build/intermediates/manifests/full/debug/AndroidManifest.xml"))
+        assertThat(
+                        testProject.file(
+                                "build/intermediates/merged_manifests/debug/AndroidManifest.xml"))
                 .containsAllOf(
                         "package=\"com.example.android.testing.blueprint.test\"",
                         "<instrumentation",
@@ -104,7 +111,6 @@ public class SeparateTestModuleTest {
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                         + "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
                         + "      package=\"com.android.tests.basic.test\">\n"
-                        + "      <uses-sdk android:minSdkVersion=\"16\" android:targetSdkVersion=\"16\" />\n"
                         + "      <instrumentation android:name=\"android.test.InstrumentationTestRunner\"\n"
                         + "                       android:targetPackage=\"com.android.tests.basic\"\n"
                         + "                       android:handleProfiling=\"false\"\n"

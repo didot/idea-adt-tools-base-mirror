@@ -28,7 +28,7 @@ import static com.android.SdkConstants.SUPPORT_LIB_GROUP_ID;
 import static com.android.SdkConstants.TAG_FONT;
 import static com.android.SdkConstants.TAG_FONT_FAMILY;
 import static com.android.ide.common.repository.GradleCoordinate.COMPARE_PLUS_LOWER;
-import static com.android.tools.lint.detector.api.LintUtils.coalesce;
+import static com.android.tools.lint.detector.api.Lint.coalesce;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -50,6 +50,7 @@ import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.LintFix;
+import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.ResourceXmlDetector;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
@@ -67,33 +68,39 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
 public class FontDetector extends ResourceXmlDetector {
+    // TODO: Change this to the API version where we dont have to rely on appcompat for downloadable fonts loading at runtime.
+    public static final int FUTURE_API_VERSION_WHERE_DOWNLOADABLE_FONTS_WORK_IN_FRAMEWORK =
+            Integer.MAX_VALUE - 1;
+
     private static final Implementation IMPLEMENTATION =
             new Implementation(FontDetector.class, Scope.RESOURCE_FILE_SCOPE);
 
     public static final Issue FONT_VALIDATION_WARNING =
             Issue.create(
-                    "FontValidationWarning",
-                    "Validation of font files",
-                    "Look for problems in various font files.",
-                    Category.CORRECTNESS,
-                    9,
-                    Severity.WARNING,
-                    IMPLEMENTATION).addMoreInfo(
-                    "https://developer.android.com/guide/topics/text/downloadable-fonts.html");
+                            "FontValidationWarning",
+                            "Validation of font files",
+                            "Look for problems in various font files.",
+                            Category.CORRECTNESS,
+                            9,
+                            Severity.WARNING,
+                            IMPLEMENTATION)
+                    .addMoreInfo(
+                            "https://developer.android.com/guide/topics/text/downloadable-fonts.html");
 
     public static final Issue FONT_VALIDATION_ERROR =
             Issue.create(
-                    "FontValidationError",
-                    "Validation of font files",
-                    "Look for problems in various font files.",
-                    Category.CORRECTNESS,
-                    8,
-                    Severity.ERROR,
-                    IMPLEMENTATION).addMoreInfo(
-                    "https://developer.android.com/guide/topics/text/downloadable-fonts.html");
+                            "FontValidationError",
+                            "Validation of font files",
+                            "Look for problems in various font files.",
+                            Category.CORRECTNESS,
+                            8,
+                            Severity.ERROR,
+                            IMPLEMENTATION)
+                    .addMoreInfo(
+                            "https://developer.android.com/guide/topics/text/downloadable-fonts.html");
 
-    public static final GradleCoordinate MIN_APPSUPPORT_VERSION = new GradleCoordinate(
-      SUPPORT_LIB_GROUP_ID, APPCOMPAT_LIB_ARTIFACT_ID, "26.0.0");
+    public static final GradleCoordinate MIN_APPSUPPORT_VERSION =
+            new GradleCoordinate(SUPPORT_LIB_GROUP_ID, APPCOMPAT_LIB_ARTIFACT_ID, "26.0.0");
 
     private FontLoader mFontLoader;
 
@@ -108,7 +115,7 @@ public class FontDetector extends ResourceXmlDetector {
     }
 
     @Override
-    public void beforeCheckProject(@NonNull Context context) {
+    public void beforeCheckRootProject(@NonNull Context context) {
         if (mFontLoader == null) {
             mFontLoader = FontLoader.getInstance(context.getClient().getSdkHome());
         }
@@ -143,10 +150,10 @@ public class FontDetector extends ResourceXmlDetector {
             if (reportMisplacedFontTag(context, fontTag)) {
                 return;
             }
-            if (minSdk.getApiLevel() > AndroidVersion.VersionCodes.O_MR1) {
+            if (minSdk.getApiLevel()
+                    >= FUTURE_API_VERSION_WHERE_DOWNLOADABLE_FONTS_WORK_IN_FRAMEWORK) {
                 reportUnexpectedAttributeNamespace(context, firstAppAttribute, ANDROID_NS_NAME);
-            }
-            else  {
+            } else {
                 reportUnexpectedAttributeNamespace(context, firstAndroidAttribute, APP_PREFIX);
             }
             FontProvider provider = reportUnknownProvider(context, authority, appAuthority);
@@ -156,12 +163,12 @@ public class FontDetector extends ResourceXmlDetector {
             }
             if (minSdk.getFeatureLevel() > AndroidVersion.VersionCodes.O_MR1) {
                 reportMissingAppAttribute(
-                  context,
-                  firstAndroidAttribute,
-                  missingAndroidAttributes,
-                  ANDROID_URI,
-                  ANDROID_NS_NAME,
-                  provider);
+                        context,
+                        firstAndroidAttribute,
+                        missingAndroidAttributes,
+                        ANDROID_URI,
+                        ANDROID_NS_NAME,
+                        provider);
             } else {
                 reportMissingAppAttribute(
                         context,
@@ -199,8 +206,8 @@ public class FontDetector extends ResourceXmlDetector {
         return missing;
     }
 
-    private static void checkSupportLibraryVersion(@NonNull XmlContext context,
-      @NonNull Element element) {
+    private static void checkSupportLibraryVersion(
+            @NonNull XmlContext context, @NonNull Element element) {
         Variant variant = context.getMainProject().getCurrentVariant();
         if (variant == null) {
             return;
@@ -208,44 +215,54 @@ public class FontDetector extends ResourceXmlDetector {
         Dependencies dependencies = variant.getMainArtifact().getDependencies();
         for (AndroidLibrary library : dependencies.getLibraries()) {
             MavenCoordinates rc = library.getResolvedCoordinates();
-            if (SUPPORT_LIB_GROUP_ID.equals(rc.getGroupId()) &&
-              APPCOMPAT_LIB_ARTIFACT_ID.equals(rc.getArtifactId())) {
-                GradleCoordinate version = new GradleCoordinate(
-                  SUPPORT_LIB_GROUP_ID, APPCOMPAT_LIB_ARTIFACT_ID, rc.getVersion());
+            if (SUPPORT_LIB_GROUP_ID.equals(rc.getGroupId())
+                    && APPCOMPAT_LIB_ARTIFACT_ID.equals(rc.getArtifactId())) {
+                GradleCoordinate version =
+                        new GradleCoordinate(
+                                SUPPORT_LIB_GROUP_ID, APPCOMPAT_LIB_ARTIFACT_ID, rc.getVersion());
                 if (COMPARE_PLUS_LOWER.compare(version, MIN_APPSUPPORT_VERSION) < 0) {
-                    String message = "Using version " + version.getRevision()
-                            + " of the " + APPCOMPAT_LIB_ARTIFACT_ID
-                            + " library. Required version for using downloadable fonts: "
-                            + MIN_APPSUPPORT_VERSION.getRevision() + " or higher.";
+                    String message =
+                            "Using version "
+                                    + version.getRevision()
+                                    + " of the "
+                                    + APPCOMPAT_LIB_ARTIFACT_ID
+                                    + " library. Required version for using downloadable fonts: "
+                                    + MIN_APPSUPPORT_VERSION.getRevision()
+                                    + " or higher.";
                     LintFix fix = LintFix.create().data(APPCOMPAT_LIB_ARTIFACT_ID);
-                    reportError(context, element, message, fix);
+                    reportError(context, element, message, context.getNameLocation(element), fix);
                 }
             }
         }
     }
 
     private static boolean reportMisplacedFontTag(
-            @NonNull XmlContext context,
-            @Nullable Element fontTag) {
+            @NonNull XmlContext context, @Nullable Element fontTag) {
         if (fontTag == null) {
             return false;
         }
-        LintFix fix = LintFix.create().replace().with("").build();
-        reportError(context, fontTag, "A downloadable font cannot have a `<font>` sub tag", fix);
+        LintFix fix =
+                LintFix.create().replace().with("").range(context.getLocation(fontTag)).build();
+        reportError(
+                context,
+                fontTag,
+                "A downloadable font cannot have a `<font>` sub tag",
+                context.getElementLocation(fontTag),
+                fix);
         return true;
     }
 
     private static void reportUnexpectedAttributeNamespace(
-            @NonNull XmlContext context,
-            @Nullable Attr first,
-            @NonNull String namespace) {
+            @NonNull XmlContext context, @Nullable Attr first, @NonNull String namespace) {
         if (first != null) {
             AndroidVersion minSdk = context.getMainProject().getMinSdkVersion();
-            String message = String.format(
-                    "For `minSdkVersion`=%1$d only `%2$s:` attributes should be used",
-                    minSdk.getApiLevel(), namespace);
-            LintFix fix = LintFix.create().unset(first.getNamespaceURI(), first.getLocalName()).build();
-            reportWarning(context, first, message, fix);
+            String message =
+                    String.format(
+                            "For `minSdkVersion`=%1$d only `%2$s:` attributes should be used",
+                            minSdk.getApiLevel(), namespace);
+            LintFix fix =
+                    LintFix.create().unset(first.getNamespaceURI(), first.getLocalName()).build();
+            reportWarning(context, first, message, context.getLocation(first), fix);
         }
     }
 
@@ -257,13 +274,15 @@ public class FontDetector extends ResourceXmlDetector {
             @NonNull String namespacePrefix,
             @Nullable FontProvider provider) {
         if (firstFontAttribute != null && !missingAttributes.isEmpty()) {
-            String message = String.format(
-                    "Missing required %1$s: %2$s:%3$s",
-                    StringUtil.pluralize("attribute", missingAttributes.size()),
-                    namespacePrefix,
-                    Joiner.on(", " + namespacePrefix + ":").join(missingAttributes));
+            String message =
+                    String.format(
+                            "Missing required %1$s: %2$s:%3$s",
+                            StringUtil.pluralize("attribute", missingAttributes.size()),
+                            namespacePrefix,
+                            Joiner.on(", " + namespacePrefix + ":").join(missingAttributes));
             LintFix fix = makeMissingAttributeFix(missingAttributes, namespaceUri, provider);
-            reportError(context, firstFontAttribute.getOwnerElement(), message, fix);
+            Element element = firstFontAttribute.getOwnerElement();
+            reportError(context, element, message, context.getElementLocation(element), fix);
         }
     }
 
@@ -330,13 +349,19 @@ public class FontDetector extends ResourceXmlDetector {
         LintFix fix = null;
         FontProvider onlyKnownProvider = mFontLoader.findOnlyKnownProvider();
         if (onlyKnownProvider != null) {
-            fix = fix().name("Replace with " + onlyKnownProvider.getAuthority())
-                    .replace()
-                    .text(authority)
-                    .with(onlyKnownProvider.getAuthority())
-                    .build();
+            fix =
+                    fix().name("Replace with " + onlyKnownProvider.getAuthority())
+                            .replace()
+                            .text(authority)
+                            .with(onlyKnownProvider.getAuthority())
+                            .build();
         }
-        reportError(context, attrAuthority, "Unknown font provider authority", fix);
+        reportError(
+                context,
+                attrAuthority,
+                "Unknown font provider authority",
+                context.getValueLocation(attrAuthority),
+                fix);
         return null;
     }
 
@@ -362,12 +387,19 @@ public class FontDetector extends ResourceXmlDetector {
         if (provider.getPackageName().equals(packageName)) {
             return;
         }
-        LintFix fix = LintFix.create().name("Replace with " + provider.getPackageName())
-                .replace()
-                .text(packageName)
-                .with(provider.getPackageName())
-                .build();
-        reportError(context, attrPackage, "Unexpected font provider package", fix);
+        LintFix fix =
+                LintFix.create()
+                        .name("Replace with " + provider.getPackageName())
+                        .replace()
+                        .text(packageName)
+                        .with(provider.getPackageName())
+                        .build();
+        reportError(
+                context,
+                attrPackage,
+                "Unexpected font provider package",
+                context.getValueLocation(attrPackage),
+                fix);
     }
 
     private void reportQueryProblem(
@@ -390,9 +422,14 @@ public class FontDetector extends ResourceXmlDetector {
             @NonNull String query,
             @NonNull FontProvider provider) {
         if (query.isEmpty()) {
-            LintFix fix = fix().set().todo(queryAttr.getNamespaceURI(), queryAttr.getLocalName())
-                    .build();
-            reportError(context, queryAttr, "Missing provider query", fix);
+            LintFix fix =
+                    fix().set().todo(queryAttr.getNamespaceURI(), queryAttr.getLocalName()).build();
+            reportError(
+                    context,
+                    queryAttr,
+                    "Missing provider query",
+                    context.getLocation(queryAttr),
+                    fix);
             return;
         }
         try {
@@ -405,7 +442,12 @@ public class FontDetector extends ResourceXmlDetector {
             for (String fontName : result.getFonts().keySet()) {
                 FontFamily family = mFontLoader.findFont(provider, fontName);
                 if (family == null) {
-                    reportError(context, queryAttr, "Unknown font: " + fontName, null);
+                    reportError(
+                            context,
+                            queryAttr,
+                            "Unknown font: " + fontName,
+                            context.getValueLocation(queryAttr),
+                            null);
                 } else {
                     for (MutableFontDetail detail : result.getFonts().get(fontName)) {
                         FontDetail best = detail.findBestMatch(family.getFonts());
@@ -414,22 +456,27 @@ public class FontDetector extends ResourceXmlDetector {
                             if (result.getFonts().size() == 1) {
                                 String better = best.generateQuery(detail.getExact());
 
-                                fix = fix().name("Replace with closest font: " + better)
-                                        .set(queryAttr.getNamespaceURI(), queryAttr.getLocalName(),
-                                                better)
-                                        .build();
+                                fix =
+                                        fix().name("Replace with closest font: " + better)
+                                                .set(
+                                                        queryAttr.getNamespaceURI(),
+                                                        queryAttr.getLocalName(),
+                                                        better)
+                                                .build();
                             }
                             if (detail.getExact()) {
                                 reportError(
                                         context,
                                         queryAttr,
                                         "No exact match found for: " + fontName,
+                                        context.getValueLocation(queryAttr),
                                         fix);
                             } else {
                                 reportWarning(
                                         context,
                                         queryAttr,
                                         "No exact match found for: " + fontName,
+                                        context.getValueLocation(queryAttr),
                                         fix);
                             }
                         }
@@ -437,7 +484,8 @@ public class FontDetector extends ResourceXmlDetector {
                 }
             }
         } catch (QueryParser.FontQueryParserError ex) {
-            reportError(context, queryAttr, ex.getMessage(), null);
+            reportError(
+                    context, queryAttr, ex.getMessage(), context.getValueLocation(queryAttr), null);
         }
     }
 
@@ -445,21 +493,23 @@ public class FontDetector extends ResourceXmlDetector {
             @NonNull XmlContext context,
             @NonNull Node node,
             @NonNull String message,
+            @NonNull Location location,
             @Nullable LintFix fix) {
         if (!context.isEnabled(FONT_VALIDATION_ERROR)) {
             return;
         }
-        context.report(FONT_VALIDATION_ERROR, node, context.getLocation(node), message, fix);
+        context.report(FONT_VALIDATION_ERROR, node, location, message, fix);
     }
 
     private static void reportWarning(
             @NonNull XmlContext context,
             @NonNull Node node,
             @NonNull String message,
+            @NonNull Location location,
             @Nullable LintFix fix) {
         if (!context.isEnabled(FONT_VALIDATION_WARNING)) {
             return;
         }
-        context.report(FONT_VALIDATION_WARNING, node, context.getLocation(node), message, fix);
+        context.report(FONT_VALIDATION_WARNING, node, location, message, fix);
     }
 }

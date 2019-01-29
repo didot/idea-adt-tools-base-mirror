@@ -29,14 +29,14 @@ public class SdkVersionInfo {
      * release. This number is used as a baseline and any more recent platforms
      * found can be used to increase the highest known number.
      */
-    public static final int HIGHEST_KNOWN_API = 27;
+    public static final int HIGHEST_KNOWN_API = 28;
 
     /**
      * Like {@link #HIGHEST_KNOWN_API} but does not include preview platforms.
      *
      * <p>Make sure to keep this in sync with the value in TestUtils.
      */
-    public static final int HIGHEST_KNOWN_STABLE_API = 26;
+    public static final int HIGHEST_KNOWN_STABLE_API = 27;
 
     /**
      * The lowest active API level in the ecosystem. This number will change over time
@@ -49,13 +49,13 @@ public class SdkVersionInfo {
      * downloadable system images for wearables to see if there are more recent
      * versions.
      */
-    public static final int HIGHEST_KNOWN_API_WEAR = 23;
+    public static final int HIGHEST_KNOWN_API_WEAR = 26;
 
     /**
      * The lowest active api for wearables. This number will change over time
      * as the distribution of older platforms decreases.
      */
-    public static final int LOWEST_ACTIVE_API_WEAR = 20;
+    public static final int LOWEST_ACTIVE_API_WEAR = 23;
 
     /**
      * The highest known API level for Android TV. Note the tools at the
@@ -88,14 +88,21 @@ public class SdkVersionInfo {
     public static String getAndroidName(int api) {
         // See http://source.android.com/source/build-numbers.html
         String codeName = getCodeName(api);
-        String name = getVersionString(api);
-        if (name == null) {
-            return String.format("API %1$d", api);
-        } else if (codeName == null) {
-            return String.format("API %1$d: Android %2$s", api, name);
+        String versionString = getVersionStringSanitized(api);
+        if (codeName == null) {
+            return versionString;
         } else {
-            return String.format("API %1$d: Android %2$s (%3$s)", api, name, codeName);
+            return String.format("API %1$d: Android %2$s (%3$s)", api, versionString, codeName);
         }
+    }
+
+    @NonNull
+    public static String getVersionStringSanitized(int api) {
+        String retStr = getVersionString(api);
+        if (retStr != null) {
+            return retStr;
+        }
+        return String.format("API %1$d", api);
     }
 
     @Nullable
@@ -128,6 +135,7 @@ public class SdkVersionInfo {
             case 25: return "7.1.1";
             case 26: return "8.0";
             case 27: return "8.1";
+            case 28: return "9.0";
             // If you add more versions here, also update #getBuildCodes and
             // #HIGHEST_KNOWN_API
 
@@ -180,6 +188,8 @@ public class SdkVersionInfo {
             case 26:
             case 27:
                 return "Oreo";
+            case 28:
+                return "Pie";
 
             // If you add more versions here, also update #getBuildCodes and
             // #HIGHEST_KNOWN_API
@@ -228,6 +238,7 @@ public class SdkVersionInfo {
             case 25: return "N_MR1"; //$NON-NLS-1$
             case 26: return "O"; //$NON-NLS-1$
             case 27: return "O_MR1"; //$NON-NLS-1$
+            case 28: return "P"; //$NON-NLS-1$
             // If you add more versions here, also update #getAndroidName and
             // #HIGHEST_KNOWN_API
         }

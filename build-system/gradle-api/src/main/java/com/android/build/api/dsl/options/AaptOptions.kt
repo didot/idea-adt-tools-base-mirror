@@ -20,7 +20,10 @@ import com.android.build.api.dsl.Initializable
 import com.android.build.api.dsl.model.BuildType
 import org.gradle.api.Incubating
 
-/** DSL object for configuring aapt options.  */
+/** DSL object for configuring aapt options.
+ *
+ * This interface is not currently usable. It is a work in progress.
+ */
 @Incubating
 interface AaptOptions : Initializable<AaptOptions> {
 
@@ -72,7 +75,7 @@ interface AaptOptions : Initializable<AaptOptions> {
 
     // -- DSL Methods. TODO remove once the instantiator does what I expect it to do.
 
-    /** Returns the list of additional parameters to pass to `appt`.  */
+    /** Returns the list of additional parameters to pass to `aapt`.  */
     var additionalParameters: List<String>?
 
     /**

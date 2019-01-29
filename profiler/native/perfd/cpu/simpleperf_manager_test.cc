@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 #include "perfd/cpu/simpleperf_manager.h"
-#include "perfd/cpu/simpleperf.h"
+#include "perfd/cpu/fake_simpleperf.h"
+
 #include "utils/fake_clock.h"
 
 #include <gmock/gmock.h>
@@ -25,51 +26,10 @@ using testing::HasSubstr;
 
 namespace profiler {
 
-// A subclass of Simpleperf to be used in tests. All the methods are noop and
-// return either true (success) or false (failure). This way we can test
-// |SimpleperfManager| without caring too much about implementation details of
-// |Simpleperf|.
-class FakeSimpleperf final : public Simpleperf {
- public:
-  explicit FakeSimpleperf()
-      : Simpleperf("/fake/path/", false),
-        enable_profiling_success_(true),
-        kill_simpleperf_success_(true),
-        report_sample_success_(true) {}
-
-  bool EnableProfiling() const { return enable_profiling_success_; }
-
-  bool KillSimpleperf(int simpleperf_pid) const {
-    return kill_simpleperf_success_;
-  }
-
-  bool ReportSample(const string& input_path, const string& output_path,
-                    const string& abi_arch, string* output) const {
-    return report_sample_success_;
-  }
-
-  void SetEnableProfilingSuccess(bool success) {
-    enable_profiling_success_ = success;
-  }
-
-  void SetKillSimpleperfSuccess(bool success) {
-    kill_simpleperf_success_ = success;
-  }
-
-  void SetReportSampleSuccess(bool success) {
-    report_sample_success_ = success;
-  }
-
- private:
-  bool enable_profiling_success_;
-  bool kill_simpleperf_success_;
-  bool report_sample_success_;
-};
-
 TEST(SimpleperfManagerTest, StartProfiling) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  SimpleperfManager simpleperf_manager(
+      &fake_clock, std::unique_ptr<Simpleperf>(new FakeSimpleperf()));
   string error;
   string fake_trace_path = "/tmp/fake-trace";
   string app_name = "some_app_name";
@@ -81,13 +41,28 @@ TEST(SimpleperfManagerTest, StartProfiling) {
   EXPECT_TRUE(simpleperf_manager.IsProfiling(app_name));
 }
 
+TEST(SimpleperfManagerTest, StartStartupProfiling) {
+  FakeClock fake_clock(0);
+  SimpleperfManager simpleperf_manager(
+      &fake_clock, std::unique_ptr<Simpleperf>(new FakeSimpleperf()));
+  string error;
+  string fake_trace_path = "/tmp/fake-trace";
+  string app_name = "some_app_name";
+  string abi = "arm";
+
+  EXPECT_FALSE(simpleperf_manager.IsProfiling(app_name));
+  simpleperf_manager.StartProfiling(app_name, abi, 1000, &fake_trace_path,
+                                    &error, true);
+  EXPECT_TRUE(simpleperf_manager.IsProfiling(app_name));
+}
+
 TEST(SimpleperfManagerTest, StartProfilingWithoutProfilingEnabled) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
+  std::unique_ptr<FakeSimpleperf> simpleperf{new FakeSimpleperf()};
   // Simulate a failure when trying to enable profiling on the device.
   // That should cause |StartProfiling| to fail.
-  simpleperf.SetEnableProfilingSuccess(false);
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  simpleperf->SetEnableProfilingSuccess(false);
+  SimpleperfManager simpleperf_manager(&fake_clock, std::move(simpleperf));
 
   string error;
   string fake_trace_path = "/tmp/fake-trace";
@@ -102,8 +77,8 @@ TEST(SimpleperfManagerTest, StartProfilingWithoutProfilingEnabled) {
 
 TEST(SimpleperfManagerTest, StopProfilingProfiledApp) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  SimpleperfManager simpleperf_manager(
+      &fake_clock, std::unique_ptr<Simpleperf>(new FakeSimpleperf()));
   string error;
   string fake_trace_path = "/tmp/trace_path";
   string app_name = "some_app_name";
@@ -120,8 +95,8 @@ TEST(SimpleperfManagerTest, StopProfilingProfiledApp) {
 
 TEST(SimpleperfManagerTest, StopProfilingNotProfiledApp) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  SimpleperfManager simpleperf_manager(
+      &fake_clock, std::unique_ptr<Simpleperf>(new FakeSimpleperf()));
   string error;
   string app_name = "app";  // App that is not currently being profiled
 
@@ -132,11 +107,11 @@ TEST(SimpleperfManagerTest, StopProfilingNotProfiledApp) {
 
 TEST(SimpleperfManagerTest, StopProfilingFailToKillSimpleperf) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
+  std::unique_ptr<FakeSimpleperf> simpleperf{new FakeSimpleperf()};
   // Simulate a failure when trying to kill simpleperf.
   // That should cause |StopProfiling| to fail.
-  simpleperf.SetKillSimpleperfSuccess(false);
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  simpleperf->SetKillSimpleperfSuccess(false);
+  SimpleperfManager simpleperf_manager(&fake_clock, std::move(simpleperf));
 
   string error;
   string fake_trace_path = "/tmp/trace_path";
@@ -157,12 +132,12 @@ TEST(SimpleperfManagerTest, StopProfilingFailToKillSimpleperf) {
 
 TEST(SimpleperfManagerTest, StopProfilingFailToConvertProto) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
+  std::unique_ptr<FakeSimpleperf> simpleperf{new FakeSimpleperf()};
   // Simulate a failure when trying to convert the simpleperf raw trace file to
   // protobuf format, which happens inside |ConvertRawToProto|. That should
   // cause |StopProfiling| to fail.
-  simpleperf.SetReportSampleSuccess(false);
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  simpleperf->SetReportSampleSuccess(false);
+  SimpleperfManager simpleperf_manager(&fake_clock, std::move(simpleperf));
 
   string error;
   string fake_trace_path = "/tmp/trace_path";
@@ -181,8 +156,8 @@ TEST(SimpleperfManagerTest, StopProfilingFailToConvertProto) {
 
 TEST(SimpleperfManagerTest, StopSimpleperfProfiledApp) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  SimpleperfManager simpleperf_manager(
+      &fake_clock, std::unique_ptr<FakeSimpleperf>(new FakeSimpleperf()));
   string error;
   string fake_trace_path = "/tmp/trace_path";
   string app_name = "some_app_name";
@@ -201,11 +176,11 @@ TEST(SimpleperfManagerTest, StopSimpleperfProfiledApp) {
 
 TEST(SimpleperfManagerTest, StopSimpleperfFailToKillSimpleperf) {
   FakeClock fake_clock(0);
-  FakeSimpleperf simpleperf;
+  std::unique_ptr<FakeSimpleperf> simpleperf{new FakeSimpleperf()};
   // Simulate a failure when trying to kill simpleperf.
   // That should cause |StopSimpleperf| to fail.
-  simpleperf.SetKillSimpleperfSuccess(false);
-  SimpleperfManager simpleperf_manager(fake_clock, simpleperf);
+  simpleperf->SetKillSimpleperfSuccess(false);
+  SimpleperfManager simpleperf_manager(&fake_clock, std::move(simpleperf));
 
   string error;
   string fake_trace_path = "/tmp/trace_path";

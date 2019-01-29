@@ -21,6 +21,7 @@ import com.android.build.api.dsl.model.DefaultConfig
 import com.android.build.api.dsl.model.ProductFlavor
 import com.android.build.api.dsl.options.SigningConfig
 import com.android.build.api.sourcesets.AndroidSourceSet
+import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.build.gradle.internal.api.dsl.extensions.BaseExtension2
 import com.android.build.gradle.internal.api.dsl.model.BuildTypeFactory
 import com.android.build.gradle.internal.api.dsl.model.BuildTypeImpl
@@ -38,9 +39,10 @@ import com.android.build.gradle.internal.errors.DeprecationReporter
 import com.android.build.gradle.internal.packaging.getDefaultDebugKeystoreLocation
 import com.android.builder.core.BuilderConstants
 import com.android.builder.core.VariantType
-import com.android.builder.errors.EvalIssueReporter
+import com.android.builder.errors.EvalIssueException
+import com.android.builder.core.VariantTypeImpl
 import com.android.builder.errors.EvalIssueReporter.Type
-import com.android.utils.StringHelper
+import com.android.utils.appendCapitalized
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.NamedDomainObjectFactory
@@ -48,7 +50,6 @@ import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.ConfigurationContainer
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.logging.Logger
-import org.gradle.api.model.ObjectFactory
 import java.util.function.BinaryOperator
 
 /**
@@ -87,22 +88,22 @@ class DslModelDataImpl<in E: BaseExtension2>(
         private val configurationContainer: ConfigurationContainer,
         filesProvider: FilesProvider,
         containerFactory: ContainerFactory,
-        objectFactory: ObjectFactory,
-        private val deprecationReporter: DeprecationReporter,
-        private val issueReporter: EvalIssueReporter,
+        private val dslScope: DslScope,
         private val logger: Logger): DslModelData, Sealable {
 
     // wrapped container for source sets.
+    @Suppress("PropertyName")
     internal val _sourceSets: NamedDomainObjectContainer<DefaultAndroidSourceSet>
 
     // sealable container for source set.
     override val sourceSets: SealableNamedDomainObjectContainer<AndroidSourceSet, DefaultAndroidSourceSet>
 
     // wrapped container for product flavors
+    @Suppress("PropertyName")
     internal val _productFlavors: NamedDomainObjectContainer<ProductFlavorImpl> =
             containerFactory.createContainer(
                     ProductFlavorImpl::class.java,
-                    ProductFlavorFactory(objectFactory, deprecationReporter, issueReporter))
+                    ProductFlavorFactory(dslScope))
 
     // sealable container for product flavors
     override val productFlavors: SealableNamedDomainObjectContainer<ProductFlavor, ProductFlavorImpl> =
@@ -112,10 +113,11 @@ class DslModelDataImpl<in E: BaseExtension2>(
                     _productFlavors)
 
     // wrapped container for build type
+    @Suppress("PropertyName")
     internal val _buildTypes: NamedDomainObjectContainer<BuildTypeImpl> =
             containerFactory.createContainer(
                     BuildTypeImpl::class.java,
-                    BuildTypeFactory(objectFactory, deprecationReporter, issueReporter))
+                    BuildTypeFactory(dslScope))
 
     // sealable container for build type
     override val buildTypes: SealableNamedDomainObjectContainer<BuildType, BuildTypeImpl> =
@@ -129,9 +131,7 @@ class DslModelDataImpl<in E: BaseExtension2>(
             containerFactory.createContainer(
                     SigningConfigImpl::class.java,
                     SigningConfigFactory(
-                            objectFactory,
-                            deprecationReporter,
-                            issueReporter,
+                            dslScope,
                             getDefaultDebugKeystoreLocation()))
 
     // sealable container for signing config
@@ -169,7 +169,7 @@ class DslModelDataImpl<in E: BaseExtension2>(
 
         mainVariantType = variantTypes
                 .stream()
-                .filter { !it.isForTesting }
+                .filter { !it.isTestComponent }
                 .reduce(toSingleItem())
                 .orElseThrow { RuntimeException("No main variant type") }
 
@@ -177,16 +177,16 @@ class DslModelDataImpl<in E: BaseExtension2>(
                 DefaultAndroidSourceSet::class.java,
                 AndroidSourceSetFactory(
                         filesProvider,
-                        mainVariantType == VariantType.LIBRARY,
-                        objectFactory,
-                        deprecationReporter,
-                        issueReporter))
+                        mainVariantType.isAar,
+                        dslScope))
 
         sourceSets = createSealableContainer(
-                AndroidSourceSet::class.java, DefaultAndroidSourceSet::class.java, _sourceSets)
+                AndroidSourceSet::class.java,
+                DefaultAndroidSourceSet::class.java,
+                _sourceSets)
 
-        hasAndroidTests = variantTypes.contains(VariantType.ANDROID_TEST)
-        hasUnitTests = variantTypes.contains(VariantType.UNIT_TEST)
+        hasAndroidTests = variantTypes.contains(VariantTypeImpl.ANDROID_TEST)
+        hasUnitTests = variantTypes.contains(VariantTypeImpl.UNIT_TEST)
 
         // setup callback to generate source sets on the fly, as well as the associated
         // configurations
@@ -234,7 +234,11 @@ class DslModelDataImpl<in E: BaseExtension2>(
             itemClass: Class<T>,
             container: NamedDomainObjectContainer<T>
     ): SealableNamedDomainObjectContainer<I, T> {
-        return SealableNamedDomainObjectContainer(container, itemClass, issueReporter)
+        @Suppress("UNCHECKED_CAST")
+        return dslScope.objectFactory.newInstance(
+                SealableNamedDomainObjectContainer::class.java,
+                container, itemClass,
+                dslScope) as SealableNamedDomainObjectContainer<I, T>
     }
 
     private fun <T> createDimensionData(data: T, nameFun: (T) -> String): DimensionData<T> {
@@ -243,8 +247,8 @@ class DslModelDataImpl<in E: BaseExtension2>(
         return DimensionData(
                 data,
                 sourceSets.getByName(name), // this one must exist, so use getByName
-                sourceSets.findByName(computeSourceSetName(name, VariantType.ANDROID_TEST)), // this one might not, so use findByName
-                sourceSets.findByName(computeSourceSetName(name, VariantType.UNIT_TEST)), // this one might not, so use findByName
+                sourceSets.findByName(computeSourceSetName(name, VariantTypeImpl.ANDROID_TEST)), // this one might not, so use findByName
+                sourceSets.findByName(computeSourceSetName(name, VariantTypeImpl.UNIT_TEST)), // this one might not, so use findByName
                 configurationContainer)
     }
 
@@ -262,8 +266,8 @@ class DslModelDataImpl<in E: BaseExtension2>(
         }
 
         if (_buildTypes.any { it.name == name }) {
-            issueReporter.reportError(Type.GENERIC,
-                    "ProductFlavor names cannot collide with BuildType names: $name")
+            dslScope.issueReporter.reportError(Type.GENERIC,
+                EvalIssueException("ProductFlavor names cannot collide with BuildType names: $name"))
 
             // don't want to keep going in case of sync
             return
@@ -287,8 +291,8 @@ class DslModelDataImpl<in E: BaseExtension2>(
         }
 
         if (_productFlavors.any { it.name == name }) {
-            issueReporter.reportError(Type.GENERIC,
-                    "BuildType names cannot collide with ProductFlavor names: $name")
+            dslScope.issueReporter.reportError(Type.GENERIC,
+                EvalIssueException("BuildType names cannot collide with ProductFlavor names: $name"))
 
             // don't want to keep going in case of sync
             return
@@ -305,11 +309,11 @@ class DslModelDataImpl<in E: BaseExtension2>(
         _sourceSets.maybeCreate(name)
 
         if (hasAndroidTests) {
-            _sourceSets.maybeCreate(computeSourceSetName(name, VariantType.ANDROID_TEST))
+            _sourceSets.maybeCreate(computeSourceSetName(name, VariantTypeImpl.ANDROID_TEST))
         }
 
         if (hasUnitTests) {
-            _sourceSets.maybeCreate(computeSourceSetName(name, VariantType.UNIT_TEST))
+            _sourceSets.maybeCreate(computeSourceSetName(name, VariantTypeImpl.UNIT_TEST))
         }
     }
 
@@ -333,35 +337,35 @@ class DslModelDataImpl<in E: BaseExtension2>(
         val compile = createConfiguration(
                 configurationContainer,
                 compileName,
-                "Compile dependencies for '${sourceSet.name}' sources (deprecated: use '$implementationName' instead).",
+                getConfigDescriptionOld("compile", sourceSet.name, implementationName),
                 "compile" == compileName || "testCompile" == compileName /*canBeResolved*/)
-        compile.allDependencies
+        compile.dependencies
                 .whenObjectAdded(
-                        DeprecatedConfigurationAction(implementationName, compileName, deprecationReporter))
+                        RenamedConfigurationAction(implementationName, compileName, dslScope.deprecationReporter))
 
-        val packageConfigDescription = if (mainVariantType == VariantType.LIBRARY) {
-            "Publish dependencies for '${sourceSet.name}' sources (deprecated: use '$runtimeOnlyName' instead)."
+        val packageConfigDescription = if (mainVariantType.isAar) {
+            getConfigDescriptionOld("publish", sourceSet.name, runtimeOnlyName)
         } else {
-            "Apk dependencies for '${sourceSet.name}' sources (deprecated: use '$runtimeOnlyName' instead)."
+            getConfigDescriptionOld("apk", sourceSet.name, runtimeOnlyName)
         }
 
         val apkName = sourceSet._packageConfigurationName
         val apk = createConfiguration(
                 configurationContainer, apkName, packageConfigDescription)
-        apk.allDependencies
+        apk.dependencies
                 .whenObjectAdded(
-                        DeprecatedConfigurationAction(
-                                runtimeOnlyName, apkName, deprecationReporter))
+                        RenamedConfigurationAction(
+                                runtimeOnlyName, apkName, dslScope.deprecationReporter))
 
         val providedName = sourceSet._providedConfigurationName
         val provided = createConfiguration(
                 configurationContainer,
                 providedName,
-                "Provided dependencies for '${sourceSet.name}' sources (deprecated: use '$compileOnlyName' instead).")
-        provided.allDependencies
+                getConfigDescriptionOld("provided", sourceSet.name, compileOnlyName))
+        provided.dependencies
                 .whenObjectAdded(
-                        DeprecatedConfigurationAction(
-                                compileOnlyName, providedName, deprecationReporter))
+                        RenamedConfigurationAction(
+                                compileOnlyName, providedName, dslScope.deprecationReporter))
 
         // then the new configurations.
         val apiName = sourceSet.apiConfigurationName
@@ -372,19 +376,19 @@ class DslModelDataImpl<in E: BaseExtension2>(
         val implementation = createConfiguration(
                 configurationContainer,
                 implementationName,
-                "Implementation Only dependencies for '${sourceSet.name}' sources.")
+                getConfigDescription("implementation", sourceSet.name))
         implementation.extendsFrom(api)
 
         val runtimeOnly = createConfiguration(
                 configurationContainer,
                 runtimeOnlyName,
-                "Runtime Only dependencies for '${sourceSet.name}' sources.")
+                getConfigDescription("RuntimeOnly", sourceSet.name))
         runtimeOnly.extendsFrom(apk)
 
         val compileOnly = createConfiguration(
                 configurationContainer,
                 compileOnlyName,
-                "Compile Only dependencies for '${sourceSet.name}' sources.")
+                getConfigDescription("compileOnly", sourceSet.name))
         compileOnly.extendsFrom(provided)
 
         // then the secondary configurations.
@@ -402,6 +406,7 @@ class DslModelDataImpl<in E: BaseExtension2>(
                         + sourceSet.name
                         + "'.")
     }
+
 
     /**
      * Creates a Configuration for a given source set.
@@ -434,22 +439,22 @@ class DslModelDataImpl<in E: BaseExtension2>(
     }
 
     private fun checkName(name: String, displayName: String): Boolean {
-        if (!checkPrefix(name, displayName, VariantType.ANDROID_TEST.prefix)) {
+        if (!checkPrefix(name, displayName, VariantType.ANDROID_TEST_PREFIX)) {
             return false
         }
-        if (!checkPrefix(name, displayName, VariantType.UNIT_TEST.prefix)) {
+        if (!checkPrefix(name, displayName, VariantType.UNIT_TEST_PREFIX)) {
             return false
         }
 
         if (BuilderConstants.MAIN == name) {
-            issueReporter.reportError(Type.GENERIC,
-                    "$displayName names cannot be '${BuilderConstants.MAIN}'")
+            dslScope.issueReporter.reportError(Type.GENERIC,
+                EvalIssueException("$displayName names cannot be '${BuilderConstants.MAIN}'"))
             return false
         }
 
         if (BuilderConstants.LINT == name) {
-            issueReporter.reportError(Type.GENERIC,
-                    "$displayName names cannot be '${BuilderConstants.LINT}'")
+            dslScope.issueReporter.reportError(Type.GENERIC,
+                EvalIssueException("$displayName names cannot be '${BuilderConstants.LINT}'"))
             return false
         }
 
@@ -458,8 +463,8 @@ class DslModelDataImpl<in E: BaseExtension2>(
 
     private fun checkPrefix(name: String, displayName: String, prefix: String): Boolean {
         if (name.startsWith(prefix)) {
-            issueReporter.reportError(Type.GENERIC,
-                    "$displayName names cannot start with '$prefix'")
+            dslScope.issueReporter.reportError(Type.GENERIC,
+                EvalIssueException("$displayName names cannot start with '$prefix'"))
             return false
         }
 
@@ -491,14 +496,14 @@ private fun computeSourceSetName(
     if (!variantType.prefix.isEmpty()) {
         newName = buildString {
             append(variantType.prefix)
-            StringHelper.appendCapitalized(this, newName)
+            appendCapitalized(newName)
         }
     }
 
     return newName
 }
 
-class DeprecatedConfigurationAction(
+class RenamedConfigurationAction(
         private val replacement: String,
         private val oldName: String,
         private val deprecationReporter: DeprecationReporter,
@@ -509,7 +514,7 @@ class DeprecatedConfigurationAction(
     override fun execute(dependency: Dependency) {
         if (!warningPrintedAlready) {
             warningPrintedAlready = true
-            deprecationReporter.reportDeprecatedConfiguration(
+            deprecationReporter.reportRenamedConfiguration(
                     replacement, oldName, deprecationTarget, url)
         }
     }
@@ -525,3 +530,13 @@ class DeprecatedConfigurationAction(
 private fun <T> toSingleItem(): BinaryOperator<T> {
     return BinaryOperator { name1, _ -> throw IllegalArgumentException("Duplicate objects with name: " + name1) }
 }
+
+
+private inline fun getConfigDescriptionOld(
+        configName: String,
+        sourceSetName: String,
+        replacementName: String) =
+        "$configName dependencies for '$sourceSetName' sources (deprecated: use '$replacementName' instead)."
+
+private inline fun getConfigDescription(configName: String, sourceSetName: String) =
+        "$configName dependencies for '$sourceSetName' sources."

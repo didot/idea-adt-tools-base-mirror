@@ -27,7 +27,7 @@ import com.android.build.api.transform.Transform;
 import com.android.build.api.transform.TransformException;
 import com.android.build.api.transform.TransformInput;
 import com.android.build.gradle.internal.profile.AnalyticsUtil;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.builder.profile.Recorder;
 import com.android.ide.common.util.ReferenceHolder;
 import com.google.common.base.Splitter;
@@ -81,6 +81,24 @@ public class TransformTask extends StreamBasedTask implements Context {
     @Inject
     public TransformTask(@NonNull WorkerExecutor workerExecutor) {
         this.workerExecutor = workerExecutor;
+    }
+
+    @Input
+    @NonNull
+    public Set<? super QualifiedContent.Scope> getScopes() {
+        return transform.getScopes();
+    }
+
+    @Input
+    @NonNull
+    public Set<? super QualifiedContent.Scope> getReferencedScopes() {
+        return transform.getReferencedScopes();
+    }
+
+    @Input
+    @NonNull
+    public Set<QualifiedContent.ContentType> getInputTypes() {
+        return transform.getInputTypes();
     }
 
     @InputFiles
@@ -195,7 +213,7 @@ public class TransformTask extends StreamBasedTask implements Context {
                                     computeNonIncTransformInput(consumedInputStreams));
                             referencedInputs.setValue(
                                     computeNonIncTransformInput(referencedInputStreams));
-                            changedSecondaryInputs.setValue(ImmutableList.<SecondaryInput>of());
+                            changedSecondaryInputs.setValue(ImmutableList.of());
                         } else {
                             // gather all secondary input changes.
                             changedSecondaryInputs.setValue(
@@ -225,7 +243,8 @@ public class TransformTask extends StreamBasedTask implements Context {
                                         .addSecondaryInputs(changedSecondaryInputs.getValue())
                                         .addOutputProvider(
                                                 outputStream != null
-                                                        ? outputStream.asOutput()
+                                                        ? outputStream.asOutput(
+                                                                isIncremental.getValue())
                                                         : null)
                                         .setIncrementalMode(isIncremental.getValue())
                                         .build());
@@ -459,17 +478,14 @@ public class TransformTask extends StreamBasedTask implements Context {
                 .collect(Collectors.toList());
     }
 
-    public  interface  ConfigActionCallback<T extends Transform> {
-        void callback(@NonNull T transform, @NonNull TransformTask task);
-    }
-
     @NonNull
     @Override
     public WorkerExecutor getWorkerExecutor() {
         return workerExecutor;
     }
 
-    public static class ConfigAction<T extends Transform> implements TaskConfigAction<TransformTask> {
+    public static class CreationAction<T extends Transform>
+            extends TaskCreationAction<TransformTask> {
 
         @NonNull
         private final String variantName;
@@ -484,18 +500,15 @@ public class TransformTask extends StreamBasedTask implements Context {
         @Nullable
         private IntermediateStream outputStream;
         @NonNull private final Recorder recorder;
-        @Nullable
-        private final ConfigActionCallback<T> configActionCallback;
 
-        ConfigAction(
+        CreationAction(
                 @NonNull String variantName,
                 @NonNull String taskName,
                 @NonNull T transform,
                 @NonNull Collection<TransformStream> consumedInputStreams,
                 @NonNull Collection<TransformStream> referencedInputStreams,
                 @Nullable IntermediateStream outputStream,
-                @NonNull Recorder recorder,
-                @Nullable ConfigActionCallback<T> configActionCallback) {
+                @NonNull Recorder recorder) {
             this.variantName = variantName;
             this.taskName = taskName;
             this.transform = transform;
@@ -503,7 +516,6 @@ public class TransformTask extends StreamBasedTask implements Context {
             this.referencedInputStreams = referencedInputStreams;
             this.outputStream = outputStream;
             this.recorder = recorder;
-            this.configActionCallback = configActionCallback;
         }
 
         @NonNull
@@ -519,16 +531,13 @@ public class TransformTask extends StreamBasedTask implements Context {
         }
 
         @Override
-        public void execute(@NonNull TransformTask task) {
+        public void configure(@NonNull TransformTask task) {
             task.transform = transform;
             task.consumedInputStreams = consumedInputStreams;
             task.referencedInputStreams = referencedInputStreams;
             task.outputStream = outputStream;
             task.setVariantName(variantName);
             task.recorder = recorder;
-            if (configActionCallback != null) {
-                configActionCallback.callback(transform, task);
-            }
             task.getOutputs().cacheIf(t -> transform.isCacheable());
             task.registerConsumedAndReferencedStreamInputs();
         }

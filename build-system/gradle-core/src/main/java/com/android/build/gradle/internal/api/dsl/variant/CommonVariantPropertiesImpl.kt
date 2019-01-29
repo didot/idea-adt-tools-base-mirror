@@ -18,10 +18,11 @@ package com.android.build.gradle.internal.api.dsl.variant
 
 import com.android.build.api.dsl.variant.CommonVariantProperties
 import com.android.build.api.sourcesets.AndroidSourceSet
+import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.build.gradle.internal.api.dsl.sealing.SealableObject
 import com.android.build.gradle.internal.api.sourcesets.DefaultAndroidSourceSet
+import com.android.builder.errors.EvalIssueException
 import com.android.builder.errors.EvalIssueReporter
-import com.android.builder.model.SyncIssue
 import com.google.common.collect.ImmutableList
 import org.gradle.api.Action
 
@@ -33,8 +34,8 @@ class CommonVariantPropertiesImpl(
         sourceSets: List<AndroidSourceSet>,
         override val variantSourceSet: DefaultAndroidSourceSet?,
         override val multiFlavorSourceSet: DefaultAndroidSourceSet?,
-        issueReporter: EvalIssueReporter
-        ) : SealableObject(issueReporter), CommonVariantProperties {
+        dslScope: DslScope
+        ) : SealableObject(dslScope), CommonVariantProperties {
 
     override val flavorNames: List<String> = ImmutableList.copyOf(flavorNames)
     override val baseSourceSets: List<AndroidSourceSet> = ImmutableList.copyOf(sourceSets)
@@ -43,9 +44,9 @@ class CommonVariantPropertiesImpl(
         if (variantSourceSet != null) {
             action.execute(variantSourceSet)
         } else {
-            issueReporter.reportError(
+            dslScope.issueReporter.reportError(
                     EvalIssueReporter.Type.GENERIC,
-                    "Calling variantSourceSet(Action) with a null variantSourceSet")
+                EvalIssueException("Calling variantSourceSet(Action) with a null variantSourceSet"))
         }
     }
 
@@ -53,9 +54,9 @@ class CommonVariantPropertiesImpl(
         if (multiFlavorSourceSet != null) {
             action.execute(multiFlavorSourceSet)
         } else {
-            issueReporter.reportError(
+            dslScope.issueReporter.reportError(
                     EvalIssueReporter.Type.GENERIC,
-                    "Calling multiFlavorSourceSet(Action) with a null multiFlavorSourceSet")
+                EvalIssueException("Calling multiFlavorSourceSet(Action) with a null multiFlavorSourceSet"))
         }
     }
 

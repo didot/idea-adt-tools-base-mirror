@@ -17,16 +17,10 @@
 package com.android.build.gradle.tasks.factory;
 
 import com.android.annotations.NonNull;
-import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
-import com.android.build.gradle.internal.CompileOptions;
-import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.sdklib.AndroidTargetHash;
 import com.android.sdklib.AndroidVersion;
-import com.android.utils.ILogger;
 import org.gradle.api.JavaVersion;
-import org.gradle.api.Project;
-import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.compile.AbstractCompile;
 
@@ -37,37 +31,10 @@ public class AbstractCompilesUtil {
 
     public static final String ANDROID_APT_PLUGIN_NAME = "com.neenbedankt.android-apt";
 
-    /**
-     * Determines the java language level to use and sets it on the given task and {@link
-     * CompileOptions}. The latter is to propagate the information to Studio.
-     */
-    public static void configureLanguageLevel(
-            AbstractCompile compileTask,
-            final CompileOptions compileOptions,
-            String compileSdkVersion,
-            VariantScope.Java8LangSupport java8LangSupport) {
-        setDefaultJavaVersion(compileOptions, compileSdkVersion, java8LangSupport);
-        compileTask.setSourceCompatibility(compileOptions.getSourceCompatibility().toString());
-        compileTask.setTargetCompatibility(compileOptions.getTargetCompatibility().toString());
-    }
-
-    public static void setDefaultJavaVersion(
-            final CompileOptions compileOptions,
-            String compileSdkVersion,
-            VariantScope.Java8LangSupport java8LangSupport) {
-        compileOptions.setDefaultJavaVersion(
-                chooseDefaultJavaVersion(
-                        compileSdkVersion,
-                        System.getProperty("java.specification.version"),
-                        java8LangSupport));
-    }
-
     @NonNull
     @VisibleForTesting
-    static JavaVersion chooseDefaultJavaVersion(
-            @NonNull String compileSdkVersion,
-            @NonNull String currentJdkVersion,
-            VariantScope.Java8LangSupport java8LangSupport) {
+    public static JavaVersion getDefaultJavaVersion(@NonNull String compileSdkVersion) {
+        String currentJdkVersion = System.getProperty("java.specification.version");
         final AndroidVersion hash = AndroidTargetHash.getVersionFromHash(compileSdkVersion);
         Integer compileSdkLevel = (hash == null ? null : hash.getFeatureLevel());
 
@@ -96,34 +63,5 @@ public class AbstractCompilesUtil {
             javaVersionToUse = jdkVersion;
         }
         return javaVersionToUse;
-    }
-
-    /**
-     * Determine if java compilation can be incremental.
-     */
-    public static boolean isIncremental(
-            @NonNull Project project,
-            @NonNull VariantScope variantScope,
-            @NonNull CompileOptions compileOptions,
-            @Nullable Configuration processorConfiguration,
-            @NonNull ILogger log) {
-        boolean incremental = true;
-        if (compileOptions.getIncremental() != null) {
-            incremental = compileOptions.getIncremental();
-            log.verbose("Incremental flag set to %1$b in DSL", incremental);
-        } else {
-            boolean hasAnnotationProcessor =
-                    processorConfiguration != null
-                            && !processorConfiguration.getAllDependencies().isEmpty();
-            if (variantScope.getGlobalScope().getExtension().getDataBinding().isEnabled()
-                    || hasAnnotationProcessor
-                    || project.getPlugins().hasPlugin("me.tatarka.retrolambda")) {
-                incremental = false;
-                log.verbose("Incremental Java compilation disabled in variant %1$s "
-                                + "as you are using an incompatible plugin",
-                        variantScope.getVariantConfiguration().getFullName());
-            }
-        }
-        return incremental;
     }
 }

@@ -20,18 +20,9 @@ import static com.android.ide.common.vectordrawable.VdUtil.parseColorValue;
 import com.android.SdkConstants;
 import com.android.utils.XmlUtils;
 import com.google.common.collect.ImmutableMap;
-import java.awt.BasicStroke;
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.LinearGradientPaint;
-import java.awt.MultipleGradientPaint;
-import java.awt.RadialGradientPaint;
-import java.awt.RenderingHints;
-import java.awt.geom.AffineTransform;
-import java.awt.geom.Path2D;
-import java.awt.geom.PathIterator;
-import java.awt.geom.Point2D;
-import java.text.DecimalFormat;
+import java.awt.*;
+import java.awt.geom.*;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
@@ -131,7 +122,7 @@ class VdPath extends VdElement {
             return false;
         }
 
-        public static String nodeListToString(Node[] nodes, DecimalFormat decimalFormat) {
+        public static String nodeListToString(Node[] nodes, NumberFormat format) {
             StringBuilder result = new StringBuilder();
             for (Node node : nodes) {
                 result.append(node.mType);
@@ -153,7 +144,7 @@ class VdPath extends VdElement {
                     if (!Float.isFinite(param)) {
                         throw new IllegalArgumentException("Invalid number: " + param);
                     }
-                    String str = XmlUtils.trimInsignificantZeros(decimalFormat.format(param));
+                    String str = XmlUtils.trimInsignificantZeros(format.format(param));
                     result.append(str);
                 }
             }
@@ -530,7 +521,14 @@ class VdPath extends VdElement {
             g.draw(path2d);
         }
         if (isClipPath) {
-            g.setClip(path2d);
+            Shape clip = g.getClip();
+            if (clip != null) {
+                Area area = new Area(clip);
+                area.intersect(new Area(path2d));
+                g.setClip(area);
+            } else {
+                g.setClip(path2d);
+            }
         }
         if (fillGradient != null) {
             fillGradient.drawGradient(g, path2d, true);

@@ -49,16 +49,21 @@ class ReflectiveLintRunner {
     }
 
     fun extractAnnotations(
-            gradle: Gradle,
-            request: ExtractAnnotationRequest,
-            lintClassPath: Set<File>) {
+        gradle: Gradle,
+        request: ExtractAnnotationRequest,
+        lintClassPath: Set<File>
+    ) {
         try {
             val loader = getLintClassLoader(gradle, lintClassPath)
             val cls = loader.loadClass("com.android.tools.lint.gradle.LintExtractAnnotations")
             val driver = cls.newInstance()
-            val analyzeMethod = driver.javaClass.getDeclaredMethod("extractAnnotations",
-                    ExtractAnnotationRequest::class.java)
+            val analyzeMethod = driver.javaClass.getDeclaredMethod(
+                "extractAnnotations",
+                ExtractAnnotationRequest::class.java
+            )
             analyzeMethod.invoke(driver, request)
+        } catch (e: ExtractErrorException) {
+            throw GradleException(e.message)
         } catch (e: InvocationTargetException) {
             if (e.targetException is GradleException) {
                 // Build error from lint -- pass it on
@@ -71,30 +76,33 @@ class ReflectiveLintRunner {
     }
 
     private fun wrapExceptionAsString(t: Throwable) = RuntimeException(
-            "Lint infrastructure error\nCaused by: ${Throwables.getStackTraceAsString(t)}\n")
+        "Lint infrastructure error\nCaused by: ${Throwables.getStackTraceAsString(t)}\n"
+    )
 
     companion object {
         var loader: DelegatingClassLoader? = null
+        private var buildCompletionListenerRegistered = false
 
         private fun getLintClassLoader(gradle: Gradle, lintClassPath: Set<File>): ClassLoader {
-            if (loader == null) {
-                val listener = BuildCompletionListener {
-                    val l = loader
-                    if (l != null) {
-                        loader = null
-                        val cls = l.loadClass("com.android.tools.lint.LintCoreApplicationEnvironment")
-                        val disposeMethod = cls.getDeclaredMethod("disposeApplicationEnvironment")
-                        disposeMethod.invoke(null)
-                    }
-                }
-                gradle.addListener(listener)
-
-                val urls = computeUrlsFromClassLoaderDelta(lintClassPath) ?:
-                        computeUrlsFallback(lintClassPath)
-                loader = DelegatingClassLoader(urls.toTypedArray())
-
+            var l = loader
+            if (l == null) {
+                val urls = computeUrlsFromClassLoaderDelta(lintClassPath)
+                    ?: computeUrlsFallback(lintClassPath)
+                l = DelegatingClassLoader(urls.toTypedArray())
+                loader = l
             }
-            return loader!!
+
+            if (!buildCompletionListenerRegistered) {
+                buildCompletionListenerRegistered = true
+                gradle.addListener(BuildCompletionListener {
+                    val cls = l.loadClass("com.android.tools.lint.LintCoreApplicationEnvironment")
+                    val disposeMethod = cls.getDeclaredMethod("disposeApplicationEnvironment")
+                    disposeMethod.invoke(null)
+                    buildCompletionListenerRegistered = false
+                })
+            }
+
+            return l
         }
 
         /**
@@ -129,9 +137,9 @@ class ReflectiveLintRunner {
             val urls = ArrayList<URL>(uriMap.size)
             var seenLint = false
             for ((name, uri) in uriMap) {
-                if (name.startsWith("lint-api-")) {
+                if (name.startsWith("lint-api")) {
                     seenLint = true
-                } else if (name.startsWith("builder-model-")) {
+                } else if (name.startsWith("builder-model")) {
                     // This should never be on our class path, something is wrong
                     return null
                 }
@@ -152,7 +160,16 @@ class ReflectiveLintRunner {
             if (index == -1) {
                 return null
             }
-            return path.substring(index + 1)
+            var dash = path.indexOf('-', index)
+            while (dash != -1 && dash < path.length) {
+                if (path[dash + 1].isDigit()) {
+                    return path.substring(index + 1, dash)
+                } else {
+                    dash = path.indexOf('-', dash + 1)
+                }
+            }
+
+            return path.substring(index + 1, if (dash != -1) dash else path.length)
         }
 
         /**
@@ -173,19 +190,20 @@ class ReflectiveLintRunner {
 
                 // The set of jars that lint needs that *aren't* already used/loaded by gradle-core
                 if (name.startsWith("uast-") ||
-                        name.startsWith("intellij-core-") ||
-                        name.startsWith("kotlin-compiler-") ||
-                        name.startsWith("asm-") ||
-                        name.startsWith("kxml2-") ||
-                        name.startsWith("trove4j-") ||
-                        name.startsWith("groovy-all-") ||
+                    name.startsWith("intellij-core-") ||
+                    name.startsWith("kotlin-compiler-") ||
+                    name.startsWith("asm-") ||
+                    name.startsWith("kxml2-") ||
+                    name.startsWith("trove4j-") ||
+                    name.startsWith("groovy-all-") ||
 
-                        // All the lint jars, except lint-gradle-api jar (self)
-                        name.startsWith("lint-")
-                                // Do *not* load this class in a new class loader; we need to
-                                // share the same class as the one already loaded by the Gradle
-                                // plugin
-                                && !name.startsWith("lint-gradle-api-")) {
+                    // All the lint jars, except lint-gradle-api jar (self)
+                    name.startsWith("lint-") &&
+                    // Do *not* load this class in a new class loader; we need to
+                    // share the same class as the one already loaded by the Gradle
+                    // plugin
+                    !name.startsWith("lint-gradle-api-")
+                ) {
                     urls.add(file.toURI().toURL())
                 }
             }
@@ -193,4 +211,6 @@ class ReflectiveLintRunner {
             return urls
         }
     }
+
+    class ExtractErrorException(override val message: String) : RuntimeException(message)
 }

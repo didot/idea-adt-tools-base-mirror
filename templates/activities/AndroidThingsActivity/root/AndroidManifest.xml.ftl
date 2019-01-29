@@ -1,6 +1,5 @@
 <#import "../../common/shared_manifest_macros.ftl" as manifestMacros>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="${packageName}">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <application>
 
@@ -27,10 +26,11 @@
                     android:value="${parentActivityClass}" />
             </#if>
             <@manifestMacros.commonActivityBody />
-            <#if isLauncher>
+            <#if isThingsLauncher>
+                <!-- Make this the first activity that is displayed when the device boots. -->
                 <intent-filter>
                     <action android:name="android.intent.action.MAIN" />
-                    <category android:name="android.intent.category.IOT_LAUNCHER" />
+                    <category android:name="android.intent.category.HOME" />
                     <category android:name="android.intent.category.DEFAULT" />
                 </intent-filter>
             </#if>

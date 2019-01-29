@@ -21,7 +21,7 @@ import static com.android.testutils.truth.PathSubject.assertThat;
 
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
-import com.android.build.gradle.integration.common.fixture.app.AndroidTestApp;
+import com.android.build.gradle.integration.common.fixture.app.AndroidTestModule;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
 import com.android.utils.FileUtils;
@@ -32,8 +32,8 @@ import org.junit.Test;
 
 public class ResourceValidationTest {
 
-    public static final AndroidTestApp TEST_APP = HelloWorldApp
-            .forPlugin("com.android.application");
+    public static final AndroidTestModule TEST_APP =
+            HelloWorldApp.forPlugin("com.android.application");
 
     static {
         TEST_APP.addFile(
@@ -50,7 +50,7 @@ public class ResourceValidationTest {
         //noinspection ThrowableResultOfMethodCallIgnored
         assertThat(result.getFailureMessage()).contains("file name must end with");
 
-        assertThat(result.getStderr()).contains(FileUtils.join("src", "main", "res",
+        assertThat(result.getStdout()).contains(FileUtils.join("src", "main", "res",
                 "drawable", "not_a_drawable.ext"));
 
         Files.write(

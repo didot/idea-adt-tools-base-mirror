@@ -22,22 +22,20 @@ import com.android.build.api.dsl.model.DefaultConfig
 import com.android.build.api.dsl.model.FallbackStrategy
 import com.android.build.api.dsl.model.ProductFlavorOrVariant
 import com.android.build.api.dsl.model.VariantProperties
+import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.build.gradle.internal.api.dsl.sealing.SealableObject
-import com.android.builder.errors.EvalIssueReporter
 
 class DefaultConfigImpl(
             private val variantProperties: VariantPropertiesImpl,
             private val buildTypeOrProductFlavor: BuildTypeOrProductFlavorImpl,
             private val productFlavorOrVariant: ProductFlavorOrVariantImpl,
-            private val fallbackStrategy: FallbackStrategyImpl,
             private val baseFlavor: BaseFlavorImpl,
-            issueReporter: EvalIssueReporter)
-        : SealableObject(issueReporter),
+            dslScope: DslScope)
+        : SealableObject(dslScope),
         DefaultConfig,
         VariantProperties by variantProperties,
         BuildTypeOrProductFlavor by buildTypeOrProductFlavor,
         ProductFlavorOrVariant by productFlavorOrVariant,
-        FallbackStrategy by fallbackStrategy,
         BaseFlavor by baseFlavor {
 
     override fun seal() {
@@ -46,7 +44,6 @@ class DefaultConfigImpl(
         variantProperties.seal()
         buildTypeOrProductFlavor.seal()
         productFlavorOrVariant.seal()
-        fallbackStrategy.seal()
         baseFlavor.seal()
     }
 }

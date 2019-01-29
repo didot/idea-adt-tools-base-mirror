@@ -26,8 +26,6 @@ import static org.junit.Assert.fail;
 import com.android.annotations.NonNull;
 import com.android.apksig.ApkVerifier;
 import com.android.apksig.ApkVerifier.IssueWithParams;
-import com.android.apkzlib.sign.DigestAlgorithm;
-import com.android.apkzlib.sign.SignatureAlgorithm;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
@@ -44,6 +42,8 @@ import com.android.builder.model.SigningConfig;
 import com.android.builder.model.Variant;
 import com.android.testutils.TestUtils;
 import com.android.testutils.apk.Apk;
+import com.android.tools.build.apkzlib.sign.DigestAlgorithm;
+import com.android.tools.build.apkzlib.sign.SignatureAlgorithm;
 import com.google.common.io.Resources;
 import java.io.File;
 import java.nio.file.Files;
@@ -307,7 +307,7 @@ public class SigningTest {
             assertThat(apk).containsFileWithoutContent("META-INF/MANIFEST.MF", "SHA-1-Digest");
             assertThat(apk).containsFileWithoutContent("META-INF/MANIFEST.MF", "SHA-256-Digest");
 
-            TestFileUtils.searchAndReplace(
+            TestFileUtils.searchRegexAndReplace(
                     project.getBuildFile(),
                     "minSdkVersion \\d+",
                     "minSdkVersion " + DigestAlgorithm.API_SHA_256_RSA_AND_ECDSA);
@@ -332,7 +332,7 @@ public class SigningTest {
             assertThat(apk).containsFileWithoutContent("META-INF/MANIFEST.MF", "SHA-256-Digest");
         }
 
-        TestFileUtils.searchAndReplace(
+        TestFileUtils.searchRegexAndReplace(
                 project.getBuildFile(),
                 "minSdkVersion \\d+",
                 "minSdkVersion " + DigestAlgorithm.API_SHA_256_ALL_ALGORITHMS);
@@ -363,7 +363,7 @@ public class SigningTest {
         // Specified: v1SigningEnabled false, v2SigningEnabled false
         TestFileUtils.searchAndReplace(
                 project.getBuildFile(),
-                "customDebug \\{",
+                "customDebug {",
                 "customDebug {\nv1SigningEnabled false\nv2SigningEnabled false");
 
         TestUtils.waitForFileSystemTick();
@@ -464,5 +464,13 @@ public class SigningTest {
                 assertApkSignaturesVerify(apk, Math.max(minSdkVersion, 24));
         assertFalse(verificationResult.isVerifiedUsingV1Scheme());
         assertTrue(verificationResult.isVerifiedUsingV2Scheme());
+    }
+
+    @Test
+    @SuppressWarnings("ThrowableResultOfMethodCallIgnored")
+    public void failWithMissingKeyPassword() throws Exception {
+        TestFileUtils.searchAndReplace(
+                project.getBuildFile(), "keyPassword '" + KEY_PASSWORD + "'", "");
+        project.executeExpectingFailure("assembleDebug");
     }
 }

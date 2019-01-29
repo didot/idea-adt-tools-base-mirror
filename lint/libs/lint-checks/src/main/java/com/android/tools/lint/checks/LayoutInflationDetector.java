@@ -23,9 +23,10 @@ import static com.android.tools.lint.checks.ViewHolderDetector.INFLATE;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
-import com.android.ide.common.res2.AbstractResourceRepository;
-import com.android.ide.common.res2.ResourceFile;
-import com.android.ide.common.res2.ResourceItem;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.resources.ResourceItem;
+import com.android.ide.common.resources.ResourceRepository;
+import com.android.ide.common.util.PathString;
 import com.android.resources.ResourceType;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.client.api.ResourceReference;
@@ -35,28 +36,24 @@ import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
 import com.android.tools.lint.detector.api.LayoutDetector;
-import com.android.tools.lint.detector.api.LintUtils;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.SourceCodeScanner;
 import com.android.tools.lint.detector.api.XmlContext;
-import com.android.utils.CharSequences;
 import com.android.utils.Pair;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.intellij.psi.PsiMethod;
-import java.io.File;
 import java.io.IOException;
-import java.io.Reader;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import org.jetbrains.uast.UCallExpression;
 import org.jetbrains.uast.UExpression;
 import org.jetbrains.uast.UastLiteralUtils;
-import org.kxml2.io.KXmlParser;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -64,46 +61,44 @@ import org.w3c.dom.NamedNodeMap;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
 
-/**
- * Looks for layout inflation calls passing null as the view root
- */
+/** Looks for layout inflation calls passing null as the view root */
 public class LayoutInflationDetector extends LayoutDetector implements SourceCodeScanner {
 
     @SuppressWarnings("unchecked")
-    private static final Implementation IMPLEMENTATION = new Implementation(
-            LayoutInflationDetector.class,
-            Scope.JAVA_AND_RESOURCE_FILES,
-            Scope.JAVA_FILE_SCOPE);
+    private static final Implementation IMPLEMENTATION =
+            new Implementation(
+                    LayoutInflationDetector.class,
+                    Scope.JAVA_AND_RESOURCE_FILES,
+                    Scope.JAVA_FILE_SCOPE);
 
     /** Passing in a null parent to a layout inflater */
-    public static final Issue ISSUE = Issue.create(
-            "InflateParams",
-            "Layout Inflation without a Parent",
-
-            "When inflating a layout, avoid passing in null as the parent view, since " +
-            "otherwise any layout parameters on the root of the inflated layout will be ignored.",
-
-            Category.CORRECTNESS,
-            5,
-            Severity.WARNING,
-            IMPLEMENTATION)
-            .addMoreInfo("http://www.doubleencore.com/2013/05/layout-inflation-as-intended");
+    public static final Issue ISSUE =
+            Issue.create(
+                            "InflateParams",
+                            "Layout Inflation without a Parent",
+                            "When inflating a layout, avoid passing in null as the parent view, since "
+                                    + "otherwise any layout parameters on the root of the inflated layout will be ignored.",
+                            Category.CORRECTNESS,
+                            5,
+                            Severity.WARNING,
+                            IMPLEMENTATION)
+                    .addMoreInfo(
+                            "http://www.doubleencore.com/2013/05/layout-inflation-as-intended");
 
     private static final String ERROR_MESSAGE =
             "Avoid passing `null` as the view root (needed to resolve "
-            + "layout parameters on the inflated layout's root element)";
+                    + "layout parameters on the inflated layout's root element)";
 
     /** Constructs a new {@link LayoutInflationDetector} check */
-    public LayoutInflationDetector() {
-    }
+    public LayoutInflationDetector() {}
 
     @Override
-    public void afterCheckProject(@NonNull Context context) {
+    public void afterCheckRootProject(@NonNull Context context) {
         if (mPendingErrors != null) {
-            for (Pair<String,Location> pair : mPendingErrors) {
+            for (Pair<String, Location> pair : mPendingErrors) {
                 String inflatedLayout = pair.getFirst();
-                if (mLayoutsWithRootLayoutParams == null ||
-                        !mLayoutsWithRootLayoutParams.contains(inflatedLayout)) {
+                if (mLayoutsWithRootLayoutParams == null
+                        || !mLayoutsWithRootLayoutParams.contains(inflatedLayout)) {
                     // No root layout parameters on the inflated layout: no need to complain
                     continue;
                 }
@@ -116,7 +111,7 @@ public class LayoutInflationDetector extends LayoutDetector implements SourceCod
     // ---- Implements XmlScanner ----
 
     private Set<String> mLayoutsWithRootLayoutParams;
-    private List<Pair<String,Location>> mPendingErrors;
+    private List<Pair<String, Location>> mPendingErrors;
 
     @Override
     public void visitDocument(@NonNull XmlContext context, @NonNull Document document) {
@@ -130,7 +125,7 @@ public class LayoutInflationDetector extends LayoutDetector implements SourceCod
                     if (mLayoutsWithRootLayoutParams == null) {
                         mLayoutsWithRootLayoutParams = Sets.newHashSetWithExpectedSize(20);
                     }
-                    mLayoutsWithRootLayoutParams.add(LintUtils.getBaseName(context.file.getName()));
+                    mLayoutsWithRootLayoutParams.add(Lint.getBaseName(context.file.getName()));
                     break;
                 }
             }
@@ -146,7 +141,9 @@ public class LayoutInflationDetector extends LayoutDetector implements SourceCod
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @NonNull UCallExpression call,
+    public void visitMethodCall(
+            @NonNull JavaContext context,
+            @NonNull UCallExpression call,
             @NonNull PsiMethod method) {
         assert method.getName().equals(INFLATE);
         if (call.getReceiver() == null) {
@@ -191,34 +188,28 @@ public class LayoutInflationDetector extends LayoutDetector implements SourceCod
         }
 
         Project project = context.getProject();
-        AbstractResourceRepository resources = client.getResourceRepository(project, true, false);
+        ResourceRepository resources = client.getResourceRepository(project, true, false);
         if (resources == null) {
             return true; // not certain
         }
 
-        List<ResourceItem> items = resources.getResourceItem(ResourceType.LAYOUT, name);
-        if (items == null || items.isEmpty()) {
-            return false;
-        }
+        List<ResourceItem> items =
+                resources.getResources(ResourceNamespace.TODO(), ResourceType.LAYOUT, name);
 
         for (ResourceItem item : items) {
-            ResourceFile source = item.getSource();
+            PathString source = item.getSource();
             if (source == null) {
-                return true; // not certain
+                return true; // Not certain.
             }
 
-            File file = source.getFile();
-            if (file.exists()) {
-                try {
-                    CharSequence s = client.readFile(file);
-                    Reader reader = CharSequences.getReader(s, true);
-                    if (hasLayoutParams(reader)) {
-                        return true;
-                    }
-                } catch (Exception e) {
-                    context.log(e, "Could not read/parse inflated layout");
-                    return true; // not certain
+            try {
+                XmlPullParser parser = client.createXmlPullParser(source);
+                if (parser != null && hasLayoutParams(parser)) {
+                    return true;
                 }
+            } catch (XmlPullParserException | IOException e) {
+                context.log(e, "Could not read/parse inflated layout");
+                return true; // not certain
             }
         }
 
@@ -226,20 +217,17 @@ public class LayoutInflationDetector extends LayoutDetector implements SourceCod
     }
 
     @VisibleForTesting
-    static boolean hasLayoutParams(@NonNull Reader reader)
+    static boolean hasLayoutParams(@NonNull XmlPullParser parser)
             throws XmlPullParserException, IOException {
-        KXmlParser parser = new KXmlParser();
-        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true);
-        parser.setInput(reader);
-
         while (true) {
             int event = parser.next();
             if (event == XmlPullParser.START_TAG) {
                 for (int i = 0; i < parser.getAttributeCount(); i++) {
                     if (parser.getAttributeName(i).startsWith(ATTR_LAYOUT_RESOURCE_PREFIX)) {
                         String prefix = parser.getAttributePrefix(i);
-                        if (prefix != null && !prefix.isEmpty() &&
-                                ANDROID_URI.equals(parser.getNamespace(prefix))) {
+                        if (prefix != null
+                                && !prefix.isEmpty()
+                                && ANDROID_URI.equals(parser.getNamespace(prefix))) {
                             return true;
                         }
                     }

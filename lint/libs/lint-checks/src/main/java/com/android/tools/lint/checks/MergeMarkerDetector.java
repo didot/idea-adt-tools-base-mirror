@@ -16,6 +16,10 @@
 
 package com.android.tools.lint.checks;
 
+import static com.android.SdkConstants.DOT_GRADLE;
+import static com.android.SdkConstants.DOT_KTS;
+import static com.android.SdkConstants.DOT_PROPERTIES;
+import static com.android.SdkConstants.DOT_XML;
 import static com.android.utils.CharSequences.indexOf;
 import static com.android.utils.CharSequences.startsWith;
 
@@ -29,30 +33,28 @@ import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.OtherFileScanner;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
-import com.android.utils.SdkUtils;
 import java.util.EnumSet;
 
-/**
- * Looks for merge markers left behind in the source files.
- */
+/** Looks for merge markers left behind in the source files. */
 public class MergeMarkerDetector extends Detector implements OtherFileScanner {
     /** Packaged private key files */
-    public static final Issue ISSUE = Issue.create(
-            "MergeMarker",
-            "Code contains merge marker",
+    public static final Issue ISSUE =
+            Issue.create(
+                    "MergeMarker",
+                    "Code contains merge marker",
+                    "Many version control systems leave unmerged files with markers such as <<< in "
+                            + "the source code. This check looks for these markers, which are sometimes "
+                            + "accidentally left in, particularly in resource files where they don't "
+                            + "break compilation.",
+                    Category.CORRECTNESS,
+                    8,
+                    Severity.ERROR,
+                    new Implementation(MergeMarkerDetector.class, Scope.OTHER_SCOPE));
 
-            "Many version control systems leave unmerged files with markers such as <<< in "
-                    + "the source code. This check looks for these markers, which are sometimes "
-                    + "accidentally left in, particularly in resource files where they don't "
-                    + "break compilation.",
-            Category.CORRECTNESS,
-            8,
-            Severity.ERROR,
-            new Implementation(MergeMarkerDetector.class, Scope.OTHER_SCOPE));
+    private static final String[] targetFileTypes = {DOT_GRADLE, DOT_KTS, DOT_PROPERTIES, DOT_XML};
 
     /** Constructs a new {@link MergeMarkerDetector} check */
-    public MergeMarkerDetector() {
-    }
+    public MergeMarkerDetector() {}
 
     // ---- Implements OtherFileScanner ----
 
@@ -69,7 +71,15 @@ public class MergeMarkerDetector extends Detector implements OtherFileScanner {
             return;
         }
 
-        if (SdkUtils.isBitmapFile(context.file)) {
+        boolean shouldCheckFile = false;
+        String path = context.file.getPath();
+        for (String ext : targetFileTypes) {
+            if (path.endsWith(ext)) {
+                shouldCheckFile = true;
+                break;
+            }
+        }
+        if (!shouldCheckFile) {
             return;
         }
 

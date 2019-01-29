@@ -44,35 +44,37 @@ import org.jetbrains.uast.java.JavaUAssertExpression
 class AssertDetector : Detector(), SourceCodeScanner {
     companion object Issues {
         /** Using assertions  */
-        @JvmField val ISSUE = Issue.create(
-                "Assert",
-                "Assertions",
+        @JvmField
+        val ISSUE = Issue.create(
+            id = "Assert",
+            briefDescription = "Assertions",
+            explanation = """
+            Assertions are not checked at runtime. There are ways to request that they be used by Dalvik \
+            (`adb shell setprop debug.assert 1`), but note that this is not implemented in ART (the newer \
+            runtime), and even in Dalvik the property is ignored in many places and can not be relied upon. \
+            Instead, perform conditional checking inside `if (BuildConfig.DEBUG) { }` blocks. That constant \
+            is a static final boolean which is true in debug builds and false in release builds, and the \
+            Java compiler completely removes all code inside the if-body from the app.
 
-                """
-Assertions are not checked at runtime. There are ways to request that they be used by Dalvik \
-(`adb shell setprop debug.assert 1`), but note that this is not implemented in ART (the newer \
-runtime), and even in Dalvik the property is ignored in many places and can not be relied upon. \
-Instead, perform conditional checking inside `if (BuildConfig.DEBUG) { }` blocks. That constant \
-is a static final boolean which is true in debug builds and false in release builds, and the \
-Java compiler completely removes all code inside the if-body from the app.
+            For example, you can replace `assert speed > 0` with `if (BuildConfig.DEBUG && !(speed > 0)) { \
+            throw new AssertionError() }`.
 
-For example, you can replace `assert speed > 0` with `if (BuildConfig.DEBUG && !(speed > 0)) { \
-throw new AssertionError() }`.
-
-(Note: This lint check does not flag assertions purely asserting nullness or non-nullness; these \
-are typically more intended for tools usage than runtime checks.)""",
-
-                Category.CORRECTNESS,
-                6,
-                Severity.WARNING,
-                Implementation(
-                        AssertDetector::class.java,
-                        Scope.JAVA_FILE_SCOPE))
-                .addMoreInfo("https://code.google.com/p/android/issues/detail?id=65183")
+            (Note: This lint check does not flag assertions purely asserting nullness or non-nullness; these \
+            are typically more intended for tools usage than runtime checks.)""",
+            moreInfo = "https://code.google.com/p/android/issues/detail?id=65183",
+            category = Category.CORRECTNESS,
+            priority = 6,
+            severity = Severity.WARNING,
+            androidSpecific = true,
+            implementation = Implementation(
+                AssertDetector::class.java,
+                Scope.JAVA_FILE_SCOPE
+            )
+        )
     }
 
     override fun getApplicableUastTypes(): List<Class<out UElement>>? =
-            listOf<Class<out UElement>>(UCallExpression::class.java)
+        listOf(UCallExpression::class.java)
 
     override fun createUastHandler(context: JavaContext): UElementHandler? {
         if (!context.mainProject.isAndroidProject) {
@@ -88,8 +90,10 @@ are typically more intended for tools usage than runtime checks.)""",
         }
     }
 
-    private fun checkAssertion(expression: JavaUAssertExpression,
-                               context: JavaContext) {
+    private fun checkAssertion(
+        expression: JavaUAssertExpression,
+        context: JavaContext
+    ) {
         // Allow "assert true"; it's basically a no-op
         val condition = expression.condition
         if (condition is ULiteralExpression) {
@@ -137,8 +141,8 @@ are typically more intended for tools usage than runtime checks.)""",
             is UBinaryExpression -> {
                 val lOperand = expression.leftOperand
                 val rOperand = expression.rightOperand
-                lOperand.isNullLiteral() || rOperand.isNullLiteral()
-                        || isNullCheck(lOperand) && isNullCheck(rOperand)
+                lOperand.isNullLiteral() || rOperand.isNullLiteral() ||
+                        isNullCheck(lOperand) && isNullCheck(rOperand)
             }
             is UPolyadicExpression -> {
                 for (operand in expression.operands) {

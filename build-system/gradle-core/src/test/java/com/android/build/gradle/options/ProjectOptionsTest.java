@@ -129,7 +129,7 @@ public class ProjectOptionsTest {
         ProjectOptions projectOptions =
                 new ProjectOptions(
                         ImmutableMap.of(
-                                "android.enableAapt2", "false",
+                                "android.enableDesugar", "false",
                                 "android.enableD8", "false"));
 
         assertThat(projectOptions.hasDeprecatedOptions()).isTrue();
@@ -138,7 +138,7 @@ public class ProjectOptionsTest {
         projectOptions =
                 new ProjectOptions(
                         ImmutableMap.of(
-                                "android.enableAapt2", "true",
+                                "android.enableDesugar", "true",
                                 "android.enableD8", "false"));
 
         assertThat(projectOptions.hasDeprecatedOptions()).isTrue();
@@ -147,11 +147,21 @@ public class ProjectOptionsTest {
         projectOptions =
                 new ProjectOptions(
                         ImmutableMap.of(
-                                "android.enableAapt2", "true",
+                                "android.enableDesugar", "true",
                                 "android.enableD8", "true"));
 
         assertThat(projectOptions.hasDeprecatedOptions()).isFalse();
         assertThat(projectOptions.getDeprecatedOptions()).isEmpty();
+    }
+
+    @Test
+    public void experimentalOptionsUse() {
+        ProjectOptions projectOptions =
+                new ProjectOptions(ImmutableMap.of("android.enableProfileJson", "true"));
+
+        assertThat(projectOptions.getExperimentalOptions()).hasSize(1);
+        assertThat(projectOptions.getExperimentalOptions().keySet())
+                .containsExactly(BooleanOption.ENABLE_PROFILE_JSON);
     }
 
     @Test
@@ -162,7 +172,7 @@ public class ProjectOptionsTest {
                                 OptionalBooleanOption.values(),
                                 IntegerOption.values(),
                                 StringOption.values(),
-                                EnumOptions.EnumOption.values())
+                                RemovedOptions.values())
                         .flatMap(Arrays::stream)
                         .map(option -> option.getPropertyName())
                         .collect(Collectors.toList());

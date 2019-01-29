@@ -18,8 +18,9 @@
 package com.android.builder.internal.aapt.v2
 
 import com.android.builder.internal.aapt.AaptPackageConfig
+import com.android.builder.internal.aapt.CloseableBlockingResourceLinker
 import com.android.builder.internal.aapt.v2.Aapt2DaemonManager.LeasedAaptDaemon
-import com.android.ide.common.res2.CompileResourceRequest
+import com.android.ide.common.resources.CompileResourceRequest
 import com.android.utils.ILogger
 import com.google.common.base.Preconditions
 import com.google.common.base.Ticker
@@ -92,7 +93,7 @@ class Aapt2DaemonManager(
     @Synchronized
     fun shutdown() {
         if (pool.any { it.busy }) {
-            throw IllegalStateException("AAPT Process manager cannot be shut down while daemons are in use")
+            error("AAPT Process manager cannot be shut down while daemons are in use")
         }
         if (!pool.isEmpty()) {
             listener.lastDaemonStopped()
@@ -159,7 +160,7 @@ class Aapt2DaemonManager(
     @NotThreadSafe
     class LeasedAaptDaemon internal constructor(
             private val leasableDaemon: LeasableAaptDaemon,
-            private val closeAction: (LeasableAaptDaemon) -> Unit) : Closeable, Aapt2 {
+            private val closeAction: (LeasableAaptDaemon) -> Unit) : Aapt2, Closeable, CloseableBlockingResourceLinker {
 
         private var leaseValid = true
 

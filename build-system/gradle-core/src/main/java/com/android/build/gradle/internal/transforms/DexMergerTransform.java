@@ -19,9 +19,11 @@ package com.android.build.gradle.internal.transforms;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.DirectoryInput;
 import com.android.build.api.transform.Format;
 import com.android.build.api.transform.JarInput;
+import com.android.build.api.transform.QualifiedContent;
 import com.android.build.api.transform.QualifiedContent.ContentType;
 import com.android.build.api.transform.QualifiedContent.Scope;
 import com.android.build.api.transform.SecondaryFile;
@@ -32,6 +34,8 @@ import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.api.transform.TransformOutputProvider;
 import com.android.build.gradle.internal.LoggerWrapper;
+import com.android.build.gradle.internal.api.artifact.BuildableArtifactUtil;
+import com.android.build.gradle.internal.crash.PluginCrashReporter;
 import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.builder.dexing.DexMergerTool;
@@ -50,7 +54,9 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
@@ -59,13 +65,16 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
-import java.util.stream.Collectors;
-import org.gradle.api.file.FileCollection;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This transform processes dex archives, {@link ExtendedContentType#DEX_ARCHIVE}, and merges them
@@ -105,20 +114,24 @@ public class DexMergerTransform extends Transform {
     @VisibleForTesting public static final int EXTERNAL_DEPS_DEX_FILES = 50;
 
     @NonNull private final DexingType dexingType;
-    @Nullable private final FileCollection mainDexListFile;
+    @Nullable private final BuildableArtifact mainDexListFile;
     @NonNull private final DexMergerTool dexMerger;
     private final int minSdkVersion;
     private final boolean isDebuggable;
     @NonNull private final MessageReceiver messageReceiver;
-    @NonNull private final ForkJoinPool forkJoinPool = ForkJoinPool.commonPool();
+    @NonNull private final ForkJoinPool forkJoinPool = new ForkJoinPool();
+    private final boolean includeFeaturesInScopes;
+    private final boolean isInInstantRunMode;
 
     public DexMergerTransform(
             @NonNull DexingType dexingType,
-            @Nullable FileCollection mainDexListFile,
+            @Nullable BuildableArtifact mainDexListFile,
             @NonNull MessageReceiver messageReceiver,
             @NonNull DexMergerTool dexMerger,
             int minSdkVersion,
-            boolean isDebuggable) {
+            boolean isDebuggable,
+            boolean includeFeaturesInScopes,
+            boolean isInInstantRunMode) {
         this.dexingType = dexingType;
         this.mainDexListFile = mainDexListFile;
         this.dexMerger = dexMerger;
@@ -128,6 +141,8 @@ public class DexMergerTransform extends Transform {
                 (dexingType == DexingType.LEGACY_MULTIDEX) == (mainDexListFile != null),
                 "Main dex list must only be set when in legacy multidex");
         this.messageReceiver = messageReceiver;
+        this.includeFeaturesInScopes = includeFeaturesInScopes;
+        this.isInInstantRunMode = isInInstantRunMode;
     }
 
     @NonNull
@@ -151,6 +166,9 @@ public class DexMergerTransform extends Transform {
     @NonNull
     @Override
     public Set<? super Scope> getScopes() {
+        if (includeFeaturesInScopes) {
+            return TransformManager.SCOPE_FULL_WITH_IR_AND_FEATURES;
+        }
         return TransformManager.SCOPE_FULL_WITH_IR_FOR_DEXING;
     }
 
@@ -172,6 +190,7 @@ public class DexMergerTransform extends Transform {
         params.put("dex-merger-tool", dexMerger.name());
         params.put("is-debuggable", isDebuggable);
         params.put("min-sdk-version", minSdkVersion);
+        params.put("is-in-instant-run", isInInstantRunMode);
 
         return params;
     }
@@ -220,6 +239,7 @@ public class DexMergerTransform extends Transform {
             // now wait for all merge tasks completion
             mergeTasks.forEach(ForkJoinTask::join);
         } catch (Exception e) {
+            PluginCrashReporter.maybeReportException(e);
             // Print the error always, even without --stacktrace
             logger.error(null, Throwables.getStackTraceAsString(e));
             throw new TransformException(e);
@@ -231,6 +251,8 @@ public class DexMergerTransform extends Transform {
                     // ignore this one
                 }
             }
+            forkJoinPool.shutdown();
+            forkJoinPool.awaitTermination(100, TimeUnit.SECONDS);
         }
     }
 
@@ -244,24 +266,21 @@ public class DexMergerTransform extends Transform {
             @NonNull ProcessOutput output,
             @NonNull TransformOutputProvider outputProvider)
             throws IOException {
-        ImmutableList.Builder<Path> dexArchiveBuilder = ImmutableList.builder();
-        TransformInputUtil.getDirectories(inputs)
-                .stream()
-                .map(File::toPath)
-                .forEach(dexArchiveBuilder::add);
-        inputs.stream()
-                .flatMap(transformInput -> transformInput.getJarInputs().stream())
-                .filter(jarInput -> jarInput.getStatus() != Status.REMOVED)
-                .map(jarInput -> jarInput.getFile().toPath())
-                .forEach(dexArchiveBuilder::add);
+        Iterator<Path> dirInputs =
+                TransformInputUtil.getDirectories(inputs).stream().map(File::toPath).iterator();
+        Iterator<Path> jarInputs =
+                inputs.stream()
+                        .flatMap(transformInput -> transformInput.getJarInputs().stream())
+                        .filter(jarInput -> jarInput.getStatus() != Status.REMOVED)
+                        .map(jarInput -> jarInput.getFile().toPath())
+                        .iterator();
+        Iterator<Path> dexArchives = Iterators.concat(dirInputs, jarInputs);
 
-        ImmutableList<Path> dexesToMerge = dexArchiveBuilder.build();
-        if (dexesToMerge.isEmpty()) {
+        if (!dexArchives.hasNext()) {
             return ImmutableList.of();
         }
 
-        File outputDir =
-                getDexOutputLocation(outputProvider, "main", TransformManager.SCOPE_FULL_PROJECT);
+        File outputDir = getDexOutputLocation(outputProvider, "main", getScopes());
         // this deletes and creates the dir for the output
         FileUtils.cleanOutputDir(outputDir);
 
@@ -269,10 +288,10 @@ public class DexMergerTransform extends Transform {
         if (mainDexListFile == null) {
             mainDexClasses = null;
         } else {
-            mainDexClasses = mainDexListFile.getSingleFile().toPath();
+            mainDexClasses = BuildableArtifactUtil.singleFile(mainDexListFile).toPath();
         }
 
-        return ImmutableList.of(submitForMerging(output, outputDir, dexesToMerge, mainDexClasses));
+        return ImmutableList.of(submitForMerging(output, outputDir, dexArchives, mainDexClasses));
     }
 
     /**
@@ -373,8 +392,7 @@ public class DexMergerTransform extends Transform {
         ImmutableList.Builder<ForkJoinTask<Void>> subTasks = ImmutableList.builder();
 
         for (JarInput jarInput : inputs) {
-            File dexOutput =
-                    getDexOutputLocation(outputProvider, jarInput.getName(), jarInput.getScopes());
+            File dexOutput = getDexOutputLocation(outputProvider, jarInput);
 
             if (!isIncremental || jarInput.getStatus() != Status.NOTCHANGED) {
                 FileUtils.cleanOutputDir(dexOutput);
@@ -387,7 +405,7 @@ public class DexMergerTransform extends Transform {
                         submitForMerging(
                                 output,
                                 dexOutput,
-                                ImmutableList.of(jarInput.getFile().toPath()),
+                                Iterators.singletonIterator(jarInput.getFile().toPath()),
                                 null));
             }
         }
@@ -406,38 +424,27 @@ public class DexMergerTransform extends Transform {
             return ImmutableList.of();
         }
 
-        Map<Status, List<JarInput>> byStatus =
-                inputs.stream().collect(Collectors.groupingBy(JarInput::getStatus));
-
-        if (isIncremental && byStatus.keySet().equals(Collections.singleton(Status.NOTCHANGED))) {
+        Set<Status> statuses = EnumSet.noneOf(Status.class);
+        Iterable<? super Scope> allScopes = new HashSet<>();
+        for (JarInput jarInput : inputs) {
+            statuses.add(jarInput.getStatus());
+            allScopes = Iterables.concat(allScopes, jarInput.getScopes());
+        }
+        if (isIncremental && statuses.equals(Collections.singleton(Status.NOTCHANGED))) {
             return ImmutableList.of();
         }
 
-        for (Status s : Status.values()) {
-            byStatus.putIfAbsent(s, ImmutableList.of());
-        }
-        Set<? super Scope> allScopes =
-                inputs.stream()
-                        .map(JarInput::getScopes)
-                        .flatMap(Set::stream)
-                        .collect(Collectors.toSet());
-        File mergedOutput = getDexOutputLocation(outputProvider, "nonExternalJars", allScopes);
+        File mergedOutput =
+                getDexOutputLocation(outputProvider, "nonExternalJars", Sets.newHashSet(allScopes));
         FileUtils.cleanOutputDir(mergedOutput);
 
-        List<Path> toMerge =
-                new ArrayList<>(
-                        byStatus.get(Status.CHANGED).size()
-                                + byStatus.get(Status.NOTCHANGED).size()
-                                + byStatus.get(Status.ADDED).size());
-        for (JarInput input :
-                Iterables.concat(
-                        byStatus.get(Status.CHANGED),
-                        byStatus.get(Status.NOTCHANGED),
-                        byStatus.get(Status.ADDED))) {
-            toMerge.add(input.getFile().toPath());
-        }
+        Iterator<Path> toMerge =
+                inputs.stream()
+                        .filter(i -> i.getStatus() != Status.REMOVED)
+                        .map(i -> i.getFile().toPath())
+                        .iterator();
 
-        if (!toMerge.isEmpty()) {
+        if (toMerge.hasNext()) {
             return ImmutableList.of(submitForMerging(output, mergedOutput, toMerge, null));
         } else {
             return ImmutableList.of();
@@ -487,37 +494,31 @@ public class DexMergerTransform extends Transform {
         if (mergeAllInputs) {
             File dexOutput =
                     getDexOutputLocation(
-                            outputProvider, "directories", ImmutableSet.of(Scope.PROJECT));
+                            outputProvider,
+                            isInInstantRunMode ? "slice_0" : "directories",
+                            ImmutableSet.of(Scope.PROJECT));
             FileUtils.cleanOutputDir(dexOutput);
 
-            List<Path> toMerge = new ArrayList<>(changed.size() + notChanged.size());
-            for (DirectoryInput input : Iterables.concat(changed, notChanged)) {
-                toMerge.add(input.getFile().toPath());
-            }
-            if (!toMerge.isEmpty()) {
+            Iterator<Path> toMerge =
+                    Iterators.transform(
+                            Iterators.concat(changed.iterator(), notChanged.iterator()),
+                            i -> Objects.requireNonNull(i).getFile().toPath());
+            if (toMerge.hasNext()) {
                 subTasks.add(submitForMerging(output, dexOutput, toMerge, null));
             }
         } else {
             for (DirectoryInput directoryInput : deleted) {
-                File dexOutput =
-                        getDexOutputLocation(
-                                outputProvider,
-                                directoryInput.getName(),
-                                directoryInput.getScopes());
+                File dexOutput = getDexOutputLocation(outputProvider, directoryInput);
                 FileUtils.cleanOutputDir(dexOutput);
             }
             for (DirectoryInput directoryInput : changed) {
-                File dexOutput =
-                        getDexOutputLocation(
-                                outputProvider,
-                                directoryInput.getName(),
-                                directoryInput.getScopes());
+                File dexOutput = getDexOutputLocation(outputProvider, directoryInput);
                 FileUtils.cleanOutputDir(dexOutput);
                 subTasks.add(
                         submitForMerging(
                                 output,
                                 dexOutput,
-                                ImmutableList.of(directoryInput.getFile().toPath()),
+                                Iterators.singletonIterator(directoryInput.getFile().toPath()),
                                 null));
             }
         }
@@ -540,13 +541,13 @@ public class DexMergerTransform extends Transform {
                 || externalLibs.stream().anyMatch(i -> i.getStatus() != Status.NOTCHANGED)) {
             // if non-incremental, or inputs have changed, merge again
             FileUtils.cleanOutputDir(externalLibsOutput);
-            Iterable<Path> externalLibsToMerge =
+            Iterator<Path> externalLibsToMerge =
                     externalLibs
                             .stream()
                             .filter(i -> i.getStatus() != Status.REMOVED)
                             .map(input -> input.getFile().toPath())
-                            .collect(Collectors.toList());
-            if (!Iterables.isEmpty(externalLibsToMerge)) {
+                            .iterator();
+            if (externalLibsToMerge.hasNext()) {
                 subTasks.add(
                         submitForMerging(output, externalLibsOutput, externalLibsToMerge, null));
             }
@@ -569,7 +570,7 @@ public class DexMergerTransform extends Transform {
     private ForkJoinTask<Void> submitForMerging(
             @NonNull ProcessOutput output,
             @NonNull File dexOutputDir,
-            @NonNull Iterable<Path> dexArchives,
+            @NonNull Iterator<Path> dexArchives,
             @Nullable Path mainDexList) {
         DexMergerTransformCallable callable =
                 new DexMergerTransformCallable(
@@ -584,6 +585,19 @@ public class DexMergerTransform extends Transform {
                         minSdkVersion,
                         isDebuggable);
         return forkJoinPool.submit(callable);
+    }
+
+    @NonNull
+    private File getDexOutputLocation(
+            @NonNull TransformOutputProvider outputProvider, @NonNull QualifiedContent content) {
+        String name;
+        if (content.getName().startsWith("slice_")) {
+            name = content.getName();
+        } else {
+            name = content.getFile().toString();
+        }
+        return outputProvider.getContentLocation(
+                name, getOutputTypes(), content.getScopes(), Format.DIRECTORY);
     }
 
     @NonNull

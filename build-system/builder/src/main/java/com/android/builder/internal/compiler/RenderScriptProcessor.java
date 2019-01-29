@@ -18,7 +18,10 @@
 package com.android.builder.internal.compiler;
 
 import static com.android.SdkConstants.EXT_BC;
+import static com.android.SdkConstants.FN_ANDROIDX_RENDERSCRIPT_PACKAGE;
+import static com.android.SdkConstants.FN_ANDROIDX_RS_JAR;
 import static com.android.SdkConstants.FN_RENDERSCRIPT_V8_JAR;
+import static com.android.SdkConstants.FN_RENDERSCRIPT_V8_PACKAGE;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
@@ -114,6 +117,8 @@ public class RenderScriptProcessor {
 
     private final boolean mSupportMode;
 
+    private final boolean mUseAndroidX;
+
     private final Set<String> mAbiFilters;
 
 
@@ -133,6 +138,7 @@ public class RenderScriptProcessor {
             int optimizationLevel,
             boolean ndkMode,
             boolean supportMode,
+            boolean useAndroidX,
             @Nullable Set<String> abiFilters,
             @NonNull ILogger logger) {
         mSourceFolders = sourceFolders;
@@ -146,6 +152,7 @@ public class RenderScriptProcessor {
         mOptimizationLevel = optimizationLevel;
         mNdkMode = ndkMode;
         mSupportMode = supportMode;
+        mUseAndroidX = useAndroidX;
         mAbiFilters = abiFilters;
         mLogger = logger;
 
@@ -170,8 +177,10 @@ public class RenderScriptProcessor {
         }
     }
 
-    public static File getSupportJar(String buildToolsFolder) {
-        return new File(buildToolsFolder, "renderscript/lib/" + FN_RENDERSCRIPT_V8_JAR);
+    public static File getSupportJar(String buildToolsFolder, boolean useAndroidX) {
+        return new File(
+                buildToolsFolder,
+                "renderscript/lib/" + (useAndroidX ? FN_ANDROIDX_RS_JAR : FN_RENDERSCRIPT_V8_JAR));
     }
 
     public static File getSupportNativeLibFolder(String buildToolsFolder) {
@@ -266,7 +275,11 @@ public class RenderScriptProcessor {
         }
 
         if (mSupportMode) {
-            builder.addArgs("-rs-package-name=android.support.v8.renderscript");
+            if (mUseAndroidX) {
+                builder.addArgs("-rs-package-name=" + FN_ANDROIDX_RENDERSCRIPT_PACKAGE);
+            } else {
+                builder.addArgs("-rs-package-name=" + FN_RENDERSCRIPT_V8_PACKAGE);
+            }
         }
 
         // source output

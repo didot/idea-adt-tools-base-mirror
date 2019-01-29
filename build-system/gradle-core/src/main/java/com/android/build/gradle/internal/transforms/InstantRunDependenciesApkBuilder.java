@@ -18,14 +18,13 @@ package com.android.build.gradle.internal.transforms;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.DirectoryInput;
 import com.android.build.api.transform.JarInput;
 import com.android.build.api.transform.QualifiedContent;
 import com.android.build.api.transform.TransformException;
 import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
-import com.android.build.gradle.internal.dsl.CoreSigningConfig;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.builder.core.AndroidBuilder;
@@ -36,6 +35,7 @@ import com.google.common.collect.Sets;
 import java.io.File;
 import java.io.IOException;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.gradle.api.Project;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
@@ -56,29 +56,27 @@ public class InstantRunDependenciesApkBuilder extends InstantRunSplitApkBuilder 
             @NonNull Project project,
             @NonNull InstantRunBuildContext buildContext,
             @NonNull AndroidBuilder androidBuilder,
-            @NonNull String applicationId,
-            @Nullable CoreSigningConfig signingConf,
-            @NonNull AaptGeneration aaptGeneration,
+            @Nullable FileCollection aapt2FromMaven,
+            @NonNull Supplier<String> applicationIdSupplier,
+            @Nullable FileCollection signingConf,
             @NonNull AaptOptions aaptOptions,
             @NonNull File outputDirectory,
             @NonNull File supportDirectory,
-            @NonNull File aaptIntermediateDirectory,
-            @NonNull FileCollection resources,
-            @NonNull FileCollection resourcesWithMainManifest,
-            @NonNull FileCollection apkList,
+            @NonNull BuildableArtifact resources,
+            @NonNull BuildableArtifact resourcesWithMainManifest,
+            @NonNull BuildableArtifact apkList,
             @NonNull ApkInfo mainApk) {
         super(
                 logger,
                 project,
                 buildContext,
                 androidBuilder,
-                applicationId,
+                aapt2FromMaven,
+                applicationIdSupplier,
                 signingConf,
-                aaptGeneration,
                 aaptOptions,
                 outputDirectory,
                 supportDirectory,
-                aaptIntermediateDirectory,
                 resources,
                 resourcesWithMainManifest,
                 apkList,

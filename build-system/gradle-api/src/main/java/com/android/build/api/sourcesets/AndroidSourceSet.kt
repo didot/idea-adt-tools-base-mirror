@@ -23,6 +23,8 @@ import org.gradle.api.Named
 /**
  * An AndroidSourceSet represents a logical group of Java, aidl and RenderScript sources as well as
  * Android and non-Android (Java-style) resources.
+ *
+ * This interface is not currently usable. It is a work in progress.
  */
 @Incubating
 interface AndroidSourceSet : Named {
@@ -114,10 +116,6 @@ interface AndroidSourceSet : Named {
      * Returns the name of the annotation processing tool classpath for this source set.
      */
     val annotationProcessorConfigurationName: String
-
-    /** Returns the name of the Jack plugin classpath for this source set.  */
-    @Deprecated("Jack is obsolete")
-    val jackPluginConfigurationName: String
 
     /**
      * The Android Manifest file for this source set.

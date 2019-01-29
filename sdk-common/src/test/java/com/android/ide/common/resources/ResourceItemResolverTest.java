@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,63 +13,85 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.ide.common.resources;
 
+import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.ide.common.rendering.api.ArrayResourceValue;
 import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.rendering.api.ResourceReference;
 import com.android.ide.common.rendering.api.ResourceValue;
-import com.android.ide.common.res2.ResourceRepository;
+import com.android.ide.common.rendering.api.ResourceValueImpl;
 import com.android.ide.common.resources.configuration.FolderConfiguration;
 import com.android.resources.ResourceType;
-import com.android.resources.ResourceUrl;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Map;
 import junit.framework.TestCase;
 
 public class ResourceItemResolverTest extends TestCase {
-    @SuppressWarnings("ConstantConditions")
-    public void test() throws Exception {
-        final TestResourceRepository frameworkResources = TestResourceRepository.create(true,
-                new Object[]{
-                        "values/strings.xml", ""
-                        + "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-                        + "<resources>\n"
-                        + "    <string name=\"ok\">Ok</string>\n"
-                        + "    <array name=\"my_fw_array\">\"\n"
-                        + "        <item>  fw_value1</item>\n"   // also test trimming.
-                        + "        <item>fw_value2\n</item>\n"
-                        + "        <item>fw_value3</item>\n"
-                        + "    </array>\n"
-                        + "</resources>\n",
+    private final ResourceRepositoryFixture resourceFixture = new ResourceRepositoryFixture();
 
-                        "values/themes.xml", ""
-                        + "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-                        + "<resources>\n"
-                        + "    <style name=\"Theme\">\n"
-                        + "        <item name=\"colorForeground\">@android:color/bright_foreground_dark</item>\n"
-                        + "        <item name=\"colorBackground\">@android:color/background_dark</item>\n"
-                        + "    </style>\n"
-                        + "    <style name=\"Theme.Light\">\n"
-                        + "        <item name=\"colorBackground\">@android:color/background_light</item>\n"
-                        + "        <item name=\"colorForeground\">@color/bright_foreground_light</item>\n"
-                        + "    </style>\n"
-                        + "</resources>\n",
+    @Override
+    public void setUp() throws Exception {
+        super.setUp();
+        resourceFixture.setUp();
+    }
 
-                        "values/colors.xml", ""
-                        + "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-                        + "<resources>\n"
-                        + "    <color name=\"background_dark\">#ff000000</color>\n"
-                        + "    <color name=\"background_light\">#ffffffff</color>\n"
-                        + "    <color name=\"bright_foreground_dark\">@android:color/background_light</color>\n"
-                        + "    <color name=\"bright_foreground_light\">@android:color/background_dark</color>\n"
-                        + "</resources>\n",
-                });
+    @Override
+    public void tearDown() throws Exception {
+        try {
+            resourceFixture.tearDown();
+        } finally {
+            super.tearDown();
+        }
+    }
 
-        final ResourceRepository appResources =
-                TestResourceRepository.createRes2(
+    public void testBasicFunctionality() throws Exception {
+        TestResourceRepository frameworkResources =
+                resourceFixture.createTestResources(
+                        ResourceNamespace.ANDROID,
+                        new Object[] {
+                            "values/strings.xml",
+                                    ""
+                                            + "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                                            + "<resources>\n"
+                                            + "    <string name=\"ok\">Ok</string>\n"
+                                            + "    <array name=\"my_fw_array\">\"\n"
+                                            + "        <item>  fw_value1</item>\n" // also test trimming.
+                                            + "        <item>fw_value2\n</item>\n"
+                                            + "        <item>fw_value3</item>\n"
+                                            + "    </array>\n"
+                                            + "</resources>\n",
+                            "values/themes.xml",
+                                    ""
+                                            + "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                                            + "<resources>\n"
+                                            + "    <style name=\"Theme\">\n"
+                                            + "        <item name=\"colorForeground\">@android:color/bright_foreground_dark</item>\n"
+                                            + "        <item name=\"colorBackground\">@android:color/background_dark</item>\n"
+                                            + "    </style>\n"
+                                            + "    <style name=\"Theme.Light\">\n"
+                                            + "        <item name=\"colorBackground\">@android:color/background_light</item>\n"
+                                            + "        <item name=\"colorForeground\">@color/bright_foreground_light</item>\n"
+                                            + "    </style>\n"
+                                            + "</resources>\n",
+                            "values/colors.xml",
+                                    ""
+                                            + "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                                            + "<resources>\n"
+                                            + "    <color name=\"background_dark\">#ff000000</color>\n"
+                                            + "    <color name=\"background_light\">#ffffffff</color>\n"
+                                            + "    <color name=\"bright_foreground_dark\">@android:color/background_light</color>\n"
+                                            + "    <color name=\"bright_foreground_light\">@android:color/background_dark</color>\n"
+                                            + "</resources>\n",
+                        });
+
+        TestResourceRepository appResources =
+                resourceFixture.createTestResources(
+                        ResourceNamespace.RES_AUTO,
                         new Object[] {
                             "layout/layout1.xml",
                             "<!--contents doesn't matter-->",
@@ -126,22 +148,21 @@ public class ResourceItemResolverTest extends TestCase {
                                     + "</resources>\n",
                         });
 
-        final FolderConfiguration config = FolderConfiguration.getConfigForFolder("values-es-land");
-        assertFalse(appResources.isFramework());
+        FolderConfiguration config = FolderConfiguration.getConfigForFolder("values-es-land");
         assertNotNull(config);
 
-        final LayoutLog logger =
+        LayoutLog logger =
                 new LayoutLog() {
                     @Override
                     public void warning(
-                            String tag, String message, Object viewCookie, Object data) {
+                            String tag, @NonNull String message, Object viewCookie, Object data) {
                         fail(message);
                     }
 
                     @Override
                     public void fidelityWarning(
                             String tag,
-                            String message,
+                            @NonNull String message,
                             Throwable throwable,
                             Object viewCookie,
                             Object data) {
@@ -149,14 +170,18 @@ public class ResourceItemResolverTest extends TestCase {
                     }
 
                     @Override
-                    public void error(String tag, String message, Object viewCookie, Object data) {
+                    public void error(
+                            String tag,
+                            @NonNull String message,
+                            Object viewCookie,
+                            Object data) {
                         fail(message);
                     }
 
                     @Override
                     public void error(
                             String tag,
-                            String message,
+                            @NonNull String message,
                             Throwable throwable,
                             Object viewCookie,
                             Object data) {
@@ -164,39 +189,53 @@ public class ResourceItemResolverTest extends TestCase {
                     }
                 };
 
-        ResourceItemResolver.ResourceProvider provider = new ResourceItemResolver.ResourceProvider() {
-            private ResourceResolver mResolver;
+        ResourceItemResolver.ResourceProvider provider =
+                new ResourceItemResolver.ResourceProvider() {
+                    private ResourceResolver mResolver;
 
-            @Nullable
-            @Override
-            public ResourceResolver getResolver(boolean createIfNecessary) {
-                if (mResolver == null && createIfNecessary) {
-                    Map<ResourceType, ResourceValueMap> appResourceMap;
-                    appResourceMap = appResources.getConfiguredResources(config);
-                    Map<ResourceType, ResourceValueMap> frameworkResourcesMap =
-                            frameworkResources.getConfiguredResources(config);
-                    assertNotNull(appResourceMap);
-                    mResolver = ResourceResolver.create(appResourceMap, frameworkResourcesMap,
-                            "MyTheme", true);
-                    assertNotNull(mResolver);
-                    mResolver.setLogger(logger);
-                }
+                    @Nullable
+                    @Override
+                    public ResourceResolver getResolver(boolean createIfNecessary) {
+                        if (mResolver == null && createIfNecessary) {
+                            Map<ResourceType, ResourceValueMap> appResourceMap =
+                                    ResourceRepositoryUtil.getConfiguredResources(
+                                                    appResources, config)
+                                            .row(ResourceNamespace.RES_AUTO);
+                            Map<ResourceType, ResourceValueMap> frameworkResourcesMap =
+                                    ResourceRepositoryUtil.getConfiguredResources(
+                                                    frameworkResources, config)
+                                            .row(ResourceNamespace.ANDROID);
+                            assertNotNull(appResourceMap);
+                            mResolver =
+                                    ResourceResolver.create(
+                                            ImmutableMap.of(
+                                                    ResourceNamespace.RES_AUTO,
+                                                    appResourceMap,
+                                                    ResourceNamespace.ANDROID,
+                                                    frameworkResourcesMap),
+                                            new ResourceReference(
+                                                    ResourceNamespace.RES_AUTO,
+                                                    ResourceType.STYLE,
+                                                    "MyTheme"));
+                            assertNotNull(mResolver);
+                            mResolver.setLogger(logger);
+                        }
 
-                return mResolver;
-            }
+                        return mResolver;
+                    }
 
-            @Nullable
-            @Override
-            public com.android.ide.common.resources.ResourceRepository getFrameworkResources() {
-                return frameworkResources;
-            }
+                    @Nullable
+                    @Override
+                    public TestResourceRepository getFrameworkResources() {
+                        return frameworkResources;
+                    }
 
-            @Nullable
-            @Override
-            public ResourceRepository getAppResources() {
-                return appResources;
-            }
-        };
+                    @Nullable
+                    @Override
+                    public TestResourceRepository getAppResources() {
+                        return appResources;
+                    }
+                };
 
         ResourceItemResolver resolver = new ResourceItemResolver(config, provider, logger);
 
@@ -262,9 +301,10 @@ public class ResourceItemResolverTest extends TestCase {
 
         chain.clear();
         ResourceValue v = resolver.findResValue("@android:color/bright_foreground_dark", false);
-        assertEquals("@android:color/bright_foreground_dark => @android:color/background_light",
-                ResourceItemResolver.getDisplayString(ResourceType.COLOR, "bright_foreground_dark",
-                        true, chain));
+        String url = "@android:color/bright_foreground_dark";
+        assertEquals(
+                "@android:color/bright_foreground_dark => @android:color/background_light",
+                ResourceItemResolver.getDisplayString(url, chain));
         assertEquals("First: ${firstName} Last: ${lastName}",
                 resolver.findResValue("@string/xliff_string", false).getValue());
         assertEquals("First: <xliff:g id=\"firstName\">%1$s</xliff:g> Last: <xliff:g id=\"lastName\">%2$s</xliff:g>",
@@ -282,7 +322,8 @@ public class ResourceItemResolverTest extends TestCase {
         resolver.setLookupChainList(chain);
         chain.clear();
         ResourceValue target =
-                new ResourceValue(ResourceUrl.create(null, ResourceType.STRING, "dummy"), "?foo");
+                new ResourceValueImpl(
+                        ResourceNamespace.RES_AUTO, ResourceType.STRING, "dummy", "?foo");
         assertEquals("#ff000000", resolver.resolveResValue(target).getValue());
         assertEquals(
                 "?foo => ?android:colorForeground => @color/bright_foreground_light => "
@@ -302,6 +343,5 @@ public class ResourceItemResolverTest extends TestCase {
         assertEquals("fw_value1", ((ArrayResourceValue) resValue).getElement(0));
         assertEquals("fw_value2", ((ArrayResourceValue) resValue).getElement(1));
         assertEquals("fw_value3", ((ArrayResourceValue) resValue).getElement(2));
-
     }
 }

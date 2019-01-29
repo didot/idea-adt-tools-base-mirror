@@ -16,29 +16,30 @@
 
 package com.android.build.gradle.tasks.ir
 
-import com.android.build.gradle.internal.aapt.AaptGeneration
-import com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType.INSTANT_RUN_MAIN_APK_RESOURCES
-import com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType.INSTANT_RUN_MERGED_MANIFESTS
+import com.android.build.api.artifact.ArtifactType
+import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.ExistingBuildElements
-import com.android.build.gradle.internal.scope.TaskConfigAction
-import com.android.build.gradle.internal.scope.TaskOutputHolder
+import com.android.build.gradle.internal.scope.InternalArtifactType.INSTANT_RUN_MAIN_APK_RESOURCES
+import com.android.build.gradle.internal.scope.InternalArtifactType.INSTANT_RUN_MERGED_MANIFESTS
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.transforms.InstantRunSliceSplitApkBuilder
 import com.android.build.gradle.internal.transforms.InstantRunSplitApkBuilder
-import com.android.builder.utils.FileCache
+import com.android.builder.internal.aapt.BlockingResourceLinker
 import com.android.ide.common.build.ApkInfo
 import com.android.ide.common.process.ProcessException
 import com.google.common.collect.ImmutableList
-import java.io.File
-import java.io.IOException
 import org.gradle.api.file.FileCollection
-import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import java.io.File
+import java.io.IOException
 
 /**
  * Task to create the main APK resources.ap_ file. This file will only contain the merged
@@ -50,20 +51,21 @@ import org.gradle.api.tasks.TaskAction
  */
 open class InstantRunMainApkResourcesBuilder : AndroidBuilderTask() {
 
-    private lateinit var aaptIntermediateFolder: File
-
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var resourceFiles: FileCollection
-
-    @get:Input
-    private lateinit var aaptGeneration: AaptGeneration
+    lateinit var resourceFiles: BuildableArtifact private set
 
     @get:OutputDirectory
-    lateinit var outputDirectory: File
+    lateinit var outputDirectory: File private set
 
     @get:InputFiles
-    var manifestFiles: FileCollection? = null
+    lateinit var manifestFiles: BuildableArtifact private set
+
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    var aapt2FromMaven: FileCollection? = null
+        private set
 
     @TaskAction
     @Throws(IOException::class)
@@ -71,7 +73,7 @@ open class InstantRunMainApkResourcesBuilder : AndroidBuilderTask() {
 
         // at this point, there should only be one instant-run merged manifest, but this may
         // change in the future.
-        ExistingBuildElements.from(INSTANT_RUN_MERGED_MANIFESTS, manifestFiles!!)
+        ExistingBuildElements.from(INSTANT_RUN_MERGED_MANIFESTS, manifestFiles)
                 .transform { apkData, processedResources ->
                     processSplit(apkData, processedResources) }
                 .into(INSTANT_RUN_MAIN_APK_RESOURCES, outputDirectory)
@@ -83,21 +85,9 @@ open class InstantRunMainApkResourcesBuilder : AndroidBuilderTask() {
             return null
         }
 
-        try {
-            InstantRunSplitApkBuilder.makeAapt(
-                    aaptGeneration, builder, aaptIntermediateFolder).use { aapt ->
-
-                // use default values for aaptOptions since we don't package any resources.
-                return InstantRunSliceSplitApkBuilder.generateSplitApkResourcesAp(
-                        logger,
-                        aapt,
-                        manifestFile,
-                        outputDirectory,
-                        com.android.builder.internal.aapt.AaptOptions(
-                                ImmutableList.of(), false, ImmutableList.of()),
-                        builder,
-                        resourceFiles,
-                        "main_resources")
+        return try {
+            InstantRunSplitApkBuilder.getLinker(aapt2FromMaven, builder).use { aapt ->
+                processSplit(manifestFile, aapt)
             }
         } catch (e: InterruptedException) {
             Thread.interrupted()
@@ -107,27 +97,47 @@ open class InstantRunMainApkResourcesBuilder : AndroidBuilderTask() {
         }
     }
 
-    class ConfigAction(
-            val variantScope: VariantScope,
-            private val taskInputType: TaskOutputHolder.OutputType) :
-            TaskConfigAction<InstantRunMainApkResourcesBuilder> {
+    // use default values for aaptOptions since we don't package any resources.
+    private fun processSplit(manifestFile: File, aapt: BlockingResourceLinker): File =
+            InstantRunSliceSplitApkBuilder.generateSplitApkResourcesAp(
+                    logger,
+                    aapt,
+                    manifestFile,
+                    outputDirectory,
+                    com.android.builder.internal.aapt.AaptOptions(
+                            ImmutableList.of(), false, ImmutableList.of()),
+                    builder,
+                    resourceFiles,
+                    "main_resources")
 
-        override fun getName() = variantScope.getTaskName("instantRunMainApkResources")
+    class CreationAction(
+        variantScope: VariantScope,
+        private val taskInputType: ArtifactType
+    ) :
+        VariantTaskCreationAction<InstantRunMainApkResourcesBuilder>(variantScope) {
 
-        override fun getType() = InstantRunMainApkResourcesBuilder::class.java
+        override val name: String
+            get() = variantScope.getTaskName("instantRunMainApkResources")
+        override val type: Class<InstantRunMainApkResourcesBuilder>
+            get() = InstantRunMainApkResourcesBuilder::class.java
 
-        override fun execute(task: InstantRunMainApkResourcesBuilder) {
-            task.variantName = variantScope.fullVariantName
-            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
+        private lateinit var outputDirectory: File
 
-            task.resourceFiles = variantScope.getOutput(taskInputType)
-            task.manifestFiles = variantScope.getOutput(INSTANT_RUN_MERGED_MANIFESTS)
-            task.outputDirectory = variantScope.instantRunMainApkResourcesDir
-            task.aaptGeneration = AaptGeneration.fromProjectOptions(
-                    variantScope.globalScope.projectOptions)
-            task.aaptIntermediateFolder = File(variantScope.getIncrementalDir(name), "aapt-temp")
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            outputDirectory =
+                    variantScope.artifacts.appendArtifact(INSTANT_RUN_MAIN_APK_RESOURCES, taskName, "out")
+        }
 
-            variantScope.addTaskOutput(INSTANT_RUN_MAIN_APK_RESOURCES, task.outputDirectory, name)
+        override fun configure(task: InstantRunMainApkResourcesBuilder) {
+            super.configure(task)
+
+            val artifacts = variantScope.artifacts
+            task.resourceFiles = artifacts.getFinalArtifactFiles(taskInputType)
+            task.manifestFiles = artifacts
+                .getFinalArtifactFiles(INSTANT_RUN_MERGED_MANIFESTS)
+            task.outputDirectory = outputDirectory
+            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
         }
 
     }

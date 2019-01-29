@@ -21,12 +21,14 @@ import com.android.annotations.Nullable;
 import com.android.build.gradle.integration.common.utils.JacocoAgent;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.IntegerOption;
+import com.android.build.gradle.options.Option;
 import com.android.build.gradle.options.OptionalBooleanOption;
 import com.android.build.gradle.options.StringOption;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.wireless.android.sdk.gradlelogging.proto.Logging;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -35,6 +37,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -42,6 +46,8 @@ import org.apache.commons.io.output.TeeOutputStream;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.tooling.LongRunningOperation;
 import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.events.ProgressEvent;
+import org.gradle.tooling.events.ProgressListener;
 
 /**
  * Common flags shared by {@link ModelBuilder} and {@link GradleTaskExecutor}.
@@ -62,9 +68,6 @@ public abstract class BaseGradleExecutor<T extends BaseGradleExecutor> {
         }
     }
 
-    /** Number of times we repeat Tooling API operations that are expected to succeed. */
-    public static final int RETRY_COUNT = 0;
-
     private static final boolean VERBOSE =
             !Strings.isNullOrEmpty(System.getenv().get("CUSTOM_TEST_VERBOSE"));
     static final boolean CAPTURE_JVM_LOGS = false;
@@ -76,16 +79,10 @@ public abstract class BaseGradleExecutor<T extends BaseGradleExecutor> {
     @NonNull private final ProjectOptionsBuilder options = new ProjectOptionsBuilder();
     @NonNull final Path projectDirectory;
     @Nullable private final String heapSize;
-    @Nullable Logging.BenchmarkMode benchmarkMode;
     @NonNull private LoggingLevel loggingLevel = LoggingLevel.INFO;
     private boolean offline = true;
     private boolean sdkInLocalProperties = false;
     private boolean localAndroidSdkHome = false;
-    private boolean disableRetryLogic;
-
-    /** @see #RETRY_COUNT */
-    private int failedAttempts = 0;
-
 
     BaseGradleExecutor(
             @NonNull ProjectConnection projectConnection,
@@ -94,24 +91,6 @@ public abstract class BaseGradleExecutor<T extends BaseGradleExecutor> {
             @Nullable Path buildDotGradleFile,
             @Nullable Path profileDirectory,
             @Nullable String heapSize) {
-        this(
-                projectConnection,
-                lastBuildResultConsumer,
-                projectDirectory,
-                buildDotGradleFile,
-                heapSize,
-                profileDirectory,
-                false);
-    }
-
-    BaseGradleExecutor(
-            @NonNull ProjectConnection projectConnection,
-            @NonNull Consumer<GradleBuildResult> lastBuildResultConsumer,
-            @NonNull Path projectDirectory,
-            @Nullable Path buildDotGradleFile,
-            @Nullable String heapSize,
-            @Nullable Path profileDirectory,
-            boolean disableRetryLogic) {
         this.lastBuildResultConsumer = lastBuildResultConsumer;
         this.projectDirectory = projectDirectory;
         this.projectConnection = projectConnection;
@@ -125,7 +104,6 @@ public abstract class BaseGradleExecutor<T extends BaseGradleExecutor> {
         if (profileDirectory != null) {
             with(StringOption.PROFILE_OUTPUT_DIR, profileDirectory.toString());
         }
-        this.disableRetryLogic = disableRetryLogic;
     }
 
     /** Return the default build cache location for a project. */
@@ -150,6 +128,11 @@ public abstract class BaseGradleExecutor<T extends BaseGradleExecutor> {
 
     public final T with(@NonNull StringOption option, @NonNull String value) {
         options.strings.put(option, value);
+        return (T) this;
+    }
+
+    public final T suppressOptionWarning(@NonNull Option option) {
+        options.suppressWarnings.add(option);
         return (T) this;
     }
 
@@ -241,6 +224,12 @@ public abstract class BaseGradleExecutor<T extends BaseGradleExecutor> {
         return arguments;
     }
 
+    protected final Set<String> getOptionPropertyNames() {
+        return options.getOptions()
+                .map(Option::getPropertyName)
+                .collect(ImmutableSet.toImmutableSet());
+    }
+
     protected final void setJvmArguments(@NonNull LongRunningOperation launcher)
             throws IOException {
         List<String> jvmArguments = new ArrayList<>();
@@ -309,40 +298,31 @@ public abstract class BaseGradleExecutor<T extends BaseGradleExecutor> {
         System.err.println("------------ JVM Log end ------------");
     }
 
-    protected enum RetryAction {
-        /** Caller should retry the action. */
-        RETRY,
 
-        /** This is potential flakiness, but it's consistent. */
-        FAILED_TOO_MANY_TIMES,
-
-        /** Failure not related to Tooling API. */
-        THROW
-    }
-
-    protected RetryAction chooseRetryAction(GradleConnectionException failure) throws IOException {
+    protected static void maybePrintJvmLogs(GradleConnectionException failure) throws IOException {
         Throwable cause = failure.getCause();
-        if (cause != null && !disableRetryLogic) {
-            if (cause.getClass()
-                    .getName()
-                    .equals("org.gradle.launcher.daemon.client.DaemonDisappearedException")) {
-                if (failedAttempts == 0) {
+        if (cause != null
+                && cause.getClass()
+                        .getName()
+                        .equals("org.gradle.launcher.daemon.client.DaemonDisappearedException")) {
                     printJvmLogs();
-                }
-                if (failedAttempts++ < RETRY_COUNT) {
-                    System.err.println("Captured DaemonDisappearedException, retrying.");
-                    return RetryAction.RETRY;
-                } else {
-                    return RetryAction.FAILED_TOO_MANY_TIMES;
-                }
-            }
         }
-        return RetryAction.THROW;
     }
 
-    protected static class TooFlakyException extends RuntimeException {
-        public TooFlakyException(Throwable cause) {
-            super("Operation keeps failing after " + RETRY_COUNT + "attempts.", cause);
+    protected static class CollectingProgressListener implements ProgressListener {
+        final ConcurrentLinkedQueue<ProgressEvent> events;
+
+        protected CollectingProgressListener() {
+            events = new ConcurrentLinkedQueue<>();
+        }
+
+        @Override
+        public void statusChanged(ProgressEvent progressEvent) {
+            events.add(progressEvent);
+        }
+
+        ImmutableList<ProgressEvent> getEvents() {
+            return ImmutableList.copyOf(events);
         }
     }
 }

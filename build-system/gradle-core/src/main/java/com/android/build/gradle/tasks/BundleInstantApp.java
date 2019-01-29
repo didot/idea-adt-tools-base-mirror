@@ -23,12 +23,13 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InstantAppOutputScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
-import com.android.build.gradle.internal.tasks.ApplicationId;
+import com.android.build.gradle.internal.tasks.ModuleMetadata;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.utils.FileUtils;
+import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -59,8 +60,7 @@ public class BundleInstantApp extends AndroidVariantTask {
                 new ZipOutputStream(new FileOutputStream(bundleFile))) {
             for (File apkDirectory : apkDirectories) {
                 for (BuildOutput buildOutput :
-                        ExistingBuildElements.from(
-                                TaskOutputHolder.TaskOutputType.APK, apkDirectory)) {
+                        ExistingBuildElements.from(InternalArtifactType.APK, apkDirectory)) {
                     File apkFile = buildOutput.getOutputFile();
                     try (FileInputStream fileInputStream = new FileInputStream(apkFile)) {
                         byte[] inputBuffer = IOUtils.toByteArray(fileInputStream);
@@ -75,7 +75,7 @@ public class BundleInstantApp extends AndroidVariantTask {
         // Write the json output.
         InstantAppOutputScope instantAppOutputScope =
                 new InstantAppOutputScope(
-                        ApplicationId.load(applicationId.getSingleFile()).getApplicationId(),
+                        ModuleMetadata.load(applicationId.getSingleFile()).getApplicationId(),
                         bundleFile,
                         new ArrayList<>(apkDirectories.getFiles()));
         instantAppOutputScope.save(bundleDirectory);
@@ -110,9 +110,9 @@ public class BundleInstantApp extends AndroidVariantTask {
     private FileCollection applicationId;
     private FileCollection apkDirectories;
 
-    public static class ConfigAction implements TaskConfigAction<BundleInstantApp> {
+    public static class CreationAction extends TaskCreationAction<BundleInstantApp> {
 
-        public ConfigAction(@NonNull VariantScope scope, @NonNull File bundleDirectory) {
+        public CreationAction(@NonNull VariantScope scope, @NonNull File bundleDirectory) {
             this.scope = scope;
             this.bundleDirectory = bundleDirectory;
         }
@@ -130,7 +130,18 @@ public class BundleInstantApp extends AndroidVariantTask {
         }
 
         @Override
-        public void execute(@NonNull BundleInstantApp bundleInstantApp) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+
+            scope.getArtifacts()
+                    .appendArtifact(
+                            InternalArtifactType.INSTANTAPP_BUNDLE,
+                            ImmutableList.of(scope.getApkLocation()),
+                            taskName);
+        }
+
+        @Override
+        public void configure(@NonNull BundleInstantApp bundleInstantApp) {
             bundleInstantApp.setVariantName(scope.getFullVariantName());
             bundleInstantApp.bundleDirectory = bundleDirectory;
             bundleInstantApp.bundleName =

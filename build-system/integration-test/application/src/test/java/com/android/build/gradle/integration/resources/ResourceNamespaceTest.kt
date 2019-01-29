@@ -17,11 +17,13 @@
 package com.android.build.gradle.integration.resources
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
+import com.android.build.gradle.integration.common.fixture.SUPPORT_LIB_VERSION
 import com.android.build.gradle.integration.common.fixture.app.MinimalSubProject
 import com.android.build.gradle.integration.common.fixture.app.MultiModuleTestProject
 import com.android.build.gradle.integration.common.truth.TruthHelper.assertThat
 import com.android.build.gradle.integration.common.utils.AssumeUtil
-import com.android.testutils.apk.Dex
+import com.android.build.gradle.options.BooleanOption
+import org.jf.dexlib2.dexbacked.DexBackedClassDef
 import org.junit.Rule
 import org.junit.Test
 import org.objectweb.asm.Opcodes
@@ -42,15 +44,9 @@ import org.objectweb.asm.Opcodes
  */
 class ResourceNamespaceTest {
 
-    /**
-     * This test depends on AAPT2 features that are not released yet.
-     * There is a version of the build tools checked in from the build server,
-     * with the version in package.xml set to the build number it was taken from.
-     */
     private val buildScriptContent = """
-        android.aaptOptions.namespaced = true
-        android.buildToolsVersion = '4509860'
-    """
+android.defaultConfig.minSdkVersion 21
+"""
 
     private val lib = MinimalSubProject.lib("com.example.lib")
             .appendToBuild(buildScriptContent)
@@ -62,7 +58,16 @@ class ResourceNamespaceTest {
                     """package com.example.lib;
                     public class Example {
                         public static int getLib1String() { return R.string.libString; }
+                        public static int getSupportDesignString() {
+                            return android.support.design.R.string.appbar_scrolling_view_behavior;
+                        }
                     }""")
+        .withFile(
+            "src/main/res/values/stringuse.xml",
+            """<resources>
+                        <string name="remoteDependencyString"
+                            >@android.support.design:string/appbar_scrolling_view_behavior</string>
+                        </resources>""")
             .withFile(
                     "src/main/res/drawable/dot.xml",
                     """<vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -147,7 +152,8 @@ class ResourceNamespaceTest {
     private val instantApp = MinimalSubProject.instantApp()
 
     private val notNamespacedLib = MinimalSubProject.lib("com.example.notNamespaced")
-            .withFile(
+        .appendToBuild("android.defaultConfig.minSdkVersion 21\nandroid.aaptOptions.namespaced false")
+        .withFile(
                     "src/main/res/values/strings.xml",
                     """<resources>
                         <string name="myString_from_lib">@string/libString_from_lib</string>
@@ -173,6 +179,8 @@ class ResourceNamespaceTest {
                     // Reverse dependencies for the instant app.
                     .dependency("application", baseFeature, app)
                     .dependency("feature", baseFeature, feature2)
+                    // Remote dependency
+                    .dependency(lib, "com.android.support:design:$SUPPORT_LIB_VERSION")
                     .build()
 
     @get:Rule val project = GradleTestProject.builder().fromTestApp(testApp).create()
@@ -181,18 +189,20 @@ class ResourceNamespaceTest {
     fun smokeTest() {
         AssumeUtil.assumeNotWindowsBot() // https://issuetracker.google.com/70931936
         project.executor()
+                .with(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES, true)
+                .with(BooleanOption.ENABLE_RESOURCE_NAMESPACING_DEFAULT, true)
                 .run(
                     ":lib:assembleDebug",
                     ":lib:assembleDebugAndroidTest",
                     ":baseFeature:assembleDebug",
                     ":baseFeature:assembleDebugAndroidTest",
-                    ":otherFeature:bundleDebug",
+                    ":otherFeature:bundleDebugAar",
                     ":otherFeature:assembleDebugAndroidTest",
                     ":notNamespacedLib:assembleDebug",
                     ":notNamespacedLib:assembleDebugAndroidTest",
                     ":notNamespacedLib:verifyReleaseResources",
-                    // TODO: Fix resource dependencies when linking against the base feature.
-                    //":otherFeature:assembleDebug",
+                    ":otherFeature:assembleDebug",
+                    ":otherFeature:assembleDebugAndroidTest",
                     ":app:assembleDebug",
                     ":app:assembleDebugAndroidTest")
 
@@ -203,7 +213,8 @@ class ResourceNamespaceTest {
         assertThat(apk).contains(dotDrawablePath)
         assertThat(apk).containsClass("Lcom/example/app/R;")
         assertThat(apk).containsClass("Lcom/example/app/R\$string;")
-        assertThat(apk.mainDexFile.get().getFields("Lcom/example/app/R\$string;"))
+
+        assertThat(apk.getClass("Lcom/example/app/R\$string;")!!.printFields())
                 .containsExactly(
                         "public static final I appString",
                         "public static final I baseFeatureString_from_baseFeature_via_otherFeature",
@@ -239,10 +250,7 @@ class ResourceNamespaceTest {
         return modifiers.joinToString(" ")
     }
 
-    private fun Dex.getFields(className: String): List<String> {
-        return classes[className]!!
-                .fields
-                .map { modifiers(it.accessFlags) + " " + it.type + " " + it.name }
-    }
+    private fun DexBackedClassDef.printFields(): List<String> =
+        this.fields.map { modifiers(it.accessFlags) + " " + it.type + " " + it.name }
 }
 

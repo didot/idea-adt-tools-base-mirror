@@ -33,6 +33,7 @@ import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.api.transform.TransformOutputProvider;
 import com.android.builder.packaging.PackagingUtils;
+import com.android.builder.utils.ZipEntryUtils;
 import com.android.ide.common.internal.WaitableExecutor;
 import com.android.utils.FileUtils;
 import com.google.common.io.ByteStreams;
@@ -118,7 +119,7 @@ public class ExtractJarsTransform extends Transform {
                 for (DirectoryInput dirInput : input.getDirectoryInputs()) {
                     File dirOutput =
                             outputProvider.getContentLocation(
-                                    dirInput.getName(),
+                                    dirInput.getFile().toString(),
                                     dirInput.getContentTypes(),
                                     dirInput.getScopes(),
                                     Format.DIRECTORY);
@@ -139,7 +140,7 @@ public class ExtractJarsTransform extends Transform {
                     // create an output folder for this jar, keeping its type and scopes.
                     final File outJarFolder =
                             outputProvider.getContentLocation(
-                                    jarInput.getName(),
+                                    jarInput.getFile().toString(),
                                     jarInput.getContentTypes(),
                                     jarInput.getScopes(),
                                     Format.DIRECTORY);
@@ -208,7 +209,6 @@ public class ExtractJarsTransform extends Transform {
                     if (entry.isDirectory()) {
                         continue;
                     }
-
                     foundCaseInsensitiveIssue = foundCaseInsensitiveIssue ||
                             !lowerCaseNames.add(name.toLowerCase(Locale.US));
 
@@ -216,6 +216,9 @@ public class ExtractJarsTransform extends Transform {
                     if (action == Action.COPY) {
                         File outputFile = new File(outJarFolder,
                                 name.replace('/', File.separatorChar));
+                        if (!ZipEntryUtils.isValidZipEntryPath(outputFile, outJarFolder)) {
+                            continue;
+                        }
                         mkdirs(outputFile.getParentFile());
 
                         try (OutputStream outputStream =

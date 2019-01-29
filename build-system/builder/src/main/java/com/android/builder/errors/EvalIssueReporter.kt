@@ -65,6 +65,12 @@ interface EvalIssueReporter {
         DEPRECATED_DSL(SyncIssue.TYPE_DEPRECATED_DSL),
         DEPRECATED_CONFIGURATION(SyncIssue.TYPE_DEPRECATED_CONFIGURATION),
         DEPRECATED_DSL_VALUE(SyncIssue.TYPE_DEPRECATED_DSL_VALUE),
+        MIN_SDK_VERSION_IN_MANIFEST(SyncIssue.TYPE_MIN_SDK_VERSION_IN_MANIFEST),
+        TARGET_SDK_VERSION_IN_MANIFEST(SyncIssue.TYPE_TARGET_SDK_VERSION_IN_MANIFEST),
+        UNSUPPORTED_PROJECT_OPTION_USE(SyncIssue.TYPE_UNSUPPORTED_PROJECT_OPTION_USE),
+        MANIFEST_PARSED_DURING_CONFIGURATION(SyncIssue.TYPE_MANIFEST_PARSED_DURING_CONFIGURATION),
+        THIRD_PARTY_GRADLE_PLUGIN_TOO_OLD(SyncIssue.TYPE_THIRD_PARTY_GRADLE_PLUGIN_TOO_OLD),
+        SIGNING_CONFIG_DECLARED_IN_DYNAMIC_FEATURE(SyncIssue.TYPE_SIGNING_CONFIG_DECLARED_IN_DYNAMIC_FEATURE)
     }
 
     /**
@@ -85,7 +91,13 @@ interface EvalIssueReporter {
      * is created from this data and type. Default value is null
      * @see SyncIssue
      */
-    fun reportIssue(type: Type, severity: Severity, msg: String, data: String?): SyncIssue
+    fun reportIssue(type: Type, severity: Severity, msg: String, data: String?): SyncIssue {
+        return reportIssue(type, severity, EvalIssueException(msg, data))
+    }
+
+
+
+    fun reportIssue(type: Type, severity: Severity, exception: EvalIssueException) : SyncIssue
 
     /**
      * Reports an issue.
@@ -112,29 +124,13 @@ interface EvalIssueReporter {
      * When running outside of IDE sync, this will throw and exception and abort execution.
      *
      * @param type the type of the error.
-     * @param msg a human readable error (for command line output, or if an older IDE doesn't know
-     * this particular issue type.)
-     * @param data a data representing the source of the error. This goes hand in hand with the
-     * <var>type</var>, and is not meant to be readable. Instead a (possibly translated) message
-     * is created from this data and type.
+     * @param exception exception (with optional cause) containing all relevant information about
+     * the error.
      * @return a [SyncIssue] if the error is only recorded.
      */
-    fun reportError(type: Type, msg: String, data: String?) = reportIssue(type,
+    fun reportError(type: Type, exception: EvalIssueException) = reportIssue(type,
             Severity.ERROR,
-            msg,
-            data)
-
-    /**
-     * Reports an error.
-     *
-     * When running outside of IDE sync, this will throw and exception and abort execution.
-     *
-     * @param type the type of the error.
-     * @param msg a human readable error (for command line output, or if an older IDE doesn't know
-     * this particular issue type.)
-     * @return a [SyncIssue] if the error is only recorded.
-     */
-    fun reportError(type: Type, msg: String) = reportIssue(type, Severity.ERROR, msg, null)
+            exception)
 
     /**
      * Reports a warning.

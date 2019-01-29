@@ -27,10 +27,10 @@
 #include "utils/clock.h"
 #include "utils/log.h"
 
+using std::ostringstream;
 using std::strcmp;
 using std::strcpy;
 using std::string;
-using std::ostringstream;
 
 namespace {
 
@@ -48,10 +48,18 @@ bool Simpleperf::EnableProfiling() const {
   return enable_profiling.Run("security.perf_harden 0", nullptr);
 }
 
-bool Simpleperf::KillSimpleperf(int simpleperf_pid) const {
-  BashCommandRunner kill_simpleperf("kill");
+bool Simpleperf::KillSimpleperf(int simpleperf_pid, const string& pkg_name) {
+  string kill_cmd;
+  if (is_user_build_) {
+    kill_cmd = "kill";
+  } else {
+    // In userdebug and eng devices, kill simpleperf as root because it might
+    // have been started as root.
+    kill_cmd = "su root kill";
+  }
   ostringstream string_pid;
   string_pid << simpleperf_pid;
+  BashCommandRunner kill_simpleperf(kill_cmd);
   return kill_simpleperf.Run(string_pid.str(), nullptr);
 }
 
@@ -106,10 +114,35 @@ string Simpleperf::GetRecordCommand(int pid, const string& pkg_name,
                                     const string& trace_path,
                                     int sampling_interval_us) const {
   ostringstream command;
+  bool is_startup_profiling = pid == kStartupProfilingPid;
+  if (!is_user_build_ && !is_startup_profiling) {
+    // In userdebug/eng builds, we want to be able to profile processes that
+    // don't have a corresponding package name (e.g. system_server) and also
+    // non-debuggable apps. Running simpleperf as a normal user passing the
+    // --app flag wouldn't work for these scenarios because it invokes
+    // simpleperf using "run-as", and that only works with processes that
+    // represent a debuggable app. A workaround for that is to invoke simpleperf
+    // as root except for startup profiling, which is not a problem as startup
+    // profiling is only used with debuggable apps.
+    command << "su root ";
+  }
+
   command << GetSimpleperfPath(abi_arch);
   command << " record";
-  command << " -p " << pid;
-  command << " --app " << pkg_name;
+
+  // When profiling an application startup, simpleperf profiling starts before
+  // application launch, i.e when pid is not available. In this case, it will
+  // rely on "--app" flag instead of "-p".
+  if (pid != kStartupProfilingPid) {
+    command << " -p " << pid;
+  }
+
+  // Don't add --app when profiling userdebug/eng devices unless when we're
+  // using startup profiling, because in this case we don't want simpleperf to
+  // be invoked using "run-as".
+  if (is_user_build_ || is_startup_profiling) {
+    command << " --app " << pkg_name;
+  }
 
   string supported_features = GetFeatures(abi_arch);
   // If the device supports dwarf-based call graphs, use them. Otherwise use

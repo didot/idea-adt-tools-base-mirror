@@ -25,8 +25,9 @@ import com.android.tools.lint.detector.api.Issue
  * **NOTE: This is not a public or final API; if you rely on this be prepared
  * to adjust your code for the next tools release.**
  */
-class CompositeIssueRegistry(
-        private val registries: List<IssueRegistry>) : IssueRegistry() {
+open class CompositeIssueRegistry(
+    private val registries: List<IssueRegistry>
+) : IssueRegistry() {
     private var mergedIssues: List<Issue>? = null
 
     override val issues: List<Issue>

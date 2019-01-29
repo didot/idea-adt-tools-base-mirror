@@ -33,7 +33,7 @@ import org.gradle.api.tasks.PathSensitivity;
  * A base task with stream fields that properly use Gradle's input/output annotations to return the
  * stream's content as input/output.
  */
-public class StreamBasedTask extends AndroidBuilderTask {
+public abstract class StreamBasedTask extends AndroidBuilderTask {
 
     /** Registered as task input in {@link #registerConsumedAndReferencedStreamInputs()}. */
     protected Collection<TransformStream> consumedInputStreams;
@@ -68,8 +68,6 @@ public class StreamBasedTask extends AndroidBuilderTask {
     protected void registerConsumedAndReferencedStreamInputs() {
         Preconditions.checkNotNull(consumedInputStreams, "Consumed input streams not set.");
         Preconditions.checkNotNull(referencedInputStreams, "Referenced input streams not set.");
-        List<String> inputNames =
-                new ArrayList<>(consumedInputStreams.size() + referencedInputStreams.size());
         for (TransformStream stream :
                 Iterables.concat(consumedInputStreams, referencedInputStreams)) {
             // This cannot be PathSensitivity.RELATIVE, as transforms currently decide where to
@@ -77,12 +75,6 @@ public class StreamBasedTask extends AndroidBuilderTask {
             // is not a terrible approximation for this.
             // See https://issuetracker.google.com/68144982
             getInputs().files(stream.getAsFileTree()).withPathSensitivity(PathSensitivity.ABSOLUTE);
-
-            inputNames.add(stream.getName());
         }
-
-        // See http://b/65585567.
-        Collections.sort(inputNames);
-        getInputs().property("transformInputNames", inputNames);
     }
 }

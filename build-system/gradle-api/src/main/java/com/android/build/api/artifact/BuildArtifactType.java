@@ -16,11 +16,23 @@
 
 package com.android.build.api.artifact;
 
+import com.android.annotations.NonNull;
 import org.gradle.api.Incubating;
 
-/** Artifact type use for transform */
+/**
+ * Artifact type use for transform
+ *
+ * <p>This interface is not currently usable. It is a work in progress.
+ */
 @Incubating
 public enum BuildArtifactType implements ArtifactType {
     JAVAC_CLASSES,
-    JAVA_COMPILE_CLASSPATH
+    JAVA_COMPILE_CLASSPATH,
+    ;
+
+    @NonNull
+    @Override
+    public Kind kind() {
+        return Kind.DIRECTORY;
+    }
 }

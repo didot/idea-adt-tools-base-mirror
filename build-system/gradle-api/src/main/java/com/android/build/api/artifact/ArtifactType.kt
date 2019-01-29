@@ -18,8 +18,22 @@ package com.android.build.api.artifact
 
 import org.gradle.api.Incubating
 
-/** Represents a type of build artifact.  */
+/** Represents a type of build artifact.
+ *
+ * This interface is not currently usable. It is a work in progress.
+ */
 @Incubating
 interface ArtifactType {
     fun name(): String
+    fun kind(): Kind
+
+    /**
+     * Denotes the expected type of artifact type, this represent a binding contract between
+     * producers and consummers.
+     */
+    @Incubating
+    enum class Kind {
+        FILE,
+        DIRECTORY
+    }
 }

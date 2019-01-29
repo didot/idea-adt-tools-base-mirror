@@ -36,6 +36,7 @@ import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
 import com.android.builder.core.ManifestAttributeSupplier;
 import com.android.builder.core.VariantType;
+import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.model.InstantRun;
 import com.android.builder.model.OptionalCompilationStep;
 import com.android.builder.model.SourceProvider;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -82,7 +84,9 @@ public class GradleVariantConfiguration
             @NonNull CoreBuildType buildType,
             @Nullable SourceProvider buildTypeSourceProvider,
             @NonNull VariantType type,
-            @Nullable CoreSigningConfig signingConfigOverride) {
+            @Nullable CoreSigningConfig signingConfigOverride,
+            @NonNull EvalIssueReporter issueReporter,
+            @NonNull BooleanSupplier isInExecutionPhase) {
         super(
                 defaultConfig,
                 defaultSourceProvider,
@@ -91,7 +95,9 @@ public class GradleVariantConfiguration
                 buildTypeSourceProvider,
                 type,
                 testedConfig,
-                signingConfigOverride);
+                signingConfigOverride,
+                issueReporter,
+                isInExecutionPhase);
         mergeOptions();
         this.projectOptions = projectOptions;
     }
@@ -103,7 +109,8 @@ public class GradleVariantConfiguration
             @NonNull SourceProvider defaultSourceProvider,
             @Nullable ManifestAttributeSupplier mainManifestAttributeSupplier,
             @Nullable SourceProvider buildTypeSourceProvider,
-            @NonNull VariantType type) {
+            @NonNull VariantType type,
+            @NonNull BooleanSupplier isInExecutionPhase) {
         return new GradleVariantConfiguration(
                 this.projectOptions,
                 this,
@@ -113,7 +120,9 @@ public class GradleVariantConfiguration
                 getBuildType(),
                 buildTypeSourceProvider,
                 type,
-                getSigningConfig());
+                getSigningConfig(),
+                getIssueReporter(),
+                isInExecutionPhase);
     }
 
     /**
@@ -151,7 +160,9 @@ public class GradleVariantConfiguration
                 @NonNull CoreBuildType buildType,
                 @Nullable SourceProvider buildTypeSourceProvider,
                 @NonNull VariantType type,
-                @Nullable CoreSigningConfig signingConfigOverride);
+                @Nullable CoreSigningConfig signingConfigOverride,
+                @NonNull EvalIssueReporter issueReporter,
+                @NonNull BooleanSupplier isInExecutionPhase);
     }
 
     /** Builder for non-testing variant configurations */
@@ -166,7 +177,9 @@ public class GradleVariantConfiguration
                 @NonNull CoreBuildType buildType,
                 @Nullable SourceProvider buildTypeSourceProvider,
                 @NonNull VariantType type,
-                @Nullable CoreSigningConfig signingConfigOverride) {
+                @Nullable CoreSigningConfig signingConfigOverride,
+                @NonNull EvalIssueReporter issueReporter,
+                @NonNull BooleanSupplier isInExecutionPhase) {
             return new GradleVariantConfiguration(
                     projectOptions,
                     null /*testedConfig*/,
@@ -176,7 +189,9 @@ public class GradleVariantConfiguration
                     buildType,
                     buildTypeSourceProvider,
                     type,
-                    signingConfigOverride);
+                    signingConfigOverride,
+                    issueReporter,
+                    isInExecutionPhase);
         }
     }
 
@@ -200,7 +215,9 @@ public class GradleVariantConfiguration
                 @NonNull CoreBuildType buildType,
                 @Nullable SourceProvider buildTypeSourceProvider,
                 @NonNull VariantType type,
-                @Nullable CoreSigningConfig signingConfigOverride) {
+                @Nullable CoreSigningConfig signingConfigOverride,
+                @NonNull EvalIssueReporter issueReporter,
+                @NonNull BooleanSupplier isInExecutionPhase) {
             return new GradleVariantConfiguration(
                     projectOptions,
                     null /*testedConfig*/,
@@ -210,7 +227,9 @@ public class GradleVariantConfiguration
                     buildType,
                     buildTypeSourceProvider,
                     type,
-                    signingConfigOverride) {
+                    signingConfigOverride,
+                    issueReporter,
+                    isInExecutionPhase) {
                 @NonNull
                 @Override
                 public String getApplicationId() {
@@ -240,7 +259,8 @@ public class GradleVariantConfiguration
                         @NonNull SourceProvider defaultSourceProvider,
                         @Nullable ManifestAttributeSupplier mainManifestAttributeSupplier,
                         @Nullable SourceProvider buildTypeSourceProvider,
-                        @NonNull VariantType type) {
+                        @NonNull VariantType type,
+                        @NonNull BooleanSupplier isInExecutionPhase) {
                     throw new UnsupportedOperationException("Test modules have no test variants.");
                 }
 
@@ -320,7 +340,7 @@ public class GradleVariantConfiguration
      * @return the {@link IncrementalMode} for this variant.
      */
     protected IncrementalMode getIncrementalMode(@NonNull GlobalScope globalScope) {
-        if (isInstantRunSupported()
+        if (isInstantRunSupported(globalScope)
                 && targetDeviceSupportsInstantRun(this, globalScope.getProjectOptions())
                 && globalScope.isActive(OptionalCompilationStep.INSTANT_DEV)) {
             return IncrementalMode.FULL;
@@ -417,19 +437,20 @@ public class GradleVariantConfiguration
         return mergedJavaCompileOptions;
     }
 
-    public boolean isInstantRunSupported() {
-        return getInstantRunSupportStatus() == InstantRun.STATUS_SUPPORTED;
+    public boolean isInstantRunSupported(@NonNull GlobalScope globalScope) {
+        return getInstantRunSupportStatus(globalScope) == InstantRun.STATUS_SUPPORTED;
     }
 
-    /**
-     * Returns a status code indicating whether Instant Run is supported and why.
-     */
-    public int getInstantRunSupportStatus() {
+    /** Returns a status code indicating whether Instant Run is supported and why. */
+    public int getInstantRunSupportStatus(@NonNull GlobalScope globalScope) {
         if (!getBuildType().isDebuggable()) {
             return InstantRun.STATUS_NOT_SUPPORTED_FOR_NON_DEBUG_VARIANT;
         }
         if (getType().isForTesting()) {
             return InstantRun.STATUS_NOT_SUPPORTED_VARIANT_USED_FOR_TESTING;
+        }
+        if (getType().isFeatureSplit() || globalScope.hasDynamicFeatures()) {
+            return InstantRun.STATUS_NOT_SUPPORTED_FOR_MULTI_APK;
         }
         return InstantRun.STATUS_SUPPORTED;
     }

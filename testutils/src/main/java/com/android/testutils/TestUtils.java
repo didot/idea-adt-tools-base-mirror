@@ -60,20 +60,30 @@ public class TestUtils {
      *   <li>tools/base/build-system/integration-test/application/BUILD
      *   <li>tools/base/build-system/integration-test/databinding/BUILD.bazel
      *   <li>tools/adt/idea/android/BUILD
-     *   <li>tools/base/.idea/libraries definition for kotlin-stdlib-jre8
-     *   <li>tools/idea/.idea/libraries definition for kotlin-stdlib-jre8
+     *   <li>tools/base/.idea/libraries definition for kotlin-stdlib-jdk8
+     *   <li>tools/idea/.idea/libraries definition for kotlin-stdlib-jdk8
      * </ul>
      */
     @NonNull
     public static String getKotlinVersionForTests() {
         try {
-            return Files.readLines(
-                            getWorkspaceFile(
-                                    "prebuilts/tools/common/kotlin-plugin/Kotlin/kotlinc/build.txt"),
-                            Charsets.UTF_8)
-                    .get(0);
+            return Files.readLines(getKotlinVersionFile(), Charsets.UTF_8).get(0);
         } catch (IOException ex) {
             throw new IllegalStateException("Could not determine Kotlin plugin version", ex);
+        }
+    }
+
+    @NonNull
+    private static File getKotlinVersionFile() {
+        if (System.getProperty("idea.gui.test.running.on.release") != null) {
+            File homePath =
+                    new File(System.getProperty("idea.gui.test.remote.ide.path"))
+                            .getParentFile()
+                            .getParentFile();
+            return new File(homePath, "plugins/Kotlin/kotlinc/build.txt");
+        } else {
+            return getWorkspaceFile(
+                    "prebuilts/tools/common/kotlin-plugin/Kotlin/kotlinc/build.txt");
         }
     }
 
@@ -317,9 +327,23 @@ public class TestUtils {
                 .toPath();
     }
 
+    /** Returns the checked in AAPT2 binary that is shipped with the gradle plugin. */
+    @NonNull
+    public static Path getAapt2() {
+        OsType osType = OsType.getHostOs();
+        if (osType == OsType.UNKNOWN) {
+            throw new IllegalStateException(
+                    "AAPT2 not supported on unknown platform: " + OsType.getOsName());
+        }
+        String hostDir = osType.getFolderName();
+        return getWorkspaceFile(
+                        "prebuilts/tools/common/aapt/" + hostDir + "/" + SdkConstants.FN_AAPT2)
+                .toPath();
+    }
+
     @NonNull
     public static String getLatestAndroidPlatform() {
-        return "android-26";
+        return "android-27";
     }
 
     /**

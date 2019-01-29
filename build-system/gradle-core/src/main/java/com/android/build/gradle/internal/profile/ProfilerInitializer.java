@@ -24,10 +24,12 @@ import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
 import com.android.builder.profile.ProcessProfileWriter;
 import com.android.builder.profile.ProcessProfileWriterFactory;
+import com.google.wireless.android.sdk.stats.GradleBuildProject;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.Objects;
 import org.gradle.BuildAdapter;
 import org.gradle.api.Project;
 import org.gradle.api.invocation.Gradle;
@@ -102,6 +104,7 @@ public final class ProfilerInitializer {
 
         @Override
         public void projectsEvaluated(Gradle gradle) {
+            gradle.allprojects(this::collectProjectInfo);
             if (profileDirProperty != null) {
                 this.profileDir = gradle.getRootProject().file(profileDirProperty).toPath();
             } else if (enableProfileJson) {
@@ -111,26 +114,30 @@ public final class ProfilerInitializer {
             }
         }
 
+        private void collectProjectInfo(Project project) {
+            GradleBuildProject.Builder analyticsProject =
+                    ProcessProfileWriter.getProject(project.getPath());
+            project.getPlugins()
+                    .all((plugin) -> analyticsProject.addPlugin(AnalyticsUtil.toProto(plugin)));
+        }
+
         @Override
         public void completed() {
-            try {
-                synchronized (lock) {
-                    if (recordingBuildListener != null) {
-                        gradle.removeListener(recordingBuildListener);
-                        recordingBuildListener = null;
-                        @Nullable
-                        Path profileFile =
-                                profileDir == null
-                                        ? null
-                                        : profileDir.resolve(
-                                                PROFILE_FILE_NAME.format(LocalDateTime.now()));
+            synchronized (lock) {
+                if (recordingBuildListener != null) {
+                    gradle.removeListener(Objects.requireNonNull(recordingBuildListener));
+                    recordingBuildListener = null;
+                    @Nullable
+                    Path profileFile =
+                            profileDir == null
+                                    ? null
+                                    : profileDir.resolve(
+                                            PROFILE_FILE_NAME.format(LocalDateTime.now()));
 
-                        ProcessProfileWriterFactory.shutdownAndMaybeWrite(profileFile);
-                    }
+                    // This is deliberately asynchronous, so the build can complete before the
+                    // analytics are submitted.
+                    ProcessProfileWriterFactory.shutdownAndMaybeWrite(profileFile);
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
             }
         }
     }

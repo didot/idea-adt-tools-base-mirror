@@ -118,7 +118,7 @@ public class NdkBuildBasicProjectTest {
     }
 
     @Test
-    public void chekApkContentWithInjectedAbi() throws IOException, InterruptedException {
+    public void checkApkContentWithInjectedAbi() throws IOException, InterruptedException {
         AssumeUtil.assumeNotWindowsBot(); // https://issuetracker.google.com/70931936
         // Pass invalid-abi, x86 and armeabi. The first (invalid-abi) should be ignored because
         // it is not valid for the build . The second (x86) should be the one chosen to build.
@@ -135,7 +135,7 @@ public class NdkBuildBasicProjectTest {
         File lib = ZipHelper.extractFile(apk, "lib/x86/libhello-jni.so");
         TruthHelper.assertThatNativeLib(lib).isStripped();
 
-        assertThat(project.file("build/intermediates/manifests/full/debug/AndroidManifest.xml"))
+        assertThat(project.file("build/intermediates/merged_manifests/debug/AndroidManifest.xml"))
                 .contains("android:testOnly=\"true\"");
     }
 

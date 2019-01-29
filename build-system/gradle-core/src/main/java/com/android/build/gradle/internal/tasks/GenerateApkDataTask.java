@@ -18,7 +18,7 @@ package com.android.build.gradle.internal.tasks;
 
 import static com.android.SdkConstants.DOT_ANDROID_PACKAGE;
 import static com.android.SdkConstants.FD_RES_RAW;
-import static com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType.APK;
+import static com.android.build.gradle.internal.scope.InternalArtifactType.APK;
 import static com.android.builder.core.BuilderConstants.ANDROID_WEAR_MICRO_APK;
 
 import com.android.annotations.NonNull;
@@ -27,8 +27,8 @@ import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.ApkVariantData;
 import com.android.builder.core.AndroidBuilder;
 import com.android.ide.common.process.ProcessException;
@@ -38,6 +38,7 @@ import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.Input;
@@ -46,6 +47,7 @@ import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 /** Task to generate micro app data res file. */
 public class GenerateApkDataTask extends AndroidBuilderTask {
@@ -56,14 +58,14 @@ public class GenerateApkDataTask extends AndroidBuilderTask {
 
     private File manifestFile;
 
-    private String mainPkgName;
+    private Supplier<String> mainPkgName;
 
     private int minSdkVersion;
 
     private int targetSdkVersion;
 
     @Input
-    String getBuildToolsVersion() {
+    public String getBuildToolsVersion() {
         return getBuildTools().getRevision().toString();
     }
 
@@ -120,9 +122,9 @@ public class GenerateApkDataTask extends AndroidBuilderTask {
             File to = new File(rawDir, ANDROID_WEAR_MICRO_APK + DOT_ANDROID_PACKAGE);
             Files.copy(apk, to);
 
-            builder.generateApkData(apk, outDir, mainPkgName, ANDROID_WEAR_MICRO_APK);
+            builder.generateApkData(apk, outDir, getMainPkgName(), ANDROID_WEAR_MICRO_APK);
         } else {
-            builder.generateUnbundledWearApkData(outDir, mainPkgName);
+            builder.generateUnbundledWearApkData(outDir, getMainPkgName());
         }
 
         AndroidBuilder.generateApkDataEntryInManifest(
@@ -148,7 +150,7 @@ public class GenerateApkDataTask extends AndroidBuilderTask {
 
     @Input
     public String getMainPkgName() {
-        return mainPkgName;
+        return mainPkgName.get();
     }
 
     @Input
@@ -174,23 +176,20 @@ public class GenerateApkDataTask extends AndroidBuilderTask {
         return manifestFile;
     }
 
-    public static class ConfigAction implements TaskConfigAction<GenerateApkDataTask> {
+    public static class CreationAction extends VariantTaskCreationAction<GenerateApkDataTask> {
 
-        @NonNull
-        VariantScope scope;
+        @Nullable private FileCollection apkFileCollection;
 
-        @Nullable FileCollection apkFileCollection;
-
-        public ConfigAction(
+        public CreationAction(
                 @NonNull VariantScope scope, @Nullable FileCollection apkFileCollection) {
-            this.scope = scope;
+            super(scope);
             this.apkFileCollection = apkFileCollection;
         }
 
         @Override
         @NonNull
         public String getName() {
-            return scope.getTaskName("handle", "MicroApk");
+            return getVariantScope().getTaskName("handle", "MicroApk");
         }
 
         @Override
@@ -200,22 +199,29 @@ public class GenerateApkDataTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull GenerateApkDataTask task) {
+        public void handleProvider(
+                @NonNull TaskProvider<? extends GenerateApkDataTask> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setMicroApkTask(taskProvider);
+            getVariantScope().getTaskContainer().setGenerateApkDataTask(taskProvider);
+        }
+
+        @Override
+        public void configure(@NonNull GenerateApkDataTask task) {
+            super.configure(task);
+
+            VariantScope scope = getVariantScope();
+
             final ApkVariantData variantData = (ApkVariantData) scope.getVariantData();
             final GradleVariantConfiguration variantConfiguration =
                     variantData.getVariantConfiguration();
-
-            variantData.generateApkDataTask = task;
-
-            task.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            task.setVariantName(variantConfiguration.getFullName());
 
             task.setResOutputDir(scope.getMicroApkResDirectory());
 
             task.apkDirectoryFileCollection = apkFileCollection;
 
             task.manifestFile = scope.getMicroApkManifestFile();
-            task.mainPkgName = variantConfiguration.getApplicationId();
+            task.mainPkgName = variantConfiguration::getApplicationId;
             task.minSdkVersion = variantConfiguration.getMinSdkVersion().getApiLevel();
             task.targetSdkVersion = variantConfiguration.getTargetSdkVersion().getApiLevel();
         }

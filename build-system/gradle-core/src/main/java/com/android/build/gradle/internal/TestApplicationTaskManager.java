@@ -19,17 +19,24 @@ package com.android.build.gradle.internal;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ARTIFACT_TYPE;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.APK;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.MANIFEST_METADATA;
+import static com.android.build.gradle.internal.variant.TestVariantFactory.getTestedApksConfigurationName;
 
 import android.databinding.tool.DataBindingBuilder;
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.AndroidConfig;
+import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.scope.CodeShrinker;
 import com.android.build.gradle.internal.scope.GlobalScope;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.test.TestApplicationTestData;
 import com.android.build.gradle.internal.variant.BaseVariantData;
+import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.tasks.CheckTestedAppObfuscation;
 import com.android.build.gradle.tasks.ManifestProcessorTask;
@@ -39,16 +46,14 @@ import com.android.builder.core.BuilderConstants;
 import com.android.builder.core.VariantType;
 import com.android.builder.profile.Recorder;
 import com.android.builder.testing.ConnectedDeviceProvider;
-import com.android.manifmerger.ManifestMerger2;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import java.util.Collection;
-import org.gradle.api.DefaultTask;
+import java.util.Objects;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
-import org.gradle.api.artifacts.ResolvableDependencies;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
 /**
@@ -63,20 +68,20 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
             @NonNull GlobalScope globalScope,
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
             @NonNull SdkHandler sdkHandler,
+            @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
         super(
                 globalScope,
                 project,
                 projectOptions,
-                androidBuilder,
                 dataBindingBuilder,
                 extension,
                 sdkHandler,
+                variantFactory,
                 toolingRegistry,
                 recorder);
     }
@@ -86,16 +91,19 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
 
         super.createTasksForVariantScope(variantScope);
 
-        final Configuration runtimeClasspath =
-                variantScope.getVariantDependencies().getRuntimeClasspath();
-        final ResolvableDependencies incomingRuntimeClasspath = runtimeClasspath.getIncoming();
+        Configuration testedApksConfig =
+                project.getConfigurations()
+                        .getByName(
+                                getTestedApksConfigurationName(variantScope.getFullVariantName()));
 
-        FileCollection testingApk = variantScope.getOutput(VariantScope.TaskOutputType.APK);
+        BuildableArtifact testingApk =
+                variantScope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.APK);
 
         // create a FileCollection that will contain the APKs to be tested.
         // FULL_APK is published only to the runtime configuration
         FileCollection testedApks =
-                incomingRuntimeClasspath
+                testedApksConfig
+                        .getIncoming()
                         .artifactView(
                                 config ->
                                         config.attributes(
@@ -111,16 +119,16 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
         TestApplicationTestData testData =
                 new TestApplicationTestData(
                         variantScope.getVariantConfiguration(),
-                        variantScope.getVariantData().getApplicationId(),
+                        variantScope.getVariantData()::getApplicationId,
                         testingApk,
-                        testedApks);
+                        new BuildableArtifactImpl(testedApks, globalScope.getDslScope()));
 
         configureTestData(testData);
 
         // create the test connected check task.
-        DeviceProviderInstrumentTestTask instrumentTestTask =
-                taskFactory.create(
-                        new DeviceProviderInstrumentTestTask.ConfigAction(
+        TaskProvider<DeviceProviderInstrumentTestTask> instrumentTestTask =
+                taskFactory.register(
+                        new DeviceProviderInstrumentTestTask.CreationAction(
                                 variantScope,
                                 new ConnectedDeviceProvider(
                                         sdkHandler.getSdkInfo().getAdb(),
@@ -131,13 +139,13 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
                             @NonNull
                             @Override
                             public String getName() {
-                                return super.getName() + VariantType.ANDROID_TEST.getSuffix();
+                                return super.getName() + VariantType.ANDROID_TEST_SUFFIX;
                             }
                         });
 
         Task connectedAndroidTest =
                 taskFactory.findByName(
-                        BuilderConstants.CONNECTED + VariantType.ANDROID_TEST.getSuffix());
+                        BuilderConstants.CONNECTED + VariantType.ANDROID_TEST_SUFFIX);
         if (connectedAndroidTest != null) {
             connectedAndroidTest.dependsOn(instrumentTestTask.getName());
         }
@@ -163,26 +171,26 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
         // do nothing
     }
 
+    @Nullable
     @Override
-    protected boolean isTestedAppObfuscated(@NonNull VariantScope variantScope) {
-        return variantScope.getCodeShrinker() == CodeShrinker.PROGUARD;
-    }
-
-    @Override
-    protected void maybeCreateJavaCodeShrinkerTransform(@NonNull VariantScope variantScope) {
-        if (isTestedAppObfuscated(variantScope)) {
-            doCreateJavaCodeShrinkerTransform(
+    protected CodeShrinker maybeCreateJavaCodeShrinkerTransform(
+            @NonNull VariantScope variantScope) {
+        if (variantScope.getCodeShrinker() != null) {
+            return doCreateJavaCodeShrinkerTransform(
                     variantScope,
-                    CodeShrinker.PROGUARD,
+                    Objects.requireNonNull(variantScope.getCodeShrinker()),
                     variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
                             AndroidArtifacts.ArtifactScope.ALL,
                             AndroidArtifacts.ArtifactType.APK_MAPPING));
         } else {
-            CheckTestedAppObfuscation checkObfuscation =
-                    taskFactory.create(new CheckTestedAppObfuscation.ConfigAction(variantScope));
-            Preconditions.checkNotNull(variantScope.getJavacTask());
-            variantScope.getJavacTask().dependsOn(checkObfuscation);
+            TaskProvider<CheckTestedAppObfuscation> checkObfuscation =
+                    taskFactory.register(
+                            new CheckTestedAppObfuscation.CreationAction(variantScope));
+            Preconditions.checkNotNull(variantScope.getTaskContainer().getJavacTask());
+            TaskFactoryUtils.dependsOn(
+                    variantScope.getTaskContainer().getJavacTask(), checkObfuscation);
+            return null;
         }
     }
 
@@ -211,16 +219,18 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     /** Creates the merge manifests task. */
     @Override
     @NonNull
-    protected ManifestProcessorTask createMergeManifestTask(
-            @NonNull VariantScope variantScope,
-            @NonNull ImmutableList.Builder<ManifestMerger2.Invoker.Feature> optionalFeatures) {
-        return taskFactory.create(
-                new ProcessTestManifest.ConfigAction(
-                        variantScope, getTestedManifestMetadata(variantScope.getVariantData())));
+    protected TaskProvider<? extends ManifestProcessorTask> createMergeManifestTask(
+            @NonNull VariantScope variantScope) {
+        return taskFactory.register(
+                new ProcessTestManifest.CreationAction(
+                        variantScope,
+                        new BuildableArtifactImpl(
+                                getTestedManifestMetadata(variantScope.getVariantData()),
+                                variantScope.getGlobalScope().getDslScope())));
     }
 
     @Override
-    protected DefaultTask createVariantPreBuildTask(@NonNull VariantScope scope) {
-        return createDefaultPreBuildTask(scope);
+    protected void createVariantPreBuildTask(@NonNull VariantScope scope) {
+        createDefaultPreBuildTask(scope);
     }
 }

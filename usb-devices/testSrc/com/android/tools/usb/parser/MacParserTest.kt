@@ -16,10 +16,12 @@
 
 package com.android.tools.usb.parser
 
-import com.android.testutils.TestResources
+import com.android.testutils.TestUtils
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import java.io.File
+import java.nio.file.Paths
 
 class MacParserTest {
     private lateinit var parser: OutputParser
@@ -31,8 +33,8 @@ class MacParserTest {
 
     @Test
     fun parseOutput() {
-        val file = TestResources.getFile("/mac.txt");
-        val devices = parser.parse(file.inputStream()).get()
+        val file = TestUtils.getWorkspaceFile("tools/base/usb-devices/testData/mac.txt");
+        val devices = parser.parse(file.inputStream())
         assertEquals(4, devices.size)
         assertEquals("Card Reader", devices[0].name)
         assertEquals("0x05ac", devices[0].vendorId)

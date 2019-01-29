@@ -19,17 +19,18 @@ package com.android.build.gradle.tasks;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
-import com.android.build.gradle.internal.dsl.CoreSigningConfig;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.incremental.FileType;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.incremental.InstantRunPatchingPolicy;
 import com.android.build.gradle.internal.packaging.ApkCreatorFactories;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.SigningConfigMetadata;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.packaging.PackagerException;
 import com.android.ide.common.build.ApkInfo;
@@ -42,8 +43,6 @@ import java.io.IOException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
-import org.gradle.api.tasks.Nested;
-import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.tooling.BuildException;
@@ -61,21 +60,20 @@ public class InstantRunResourcesApkBuilder extends AndroidBuilderTask {
     private AndroidBuilder androidBuilder;
     private InstantRunBuildContext instantRunBuildContext;
     private File outputDirectory;
-    private CoreSigningConfig signingConf;
+    private FileCollection signingConf;
     private File supportDirectory;
 
-    private FileCollection resources;
+    private BuildableArtifact resources;
 
-    private TaskOutputHolder.TaskOutputType resInputType;
+    private InternalArtifactType resInputType;
 
-    @Nested
-    @Optional
-    CoreSigningConfig getSigningConf() {
+    @InputFiles
+    public FileCollection getSigningConf() {
         return signingConf;
     }
 
     @Input
-    String getResInputType() {
+    public String getResInputType() {
         return resInputType.name();
     }
 
@@ -85,7 +83,7 @@ public class InstantRunResourcesApkBuilder extends AndroidBuilderTask {
     }
 
     @InputFiles
-    public FileCollection getResourcesFile() {
+    public BuildableArtifact getResourcesFile() {
         return resources;
     }
 
@@ -147,7 +145,7 @@ public class InstantRunResourcesApkBuilder extends AndroidBuilderTask {
                                 androidBuilder.packageCodeSplitApk(
                                         input,
                                         ImmutableSet.of(),
-                                        signingConf,
+                                        SigningConfigMetadata.Companion.load(signingConf),
                                         outputFile,
                                         tempDir,
                                         ApkCreatorFactories.fromProjectProperties(
@@ -160,9 +158,7 @@ public class InstantRunResourcesApkBuilder extends AndroidBuilderTask {
                                         "Exception while creating resources split APK", e);
                             }
                         })
-                .into(
-                        TaskOutputHolder.TaskOutputType.INSTANT_RUN_PACKAGED_RESOURCES,
-                        outputDirectory);
+                .into(InternalArtifactType.INSTANT_RUN_PACKAGED_RESOURCES, outputDirectory);
     }
 
     @VisibleForTesting
@@ -174,18 +170,14 @@ public class InstantRunResourcesApkBuilder extends AndroidBuilderTask {
         return APK_FILE_NAME + "-" + apkData.getBaseName();
     }
 
-    public static class ConfigAction implements TaskConfigAction<InstantRunResourcesApkBuilder> {
+    public static class CreationAction extends TaskCreationAction<InstantRunResourcesApkBuilder> {
 
         protected final VariantScope variantScope;
-        private final FileCollection resources;
-        private final TaskOutputHolder.TaskOutputType resInputType;
+        private final InternalArtifactType resInputType;
 
-        public ConfigAction(
-                @NonNull TaskOutputHolder.TaskOutputType resInputType,
-                @NonNull FileCollection resources,
-                @NonNull VariantScope scope) {
+        public CreationAction(
+                @NonNull InternalArtifactType resInputType, @NonNull VariantScope scope) {
             this.resInputType = resInputType;
-            this.resources = resources;
             this.variantScope = scope;
         }
 
@@ -202,15 +194,15 @@ public class InstantRunResourcesApkBuilder extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull InstantRunResourcesApkBuilder resourcesApkBuilder) {
+        public void configure(@NonNull InstantRunResourcesApkBuilder resourcesApkBuilder) {
             resourcesApkBuilder.setVariantName(variantScope.getFullVariantName());
             resourcesApkBuilder.resInputType = resInputType;
             resourcesApkBuilder.supportDirectory = variantScope.getIncrementalDir(getName());
             resourcesApkBuilder.androidBuilder = variantScope.getGlobalScope().getAndroidBuilder();
-            resourcesApkBuilder.signingConf =
-                    variantScope.getVariantConfiguration().getSigningConfig();
+            resourcesApkBuilder.signingConf = variantScope.getSigningConfigFileCollection();
             resourcesApkBuilder.instantRunBuildContext = variantScope.getInstantRunBuildContext();
-            resourcesApkBuilder.resources = resources;
+            resourcesApkBuilder.resources =
+                    variantScope.getArtifacts().getFinalArtifactFiles(resInputType);
             resourcesApkBuilder.outputDirectory = variantScope.getInstantRunResourceApkFolder();
         }
     }

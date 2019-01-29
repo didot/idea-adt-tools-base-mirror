@@ -29,8 +29,12 @@ import com.android.build.api.transform.QualifiedContent.Scope;
 import com.android.build.api.transform.QualifiedContent.ScopeType;
 import com.android.build.api.transform.Transform;
 import com.android.build.gradle.internal.InternalScope;
-import com.android.build.gradle.internal.TaskFactory;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
+import com.android.build.gradle.internal.tasks.factory.PreConfigAction;
+import com.android.build.gradle.internal.tasks.factory.TaskConfigAction;
+import com.android.build.gradle.internal.tasks.factory.TaskFactory;
+import com.android.build.gradle.internal.tasks.factory.TaskProviderCallback;
+import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.model.AndroidProject;
@@ -43,6 +47,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -51,6 +56,7 @@ import org.gradle.api.Project;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
  * Manages the transforms for a variant.
@@ -73,8 +79,8 @@ public class TransformManager extends FilterableStreamCollection {
     public static final Set<ContentType> CONTENT_NATIVE_LIBS =
             ImmutableSet.of(NATIVE_LIBS);
     public static final Set<ContentType> CONTENT_DEX = ImmutableSet.of(ExtendedContentType.DEX);
-    public static final Set<ContentType> DATA_BINDING_ARTIFACT =
-            ImmutableSet.of(ExtendedContentType.DATA_BINDING);
+    public static final Set<ContentType> CONTENT_DEX_WITH_RESOURCES =
+            ImmutableSet.of(ExtendedContentType.DEX, RESOURCES);
     public static final Set<ContentType> DATA_BINDING_BASE_CLASS_LOG_ARTIFACT =
             ImmutableSet.of(ExtendedContentType.DATA_BINDING_BASE_CLASS_LOG);
     public static final Set<ScopeType> PROJECT_ONLY = ImmutableSet.of(Scope.PROJECT);
@@ -88,8 +94,22 @@ public class TransformManager extends FilterableStreamCollection {
                     .addAll(SCOPE_FULL_PROJECT)
                     .add(InternalScope.MAIN_SPLIT)
                     .build();
+    public static final Set<ScopeType> SCOPE_FULL_WITH_FEATURES =
+            new ImmutableSet.Builder<ScopeType>()
+                    .addAll(SCOPE_FULL_PROJECT)
+                    .add(InternalScope.FEATURES)
+                    .build();
+    public static final Set<ScopeType> SCOPE_FULL_WITH_IR_AND_FEATURES =
+            new ImmutableSet.Builder<ScopeType>()
+                    .addAll(SCOPE_FULL_PROJECT)
+                    .add(InternalScope.MAIN_SPLIT)
+                    .add(InternalScope.FEATURES)
+                    .build();
+    public static final Set<ScopeType> SCOPE_FEATURES = ImmutableSet.of(InternalScope.FEATURES);
     public static final Set<ScopeType> SCOPE_FULL_LIBRARY_WITH_LOCAL_JARS =
             ImmutableSet.of(Scope.PROJECT, InternalScope.LOCAL_DEPS);
+    public static final Set<ScopeType> SCOPE_IR_FOR_SLICING =
+            ImmutableSet.of(Scope.PROJECT, Scope.SUB_PROJECTS);
 
     @NonNull
     private final Project project;
@@ -123,6 +143,7 @@ public class TransformManager extends FilterableStreamCollection {
         this.logger = Logging.getLogger(TransformManager.class);
     }
 
+    @NonNull
     @Override
     Project getProject() {
         return project;
@@ -149,11 +170,11 @@ public class TransformManager extends FilterableStreamCollection {
      *     create it
      */
     @NonNull
-    public <T extends Transform> Optional<TransformTask> addTransform(
+    public <T extends Transform> Optional<TaskProvider<TransformTask>> addTransform(
             @NonNull TaskFactory taskFactory,
             @NonNull TransformVariantScope scope,
             @NonNull T transform) {
-        return addTransform(taskFactory, scope, transform, null /*callback*/);
+        return addTransform(taskFactory, scope, transform, null, null, null);
     }
 
     /**
@@ -168,17 +189,18 @@ public class TransformManager extends FilterableStreamCollection {
      * @param taskFactory the task factory
      * @param scope the current scope
      * @param transform the transform to add
-     * @param callback a callback that is run when the task is actually configured
      * @param <T> the type of the transform
-     * @return {@code Optional<AndroidTask<Transform>>} containing the AndroidTask for the given
-     *     transform task if it was able to create it
+     * @return {@code Optional<AndroidTask<TaskProvider<TransformTask>>>} containing the AndroidTask
+     *     for the given transform task if it was able to create it
      */
     @NonNull
-    public <T extends Transform> Optional<TransformTask> addTransform(
+    public <T extends Transform> Optional<TaskProvider<TransformTask>> addTransform(
             @NonNull TaskFactory taskFactory,
             @NonNull TransformVariantScope scope,
             @NonNull T transform,
-            @Nullable TransformTask.ConfigActionCallback<T> callback) {
+            @Nullable PreConfigAction preConfigAction,
+            @Nullable TaskConfigAction<TransformTask> configAction,
+            @Nullable TaskProviderCallback<TransformTask> providerCallback) {
 
         if (!validateTransform(transform)) {
             // validate either throws an exception, or records the problem during sync
@@ -204,13 +226,14 @@ public class TransformManager extends FilterableStreamCollection {
             // didn't find any match. Means there is a broken order somewhere in the streams.
             issueReporter.reportError(
                     Type.GENERIC,
-                    String.format(
-                            "Unable to add Transform '%s' on variant '%s': requested streams not available: %s+%s / %s",
-                            transform.getName(),
-                            scope.getFullVariantName(),
-                            transform.getScopes(),
-                            transform.getReferencedScopes(),
-                            transform.getInputTypes()));
+                    new EvalIssueException(
+                            String.format(
+                                    "Unable to add Transform '%s' on variant '%s': requested streams not available: %s+%s / %s",
+                                    transform.getName(),
+                                    scope.getFullVariantName(),
+                                    transform.getScopes(),
+                                    transform.getReferencedScopes(),
+                                    transform.getInputTypes())));
             return Optional.empty();
         }
 
@@ -233,19 +256,19 @@ public class TransformManager extends FilterableStreamCollection {
         transforms.add(transform);
 
         // create the task...
-        TransformTask task =
-                taskFactory.create(
-                        new TransformTask.ConfigAction<>(
+        return Optional.of(
+                taskFactory.register(
+                        new TransformTask.CreationAction<>(
                                 scope.getFullVariantName(),
                                 taskName,
                                 transform,
                                 inputStreams,
                                 referencedStreams,
                                 outputStream,
-                                recorder,
-                                callback));
-
-        return Optional.ofNullable(task);
+                                recorder),
+                        preConfigAction,
+                        configAction,
+                        providerCallback));
     }
 
     @Override
@@ -307,7 +330,53 @@ public class TransformManager extends FilterableStreamCollection {
         }
 
         Set<ContentType> requestedTypes = transform.getInputTypes();
+        consumeStreams(requestedScopes, requestedTypes, inputStreams);
 
+        // create the output stream.
+        // create single combined output stream for all types and scopes
+        Set<ContentType> outputTypes = transform.getOutputTypes();
+
+        File outRootFolder =
+                FileUtils.join(
+                        buildDir,
+                        StringHelper.toStrings(
+                                AndroidProject.FD_INTERMEDIATES,
+                                FD_TRANSFORMS,
+                                transform.getName(),
+                                scope.getDirectorySegments()));
+
+        // create the output
+        IntermediateStream outputStream =
+                IntermediateStream.builder(
+                                project,
+                                transform.getName() + "-" + scope.getFullVariantName(),
+                                taskName)
+                        .addContentTypes(outputTypes)
+                        .addScopes(requestedScopes)
+                        .setRootLocation(outRootFolder)
+                        .build();
+        // and add it to the list of available streams for next transforms.
+        streams.add(outputStream);
+
+        return outputStream;
+    }
+
+    /**
+     * <p>This method will remove all streams matching the specified scopes and types from the
+     * available streams.
+     *
+     * @deprecated Use this method only for migration from transforms to tasks.
+     */
+    @Deprecated
+    public void consumeStreams(
+            @NonNull Set<? super Scope> requestedScopes, @NonNull Set<ContentType> requestedTypes) {
+        consumeStreams(requestedScopes, requestedTypes, new ArrayList<>());
+    }
+
+    private void consumeStreams(
+            @NonNull Set<? super Scope> requestedScopes,
+            @NonNull Set<ContentType> requestedTypes,
+            @NonNull List<TransformStream> inputStreams) {
         // list to hold the list of unused streams in the manager after everything is done.
         // they'll be put back in the streams collection, along with the new outputs.
         List<TransformStream> oldStreams = Lists.newArrayListWithExpectedSize(streams.size());
@@ -357,33 +426,9 @@ public class TransformManager extends FilterableStreamCollection {
             }
         }
 
-        // create the output stream.
-        // create single combined output stream for all types and scopes
-        Set<ContentType> outputTypes = transform.getOutputTypes();
-
-        File outRootFolder = FileUtils.join(buildDir, StringHelper.toStrings(
-                AndroidProject.FD_INTERMEDIATES,
-                FD_TRANSFORMS,
-                transform.getName(),
-                scope.getDirectorySegments()));
-
         // update the list of available streams.
         streams.clear();
         streams.addAll(oldStreams);
-
-        // create the output
-        IntermediateStream outputStream =
-                IntermediateStream.builder(
-                                project, transform.getName() + "-" + scope.getFullVariantName())
-                        .addContentTypes(outputTypes)
-                        .addScopes(requestedScopes)
-                        .setRootLocation(outRootFolder)
-                        .setTaskName(taskName)
-                        .build();
-        // and add it to the list of available streams for next transforms.
-        streams.add(outputStream);
-
-        return outputStream;
     }
 
     @NonNull
@@ -429,17 +474,19 @@ public class TransformManager extends FilterableStreamCollection {
         if (scopes.contains(Scope.PROVIDED_ONLY)) {
             issueReporter.reportError(
                     Type.GENERIC,
-                    String.format(
-                            "PROVIDED_ONLY scope cannot be consumed by Transform '%1$s'",
-                            transform.getName()));
+                    new EvalIssueException(
+                            String.format(
+                                    "PROVIDED_ONLY scope cannot be consumed by Transform '%1$s'",
+                                    transform.getName())));
             return false;
         }
         if (scopes.contains(Scope.TESTED_CODE)) {
             issueReporter.reportError(
                     Type.GENERIC,
-                    String.format(
-                            "TESTED_CODE scope cannot be consumed by Transform '%1$s'",
-                            transform.getName()));
+                    new EvalIssueException(
+                            String.format(
+                                    "TESTED_CODE scope cannot be consumed by Transform '%1$s'",
+                                    transform.getName())));
             return false;
 
         }
@@ -466,7 +513,7 @@ public class TransformManager extends FilterableStreamCollection {
                             Scope.PROJECT_LOCAL_DEPS.name(),
                             Scope.EXTERNAL_LIBRARIES.name());
             if (!scopes.contains(Scope.EXTERNAL_LIBRARIES)) {
-                issueReporter.reportError(Type.GENERIC, message);
+                issueReporter.reportError(Type.GENERIC, new EvalIssueException(message));
             }
         }
 
@@ -478,7 +525,7 @@ public class TransformManager extends FilterableStreamCollection {
                             Scope.SUB_PROJECTS_LOCAL_DEPS.name(),
                             Scope.EXTERNAL_LIBRARIES.name());
             if (!scopes.contains(Scope.EXTERNAL_LIBRARIES)) {
-                issueReporter.reportError(Type.GENERIC, message);
+                issueReporter.reportError(Type.GENERIC, new EvalIssueException(message));
             }
         }
     }
@@ -491,9 +538,10 @@ public class TransformManager extends FilterableStreamCollection {
                     || contentType instanceof ExtendedContentType)) {
                 issueReporter.reportError(
                         Type.GENERIC,
-                        String.format(
-                                "Custom content types (%1$s) are not supported in transforms (%2$s)",
-                                contentType.getClass().getName(), transform.getName()));
+                        new EvalIssueException(
+                                String.format(
+                                        "Custom content types (%1$s) are not supported in transforms (%2$s)",
+                                        contentType.getClass().getName(), transform.getName())));
                 return false;
             }
         }

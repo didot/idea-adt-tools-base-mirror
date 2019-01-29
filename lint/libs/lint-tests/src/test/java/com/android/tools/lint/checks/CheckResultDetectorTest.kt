@@ -23,7 +23,7 @@ class CheckResultDetectorTest : AbstractCheckTest() {
 
     fun testCheckResult() {
         val expected =
-                """
+            """
 src/test/pkg/CheckPermissions.java:22: Warning: The result of extractAlpha is not used [CheckResult]
         bitmap.extractAlpha(); // WARNING
         ~~~~~~~~~~~~~~~~~~~~~
@@ -39,7 +39,8 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
 0 errors, 4 warnings
 """
         lint().files(
-                java("""
+            java(
+                """
                 package test.pkg;
                 import android.Manifest;
                 import android.content.Context;
@@ -74,10 +75,12 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                     }
                     private void call(Bitmap bitmap) {
                     }
-                }""").indented(),
+                }"""
+            ).indented(),
 
-                java("src/test/pkg/Intersect.java",
-                        """
+            java(
+                "src/test/pkg/Intersect.java",
+                """
                 package test.pkg;
                 import android.graphics.Rect;
 
@@ -86,24 +89,27 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                   void check(Rect rect, int aLeft, int aTop, int aRight, int aBottom) {
                     rect.intersect(aLeft, aTop, aRight, aBottom);
                   }
-                }""").indented(),
-                SUPPORT_ANNOTATIONS_CLASS_PATH,
-                SUPPORT_ANNOTATIONS_JAR)
-                .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
-                .run()
-                .expect(expected)
+                }"""
+            ).indented(),
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        )
+            .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
+            .run()
+            .expect(expected)
     }
 
     fun testSubtract() {
         // Regression test for https://issuetracker.google.com/69344103:
         // @CanIgnoreReturnValue should let you *undo* a @CheckReturnValue on a class/package
         lint().files(
-                java("""
+            java(
+                """
                     package test.pkg;
                     import com.google.errorprone.annotations.CanIgnoreReturnValue;
                     import javax.annotation.CheckReturnValue;
 
-                    @SuppressWarnings({"ClassNameDiffersFromFileName", "MethodMayBeStatic"})
+                    @SuppressWarnings({"ClassNameDiffersFromFileName", "MethodMayBeStatic", "ResultOfMethodCallIgnored"})
                     @CheckReturnValue
                     public class IgnoreTest {
                         public String method1() {
@@ -124,42 +130,37 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                             method3(); // OK: Specifically allowed
                         }
                     }
-                """).indented(),
-                java("""
+                """
+            ).indented(),
+            java(
+                """
                     package com.google.errorprone.annotations;
                     import java.lang.annotation.Retention;
                     import static java.lang.annotation.RetentionPolicy.CLASS;
                     @SuppressWarnings("ClassNameDiffersFromFileName")
                     @Retention(CLASS)
-                    public @interface CanIgnoreReturnValue {}""").indented(),
-                java("""
-                    package javax.annotation;
-                    import static java.lang.annotation.RetentionPolicy.CLASS;
-                    import java.lang.annotation.Retention;
-                    import javax.annotation.meta.When;
-                    @SuppressWarnings("ClassNameDiffersFromFileName")
-                    @Retention(CLASS)
-                    public @interface CheckReturnValue {
-                    }
-                    """).indented(),
-                SUPPORT_ANNOTATIONS_CLASS_PATH,
-                SUPPORT_ANNOTATIONS_JAR)
-                .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
-                .run()
-                .expect("src/test/pkg/IgnoreTest.java:21: Warning: The result of method1 is not used [CheckResult]\n" +
+                    public @interface CanIgnoreReturnValue {}"""
+            ).indented(),
+            javaxCheckReturnValueSource,
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        )
+            .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
+            .run()
+            .expect(
+                "src/test/pkg/IgnoreTest.java:21: Warning: The result of method1 is not used [CheckResult]\n" +
                         "        method1(); // ERROR: should check\n" +
                         "        ~~~~~~~~~\n" +
-                        "src/test/pkg/IgnoreTest.java:22: Warning: The result of method2 is not used [CheckResult]\n" +
-                        "        method2(); // OK: void return value\n" +
-                        "        ~~~~~~~~~\n" +
-                        "0 errors, 2 warnings")
+                        "0 errors, 1 warnings"
+            )
     }
 
     fun testSubtract2() {
         // Regression test for https://issuetracker.google.com/69344103
         // Make sure we don't inherit @CheckReturn value from packages
         lint().files(
-                java("""
+            java(
+                """
                     package test.pkg;
 
                     @SuppressWarnings({"ClassNameDiffersFromFileName", "MethodMayBeStatic"})
@@ -172,14 +173,18 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                             method(); // OK: not inheriting from packages
                         }
                     }
-                """).indented(),
-                java("" +
+                """
+            ).indented(),
+            java(
+                "" +
                         "@CheckReturnValue\n" +
                         "package test.pkg;\n" +
-                        "import javax.annotation.CheckReturnValue;\n"),
-                // Also register the compiled version of the above package-info jar file;
-                // without this we don't resolve package annotations
-                base64gzip("libs/packageinfoclass.jar", "" +
+                        "import javax.annotation.CheckReturnValue;\n"
+            ),
+            // Also register the compiled version of the above package-info jar file;
+            // without this we don't resolve package annotations
+            base64gzip(
+                "libs/packageinfoclass.jar", "" +
                         "H4sIAAAAAAAAAAvwZmYRYeDg4GDInpfvzYAEOBlYGHxdQxx1Pf3c9P+dYmBg" +
                         "ZgjwZucASTFBlQTg1CwCxHDNvo5+nm6uwSF6vm6ffc+c9vHW1bvI662rde7M" +
                         "+c1BBleMHzwt0vPy1fH0vVi6ioUz4oXkEelZUi/Flj5boia2XCujYuk0C1HV" +
@@ -189,19 +194,22 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                         "Oi5u3Kl+ZTO7VyfMOHrPonShy1Wtq1sMj1k9nGJqerjmfllezB+ffbaTdZKK" +
                         "9hl1Xph3jUfYfevj1Ikf/1e3BVo/i5rRI39pzpLZTDyM+zgu/CwQ3+t2WI2z" +
                         "0Rzky33aDlPmAv1wAOxLRiYRBtQwh8UGKMJQAUr0oWtFDjwRFG22OCIP2QRQ" +
-                        "ICM7TBrFhJP4gzzAm5UNpIwZCI8B6fWMIB4A/Y4BiosCAAA="),
-                SUPPORT_ANNOTATIONS_CLASS_PATH,
-                SUPPORT_ANNOTATIONS_JAR)
-                .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
-                .run()
-                .expectClean()
+                        "ICM7TBrFhJP4gzzAm5UNpIwZCI8B6fWMIB4A/Y4BiosCAAA="
+            ),
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        )
+            .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
+            .run()
+            .expectClean()
     }
 
     fun testNotIgnoredInBlock() {
         // Regression test for
         // 69534608: False positive for "The result of <method_name> is not used"
         lint().files(
-                kotlin("""
+            kotlin(
+                """
                     package test.pkg
 
                     import android.support.annotation.CheckResult
@@ -211,19 +219,22 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                     }
 
                     @CheckResult
-                    fun fromNullable(a: Any?): Any? = a""").indented(),
-                SUPPORT_ANNOTATIONS_CLASS_PATH,
-                SUPPORT_ANNOTATIONS_JAR)
-                .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
-                .run()
-                .expectClean()
+                    fun fromNullable(a: Any?): Any? = a"""
+            ).indented(),
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        )
+            .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
+            .run()
+            .expectClean()
     }
 
     fun testNotIgnoredInBlock2() {
         // Regression test for
         // 69534608: False positive for "The result of <method_name> is not used"
         lint().files(
-                kotlin("""
+            kotlin(
+                """
                     package test.pkg
 
                     import android.support.annotation.CheckResult
@@ -260,19 +271,22 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                     }
 
                     @CheckResult
-                    fun label(a: Any?): Any? = a""").indented(),
-                SUPPORT_ANNOTATIONS_CLASS_PATH,
-                SUPPORT_ANNOTATIONS_JAR)
-                .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
-                .run()
-                .expectClean()
+                    fun label(a: Any?): Any? = a"""
+            ).indented(),
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        )
+            .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
+            .run()
+            .expectClean()
     }
 
     fun testCheckResultIf() {
         // Regression test for
         // 72258872: Lint is wrongly detecting "CheckResult" in Kotlin code
         lint().files(
-                kotlin("""
+            kotlin(
+                """
                     package test.pkg
 
                     import android.support.annotation.CheckResult
@@ -327,12 +341,20 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                         return 42
                     }
 """
-                ),
-                SUPPORT_ANNOTATIONS_CLASS_PATH,
-                SUPPORT_ANNOTATIONS_JAR)
+            ),
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        )
             .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
             .run()
-            .expectClean()
+            .expect(
+                """
+                src/test/pkg/test.kt:8: Warning: The result of foo is not used [CheckResult]
+                                            foo() // Unused
+                                            ~~~~~
+                0 errors, 1 warnings
+                """
+            )
     }
 
     fun test73563032() {
@@ -340,7 +362,8 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
         //   https://issuetracker.google.com/73563032
         //   73563032: Lint is detecting a "CheckResult" issue when using lambdas in Kotlin
         lint().files(
-            kotlin("""
+            kotlin(
+                """
                 @file:Suppress("unused", "RemoveExplicitTypeArguments", "UNUSED_PARAMETER", "ConstantConditionIf")
 
                 package test.pkg
@@ -370,9 +393,11 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                         }
                     }
                 }
-                """).indented(),
+                """
+            ).indented(),
             SUPPORT_ANNOTATIONS_CLASS_PATH,
-            SUPPORT_ANNOTATIONS_JAR)
+            SUPPORT_ANNOTATIONS_JAR
+        )
             .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
             .run()
             .expectClean()
@@ -408,10 +433,12 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                 """
             ).indented(),
             SUPPORT_ANNOTATIONS_CLASS_PATH,
-            SUPPORT_ANNOTATIONS_JAR)
+            SUPPORT_ANNOTATIONS_JAR
+        )
             .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
             .run()
-            .expect("""
+            .expect(
+                """
                 src/test/pkg/CheckResultTest.java:8: Warning: The result of myMethod is not used [CheckResult]
                         myMethod(); // WARN
                         ~~~~~~~~~~
@@ -419,6 +446,170 @@ src/test/pkg/CheckPermissions.java:11: Warning: The result of checkPermission is
                         this.myMethod(); // WARN
                         ~~~~~~~~~~~~~~~
                 0 errors, 2 warnings
-                """)
+                """
+            )
     }
+
+    fun test80234958() {
+        // 80234958: Lint check misses CheckResult inside kotlin class init blocks
+        lint().files(
+            kotlin(
+                """
+                package com.example
+
+                import io.reactivex.Observable
+
+                @Suppress("ConvertSecondaryConstructorToPrimary","RemoveExplicitTypeArguments")
+                class Foo {
+                  private val someObservable = Observable.create<Int> { }
+
+                  init {
+                    someObservable.subscribe { }
+                  }
+
+                  constructor() {
+                    someObservable.subscribe { }
+                  }
+
+                  fun method() {
+                    someObservable.subscribe { }
+                  }
+                }
+                """
+            ).indented(),
+            java(
+                """
+                    // Stub
+                    package io.reactivex;
+
+                    import android.support.annotation.CheckResult;
+                    import java.util.Consumer;
+
+                    @SuppressWarnings("ClassNameDiffersFromFileName")
+                    public abstract class Observable<T> {
+                        @CheckResult
+                        public static <T> Observable<T> create(Object source) {
+                            return null;
+                        }
+
+                        @CheckResult
+                        public final Object subscribe(Consumer<? super T> onNext) {
+                            return null;
+                        }
+                    }
+
+                """
+            ).indented(),
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        )
+            .issues(CheckResultDetector.CHECK_RESULT, PermissionDetector.CHECK_PERMISSION)
+            .run()
+            .expect(
+                """
+                src/com/example/Foo.kt:10: Warning: The result of subscribe is not used [CheckResult]
+                    someObservable.subscribe { }
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                src/com/example/Foo.kt:14: Warning: The result of subscribe is not used [CheckResult]
+                    someObservable.subscribe { }
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                src/com/example/Foo.kt:18: Warning: The result of subscribe is not used [CheckResult]
+                    someObservable.subscribe { }
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                0 errors, 3 warnings
+                """
+            )
+    }
+
+    fun test112602230() {
+        // Regression test for
+        // 112602230: Spurious lint error for unused result from AndroidFluentLogger#log
+        lint().files(
+            java(
+                """
+                package test.pkg;
+
+                import com.google.errorprone.annotations.CheckReturnValue;
+
+                @CheckReturnValue
+                @SuppressWarnings({"ClassNameDiffersFromFileName", "MethodMayBeStatic"})
+                public interface LoggingApi {
+                    void log(String msg, Object p1);
+                }
+                """
+            ),
+            java(
+                """
+                package test.pkg;
+
+                @SuppressWarnings({"ClassNameDiffersFromFileName", "MethodMayBeStatic"})
+                public class LoggingApiTest {
+                    public void test(LoggingApi api) {
+                        api.log("log", null);
+                    }
+                }
+                """
+            ),
+            kotlin(
+                """
+                package test.pkg
+
+                import com.google.errorprone.annotations.CheckReturnValue;
+
+                @Suppress("RedundantUnitReturnType")
+                @CheckReturnValue
+                interface LoggingApiKotlin {
+                    fun log(msg: String, p1: Any): Unit
+                }
+
+                """
+            ),
+            kotlin(
+                """
+                package test.pkg
+
+                class LoggingApiTestKotlin {
+                    fun test(api: LoggingApiKotlin) {
+                        api.log("log", "")
+                    }
+                }
+                """
+            ),
+            errorProneCheckReturnValueSource
+        ).run().expectClean()
+    }
+
+    private val javaxCheckReturnValueSource = java(
+        """
+        package javax.annotation;
+        import static java.lang.annotation.RetentionPolicy.CLASS;
+        import java.lang.annotation.Retention;
+        @SuppressWarnings("ClassNameDiffersFromFileName")
+        @Retention(CLASS)
+        public @interface CheckReturnValue {
+        }
+        """
+    ).indented()
+
+    private val errorProneCheckReturnValueSource = java(
+        """
+        package com.google.errorprone.annotations;
+
+        import java.lang.annotation.Documented;
+        import java.lang.annotation.Retention;
+        import java.lang.annotation.Target;
+        import static java.lang.annotation.ElementType.CONSTRUCTOR;
+        import static java.lang.annotation.ElementType.METHOD;
+        import static java.lang.annotation.ElementType.PACKAGE;
+        import static java.lang.annotation.ElementType.TYPE;
+        import static java.lang.annotation.RetentionPolicy.RUNTIME;
+
+        @SuppressWarnings("ClassNameDiffersFromFileName")
+        @Documented
+        @Target({METHOD, CONSTRUCTOR, TYPE, PACKAGE})
+        @Retention(RUNTIME)
+        public @interface CheckReturnValue {
+        }
+        """
+    )
 }

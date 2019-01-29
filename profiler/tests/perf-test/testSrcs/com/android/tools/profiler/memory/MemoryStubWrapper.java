@@ -16,37 +16,54 @@
 
 package com.android.tools.profiler.memory;
 
-import com.android.tools.profiler.proto.Common.*;
-import com.android.tools.profiler.proto.MemoryProfiler;
+import com.android.tools.profiler.proto.Common.Session;
+import com.android.tools.profiler.proto.MemoryProfiler.AllocationSamplingRate;
+import com.android.tools.profiler.proto.MemoryProfiler.MemoryData;
+import com.android.tools.profiler.proto.MemoryProfiler.MemoryRequest;
+import com.android.tools.profiler.proto.MemoryProfiler.SetAllocationSamplingRateRequest;
+import com.android.tools.profiler.proto.MemoryProfiler.SetAllocationSamplingRateResponse;
+import com.android.tools.profiler.proto.MemoryProfiler.TrackAllocationsRequest;
+import com.android.tools.profiler.proto.MemoryProfiler.TrackAllocationsResponse;
 import com.android.tools.profiler.proto.MemoryServiceGrpc.MemoryServiceBlockingStub;
 
 /** Wrapper of stub calls that is shared among tests. */
-final class MemoryStubWrapper {
+public final class MemoryStubWrapper {
     private final MemoryServiceBlockingStub myMemoryStub;
 
-    MemoryStubWrapper(MemoryServiceBlockingStub memoryStub) {
+    public MemoryStubWrapper(MemoryServiceBlockingStub memoryStub) {
         myMemoryStub = memoryStub;
     }
 
-    MemoryProfiler.MemoryData getJvmtiData(Session session, long startTime, long endTime) {
+    MemoryData getJvmtiData(Session session, long startTime, long endTime) {
         return myMemoryStub.getJvmtiData(
-                MemoryProfiler.MemoryRequest.newBuilder()
+                MemoryRequest.newBuilder()
                         .setSession(session)
                         .setStartTime(startTime)
                         .setEndTime(endTime)
                         .build());
     }
 
-    MemoryProfiler.TrackAllocationsResponse trackAllocations(Session session) {
-        return myMemoryStub.trackAllocations(
-                MemoryProfiler.TrackAllocationsRequest.newBuilder().setSession(session).build());
+    MemoryData getMemoryData(Session session, long startTime, long endTime) {
+        return myMemoryStub.getData(
+                MemoryRequest.newBuilder()
+                        .setSession(session)
+                        .setStartTime(startTime)
+                        .setEndTime(endTime)
+                        .build());
     }
 
-    MemoryProfiler.TrackAllocationsResponse startAllocationTracking(Session session) {
+    public TrackAllocationsResponse startAllocationTracking(Session session) {
         return myMemoryStub.trackAllocations(
-                MemoryProfiler.TrackAllocationsRequest.newBuilder()
+                TrackAllocationsRequest.newBuilder().setSession(session).setEnabled(true).build());
+    }
+
+    SetAllocationSamplingRateResponse setSamplingRate(Session session, int samplingNumInterval) {
+        return myMemoryStub.setAllocationSamplingRate(
+                SetAllocationSamplingRateRequest.newBuilder()
                         .setSession(session)
-                        .setEnabled(true)
+                        .setSamplingRate(
+                                AllocationSamplingRate.newBuilder()
+                                        .setSamplingNumInterval(samplingNumInterval))
                         .build());
     }
 }

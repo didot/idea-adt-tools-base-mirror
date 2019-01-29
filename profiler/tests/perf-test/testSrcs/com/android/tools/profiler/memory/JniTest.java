@@ -18,54 +18,31 @@ package com.android.tools.profiler.memory;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.android.tools.profiler.*;
-import com.android.tools.profiler.proto.Common.*;
-import com.android.tools.profiler.proto.MemoryProfiler.*;
-import com.android.tools.profiler.proto.Profiler.*;
+import com.android.tools.fakeandroid.FakeAndroidDriver;
+import com.android.tools.profiler.MemoryPerfDriver;
+import com.android.tools.profiler.PerfDriver;
+import com.android.tools.profiler.TestUtils;
+import com.android.tools.profiler.proto.MemoryProfiler.AllocatedClass;
+import com.android.tools.profiler.proto.MemoryProfiler.AllocationEvent;
+import com.android.tools.profiler.proto.MemoryProfiler.BatchAllocationSample;
+import com.android.tools.profiler.proto.MemoryProfiler.BatchJNIGlobalRefEvent;
+import com.android.tools.profiler.proto.MemoryProfiler.JNIGlobalReferenceEvent;
+import com.android.tools.profiler.proto.MemoryProfiler.MemoryData;
+import com.android.tools.profiler.proto.MemoryProfiler.MemoryMap;
+import com.android.tools.profiler.proto.MemoryProfiler.NativeBacktrace;
+import com.android.tools.profiler.proto.MemoryProfiler.ThreadInfo;
+import com.android.tools.profiler.proto.MemoryProfiler.TrackAllocationsResponse;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import org.junit.After;
-import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 public class JniTest {
     private static final String ACTIVITY_CLASS = "com.activity.NativeCodeActivity";
 
-    private PerfDriver myPerfDriver;
-    private GrpcUtils myGrpc;
-    private Session mySession;
-
-    @Before
-    public void setup() throws Exception {
-        // We currently only test O+ test scenarios.
-        myPerfDriver = new PerfDriver(true);
-        myPerfDriver.start(ACTIVITY_CLASS);
-        myGrpc = myPerfDriver.getGrpc();
-
-        // For Memory tests, we need to invoke beginSession and startMonitoringApp to properly
-        // initialize the memory cache and establish the perfa->perfd connection
-        BeginSessionResponse response =
-                myGrpc.getProfilerStub()
-                        .beginSession(
-                                BeginSessionRequest.newBuilder()
-                                        .setDeviceId(1234)
-                                        .setProcessId(myGrpc.getProcessId())
-                                        .build());
-        mySession = response.getSession();
-        myGrpc.getMemoryStub()
-                .startMonitoringApp(MemoryStartRequest.newBuilder().setSession(mySession).build());
-    }
-
-    @After
-    public void tearDown() {
-        myGrpc.getProfilerStub()
-                .endSession(
-                        EndSessionRequest.newBuilder()
-                                .setSessionId(mySession.getSessionId())
-                                .build());
-        myGrpc.getMemoryStub()
-                .stopMonitoringApp(MemoryStopRequest.newBuilder().setSession(mySession).build());
-    }
+    // We currently only test O+ test scenarios.
+    @Rule public final PerfDriver myPerfDriver = new MemoryPerfDriver(ACTIVITY_CLASS, 26);
 
     private int findClassTag(List<BatchAllocationSample> samples, String className) {
         for (BatchAllocationSample sample : samples) {
@@ -81,32 +58,45 @@ public class JniTest {
         return 0;
     }
 
+    private void validateMemoryMap(MemoryMap map, NativeBacktrace backtrace) {
+        assertThat(backtrace.getAddressesList().isEmpty()).isFalse();
+        assertThat(map.getRegionsList().isEmpty()).isFalse();
+        for (long addr : backtrace.getAddressesList()) {
+            boolean found = false;
+            for (MemoryMap.MemoryRegion region : map.getRegionsList()) {
+                if (region.getStartAddress() <= addr && region.getEndAddress() > addr) {
+                    found = true;
+                    break;
+                }
+            }
+            assertThat(found).isTrue();
+        }
+    }
+
     // Just create native activity and see that it can load native library.
     @Test
-    public void countCreatedAndDeleteRefEvents() throws Exception {
+    public void countCreatedAndDeleteRefEvents() {
         FakeAndroidDriver androidDriver = myPerfDriver.getFakeAndroidDriver();
-        MemoryStubWrapper stubWrapper = new MemoryStubWrapper(myGrpc.getMemoryStub());
+        MemoryStubWrapper stubWrapper =
+                new MemoryStubWrapper(myPerfDriver.getGrpc().getMemoryStub());
 
         // Start memory tracking.
-        TrackAllocationsResponse trackResponse = stubWrapper.startAllocationTracking(mySession);
+        TrackAllocationsResponse trackResponse =
+                stubWrapper.startAllocationTracking(myPerfDriver.getSession());
         assertThat(trackResponse.getStatus()).isEqualTo(TrackAllocationsResponse.Status.SUCCESS);
-        MemoryData jvmtiData = stubWrapper.getJvmtiData(mySession, 0, Long.MAX_VALUE);
-
-        // Wait before we start getting acutal data.
-        while (jvmtiData.getAllocationSamplesList().size() == 0) {
-            jvmtiData = stubWrapper.getJvmtiData(mySession, 0, Long.MAX_VALUE);
-        }
+        MemoryData jvmtiData =
+                TestUtils.waitForAndReturn(
+                        () ->
+                                stubWrapper.getJvmtiData(
+                                        myPerfDriver.getSession(), 0, Long.MAX_VALUE),
+                        value -> value.getAllocationSamplesList().size() != 0);
 
         // Find JNITestEntity class tag
         int testEntityId = findClassTag(jvmtiData.getAllocationSamplesList(), "JNITestEntity");
         assertThat(testEntityId).isNotEqualTo(0);
-        long startTime = jvmtiData.getEndTimestamp();
+        final long startTime = jvmtiData.getEndTimestamp();
 
         final int refCount = 10;
-        HashSet<Integer> tags = new HashSet<Integer>();
-        HashSet<Long> refs = new HashSet<Long>();
-        int refsReported = 0;
-
         androidDriver.setProperty("jni.refcount", Integer.toString(refCount));
         androidDriver.triggerMethod(ACTIVITY_CLASS, "createRefs");
         assertThat(androidDriver.waitForInput("createRefs")).isTrue();
@@ -121,17 +111,23 @@ public class JniTest {
         // back jni ref events. This way the test won't timeout
         // even when fails.
         while (!allRefsAccounted && maxLoopCount-- > 0) {
-            jvmtiData = stubWrapper.getJvmtiData(mySession, startTime, Long.MAX_VALUE);
-            long endTime = jvmtiData.getEndTimestamp();
+            jvmtiData =
+                    stubWrapper.getJvmtiData(myPerfDriver.getSession(), startTime, Long.MAX_VALUE);
             System.out.printf(
                     "getJvmtiData, start time=%d, end time=%d, alloc entries=%d, jni entries=%d\n",
                     startTime,
-                    endTime,
+                    jvmtiData.getEndTimestamp(),
                     jvmtiData.getAllocationSamplesList().size(),
                     jvmtiData.getJniReferenceEventBatchesList().size());
 
+            HashSet<Integer> tags = new HashSet<>();
+            HashMap<Integer, String> idToThreadName = new HashMap<>();
             for (BatchAllocationSample sample : jvmtiData.getAllocationSamplesList()) {
                 assertThat(sample.getTimestamp()).isGreaterThan(startTime);
+                for (ThreadInfo ti : sample.getThreadInfosList()) {
+                    assertThat(ti.getThreadId()).isGreaterThan(0);
+                    idToThreadName.put(ti.getThreadId(), ti.getThreadName());
+                }
                 for (AllocationEvent event : sample.getEventsList()) {
                     if (event.getEventCase() == AllocationEvent.EventCase.ALLOC_DATA) {
                         AllocationEvent.Allocation alloc = event.getAllocData();
@@ -143,44 +139,44 @@ public class JniTest {
                 }
             }
 
+            int refsReported = 0;
+            HashSet<Long> refs = new HashSet<>();
             for (BatchJNIGlobalRefEvent batch : jvmtiData.getJniReferenceEventBatchesList()) {
                 assertThat(batch.getTimestamp()).isGreaterThan(startTime);
+                for (ThreadInfo ti : batch.getThreadInfosList()) {
+                    assertThat(ti.getThreadId()).isGreaterThan(0);
+                    idToThreadName.put(ti.getThreadId(), ti.getThreadName());
+                }
                 for (JNIGlobalReferenceEvent event : batch.getEventsList()) {
                     long refValue = event.getRefValue();
-                    if (event.getEventType() == JNIGlobalReferenceEvent.Type.CREATE_GLOBAL_REF) {
-                        if (tags.contains(event.getObjectTag())) {
-                            System.out.printf(
-                                    "Add JNI ref: %d tag:%d\n", refValue, event.getObjectTag());
-                            String refRelatedOutput = String.format("JNI ref created %d", refValue);
-                            assertThat(androidDriver.waitForInput(refRelatedOutput)).isTrue();
-                            assertThat(refs.add(refValue)).isTrue();
-                            refsReported++;
+                    assertThat(event.getThreadId()).isGreaterThan(0);
+                    assertThat(idToThreadName.containsKey(event.getThreadId())).isTrue();
+                    if (event.getEventType() == JNIGlobalReferenceEvent.Type.CREATE_GLOBAL_REF
+                            && tags.contains(event.getObjectTag())) {
+                        System.out.printf(
+                                "Add JNI ref: %d tag:%d\n", refValue, event.getObjectTag());
+                        String refRelatedOutput = String.format("JNI ref created %d", refValue);
+                        assertThat(androidDriver.waitForInput(refRelatedOutput)).isTrue();
+                        assertThat(refs.add(refValue)).isTrue();
+                        refsReported++;
+                    }
+                    if (event.getEventType() == JNIGlobalReferenceEvent.Type.DELETE_GLOBAL_REF
+                            // Test that reference value was reported when created
+                            && refs.contains(refValue)) {
+                        System.out.printf(
+                                "Remove JNI ref: %d tag:%d\n", refValue, event.getObjectTag());
+                        String refRelatedOutput = String.format("JNI ref deleted %d", refValue);
+                        assertThat(androidDriver.waitForInput(refRelatedOutput)).isTrue();
+                        assertThat(tags.contains(event.getObjectTag())).isTrue();
+                        refs.remove(refValue);
+                        if (refs.isEmpty() && refsReported == refCount) {
+                            allRefsAccounted = true;
                         }
                     }
-                    if (event.getEventType() == JNIGlobalReferenceEvent.Type.DELETE_GLOBAL_REF) {
-                        // Test that reference value was reported when created
-                        if (refs.contains(refValue)) {
-                            System.out.printf(
-                                    "Remove JNI ref: %d tag:%d\n", refValue, event.getObjectTag());
-                            String refRelatedOutput = String.format("JNI ref deleted %d", refValue);
-                            assertThat(androidDriver.waitForInput(refRelatedOutput)).isTrue();
-                            assertThat(tags.contains(event.getObjectTag())).isTrue();
-                            refs.remove(refValue);
-                            if (refs.isEmpty() && refsReported == refCount) {
-                                allRefsAccounted = true;
-                            }
-                        }
-                    }
+                    validateMemoryMap(batch.getMemoryMap(), event.getBacktrace());
                 }
             }
-
-            if (jvmtiData.getAllocationSamplesList().size() > 0) {
-                assertThat(endTime).isGreaterThan(startTime);
-                startTime = endTime;
-            }
         }
-
-        assertThat(refsReported).isEqualTo(refCount);
-        assertThat(refs.isEmpty()).isTrue();
+        assertThat(allRefsAccounted).isTrue();
     }
 }

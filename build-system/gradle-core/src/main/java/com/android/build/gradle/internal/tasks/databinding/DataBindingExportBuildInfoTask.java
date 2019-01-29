@@ -16,138 +16,64 @@
 
 package com.android.build.gradle.internal.tasks.databinding;
 
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.CLASSES;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
-
 import android.databinding.tool.LayoutXmlProcessor;
 import android.databinding.tool.processing.Scope;
 import com.android.annotations.NonNull;
-import com.android.build.gradle.internal.TaskManager;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.variant.BaseVariantData;
+import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
+import com.android.build.gradle.options.BooleanOption;
 import java.io.File;
-import java.util.Collection;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.file.ConfigurableFileTree;
-import org.gradle.api.file.FileCollection;
-import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.InputDirectory;
-import org.gradle.api.tasks.InputFiles;
-import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.PathSensitive;
-import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
-import org.gradle.api.tasks.incremental.IncrementalTaskInputs;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
- * This task creates a class which includes the build environment information, which is needed for
- * the annotation processor.
+ * Task to create an empty class annotated with @BindingBuildInfo, so that the Java compiler invokes
+ * data binding even when the rest of the source code does not have data binding annotations.
+ *
+ * <p>Note: The task name might be misleading: Historically, this task was used to generate a class
+ * that contained the build environment information needed for data binding, but it is now no longer
+ * the case. We'll rename it later.
  */
-public class DataBindingExportBuildInfoTask extends DefaultTask {
+public class DataBindingExportBuildInfoTask extends AndroidVariantTask {
 
-    private LayoutXmlProcessor xmlProcessor;
+    @Internal private Supplier<LayoutXmlProcessor> xmlProcessor;
 
-    private File sdkDir;
+    private boolean useAndroidX;
 
-    private File xmlOutFolder;
-
-    private File exportClassListTo;
-
-    private File dataBindingClassOutput;
-
-    private Supplier<FileCollection> compilerClasspath;
-    private Supplier<Collection<ConfigurableFileTree>> compilerSources;
-    private FileCollection mergedResources;
-
-    @NonNull
-    @InputFiles
-    @PathSensitive(PathSensitivity.RELATIVE)
-    public FileCollection getMergedResources() {
-        return mergedResources;
-    }
-
-    @TaskAction
-    public void exportInfo(IncrementalTaskInputs inputs) {
-        xmlProcessor.writeEmptyInfoClass();
-        Scope.assertNoError();
-    }
-
-    public LayoutXmlProcessor getXmlProcessor() {
-        return xmlProcessor;
-    }
-
-    public void setXmlProcessor(LayoutXmlProcessor xmlProcessor) {
-        this.xmlProcessor = xmlProcessor;
-    }
-
-    @Classpath
-    public FileCollection getCompilerClasspath() {
-        return compilerClasspath.get();
-    }
-
-    @InputFiles
-    public Iterable<ConfigurableFileTree> getCompilerSources() {
-        return compilerSources.get();
-    }
+    private File emptyClassOutDir;
 
     @Input
-    public File getSdkDir() {
-        return sdkDir;
-    }
-
-    public void setSdkDir(File sdkDir) {
-        this.sdkDir = sdkDir;
-    }
-
-    @InputDirectory // output of the process layouts task
-    public File getXmlOutFolder() {
-        return xmlOutFolder;
-    }
-
-    public void setXmlOutFolder(File xmlOutFolder) {
-        this.xmlOutFolder = xmlOutFolder;
-    }
-
-    @Input
-    @Optional
-    public File getExportClassListTo() {
-        return exportClassListTo;
-    }
-
-    public void setExportClassListTo(File exportClassListTo) {
-        this.exportClassListTo = exportClassListTo;
+    public boolean isUseAndroidX() {
+        return useAndroidX;
     }
 
     @OutputDirectory
-    public File getOutput() {
-        return dataBindingClassOutput;
+    public File getEmptyClassOutDir() {
+        return emptyClassOutDir;
     }
 
-    public void setDataBindingClassOutput(File dataBindingClassOutput) {
-        this.dataBindingClassOutput = dataBindingClassOutput;
+    @TaskAction
+    public void run() {
+        xmlProcessor.get().writeEmptyInfoClass(useAndroidX);
+        Scope.assertNoError();
     }
 
-    public static class ConfigAction implements TaskConfigAction<DataBindingExportBuildInfoTask> {
+    public static class CreationAction
+            extends VariantTaskCreationAction<DataBindingExportBuildInfoTask> {
 
-        @NonNull private final VariantScope variantScope;
-        @NonNull private final TaskManager.MergeType mergeType;
-
-        public ConfigAction(
-                @NonNull VariantScope variantScope, @NonNull TaskManager.MergeType mergeType) {
-            this.variantScope = variantScope;
-            this.mergeType = mergeType;
+        public CreationAction(@NonNull VariantScope variantScope) {
+            super(variantScope);
         }
 
         @NonNull
         @Override
         public String getName() {
-            return variantScope.getTaskName("dataBindingExportBuildInfo");
+            return getVariantScope().getTaskName("dataBindingExportBuildInfo");
         }
 
         @NonNull
@@ -157,29 +83,26 @@ public class DataBindingExportBuildInfoTask extends DefaultTask {
         }
 
         @Override
-        public void execute(@NonNull DataBindingExportBuildInfoTask task) {
-            final BaseVariantData variantData = variantScope.getVariantData();
-            task.setXmlProcessor(variantData.getLayoutXmlProcessor());
-            task.setSdkDir(variantScope.getGlobalScope().getSdkHandler().getSdkFolder());
-            task.setXmlOutFolder(variantScope.getLayoutInfoOutputForDataBinding());
+        public void handleProvider(
+                @NonNull TaskProvider<? extends DataBindingExportBuildInfoTask> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setDataBindingExportBuildInfoTask(taskProvider);
+        }
 
-            // we need the external classpath, so we don't want to use scope.getClassPath as that
-            // includes internal (to the module) classpath in case there's registered bytecode
-            // generator (kotlin) which can trigger a cyclic dependencies.
-            task.compilerClasspath =
-                    () -> variantScope.getArtifactFileCollection(COMPILE_CLASSPATH, ALL, CLASSES);
+        @Override
+        public void configure(@NonNull DataBindingExportBuildInfoTask task) {
+            super.configure(task);
+            VariantScope variantScope = getVariantScope();
 
-            task.compilerSources =
-                    () -> variantData.getJavaSources().stream()
-                                    .filter(
-                                            input -> !variantScope.getClassOutputForDataBinding()
-                                                    .equals(input.getDir()))
-                                    .collect(Collectors.toList());
+            task.xmlProcessor = variantScope.getVariantData()::getLayoutXmlProcessor;
+            task.useAndroidX =
+                    variantScope
+                            .getGlobalScope()
+                            .getProjectOptions()
+                            .get(BooleanOption.USE_ANDROID_X);
+            task.emptyClassOutDir = variantScope.getClassOutputForDataBinding();
 
-            task.mergedResources = variantScope.getOutput(mergeType.getOutputType());
-            task.setExportClassListTo(variantData.getType().isExportDataBindingClassList() ?
-                    variantScope.getGeneratedClassListOutputFileForDataBinding() : null);
-            task.setDataBindingClassOutput(variantScope.getClassOutputForDataBinding());
+            task.dependsOn(variantScope.getTaskContainer().getSourceGenTask());
         }
     }
 }

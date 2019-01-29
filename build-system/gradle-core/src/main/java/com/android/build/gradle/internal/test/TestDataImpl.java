@@ -20,15 +20,13 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.OutputFile;
 import com.android.build.VariantOutput;
-import com.android.build.gradle.internal.core.GradleVariantConfiguration;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.core.VariantConfiguration;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.TestVariantData;
 import com.android.build.gradle.internal.variant.TestedVariantData;
-import com.android.builder.core.VariantType;
-import com.android.builder.model.SourceProvider;
 import com.android.builder.testing.TestData;
 import com.android.builder.testing.api.DeviceConfigProvider;
 import com.android.ide.common.build.SplitOutputMatcher;
@@ -39,9 +37,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.List;
 import javax.xml.parsers.ParserConfigurationException;
-import org.gradle.api.file.FileCollection;
 import org.xml.sax.SAXException;
 
 /**
@@ -57,8 +53,8 @@ public class TestDataImpl extends AbstractTestDataImpl {
 
     public TestDataImpl(
             @NonNull TestVariantData testVariantData,
-            @NonNull FileCollection testApkDir,
-            @Nullable FileCollection testedApksDir) {
+            @NonNull BuildableArtifact testApkDir,
+            @Nullable BuildableArtifact testedApksDir) {
         super(testVariantData.getVariantConfiguration(), testApkDir, testedApksDir);
         this.testVariantData = testVariantData;
         this.testVariantConfig = testVariantData.getVariantConfiguration();
@@ -93,7 +89,7 @@ public class TestDataImpl extends AbstractTestDataImpl {
     public boolean isLibrary() {
         TestedVariantData testedVariantData = testVariantData.getTestedVariantData();
         BaseVariantData testedVariantData2 = (BaseVariantData) testedVariantData;
-        return testedVariantData2.getVariantConfiguration().getType() == VariantType.LIBRARY;
+        return testedVariantData2.getVariantConfiguration().getType().isAar();
     }
 
     @NonNull
@@ -111,10 +107,11 @@ public class TestDataImpl extends AbstractTestDataImpl {
         Collection<OutputFile> splitOutputs =
                 ImmutableList.copyOf(
                         ExistingBuildElements.from(
-                                VariantScope.TaskOutputType.APK,
+                                InternalArtifactType.APK,
                                 testedVariantData
                                         .getScope()
-                                        .getOutput(VariantScope.TaskOutputType.APK)));
+                                        .getArtifacts()
+                                        .getFinalArtifactFiles(InternalArtifactType.APK)));
         apks.addAll(
                 SplitOutputMatcher.computeBestOutput(
                         processExecutor,
@@ -123,19 +120,5 @@ public class TestDataImpl extends AbstractTestDataImpl {
                         splitOutputs,
                         testedVariantData.getVariantConfiguration().getSupportedAbis()));
         return apks.build();
-    }
-
-    @NonNull
-    @Override
-    public List<File> getTestDirectories() {
-        // For now we check if there are any test sources. We could inspect the test classes and
-        // apply JUnit logic to see if there's something to run, but that would not catch the case
-        // where user makes a typo in a test name or forgets to inherit from a JUnit class
-        GradleVariantConfiguration variantConfiguration = testVariantData.getVariantConfiguration();
-        ImmutableList.Builder<File> javaDirectories = ImmutableList.builder();
-        for (SourceProvider sourceProvider : variantConfiguration.getSortedSourceProviders()) {
-            javaDirectories.addAll(sourceProvider.getJavaDirectories());
-        }
-        return javaDirectories.build();
     }
 }

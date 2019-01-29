@@ -28,6 +28,7 @@ import com.android.build.gradle.options.SyncOptions;
 import com.android.build.gradle.options.SyncOptions.EvaluationMode;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.LibraryRequest;
+import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.model.OptionalCompilationStep;
@@ -185,22 +186,24 @@ public class SdkHandler {
                     .getIssueReporter()
                     .reportError(
                             EvalIssueReporter.Type.MISSING_SDK_PACKAGE,
-                            e.getMessage(),
-                            e.getAffectedPackages()
-                                    .stream()
-                                    .map(RepoPackage::getPath)
-                                    .collect(Collectors.joining(" ")));
+                            new EvalIssueException(
+                                    e.getMessage(),
+                                    e.getAffectedPackages()
+                                            .stream()
+                                            .map(RepoPackage::getPath)
+                                            .collect(Collectors.joining(" "))));
             return false;
         } catch (InstallFailedException e) {
             androidBuilder
                     .getIssueReporter()
                     .reportError(
                             EvalIssueReporter.Type.MISSING_SDK_PACKAGE,
-                            e.getMessage(),
-                            e.getAffectedPackages()
-                                    .stream()
-                                    .map(RepoPackage::getPath)
-                                    .collect(Collectors.joining(" ")));
+                            new EvalIssueException(
+                                    e.getMessage(),
+                                    e.getAffectedPackages()
+                                            .stream()
+                                            .map(RepoPackage::getPath)
+                                            .collect(Collectors.joining(" "))));
             return false;
         }
 
@@ -264,8 +267,8 @@ public class SdkHandler {
         return cmakePathInLocalProp;
     }
 
-    @Nullable
-    public File getAndCheckSdkFolder() {
+    @NonNull
+    public File checkAndGetSdkFolder() {
         if (sdkFolder == null) {
             throw new RuntimeException(
                     "SDK location not found. Define location with sdk.dir in the local.properties file or with an ANDROID_HOME environment variable.");
@@ -277,7 +280,7 @@ public class SdkHandler {
     public synchronized SdkLoader getSdkLoader() {
         if (sdkLoader == null) {
             if (isRegularSdk) {
-                getAndCheckSdkFolder();
+                checkAndGetSdkFolder();
 
                 // check if the SDK folder actually exist.
                 // For internal test we provide a fake SDK location through
@@ -346,7 +349,11 @@ public class SdkHandler {
 
         String envVar = System.getenv("ANDROID_HOME");
         if (envVar != null) {
-            return Pair.of(new File(envVar), true);
+            File sdk = new File(envVar);
+            if (!sdk.isAbsolute()) {
+                sdk = new File(rootDir, envVar);
+            }
+            return Pair.of(sdk, true);
         }
 
         String property = System.getProperty("android.home");
@@ -416,12 +423,26 @@ public class SdkHandler {
         this.sdkLibData = sdkLibData;
     }
 
-    /**
-     * Installs CMake.
-     */
-    public void installCMake() {
+    /** Installs the NDK. */
+    public void installNdk(@NonNull NdkHandler ndkHandler) {
+        if (!sdkLibData.useSdkDownload()) {
+            return;
+        }
         try {
-            sdkLoader.installSdkTool(sdkLibData, SdkConstants.FD_CMAKE);
+            ndkFolder = sdkLoader.installSdkTool(sdkLibData, SdkConstants.FD_NDK);
+        } catch (LicenceNotAcceptedException | InstallFailedException e) {
+            throw new RuntimeException(e);
+        }
+        ndkHandler.relocateNdkFolder();
+    }
+
+    /** Installs CMake. */
+    public void installCMake(String version) {
+        if (!sdkLibData.useSdkDownload()) {
+            return;
+        }
+        try {
+            sdkLoader.installSdkTool(sdkLibData, SdkConstants.FD_CMAKE + ";" + version);
         } catch (LicenceNotAcceptedException | InstallFailedException e) {
             throw new RuntimeException(e);
         }

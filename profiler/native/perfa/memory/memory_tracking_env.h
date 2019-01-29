@@ -26,15 +26,20 @@
 #include <vector>
 
 #include "perfa/jni_function_table.h"
+#include "proto/agent_service.grpc.pb.h"
 #include "proto/internal_memory.grpc.pb.h"
 #include "proto/memory.grpc.pb.h"
 #include "stats.h"
 #include "utils/clock.h"
 #include "utils/log.h"
+#include "utils/memory_map.h"
+#include "utils/procfs_files.h"
 #include "utils/producer_consumer_queue.h"
+#include "utils/shared_mutex.h"
 #include "utils/trie.h"
 
 using profiler::Clock;
+using profiler::proto::AgentConfig;
 using profiler::proto::AllocatedClass;
 using profiler::proto::AllocationEvent;
 using profiler::proto::BatchAllocationSample;
@@ -85,15 +90,12 @@ using ThreadIdMap = std::unordered_map<std::string, int32_t>;
 
 class MemoryTrackingEnv : public GlobalRefListener {
  public:
-  static MemoryTrackingEnv* Instance(JavaVM* vm, bool log_live_alloc_count,
-                                     int max_stack_depth,
-                                     bool track_global_jni_refs);
+  static MemoryTrackingEnv* Instance(
+      JavaVM* vm, const AgentConfig::MemoryConfig& mem_config);
 
-  void AfterGlobalRefCreated(jobject prototype, jobject gref) override;
-  void BeforeGlobalRefDeleted(jobject gref) override;
-
-  void AfterGlobalWeakRefCreated(jobject prototype, jweak gref) override;
-  void BeforeGlobalWeakRefDeleted(jweak gref) override;
+  void AfterGlobalRefCreated(jobject prototype, jobject gref,
+                             void* caller_address) override;
+  void BeforeGlobalRefDeleted(jobject gref, void* caller_address) override;
 
  private:
   // POD for encoding the method/instruction location data into trie.
@@ -104,8 +106,8 @@ class MemoryTrackingEnv : public GlobalRefListener {
     }
   };
 
-  explicit MemoryTrackingEnv(jvmtiEnv* jvmti, bool log_live_alloc_count,
-                             int max_stack_depth, bool track_global_jni_refs);
+  explicit MemoryTrackingEnv(jvmtiEnv* jvmti,
+                             const AgentConfig::MemoryConfig& mem_config);
 
   // Environment is alive through the app's lifetime, don't bother cleaning up.
   ~MemoryTrackingEnv() = delete;
@@ -115,6 +117,7 @@ class MemoryTrackingEnv : public GlobalRefListener {
   void Initialize();
   void StartLiveTracking(int64_t timestamp);
   void StopLiveTracking(int64_t timestamp);
+  void SetSamplingRate(int32_t sampling_num_interval);
   const AllocatedClass& RegisterNewClass(jvmtiEnv* jvmti, JNIEnv* jni,
                                          jclass klass);
   void SendBackClassData();
@@ -122,14 +125,19 @@ class MemoryTrackingEnv : public GlobalRefListener {
   void SetJNIRefCallbacksStatus(bool enabled);
   void LogGcStart();
   void LogGcFinish();
+  void IterateThroughHeap();
 
   inline int32_t GetNextClassTag() { return current_class_tag_++; }
   inline int32_t GetNextObjectTag() { return current_object_tag_++; }
+  inline bool ShouldSelectSample(int32_t sampling_num) {
+    return sampling_num_interval_ > 0 &&
+           sampling_num % sampling_num_interval_ == 0;
+  }
 
   void HandleControlSignal(const MemoryControlRequest* request);
 
-  void PublishJNIGlobalRefEvent(jobject obj,
-                                JNIGlobalReferenceEvent::Type type);
+  void PublishJNIGlobalRefEvent(jobject obj, JNIGlobalReferenceEvent::Type type,
+                                void* caller_address);
 
   // An heap walker used for setting up an initial snapshot of live objects.
   static jint JNICALL HeapIterationCallback(jlong class_tag, jlong size,
@@ -182,6 +190,13 @@ class MemoryTrackingEnv : public GlobalRefListener {
   void FillThreadName(jvmtiEnv* jvmti, JNIEnv* jni, jthread thead,
                       std::string* thread_name);
 
+  // Lookup a thread id by a thread name and create a new enty if needed.
+  int32_t ObtainThreadId(
+      const std::string& thread_name, int64_t timestamp,
+      google::protobuf::RepeatedPtrField<proto::ThreadInfo>* threads);
+
+  void FillJniEventsModuleMap(BatchJNIGlobalRefEvent* batch);
+
   // For a particular class object, populate |klass_info| with the corresponding
   // values.
   static void GetClassInfo(MemoryTrackingEnv* env, jvmtiEnv* jvmti, JNIEnv* jni,
@@ -200,10 +215,19 @@ class MemoryTrackingEnv : public GlobalRefListener {
   int64_t current_capture_time_ns_;
   int64_t last_gc_start_ns_;
   int32_t max_stack_depth_;
+  int32_t sampling_num_interval_;
   std::mutex tracking_data_mutex_;
   std::mutex tracking_count_mutex_;
-  std::atomic<int32_t> total_live_count_;
+  std::atomic<int32_t> total_alloc_count_;
+
+  // We only get free events for tagged objects so in sampled mode this will be
+  // inaccurate.
   std::atomic<int32_t> total_free_count_;
+
+  // Keep track of tagged allocation count so we don't have to visit tagged
+  // objects again during subsequent heap walks for sampling mode change.
+  std::atomic<int32_t> tagged_alloc_count_;
+
   std::atomic<int32_t> current_class_tag_;
   std::atomic<int32_t> current_object_tag_;
 
@@ -216,6 +240,10 @@ class MemoryTrackingEnv : public GlobalRefListener {
   ClassData class_data_;
   MethodIdMap known_methods_;
   ThreadIdMap thread_id_map_;
+  ProcfsFiles procfs_;
+  shared_mutex mem_map_mutex_;
+  MemoryMap memory_map_;
+  const std::string app_dir_;
 };
 
 }  // namespace profiler

@@ -18,12 +18,26 @@ package com.android.build.gradle.integration.library;
 
 import com.android.build.gradle.integration.common.category.DeviceTests;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.build.gradle.integration.common.runner.FilterableParameterized;
+import com.android.build.gradle.internal.scope.CodeShrinker;
+import com.android.build.gradle.options.BooleanOption;
 import java.io.IOException;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
+@RunWith(FilterableParameterized.class)
 public class LibMinifyLibDepConnectedTest {
+
+    @Parameterized.Parameters(name = "codeShrinker = {0}")
+    public static CodeShrinker[] getShrinkers() {
+        return new CodeShrinker[] {CodeShrinker.PROGUARD, CodeShrinker.R8};
+    }
+
+    @Parameterized.Parameter public CodeShrinker codeShrinker;
+
     @Rule
     public GradleTestProject project =
             GradleTestProject.builder().fromTestProject("libMinifyLibDep").create();
@@ -31,6 +45,8 @@ public class LibMinifyLibDepConnectedTest {
     @Test
     @Category(DeviceTests.class)
     public void connectedCheck() throws IOException, InterruptedException {
-        project.executeConnectedCheck();
+        project.executor()
+                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .executeConnectedCheck();
     }
 }

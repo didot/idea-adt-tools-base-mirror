@@ -46,8 +46,10 @@ public class CmakeBasicProjectTest {
     @Rule
     public GradleTestProject project =
             GradleTestProject.builder()
-                    .fromTestApp(HelloWorldJniApp.builder().withNativeDir("cxx").build())
-                    .addFile(HelloWorldJniApp.cmakeLists("."))
+                    .fromTestApp(
+                            HelloWorldJniApp.builder().withNativeDir("cxx").withCmake().build())
+                    .setCmakeVersion("3.10.4819442")
+                    .setWithCmakeDirInLocalProp(true)
                     .create();
 
     @Before
@@ -132,7 +134,7 @@ public class CmakeBasicProjectTest {
         project.model().fetchAndroidProjects(); // Make sure we can successfully get AndroidProject
         NativeAndroidProject model = project.model().fetch(NativeAndroidProject.class);
         assertThat(model.getBuildSystems()).containsExactly(NativeBuildSystem.CMAKE.getName());
-        assertThat(model.getBuildFiles()).hasSize(1);
+        assertThat(model.getBuildFiles()).hasSize(2);
         assertThat(model.getName()).isEqualTo("project");
         int abiCount = 3;
         assertThat(model.getArtifacts()).hasSize(abiCount * 2);

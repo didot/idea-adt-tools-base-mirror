@@ -26,6 +26,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.wireless.android.sdk.stats.AndroidStudioEvent;
 import com.google.wireless.android.sdk.stats.GradleBuildMemorySample;
@@ -39,6 +40,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
@@ -70,6 +75,9 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
     private final AtomicLong lastRecordId = new AtomicLong(1);
 
     private final ConcurrentLinkedQueue<GradleBuildProfileSpan> spans;
+
+    private final List<java.util.function.Supplier<String>> applicationIdSuppliers =
+            Collections.synchronizedList(new ArrayList<>());
 
     @Override
     public long allocateRecordId() {
@@ -115,9 +123,35 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
      * <p>If chrome tracing output is enabled, this method will also create a second file, with a
      * {@code .json} extension, in the same directory.
      *
-     * <p>Should be called exactly once.
+     * <p>Either finishAndWrite or finish() should be called exactly once
      */
-    synchronized void finishAndMaybeWrite(@Nullable Path outputFile) throws InterruptedException {
+    synchronized void finishAndWrite(@NonNull Path outputFile) {
+        finish();
+
+        // Write benchmark file into build directory
+        try {
+            Files.createDirectories(outputFile.getParent());
+            try (BufferedOutputStream outputStream =
+                    new BufferedOutputStream(
+                            Files.newOutputStream(outputFile, StandardOpenOption.CREATE_NEW))) {
+                mBuild.build().writeTo(outputStream);
+            }
+
+            if (mEnableChromeTracingOutput) {
+                ChromeTracingProfileConverter.toJson(outputFile);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Finishes processing the outstanding {@link GradleBuildProfileSpan} publication and shuts down
+     * the processing queue.
+     *
+     * <p>Either finishAndWrite or finish() should be called exactly once
+     */
+    synchronized void finish() {
         checkState(!finished, "Already finished");
         finished = true;
 
@@ -141,34 +175,26 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
             }
         }
 
-        // Write benchmark file into build directory, if set.
-        if (outputFile != null) {
-            try {
-                Files.createDirectories(outputFile.getParent());
-                try (BufferedOutputStream outputStream =
-                        new BufferedOutputStream(
-                                Files.newOutputStream(outputFile, StandardOpenOption.CREATE_NEW))) {
-                    mBuild.build().writeTo(outputStream);
-                }
-
-                if (mEnableChromeTracingOutput) {
-                    ChromeTracingProfileConverter.toJson(outputFile);
-                }
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        }
+        mBuild.addAllRawProjectId(getApplicationIds());
 
         // Public build profile.
-        UsageTracker.getInstance()
-                .log(
-                        AndroidStudioEvent.newBuilder()
-                                .setCategory(AndroidStudioEvent.EventCategory.GRADLE)
-                                .setKind(AndroidStudioEvent.EventKind.GRADLE_BUILD_PROFILE)
-                                .setGradleBuildProfile(mBuild.build())
-                                .setJavaProcessStats(CommonMetricsData.getJavaProcessStats())
-                                .setJvmDetails(CommonMetricsData.getJvmDetails()));
+        UsageTracker.log(
+                AndroidStudioEvent.newBuilder()
+                        .setCategory(AndroidStudioEvent.EventCategory.GRADLE)
+                        .setKind(AndroidStudioEvent.EventKind.GRADLE_BUILD_PROFILE)
+                        .setGradleBuildProfile(mBuild.build())
+                        .setJavaProcessStats(CommonMetricsData.getJavaProcessStats())
+                        .setJvmDetails(CommonMetricsData.getJvmDetails()));
 
+    }
+
+    @NonNull
+    private synchronized List<String> getApplicationIds() {
+        HashSet<String> applicationIds = new HashSet<>(applicationIdSuppliers.size());
+        for (java.util.function.Supplier<String> applicationIdSupplier : applicationIdSuppliers) {
+            applicationIds.add(applicationIdSupplier.get());
+        }
+        return applicationIds.stream().sorted().collect(ImmutableList.toImmutableList());
     }
 
     /** Properties and statistics global to this build invocation. */
@@ -220,6 +246,10 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
 
     public static void recordMemorySample() {
         get().createAndRecordMemorySample();
+    }
+
+    public void recordApplicationId(@NonNull java.util.function.Supplier<String> applicationId) {
+        applicationIdSuppliers.add(applicationId);
     }
 
     private static class ProjectCacheLoader extends CacheLoader<String, Project> {

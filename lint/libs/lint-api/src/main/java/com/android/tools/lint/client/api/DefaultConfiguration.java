@@ -18,15 +18,20 @@ package com.android.tools.lint.client.api;
 
 import static com.android.SdkConstants.CURRENT_PLATFORM;
 import static com.android.SdkConstants.PLATFORM_WINDOWS;
+import static com.android.SdkConstants.SUPPRESS_ALL;
+import static com.android.SdkConstants.VALUE_FALSE;
+import static com.android.SdkConstants.VALUE_TRUE;
 import static com.android.utils.SdkUtils.globToRegexp;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Severity;
+import com.android.tools.lint.detector.api.TextFormat;
 import com.android.utils.XmlUtils;
 import com.google.common.annotations.Beta;
 import com.google.common.annotations.VisibleForTesting;
@@ -39,6 +44,7 @@ import java.io.Writer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -57,11 +63,11 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.SAXParseException;
 
 /**
- * Default implementation of a {@link Configuration} which reads and writes
- * configuration data into {@code lint.xml} in the project directory.
- * <p>
- * <b>NOTE: This is not a public or final API; if you rely on this be prepared
- * to adjust your code for the next tools release.</b>
+ * Default implementation of a {@link Configuration} which reads and writes configuration data into
+ * {@code lint.xml} in the project directory.
+ *
+ * <p><b>NOTE: This is not a public or final API; if you rely on this be prepared to adjust your
+ * code for the next tools release.</b>
  */
 @Beta
 public class DefaultConfiguration extends Configuration {
@@ -93,16 +99,41 @@ public class DefaultConfiguration extends Configuration {
     private boolean bulkEditing;
     private File baselineFile;
 
+    /**
+     * Returns whether lint should check all warnings, including those off by default, or null if
+     * not configured in this configuration
+     */
+    private Boolean checkAllWarnings;
+
+    /**
+     * Returns whether lint will only check for errors (ignoring warnings), or null if not
+     * configured in this configuration
+     */
+    private Boolean ignoreWarnings;
+
+    /**
+     * Returns whether lint should treat all warnings as errors, or null if not configured in this
+     * configuration
+     */
+    private Boolean warningsAsErrors;
+
+    private Boolean fatalOnly;
+    private Boolean checkTestSources;
+    private Boolean ignoreTestSources;
+    private Boolean checkGeneratedSources;
+    private Boolean checkDependencies;
+    private Boolean explainIssues;
+    private Boolean applySuggestions;
+    private Boolean removeFixedBaselineIssues;
+    private Boolean abortOnError;
+
     /** Map from id to list of project-relative paths for suppressed warnings */
     private Map<String, List<String>> suppressed;
 
     /** Map from id to regular expressions. */
-    @Nullable
-    private Map<String, List<Pattern>> regexps;
+    @Nullable private Map<String, List<Pattern>> regexps;
 
-    /**
-     * Map from id to custom {@link Severity} override
-     */
+    /** Map from id to custom {@link Severity} override */
     protected Map<String, Severity> severity;
 
     protected DefaultConfiguration(
@@ -117,9 +148,7 @@ public class DefaultConfiguration extends Configuration {
     }
 
     protected DefaultConfiguration(
-            @NonNull LintClient client,
-            @NonNull Project project,
-            @Nullable Configuration parent) {
+            @NonNull LintClient client, @NonNull Project project, @Nullable Configuration parent) {
         this(client, project, parent, new File(project.getDir(), CONFIG_FILE_NAME));
     }
 
@@ -133,18 +162,15 @@ public class DefaultConfiguration extends Configuration {
      */
     @NonNull
     public static DefaultConfiguration create(
-            @NonNull LintClient client,
-            @NonNull Project project,
-            @Nullable Configuration parent) {
+            @NonNull LintClient client, @NonNull Project project, @Nullable Configuration parent) {
         return new DefaultConfiguration(client, project, parent);
     }
 
     /**
-     * Creates a new {@link DefaultConfiguration} for the given lint config
-     * file, not affiliated with a project. This is used for global
-     * configurations.
+     * Creates a new {@link DefaultConfiguration} for the given lint config file, not affiliated
+     * with a project. This is used for global configurations.
      *
-     * @param client   the client to report errors to etc
+     * @param client the client to report errors to etc
      * @param lintFile the lint file containing the configuration
      * @return a new configuration
      */
@@ -271,8 +297,39 @@ public class DefaultConfiguration extends Configuration {
     public Severity getSeverity(@NonNull Issue issue) {
         ensureInitialized();
 
+        if (issue.getSuppressNames() != null) {
+            // Not allowed to suppress this issue via lint.xml.
+            // Consider reporting this as well (not easy here since we don't have
+            // a context.)
+            // Ideally we'd report this to the user too, but we can't really do
+            // that here because we can't access the flag which lets you opt out
+            // of the restrictions, where we'd unconditionally continue to
+            // report this warning:
+            //    if (this.severity.get(issue.getId()) != null) {
+            //        LintClient.Companion.report(client, IssueRegistry.LINT_ERROR,
+            //                "Issue `" + issue.getId() + "` is not allowed to be suppressed",
+            //                configFile, project);
+            //    }
+            return getDefaultSeverity(issue);
+        }
+
         Severity severity = this.severity.get(issue.getId());
         if (severity == null) {
+            // id's can also refer to categories
+            Category category = issue.getCategory();
+            severity = this.severity.get(category.getName());
+            if (severity != null) {
+                return severity;
+            }
+
+            category = category.getParent();
+            if (category != null) {
+                severity = this.severity.get(category.getName());
+                if (severity != null) {
+                    return severity;
+                }
+            }
+
             severity = this.severity.get(VALUE_ALL);
         }
 
@@ -298,8 +355,7 @@ public class DefaultConfiguration extends Configuration {
             message = String.format(message, args);
         }
         message = "Failed to parse `lint.xml` configuration file: " + message;
-        LintClient.Companion.report(client, IssueRegistry.LINT_ERROR, message, configFile,
-                project);
+        LintClient.Companion.report(client, IssueRegistry.LINT_ERROR, message, configFile, project);
     }
 
     private void readConfig() {
@@ -313,10 +369,14 @@ public class DefaultConfiguration extends Configuration {
         try {
             // TODO: Switch to a pull parser!
             Document document = XmlUtils.parseUtfXmlFile(configFile, false);
-            String baseline = document.getDocumentElement().getAttribute(ATTR_BASELINE);
+
+            Element root = document.getDocumentElement();
+            readFlags(root);
+
+            String baseline = root.getAttribute(ATTR_BASELINE);
             if (!baseline.isEmpty()) {
                 baselineFile = new File(baseline.replace('/', File.separatorChar));
-                if (!baselineFile.isAbsolute()) {
+                if (project != null && !baselineFile.isAbsolute()) {
                     baselineFile = new File(project.getDir(), baselineFile.getPath());
                 }
             }
@@ -364,8 +424,9 @@ public class DefaultConfiguration extends Configuration {
                             if (path.isEmpty()) {
                                 String regexp = ignore.getAttribute(ATTR_REGEXP);
                                 if (regexp.isEmpty()) {
-                                    formatError("Missing required attribute %1$s or %2$s under %3$s",
-                                        ATTR_PATH, ATTR_REGEXP, idList);
+                                    formatError(
+                                            "Missing required attribute %1$s or %2$s under %3$s",
+                                            ATTR_PATH, ATTR_REGEXP, idList);
                                 } else {
                                     addRegexp(idList, ids, n, regexp, false);
                                 }
@@ -403,8 +464,124 @@ public class DefaultConfiguration extends Configuration {
         }
     }
 
-    private void addRegexp(@NonNull String idList, @NonNull Iterable<String> ids, int n,
-            @NonNull String regexp, boolean silent) {
+    private void readFlags(@NonNull Element root) {
+        if (root.getAttributes().getLength() > 0) {
+            checkAllWarnings = readBooleanFlag(root, "checkAllWarnings");
+            ignoreWarnings = readBooleanFlag(root, "ignoreWarnings");
+            warningsAsErrors = readBooleanFlag(root, "warningsAsErrors");
+            fatalOnly = readBooleanFlag(root, "fatalOnly");
+            checkTestSources = readBooleanFlag(root, "checkTestSources");
+            ignoreTestSources = readBooleanFlag(root, "ignoreTestSources");
+            checkGeneratedSources = readBooleanFlag(root, "checkGeneratedSources");
+            checkDependencies = readBooleanFlag(root, "checkDependencies");
+            explainIssues = readBooleanFlag(root, "explainIssues");
+            applySuggestions = readBooleanFlag(root, "applySuggestions");
+            removeFixedBaselineIssues = readBooleanFlag(root, "removeFixedBaselineIssues");
+            abortOnError = readBooleanFlag(root, "abortOnError");
+            // Note that we don't let you configure the allowSuppress flag by lint.xml
+        }
+    }
+
+    @Nullable
+    private static Boolean readBooleanFlag(@NonNull Element root, @NonNull String attribute) {
+        if (root.hasAttribute(attribute)) {
+            String value = root.getAttribute(attribute);
+            if (value.equals(VALUE_TRUE)) {
+                return true;
+            } else if (value.equals(VALUE_FALSE)) {
+                return false;
+            }
+        }
+
+        return null;
+    }
+
+    @Nullable
+    private static File readFileFlag(@NonNull Element root, @NonNull String attribute) {
+        if (root.hasAttribute(attribute)) {
+            return new File(root.getAttribute(attribute));
+        }
+
+        return null;
+    }
+
+    @Nullable
+    public Boolean getCheckAllWarnings() {
+        ensureInitialized();
+        return checkAllWarnings;
+    }
+
+    @Nullable
+    public Boolean getIgnoreWarnings() {
+        ensureInitialized();
+        return ignoreWarnings;
+    }
+
+    @Nullable
+    public Boolean getWarningsAsErrors() {
+        ensureInitialized();
+        return warningsAsErrors;
+    }
+
+    @Nullable
+    public Boolean getFatalOnly() {
+        ensureInitialized();
+        return fatalOnly;
+    }
+
+    @Nullable
+    public Boolean getCheckTestSources() {
+        ensureInitialized();
+        return checkTestSources;
+    }
+
+    @Nullable
+    public Boolean getIgnoreTestSources() {
+        ensureInitialized();
+        return ignoreTestSources;
+    }
+
+    @Nullable
+    public Boolean getCheckGeneratedSources() {
+        ensureInitialized();
+        return checkGeneratedSources;
+    }
+
+    @Nullable
+    public Boolean getCheckDependencies() {
+        ensureInitialized();
+        return checkDependencies;
+    }
+
+    @Nullable
+    public Boolean getExplainIssues() {
+        ensureInitialized();
+        return explainIssues;
+    }
+
+    public Boolean getApplySuggestions() {
+        ensureInitialized();
+        return applySuggestions;
+    }
+
+    @Nullable
+    public Boolean getRemoveFixedBaselineIssues() {
+        ensureInitialized();
+        return removeFixedBaselineIssues;
+    }
+
+    @Nullable
+    public Boolean getAbortOnError() {
+        ensureInitialized();
+        return abortOnError;
+    }
+
+    private void addRegexp(
+            @NonNull String idList,
+            @NonNull Iterable<String> ids,
+            int n,
+            @NonNull String regexp,
+            boolean silent) {
         try {
             if (regexps == null) {
                 regexps = new HashMap<>();
@@ -420,7 +597,8 @@ public class DefaultConfiguration extends Configuration {
             }
         } catch (PatternSyntaxException e) {
             if (!silent) {
-                formatError("Invalid pattern %1$s under %2$s: %3$s",
+                formatError(
+                        "Invalid pattern %1$s under %2$s: %3$s",
                         regexp, idList, e.getDescription());
             }
         }
@@ -430,19 +608,18 @@ public class DefaultConfiguration extends Configuration {
         try {
             // Write the contents to a new file first such that we don't clobber the
             // existing file if some I/O error occurs.
-            File file = new File(configFile.getParentFile(),
-                    configFile.getName() + ".new");
+            File file = new File(configFile.getParentFile(), configFile.getName() + ".new");
 
             Writer writer = new BufferedWriter(new FileWriter(file));
-            writer.write(
-                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-                    "<");
+            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<");
             writer.write(TAG_LINT);
 
             if (baselineFile != null) {
                 writer.write(" baseline=\"");
-                String path = project != null ?
-                        project.getRelativePath(baselineFile) : baselineFile.getPath();
+                String path =
+                        project != null
+                                ? project.getRelativePath(baselineFile)
+                                : baselineFile.getPath();
                 writeAttribute(writer, ATTR_BASELINE, path.replace('\\', '/'));
             }
             writer.write(">\n");
@@ -468,8 +645,8 @@ public class DefaultConfiguration extends Configuration {
                     writeAttribute(writer, ATTR_ID, id);
                     Severity severity = this.severity.get(id);
                     if (severity != null) {
-                        writeAttribute(writer, ATTR_SEVERITY,
-                                severity.name().toLowerCase(Locale.US));
+                        writeAttribute(
+                                writer, ATTR_SEVERITY, severity.name().toLowerCase(Locale.US));
                     }
 
                     List<Pattern> regexps = this.regexps != null ? this.regexps.get(id) : null;
@@ -511,8 +688,7 @@ public class DefaultConfiguration extends Configuration {
 
             // Move file into place: move current version to lint.xml~ (removing the old ~ file
             // if it exists), then move the new version to lint.xml.
-            File oldFile = new File(configFile.getParentFile(),
-                    configFile.getName() + '~');
+            File oldFile = new File(configFile.getParentFile(), configFile.getName() + '~');
             if (oldFile.exists()) {
                 oldFile.delete();
             }
@@ -618,5 +794,70 @@ public class DefaultConfiguration extends Configuration {
     @Override
     public void setBaselineFile(@Nullable File baselineFile) {
         this.baselineFile = baselineFile;
+    }
+
+    @Override
+    public void validateIssueIds(
+            @NonNull LintClient client,
+            @Nullable LintDriver driver,
+            @NonNull Project project,
+            @NonNull IssueRegistry registry) {
+        super.validateIssueIds(client, driver, project, registry);
+
+        ensureInitialized();
+
+        validateIssueIds(client, driver, project, registry, severity.keySet());
+        validateIssueIds(client, driver, project, registry, suppressed.keySet());
+        if (regexps != null) {
+            validateIssueIds(client, driver, project, registry, regexps.keySet());
+        }
+    }
+
+    public void validateIssueIds(
+            @NonNull LintClient client,
+            @Nullable LintDriver driver,
+            @NonNull Project project,
+            @NonNull IssueRegistry registry,
+            Collection<String> ids) {
+        for (String id : ids) {
+            if (id.equals(SUPPRESS_ALL)) {
+                // builtin special "id" which means all id's
+                continue;
+            }
+            if (id.equals("IconLauncherFormat")) {
+                // Deleted issue, no longer flagged
+                continue;
+            }
+            if (registry.getIssue(id) == null) {
+                reportNonExistingIssueId(client, driver, project, id);
+            }
+        }
+    }
+
+    private void reportNonExistingIssueId(
+            @NonNull LintClient client,
+            @Nullable LintDriver driver,
+            @NonNull Project project,
+            @NonNull String id) {
+        String message = String.format("Unknown issue id \"%1$s\"", id);
+        if (configFile != null) {
+            message += String.format(", found in %1$s", configFile.getPath().replace("\\", "\\\\"));
+        }
+
+        if (driver != null) {
+            Location location = Location.create(project.getDir());
+            if (getSeverity(IssueRegistry.LINT_ERROR) != Severity.IGNORE) {
+                client.report(
+                        new Context(driver, project, project, project.getDir(), null),
+                        IssueRegistry.LINT_ERROR,
+                        project.getConfiguration(driver).getSeverity(IssueRegistry.LINT_ERROR),
+                        location,
+                        message,
+                        TextFormat.RAW,
+                        null);
+            } else {
+                client.log(Severity.ERROR, null, "Lint: %1$s", message);
+            }
+        }
     }
 }

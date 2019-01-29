@@ -43,62 +43,6 @@ public class DslTest {
                     .create();
 
     @Test
-    public void autoResConfigDeprecation() throws Exception {
-        TestFileUtils.appendToFile(
-                project.getBuildFile(),
-                "\n"
-                        + "android {\n"
-                        + "    defaultConfig {\n"
-                        + "        versionName 'foo'\n"
-                        + "        resConfig 'auto'\n"
-                        + "    }\n"
-                        + "\n"
-                        + "    buildTypes {\n"
-                        + "        debug {\n"
-                        + "            versionNameSuffix '-suffix'\n"
-                        + "        }\n"
-                        + "    }\n"
-                        + "}\n");
-        // no need to do a full build. Let's just run the manifest task.
-        ModelContainer<AndroidProject> model =
-                project.model().ignoreSyncIssues().fetchAndroidProjects();
-
-        Collection<SyncIssue> syncIssues = model.getOnlyModel().getSyncIssues();
-        assertThat(syncIssues).isNotEmpty();
-        assertThat(syncIssues).hasSize(1);
-        assertThat(Iterables.getOnlyElement(syncIssues).getMessage())
-                .contains("'ProductFlavor.resConfig' has a value 'auto'");
-    }
-
-    @Test
-    public void autoResConfigsDeprecation() throws Exception {
-        TestFileUtils.appendToFile(
-                project.getBuildFile(),
-                "\n"
-                        + "android {\n"
-                        + "    defaultConfig {\n"
-                        + "        versionName 'foo'\n"
-                        + "        resConfigs 'xxhdpi', 'auto', 'xhdpi'\n"
-                        + "    }\n"
-                        + "\n"
-                        + "    buildTypes {\n"
-                        + "        debug {\n"
-                        + "            versionNameSuffix '-suffix'\n"
-                        + "        }\n"
-                        + "    }\n"
-                        + "}\n");
-        // no need to do a full build. Let's just run the manifest task.
-        ModelContainer<AndroidProject> model =
-                project.model().ignoreSyncIssues().fetchAndroidProjects();
-
-        Collection<SyncIssue> syncIssues = model.getOnlyModel().getSyncIssues();
-        assertThat(syncIssues).isNotEmpty();
-        assertThat(syncIssues).hasSize(1);
-        assertThat(Iterables.getOnlyElement(syncIssues).getMessage())
-                .contains("'ProductFlavor.resConfigs' has a value 'auto'");
-    }
-
-    @Test
     public void versionNameSuffix() throws Exception {
         TestFileUtils.appendToFile(
                 project.getBuildFile(),
@@ -118,7 +62,7 @@ public class DslTest {
         project.execute("processDebugManifest");
 
         File manifestFile =
-                project.file("build/intermediates/manifests/full/debug/AndroidManifest.xml");
+                project.file("build/intermediates/merged_manifests/debug/AndroidManifest.xml");
 
         Document document =
                 XmlUtils.parseDocument(
@@ -199,5 +143,52 @@ public class DslTest {
                         .read();
 
         assertThat(actual).named("BuildConfig.java").isEqualTo(expected);
+    }
+
+    @Test
+    public void testValidateVersionCodes() throws Exception {
+        TestFileUtils.appendToFile(
+                project.getBuildFile(),
+                "\n"
+                        + "android {\n"
+                        + "    defaultConfig {\n"
+                        + "        versionCode 0\n"
+                        + "    }\n"
+                        + "}\n");
+        final ModelContainer<AndroidProject> model =
+                project.model().ignoreSyncIssues().fetchAndroidProjects();
+        Collection<SyncIssue> syncIssues = model.getOnlyModel().getSyncIssues();
+        assertThat(syncIssues).hasSize(1);
+        assertThat(Iterables.getOnlyElement(syncIssues).getMessage())
+                .contains("android.defaultConfig.versionCode is set to 0");
+
+        TestFileUtils.searchAndReplace(project.getBuildFile(), "versionCode 0", "versionCode 1");
+        TestFileUtils.appendToFile(
+                project.getBuildFile(),
+                "\n"
+                        + "android {\n"
+                        + "    flavorDimensions \"color\"\n"
+                        + "    productFlavors {\n"
+                        + "        red {\n"
+                        + "            versionCode = -1\n"
+                        + "            dimension \"color\"\n"
+                        + "        }\n"
+                        + "    }\n"
+                        + "}\n");
+        final ModelContainer<AndroidProject> flavoredModel =
+                project.model().ignoreSyncIssues().fetchAndroidProjects();
+        Collection<SyncIssue> flavoredSyncIssues = flavoredModel.getOnlyModel().getSyncIssues();
+        assertThat(flavoredSyncIssues).hasSize(1);
+        assertThat(Iterables.getOnlyElement(flavoredSyncIssues).getMessage())
+                .contains("versionCode is set to -1 in product flavor red");
+    }
+
+    @Test
+    public void testProjectConfigurationWithFlavorDimensionsButNoFlavors() throws Exception {
+        // Regression test for http://issuetracker.google.com/117751390
+        TestFileUtils.appendToFile(project.getBuildFile(), "android.flavorDimensions 'foo'");
+
+        // Configuration phase should complete successfully
+        project.executor().run("help");
     }
 }

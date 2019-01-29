@@ -1,5 +1,6 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 load("//tools/base/bazel:kotlin.bzl", "kotlin_library", "kotlin_test")
+load("//tools/base/bazel:gradle.bzl", "gradle_build")
 load(
     "//tools/base/bazel:maven.bzl",
     "maven_java_import",
@@ -7,46 +8,29 @@ load(
     "maven_repo",
 )
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.manifest-merger",
+    name = "studio.android.sdktools.manifest-merger",
     srcs = ["manifest-merger/src/main/java"],
-    iml_files = ["manifest-merger/manifest-merger.iml"],
+    iml_files = ["manifest-merger/android.sdktools.manifest-merger.iml"],
     javacopts = ["-Xep:MissingCasesInEnumSwitch:WARN"],
-    tags = ["managed"],
+    tags = [
+        "no_test_windows",  # b/77288863
+    ],
     test_srcs = ["manifest-merger/src/test/java"],
     visibility = ["//visibility:public"],
-    exports = ["//tools/base/sdklib:studio.sdklib"],
+    exports = ["//tools/base/sdklib:studio.android.sdktools.sdklib"],
     # do not sort: must match IML order
     deps = [
         "//tools/idea/.idea/libraries:JUnit4[test]",
         "//tools/idea/.idea/libraries:gson",
-        "//tools/base/sdklib:studio.sdklib[module]",
+        "//tools/base/sdklib:studio.android.sdktools.sdklib[module]",
         "//tools/idea/.idea/libraries:mockito[test]",
-        "//tools/base/third_party:com.google.truth_truth[test]",
-        "//tools/base/sdk-common:studio.sdk-common[module]",
-        "//tools/base/testutils:studio.testutils[module, test]",
+        "//tools/base/sdk-common:studio.android.sdktools.sdk-common[module]",
+        "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
         "//tools/idea/.idea/libraries:truth[test]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",
     ],
-)
-
-filegroup(
-    name = "gradle-distrib",
-    srcs = ["//tools/external/gradle:gradle-distrib-4.4"],
-    visibility = ["//visibility:public"],
-)
-
-java_import(
-    name = "gradle-api_neverlink",
-    jars = ["//tools/external/gradle:gradle-api-4.4-jar"],
-    neverlink = 1,
-    visibility = ["//visibility:public"],
-)
-
-java_import(
-    name = "gradle-api",
-    jars = ["//tools/external/gradle:gradle-api-4.4-jar"],
-    visibility = ["//visibility:public"],
 )
 
 kotlin_library(
@@ -54,6 +38,9 @@ kotlin_library(
     srcs = ["manifest-merger/src/main/java"],
     javacopts = ["-Xep:MissingCasesInEnumSwitch:WARN"],
     pom = ":manifest-merger.pom",
+    resource_strip_prefix = "tools/base/build-system/manifest-merger",
+    resources = ["manifest-merger/NOTICE"],
+    tags = ["no_test_windows"],  # b/77288863
     visibility = ["//visibility:public"],
     deps = [
         "//tools/base/annotations",
@@ -86,6 +73,7 @@ kotlin_test(
             "manifest-merger/src/test/java/**/*.kt",
         ],
     ),
+    tags = ["no_test_windows"],  # b/77288863
     test_class = "com.android.testutils.JarTestSuite",
     runtime_deps = ["//tools/base/testutils:tools.testutils"],
     deps = [
@@ -118,6 +106,45 @@ maven_pom(
     source = "//tools/buildSrc/base:build_version",
 )
 
+# The Gradle APIs to build against and run against.
+GRADLE_VERSION = "4.10.1"
+
+filegroup(
+    name = "gradle-distrib",
+    srcs = ["//tools/external/gradle:gradle-distrib-" + GRADLE_VERSION],
+    visibility = ["//visibility:public"],
+)
+
+java_library(
+    name = "gradle-tooling-api",
+    visibility = ["//tools/base/bazel:__subpackages__"],
+    exports = ["//prebuilts/tools/common/m2/repository/org/gradle/gradle-tooling-api/" + GRADLE_VERSION + ":jar"],
+    runtime_deps = ["//tools/base/third_party:org.slf4j_slf4j-api"],
+)
+
+gradle_build(
+    name = "gradle_api_jar",
+    build_file = "extract-gradle-api/build.gradle",
+    data = [":gradle-distrib"],
+    output_file = "gradle-api_neverlink.jar",
+    output_file_source = "gradle-api-" + GRADLE_VERSION + ".jar",
+    tasks = [":copyApiJar"],
+)
+
+java_import(
+    name = "gradle-api_neverlink",
+    jars = [":gradle-api_neverlink.jar"],
+    neverlink = 1,
+    visibility = ["//visibility:public"],
+)
+
+# Used for tests only.
+java_import(
+    name = "gradle-api",
+    jars = [":gradle-api_neverlink.jar"],
+    visibility = ["//visibility:public"],
+)
+
 # repos for the gradle plugin and the offline repo packaged inside Studio
 
 # m2 repository to run the Gradle plugin minus the data-binding dependency.
@@ -126,9 +153,11 @@ maven_pom(
 # the data-binding runtime library with the Gradle plugin.
 
 GRADLE_PLUGIN_NO_DATABINDING_ARTIFACTS = [
-    "//tools/base/build-system/gradle",
+    "//tools/base/build-system/aapt2",
+    "//tools/base/build-system/gradle-core",
     "//tools/base/lint:tools.lint-gradle",
     "//prebuilts/tools/common/m2/repository/com/google/errorprone/error_prone_annotations/2.0.18:jar",
+    "//prebuilts/tools/common/m2/repository/com/google/errorprone/error_prone_annotations/2.1.3:jar",
 ]
 
 maven_repo(

@@ -16,13 +16,12 @@
 
 package com.android.builder.internal.aapt.v2
 
-import com.android.builder.core.VariantType
+import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.builder.internal.aapt.AaptTestUtils
-import com.android.ide.common.res2.CompileResourceRequest
+import com.android.ide.common.resources.CompileResourceRequest
 import com.android.repository.testframework.FakeProgressIndicator
-import com.android.sdklib.BuildToolInfo
 import com.android.sdklib.IAndroidTarget
 import com.android.sdklib.repository.AndroidSdkHandler
 import com.android.testutils.MockLog
@@ -30,8 +29,6 @@ import com.android.testutils.TestUtils
 import com.android.testutils.apk.Zip
 import com.android.testutils.truth.MoreTruth.assertThat
 import com.android.testutils.truth.PathSubject.assertThat
-import com.android.utils.FileUtils
-import com.google.common.base.Throwables
 import com.google.common.collect.ImmutableList
 import com.google.common.truth.Truth.assertThat
 import org.junit.After
@@ -40,13 +37,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.rules.TestName
 import java.io.File
-import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import kotlin.test.assertFailsWith
 
 /** Tests for [Aapt2DaemonImpl], including error conditions */
@@ -90,6 +83,51 @@ class Aapt2DaemonImplTest {
     }
 
     @Test
+    fun testPartialR() {
+        val outDir = temporaryFolder.newFolder()
+        val partialRDir = temporaryFolder.newFolder()
+        val partialRvalue = File(partialRDir, "values_strings.txt")
+        val partialRRaw = File(partialRDir, "raw.txt")
+        val requests = listOf(
+            CompileResourceRequest(
+                inputFile = valuesFile("strings", "<resources></resources>"),
+                outputDirectory = outDir,
+                partialRFile = partialRvalue),
+            CompileResourceRequest(
+                inputFile = resourceFile("raw", "my_raw_resource.txt", "Raw Content"),
+                outputDirectory = outDir,
+                partialRFile = partialRRaw)
+        )
+        val daemon = createDaemon()
+        requests.forEach { daemon.compile(it, logger) }
+        assertThat(outDir.list()).asList()
+            .containsExactlyElementsIn(
+                requests.map { Aapt2RenamingConventions.compilationRename(it.inputFile) })
+
+        assertThat(partialRvalue).isFile()
+        assertThat(partialRRaw).isFile()
+    }
+
+    @Test
+    fun testWarningsDoNotFailBuild() {
+        val outDir = temporaryFolder.newFolder()
+        val request = CompileResourceRequest(
+                        inputFile = valuesFile(
+                                "strings",
+                                "<resources><string name=\"foo\">%s %d</string></resources>"),
+                        outputDirectory = outDir)
+
+        val daemon = createDaemon()
+        daemon.compile(request, logger)
+        assertThat(outDir.list()).asList()
+                .containsExactly(Aapt2RenamingConventions.compilationRename(request.inputFile))
+        assertThat(logger.messages).hasSize(2)
+        assertThat(logger.messages[1]).contains(
+                "warn: multiple substitutions specified in non-positional format")
+        logger.clear()
+    }
+
+    @Test
     fun testCompileInvalidFile() {
         val compiledDir = temporaryFolder.newFolder()
         val inputFile = resourceFile("values", "foo.txt", "content")
@@ -103,6 +141,9 @@ class Aapt2DaemonImplTest {
         }
         assertThat(exception.message).contains("error: invalid file path")
         assertThat(exception.message).contains("foo.txt")
+
+        assertThat(logger.messages.joinToString("\n")).contains("command =")
+        logger.clear()
     }
 
     @Test
@@ -133,7 +174,8 @@ class Aapt2DaemonImplTest {
                 resourceDirs = ImmutableList.of(compiledDir),
                 resourceOutputApk = outputFile,
                 options = AaptOptions(),
-                variantType = VariantType.DEFAULT)
+                variantType = VariantTypeImpl.BASE_APK
+        )
 
         daemon.link(request, logger)
         assertThat(Zip(outputFile)).containsFileWithContent("res/raw/foo.txt", "content")
@@ -163,15 +205,19 @@ class Aapt2DaemonImplTest {
                 resourceOutputApk = outputFile,
                 resourceDirs = ImmutableList.of(compiledDir),
                 options = AaptOptions(),
-                variantType = VariantType.DEFAULT)
+                variantType = VariantTypeImpl.BASE_APK
+        )
         val exception = assertFailsWith(Aapt2Exception::class) {
             daemon.link(request.copy(intermediateDir = temporaryFolder.newFolder()), logger)
         }
         assertThat(exception.message).contains("Android resource linking failed")
         assertThat(exception.message).contains("AndroidManifest.xml")
         assertThat(exception.message).contains("error: unclosed token.")
+
+
         // Compiled resources should be listed in a file.
-        assertThat(exception.message).contains("@")
+        assertThat(logger.messages.joinToString("\n")).contains("@")
+        logger.clear()
 
         val exception2 = assertFailsWith(Aapt2Exception::class) {
             daemon.link(request, logger)
@@ -180,25 +226,9 @@ class Aapt2DaemonImplTest {
         assertThat(exception2.message).contains("AndroidManifest.xml")
         assertThat(exception2.message).contains("error: unclosed token.")
         // Compiled resources should not be listed in a file.
-        assertThat(exception2.message).doesNotContain("@")
-        assertThat(exception2.message).contains("foo.txt")
-    }
-
-    @Test
-    fun testInvalidAaptBinary() {
-        val compiledDir = temporaryFolder.newFolder()
-        val daemon = createDaemon(
-                executable = temporaryFolder.newFolder("invalidBuildTools").toPath().resolve("aapt2"),
-                daemonTimeouts = Aapt2DaemonTimeouts())
-        val exception = assertFailsWith(Aapt2InternalException::class) {
-            daemon.compile(
-                    CompileResourceRequest(
-                            inputFile = File("values/does_not_matter.xml"),
-                            outputDirectory = compiledDir),
-                    logger)
-        }
-        assertThat(exception.message).contains("Daemon startup failed")
-        assertThat(exception.cause).isInstanceOf(IOException::class.java)
+        assertThat(logger.messages.joinToString("\n")).doesNotContain("@")
+        assertThat(logger.messages.joinToString("\n")).contains("foo.txt")
+        logger.clear()
     }
 
     @Test
@@ -270,50 +300,6 @@ class Aapt2DaemonImplTest {
         assertThat(withCrunchDisabled).isEqualTo(withCrunchEnabled)
     }
 
-    @Test
-    fun testNeverReady() {
-        val args = listOf<String>(
-                FileUtils.join(System.getProperty("java.home"), "bin", "java"),
-                "-cp",
-                System.getProperty("java.class.path"),
-                NeverReadyAapt2Daemon::class.java.name)
-
-        val daemon = Aapt2DaemonImpl(
-                displayId = "'Aapt2DaemonImplTest.${testName.methodName}'",
-                aaptPath = "fake_path",
-                aaptCommand = args,
-                versionString = "fake_version",
-                daemonTimeouts = Aapt2DaemonTimeouts(
-                        start = 2, startUnit = TimeUnit.MILLISECONDS,
-                        stop = 3000, stopUnit = TimeUnit.NANOSECONDS),
-                logger = logger)
-        this.daemon = daemon
-
-        val compiledDir = temporaryFolder.newFolder()
-        val exception = assertFailsWith(Aapt2InternalException::class) {
-            daemon.compile(
-                    CompileResourceRequest(
-                            inputFile = File("values/does_not_matter.xml"),
-                            outputDirectory = compiledDir),
-                    logger)
-        }
-
-        assertThat(exception.javaClass).isEqualTo(Aapt2InternalException::class.java)
-        assertThat(exception.cause).isNotNull()
-        // The inner startup failure
-        assertThat(exception.cause!!.javaClass).isEqualTo(Aapt2InternalException::class.java)
-        // The original cause was a timeout waiting for ready.
-        assertThat(Throwables.getRootCause(exception).javaClass).isEqualTo(TimeoutException::class.java)
-
-        // The shutdown failure should be a suppressed exception on the inner startup failure,
-        // which is also a timeout.
-        assertThat(exception.cause!!.suppressed).hasLength(1)
-        exception.cause!!.suppressed[0].let {
-            assertThat(it.javaClass).isEqualTo(TimeoutException::class.java)
-            assertThat(it.cause).isNull()
-        }
-    }
-
     @After
     fun assertNoWarningOrErrorLogs() {
         assertThat(logger.messages.filter { !(isStartOrShutdownLog(it) || it.startsWith("V")) })
@@ -334,7 +320,7 @@ class Aapt2DaemonImplTest {
 
     private fun createDaemon(
             daemonTimeouts: Aapt2DaemonTimeouts = Aapt2DaemonTimeouts(),
-            executable: Path = aaptExecutable): Aapt2Daemon {
+            executable: Path = TestUtils.getAapt2()): Aapt2Daemon {
         val daemon = Aapt2DaemonImpl(
                 displayId = "'Aapt2DaemonImplTest.${testName.methodName}'",
                 aaptExecutable = executable,
@@ -359,12 +345,6 @@ class Aapt2DaemonImplTest {
                     .toFile()
 
     companion object {
-        private val aaptExecutable: Path by lazy(LazyThreadSafetyMode.NONE) {
-            Paths.get(AndroidSdkHandler.getInstance(TestUtils.getSdk())
-                    .getLatestBuildTool(FakeProgressIndicator(), true)!!
-                    .getPath(BuildToolInfo.PathId.AAPT2))
-        }
-
         private val target: IAndroidTarget by lazy(LazyThreadSafetyMode.NONE) {
             AndroidSdkHandler.getInstance(TestUtils.getSdk())
                     .getAndroidTargetManager(FakeProgressIndicator())

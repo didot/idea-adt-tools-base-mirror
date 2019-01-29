@@ -18,13 +18,17 @@
 #include <sys/stat.h>
 #include <iostream>
 #include <sstream>
+#include <thread>
 
+#include "proto/profiler.grpc.pb.h"
 #include "utils/clock.h"
 #include "utils/current_process.h"
 #include "utils/device_info.h"
 #include "utils/filesystem_notifier.h"
+#include "utils/log.h"
 #include "utils/trace.h"
 
+using profiler::proto::Device;
 using std::string;
 
 namespace {
@@ -34,12 +38,13 @@ const char *const kAmExecutable = "/system/bin/am";
 namespace profiler {
 
 ActivityManager::ActivityManager()
-    : bash_(new BashCommandRunner(kAmExecutable)) {}
+    : bash_(new BashCommandRunner(kAmExecutable, true /* log command */)) {}
 
 bool ActivityManager::StartProfiling(const ProfilingMode profiling_mode,
                                      const string &app_package_name,
                                      int sampling_interval_us,
-                                     string *trace_path, string *error_string) {
+                                     string *trace_path, string *error_string,
+                                     bool is_startup_profiling) {
   Trace trace("CPU:StartProfiling ART");
   std::lock_guard<std::mutex> lock(profiled_lock_);
 
@@ -48,38 +53,47 @@ bool ActivityManager::StartProfiling(const ProfilingMode profiling_mode,
     return false;
   }
   *trace_path = this->GenerateTracePath(app_package_name);
-
-  // Run command via actual am.
-  std::ostringstream parameters;
-  parameters << "profile start ";
-  if (profiling_mode == ActivityManager::SAMPLING) {
-    // A sample interval in microseconds is required after '--sampling'.
-    // Note that '--sampling 0' would direct ART into instrumentation mode.
-    // If there's no '--sampling X', instrumentation is used.
-    parameters << "--sampling " << sampling_interval_us << " ";
-  }
-  if (DeviceInfo::feature_level() >= 26) {
-    // Use streaming output mode on O or greater.
-    parameters << "--streaming ";
-  }
-  parameters << app_package_name << " " << *trace_path;
-  if (!bash_->Run(parameters.str(), error_string)) {
-    *error_string = "Unable to run profile start command";
-    return false;
+  // if |is_startup_profiling| is true, it means that profiling started with
+  // activity launch command, so there is no need to start profiling.
+  if (!is_startup_profiling) {
+    // Run command via actual am.
+    std::ostringstream parameters;
+    parameters << "profile start ";
+    if (profiling_mode == ActivityManager::SAMPLING) {
+      // A sample interval in microseconds is required after '--sampling'.
+      // Note that '--sampling 0' would direct ART into instrumentation mode.
+      // If there's no '--sampling X', instrumentation is used.
+      parameters << "--sampling " << sampling_interval_us << " ";
+    }
+    if (DeviceInfo::feature_level() >= 26) {
+      // Use streaming output mode on O or greater.
+      parameters << "--streaming ";
+    }
+    // "system_server" from /proc/PID/comm has a different name "system" in the
+    // eyes of Activity Service. See b/112379230 for details.
+    parameters << (app_package_name == "system_server" ? "system"
+                                                       : app_package_name);
+    parameters << " " << *trace_path;
+    if (!bash_->Run(parameters.str(), error_string)) {
+      *error_string = "Unable to run profile start command";
+      return false;
+    }
   }
   AddProfiledApp(app_package_name, *trace_path);
   return true;
 }
 
 bool ActivityManager::StopProfiling(const string &app_package_name,
-                                    bool need_result, string *error_string) {
+                                    bool need_result, string *error_string,
+                                    int32_t timeout_sec,
+                                    bool is_startup_profiling) {
   Trace trace("CPU:StopProfiling ART");
   std::lock_guard<std::mutex> lock(profiled_lock_);
 
   // Start monitoring trace events (to catch close) so this method only returns
   // when the generation of the trace file is finished.
-  FileSystemNotifier notifier(GetProfiledAppTracePath(app_package_name),
-                              FileSystemNotifier::CLOSE);
+  const std::string &trace_path = GetProfiledAppTracePath(app_package_name);
+  FileSystemNotifier notifier(trace_path, FileSystemNotifier::CLOSE);
 
   RemoveProfiledApp(app_package_name);
 
@@ -91,18 +105,25 @@ bool ActivityManager::StopProfiling(const string &app_package_name,
   }
 
   // Run stop command via actual am.
-  string parameters;
-  parameters.append("profile stop ");
-  parameters.append(app_package_name);
-  if (!bash_->Run(parameters, error_string)) {
+  if (!RunProfileStopCmd(app_package_name, error_string)) {
     *error_string = "Unable to run profile stop command";
     return false;
   }
 
   if (need_result) {
+    const int64_t timeout_ms = Clock::s_to_ms(timeout_sec);
+    // Because of an issue in the android pre-P platform, it is unreliable to
+    // monitor the file close event for a trace which started by "am start
+    // --start-profiler" (http://b/73891014). So working around the issue by
+    // just waiting for 5 Seconds.
+    if (is_startup_profiling && DeviceInfo::feature_level() < Device::P) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(timeout_ms));
+      return true;
+    }
+
     // Wait until ART has finished writing the trace to the file and closed the
     // file.
-    if (!notifier.WaitUntilEventOccurs()) {
+    if (!notifier.WaitUntilEventOccurs(timeout_ms)) {
       *error_string = "Wait for ART trace file failed.";
       return false;
     }
@@ -116,6 +137,15 @@ bool ActivityManager::TriggerHeapDump(int pid, const std::string &file_path,
   std::stringstream ss;
   ss << "dumpheap " << pid << " " << file_path;
   return bash_->Run(ss.str(), error_string);
+}
+
+void ActivityManager::Shutdown() {
+  // Intentionally not protected by |profiled_lock_| so this function can
+  // proceed without being blocked.
+  string error;
+  for (auto const &record : profiled_) {
+    RunProfileStopCmd(record.first, &error);
+  }
 }
 
 std::string ActivityManager::GenerateTracePath(
@@ -157,6 +187,14 @@ string ActivityManager::GetProfiledAppTracePath(
     const std::string &app_package_name) const {
   auto it = profiled_.find(app_package_name);
   return it->second.trace_path;
+}
+
+bool ActivityManager::RunProfileStopCmd(const string &app_package_name,
+                                        string *error_string) {
+  string parameters;
+  parameters.append("profile stop ");
+  parameters.append(app_package_name);
+  return bash_->Run(parameters, error_string);
 }
 
 }  // namespace profiler

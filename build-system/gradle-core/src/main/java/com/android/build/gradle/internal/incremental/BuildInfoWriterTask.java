@@ -18,8 +18,8 @@ package com.android.build.gradle.internal.incremental;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.scope.InstantRunVariantScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.builder.profile.ProcessProfileWriter;
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
@@ -85,7 +85,7 @@ public class BuildInfoWriterTask extends AndroidVariantTask {
                         InstantRunAnalyticsHelper.generateAnalyticsProto(buildContext));
     }
 
-    public static class ConfigAction implements TaskConfigAction<BuildInfoWriterTask> {
+    public static class CreationAction extends TaskCreationAction<BuildInfoWriterTask> {
 
         public static File getBuildInfoFile(@NonNull InstantRunVariantScope scope) {
             return new File(scope.getBuildInfoOutputFolder(), "build-info.xml");
@@ -100,8 +100,7 @@ public class BuildInfoWriterTask extends AndroidVariantTask {
         private final InstantRunVariantScope variantScope;
         private final Logger logger;
 
-        public ConfigAction(@NonNull InstantRunVariantScope scope,
-                @NonNull Logger logger) {
+        public CreationAction(@NonNull InstantRunVariantScope scope, @NonNull Logger logger) {
             this.taskName = scope.getTransformVariantScope().getTaskName("buildInfoGenerator");
             this.variantScope = scope;
             this.logger = logger;
@@ -120,7 +119,7 @@ public class BuildInfoWriterTask extends AndroidVariantTask {
         }
 
         @Override
-        public void execute(@NonNull BuildInfoWriterTask task) {
+        public void configure(@NonNull BuildInfoWriterTask task) {
             task.setDescription("InstantRun task to build incremental artifacts");
             task.setVariantName(variantScope.getFullVariantName());
             task.buildInfoFile = getBuildInfoFile(variantScope);

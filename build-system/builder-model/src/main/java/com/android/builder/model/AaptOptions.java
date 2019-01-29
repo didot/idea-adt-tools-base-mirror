@@ -17,6 +17,7 @@
 package com.android.builder.model;
 
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
 import java.util.Collection;
 import java.util.List;
 
@@ -42,14 +43,12 @@ public interface AaptOptions {
         // TODO: add more modes as implemented.
     }
 
-    /**
-     * Returns the value for the --ignore-assets option, or null
-     */
+    /** Returns the value for the --ignore-assets option, or null */
+    @Nullable
     String getIgnoreAssets();
 
-    /**
-     * Returns the list of values for the -0 (disabled compression) option, or null
-     */
+    /** Returns the list of values for the -0 (disabled compression) option, or null */
+    @Nullable
     Collection<String> getNoCompress();
 
     /**
@@ -57,9 +56,8 @@ public interface AaptOptions {
      */
     boolean getFailOnMissingConfigEntry();
 
-    /**
-     * Returns the list of additional parameters to pass.
-     */
+    /** Returns the list of additional parameters to pass. */
+    @NonNull
     List<String> getAdditionalParameters();
 
     /** Returns the resource namespacing strategy for this sub-project */

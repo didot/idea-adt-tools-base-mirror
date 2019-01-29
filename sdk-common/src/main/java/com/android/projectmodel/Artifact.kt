@@ -15,6 +15,8 @@
  */
 package com.android.projectmodel
 
+import com.android.ide.common.util.PathString
+
 /**
  * Holds information about what is involved in producing a single Android artifact (a single output
  * of the project).
@@ -24,7 +26,10 @@ package com.android.projectmodel
  */
 data class Artifact(
         /**
-         * Name of the artifact, unique within a given [AndroidProject]. Should remain stable across syncs.
+         * Name of the artifact, unique within a given [Variant]. Should remain stable across syncs. Identifies the
+         * artifact in the [ConfigTable] by matching the last segment of the [ConfigPath]. The names [ARTIFACT_NAME_MAIN],
+         * [ARTIFACT_NAME_ANDROID_TEST], and [ARTIFACT_NAME_UNIT_TEST] have special meanings - they must always be used to
+         * refer to an [Artifact] attached to a variant's mainArtifact, androidTestArtifact, and unitTestArtifact attributes.
          */
         val name: String,
         /**
@@ -42,23 +47,26 @@ data class Artifact(
          * For well-formed projects, this [Config] is expected to override all possible metadata and to
          * supply a valid dependency list.
          */
-        val resolved: Config,
+        val resolved: Config = Config(),
         /**
          * List of class folders and .jar files containing the output of java compilation for this artifact.
          */
-        val classFolders: List<PathString>,
-        /**
-         * The package name of the R file. Application projects may also use this as the default
-         * value for the application ID. It is defined here:
-         * https://developer.android.com/studio/build/application-id.html. Null if undefined.
-         * This will be undefined if it is unknown to the build system at sync time or if this is
-         * not an Android artifact.
-         */
-        val packageName: String? = null
+        val classFolders: List<PathString> = emptyList()
 ) {
     /**
      * The compile-time dependencies for this artifact. This is a shorthand for accessing the compile time dependencies from [resolved].
      */
     val compileDeps: List<ArtifactDependency>
         get() = resolved.compileDeps ?: emptyList()
+
+    /**
+     * The package name of the R file. Application projects may also use this as the default
+     * value for the application ID. It is defined here:
+     * https://developer.android.com/studio/build/application-id.html. Null if undefined.
+     * This will be undefined if it is unknown to the build system at sync time or if this is
+     * not an Android artifact.
+     */
+    val packageName: String? get() = resolved.packageName
+
+    override fun toString(): String = printProperties(this, Artifact(name = ""))
 }

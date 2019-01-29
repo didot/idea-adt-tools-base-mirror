@@ -22,6 +22,8 @@ import static com.android.builder.core.BuilderConstants.RELEASE;
 import com.android.annotations.NonNull;
 import com.android.build.OutputFile;
 import com.android.build.gradle.AndroidConfig;
+import com.android.build.gradle.internal.BuildTypeData;
+import com.android.build.gradle.internal.ProductFlavorData;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.VariantModel;
 import com.android.build.gradle.internal.api.ApplicationVariantImpl;
@@ -35,9 +37,11 @@ import com.android.build.gradle.internal.scope.OutputFactory;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.VariantType;
+import com.android.builder.core.VariantTypeImpl;
+import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
+import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.profile.Recorder;
 import com.android.ide.common.build.ApkData;
 import com.android.ide.common.build.SplitOutputMatcher;
@@ -63,9 +67,8 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
 
     public ApplicationVariantFactory(
             @NonNull GlobalScope globalScope,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull AndroidConfig extension) {
-        super(globalScope, androidBuilder, extension);
+        super(globalScope, extension);
     }
 
     @Override
@@ -76,11 +79,7 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
             @NonNull Recorder recorder) {
         ApplicationVariantData variant =
                 new ApplicationVariantData(
-                        globalScope,
-                        extension,
-                        variantConfiguration,
-                        taskManager,
-                        recorder);
+                        globalScope, extension, taskManager, variantConfiguration, recorder);
 
         variant.calculateFilters(extension.getSplits());
 
@@ -151,6 +150,11 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
             return;
         }
 
+        // if universalAPK is requested, abiFilter will control what goes into the universal APK.
+        if (extension.getSplits().getAbi().isUniversalApk()) {
+            return;
+        }
+
         // check supportedAbis in Ndk configuration versus ABI splits.
         Set<String> ndkConfigAbiFilters =
                 variantData.getVariantConfiguration().getNdkConfig().getAbiFilters();
@@ -162,10 +166,12 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
         EvalIssueReporter issueReporter = globalScope.getAndroidBuilder().getIssueReporter();
         issueReporter.reportError(
                 EvalIssueReporter.Type.GENERIC,
-                String.format(
-                        "Conflicting configuration : '%1$s' in ndk abiFilters "
-                                + "cannot be present when splits abi filters are set : %2$s",
-                        Joiner.on(",").join(ndkConfigAbiFilters), Joiner.on(",").join(abiFilters)));
+                new EvalIssueException(
+                        String.format(
+                                "Conflicting configuration : '%1$s' in ndk abiFilters "
+                                        + "cannot be present when splits abi filters are set : %2$s",
+                                Joiner.on(",").join(ndkConfigAbiFilters),
+                                Joiner.on(",").join(abiFilters))));
     }
 
     private void restrictEnabledOutputs(
@@ -236,7 +242,10 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
     @NonNull
     @Override
     public Collection<VariantType> getVariantConfigurationTypes() {
-        return ImmutableList.of(VariantType.DEFAULT);
+        if (extension.getBaseFeature()) {
+            return ImmutableList.of(VariantTypeImpl.BASE_APK);
+        }
+        return ImmutableList.of(VariantTypeImpl.OPTIONAL_APK);
     }
 
     @Override
@@ -245,8 +254,27 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
     }
 
     @Override
-    public void validateModel(@NonNull VariantModel model){
-        // No additional checks for ApplicationVariantFactory, so just return.
+    public void validateModel(@NonNull VariantModel model) {
+
+        validateVersionCodes(model);
+
+        if (getVariantConfigurationTypes().stream().noneMatch(VariantType::isFeatureSplit)) {
+            return;
+        }
+
+        EvalIssueReporter issueReporter = globalScope.getAndroidBuilder().getIssueReporter();
+        for (BuildTypeData buildType : model.getBuildTypes().values()) {
+            if (buildType.getBuildType().isMinifyEnabled()) {
+                issueReporter.reportError(
+                        Type.GENERIC,
+                        new EvalIssueException(
+                                "Dynamic feature modules cannot set minifyEnabled to true. "
+                                        + "minifyEnabled is set to true in build type '"
+                                        + buildType.getBuildType().getName()
+                                        + "'.\nTo enable minification for a dynamic feature "
+                                        + "module, set minifyEnabled to true in the base module."));
+            }
+        }
     }
 
     @Override
@@ -259,5 +287,40 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
         signingConfigs.create(DEBUG);
         buildTypes.create(DEBUG);
         buildTypes.create(RELEASE);
+    }
+
+    private void validateVersionCodes(@NonNull VariantModel model) {
+
+        EvalIssueReporter issueReporter = globalScope.getAndroidBuilder().getIssueReporter();
+
+        Integer versionCode = model.getDefaultConfig().getProductFlavor().getVersionCode();
+        if (versionCode != null && versionCode < 1) {
+            issueReporter.reportError(
+                    Type.GENERIC,
+                    new EvalIssueException(
+                            "android.defaultConfig.versionCode is set to "
+                                    + versionCode
+                                    + ", but it should be a positive integer.\n"
+                                    + "See https://developer.android.com/studio/publish/versioning#appversioning"
+                                    + " for more information."));
+            return;
+        }
+
+        for (ProductFlavorData flavorData : model.getProductFlavors().values()) {
+            Integer flavorVersionCode = flavorData.getProductFlavor().getVersionCode();
+            if (flavorVersionCode == null || flavorVersionCode > 0) {
+                return;
+            }
+            issueReporter.reportError(
+                    Type.GENERIC,
+                    new EvalIssueException(
+                            "versionCode is set to "
+                                    + flavorVersionCode
+                                    + " in product flavor "
+                                    + flavorData.getProductFlavor().getName()
+                                    + ", but it should be a positive integer.\n"
+                                    + "See https://developer.android.com/studio/publish/versioning#appversioning"
+                                    + " for more information."));
+        }
     }
 }

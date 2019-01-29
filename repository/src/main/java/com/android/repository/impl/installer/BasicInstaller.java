@@ -67,7 +67,7 @@ class BasicInstaller extends AbstractInstaller {
             // TODO: allow resuming of partial downloads
             String checksum = archive.getComplete().getChecksum();
             getDownloader()
-                    .downloadFully(
+                    .downloadFullyWithCaching(
                             url, downloadLocation, checksum, progress.createSubProgress(0.5));
             if (progress.isCanceled()) {
                 progress.setFraction(1);
@@ -103,9 +103,10 @@ class BasicInstaller extends AbstractInstaller {
         return false;
     }
 
-    @SuppressWarnings("MethodMayBeStatic")
-    protected void cleanup(@NonNull File installPath, @NonNull FileOp fop) {
-        fop.deleteFileOrFolder(new File(installPath, InstallerUtil.INSTALLER_DIR_FN));
+    @Override
+    protected void cleanup(@NonNull ProgressIndicator progress) {
+        super.cleanup(progress);
+        mFop.deleteFileOrFolder(getLocation(progress));
     }
 
     /**

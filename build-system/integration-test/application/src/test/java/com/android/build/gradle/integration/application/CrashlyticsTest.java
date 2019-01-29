@@ -17,10 +17,12 @@
 package com.android.build.gradle.integration.application;
 
 import com.android.SdkConstants;
+import com.android.annotations.NonNull;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.utils.FileUtils;
+import java.io.File;
 import java.io.IOException;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -32,17 +34,18 @@ public class CrashlyticsTest {
     @ClassRule
     public static GradleTestProject project =
             GradleTestProject.builder()
-                    .fromTestApp(HelloWorldApp.forPlugin("com.android.application"))
+                    .fromTestApp(
+                            HelloWorldApp.forPluginWithMinSdkVersion("com.android.application", 16))
                     .create();
 
     @BeforeClass
     public static void setUp() throws IOException {
         TestFileUtils.searchAndReplace(
                 project.getBuildFile(),
-                "android \\{",
+                "android {\n",
                 "buildscript {\n"
                         + "    dependencies {\n"
-                        + "        classpath 'io.fabric.tools:gradle:1.22.1'\n"
+                        + "        classpath 'io.fabric.tools:gradle:1.25.4'\n"
                         + "    }\n"
                         + "}\n"
                         + "\n"
@@ -53,7 +56,6 @@ public class CrashlyticsTest {
                         + "}\n"
                         + ""
                         + "android {\n"
-                        + "    defaultConfig.minSdkVersion 16\n"
                         + "    buildTypes.debug {\n"
                         + "        // Enable crashlytics for test variants\n"
                         + "        ext.enableCrashlytics = true\n"
@@ -68,14 +70,6 @@ public class CrashlyticsTest {
                         + "        android:value=\"testkey\"\n"
                         + "    />\n"
                         + "</application>");
-
-        if (SdkConstants.currentPlatform() == SdkConstants.PLATFORM_DARWIN) {
-            // Crashlytics plugin normally writes to the $HOME/.crashlytics directory, but on Mac,
-            // it writes to the $HOME/Library/Caches/com.crashlytics directory.  Since we changed
-            // the home directory in the tests, we need to create $HOME/Library/Caches that would
-            // normally exists.
-            FileUtils.mkdirs(project.file("Library/Caches"));
-        }
     }
 
     @AfterClass
@@ -85,10 +79,29 @@ public class CrashlyticsTest {
 
     @Test
     public void assembleDebug() throws IOException, InterruptedException {
-        // Crashlytics will create .crashlytics/ in user.home directory.  So set it to the project
-        // directory so that it doesn't affect other tests.
         project.executor()
-                .withArgument("-Duser.home=" + project.getTestDir().getAbsolutePath())
+                .withArgument("-Duser.home=" + getCustomUserHomeForCrashlytics(project))
                 .run("assembleDebug");
+    }
+
+    /**
+     * Returns a custom user home directory inside the project directory, creating it first before
+     * returning.
+     *
+     * <p>This is needed because the Crashlytics plugin creates stuff in the user home directory,
+     * and we want the tests to be isolated.
+     */
+    @NonNull
+    public static File getCustomUserHomeForCrashlytics(@NonNull GradleTestProject project) {
+        File userHomeDir = new File(project.getTestDir(), "user-home");
+        FileUtils.mkdirs(userHomeDir);
+
+        // On Mac, the Crashlytics plugin actually uses user-home/Library/Caches, so we need to
+        // create that directory as well
+        if (SdkConstants.currentPlatform() == SdkConstants.PLATFORM_DARWIN) {
+            FileUtils.mkdirs(FileUtils.join(userHomeDir, "Library", "Caches"));
+        }
+
+        return userHomeDir;
     }
 }

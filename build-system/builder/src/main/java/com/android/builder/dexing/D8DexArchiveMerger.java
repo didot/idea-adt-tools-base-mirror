@@ -16,6 +16,9 @@
 
 package com.android.builder.dexing;
 
+import static com.android.builder.dexing.D8ErrorMessagesKt.ERROR_DUPLICATE;
+import static com.android.builder.dexing.D8ErrorMessagesKt.ERROR_DUPLICATE_HELP_PAGE;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.ide.common.blame.Message;
@@ -27,11 +30,11 @@ import com.android.tools.r8.D8;
 import com.android.tools.r8.D8Command;
 import com.android.tools.r8.Diagnostic;
 import com.android.tools.r8.OutputMode;
-import com.google.common.base.Joiner;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Streams;
+import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ForkJoinPool;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -49,34 +52,40 @@ final class D8DexArchiveMerger implements DexArchiveMerger {
     private final int minSdkVersion;
     @NonNull private final CompilationMode compilationMode;
     @NonNull private final MessageReceiver messageReceiver;
+    @NonNull private final ForkJoinPool forkJoinPool;
     private volatile boolean hintForMultidex = false;
 
     public D8DexArchiveMerger(
             @Nonnull MessageReceiver messageReceiver,
             int minSdkVersion,
-            @NonNull CompilationMode compilationMode) {
+            @NonNull CompilationMode compilationMode,
+            @NonNull ForkJoinPool forkJoinPool) {
         this.minSdkVersion = minSdkVersion;
         this.compilationMode = compilationMode;
         this.messageReceiver = messageReceiver;
+        this.forkJoinPool = forkJoinPool;
     }
 
     @Override
     public void mergeDexArchives(
-            @NonNull Iterable<Path> inputs,
+            @NonNull Iterator<Path> inputs,
             @NonNull Path outputDir,
             @Nullable Path mainDexClasses,
             @NonNull DexingType dexingType)
             throws DexArchiveMergerException {
-        LOGGER.log(
-                Level.INFO,
-                "Merging to '"
-                        + outputDir.toAbsolutePath().toString()
-                        + "' with D8 from "
-                        + Streams.stream(inputs)
-                                .map(path -> path.toAbsolutePath().toString())
-                                .collect(Collectors.joining(", ")));
-
-        if (Iterables.isEmpty(inputs)) {
+        List<Path> inputsList = Lists.newArrayList(inputs);
+        if (LOGGER.isLoggable(Level.INFO)) {
+            LOGGER.log(
+                    Level.INFO,
+                    "Merging to '"
+                            + outputDir.toAbsolutePath().toString()
+                            + "' with D8 from "
+                            + inputsList
+                                    .stream()
+                                    .map(path -> path.toAbsolutePath().toString())
+                                    .collect(Collectors.joining(", ")));
+        }
+        if (inputsList.isEmpty()) {
             return;
         }
 
@@ -84,7 +93,7 @@ final class D8DexArchiveMerger implements DexArchiveMerger {
         D8Command.Builder builder = D8Command.builder(d8DiagnosticsHandler);
         builder.setDisableDesugaring(true);
 
-        for (Path input : inputs) {
+        for (Path input : inputsList) {
             try (DexArchive archive = DexArchives.fromInput(input)) {
                 for (DexArchiveEntry dexArchiveEntry : archive.getFiles()) {
                     builder.addDexProgramData(
@@ -92,7 +101,7 @@ final class D8DexArchiveMerger implements DexArchiveMerger {
                             D8DiagnosticsHandler.getOrigin(dexArchiveEntry));
                 }
             } catch (IOException e) {
-                throw getExceptionToRethrow(e, input, d8DiagnosticsHandler);
+                throw getExceptionToRethrow(e, d8DiagnosticsHandler);
             }
         }
         try {
@@ -104,19 +113,17 @@ final class D8DexArchiveMerger implements DexArchiveMerger {
                     .setOutput(outputDir, OutputMode.DexIndexed)
                     .setDisableDesugaring(true)
                     .setIntermediate(false);
-            D8.run(builder.build());
+            D8.run(builder.build(), forkJoinPool);
         } catch (CompilationFailedException e) {
-            throw getExceptionToRethrow(e, inputs, d8DiagnosticsHandler);
+            throw getExceptionToRethrow(e, d8DiagnosticsHandler);
         }
     }
 
     @NonNull
     private DexArchiveMergerException getExceptionToRethrow(
             @NonNull Throwable t,
-            @NonNull Iterable<Path> inputs,
             D8DiagnosticsHandler d8DiagnosticsHandler) {
         StringBuilder msg = new StringBuilder("Error while merging dex archives: ");
-        msg.append(Joiner.on(", ").join(inputs));
         for (String hint : d8DiagnosticsHandler.getPendingHints()) {
             msg.append(System.lineSeparator());
             msg.append(hint);
@@ -135,6 +142,11 @@ final class D8DexArchiveMerger implements DexArchiveMerger {
 
             if (diagnostic.getDiagnosticMessage().startsWith(ERROR_MULTIDEX)) {
                 addHint(DexParser.DEX_LIMIT_EXCEEDED_ERROR);
+            }
+
+            if (diagnostic.getDiagnosticMessage().startsWith(ERROR_DUPLICATE)) {
+                addHint(diagnostic.getDiagnosticMessage());
+                addHint(ERROR_DUPLICATE_HELP_PAGE);
             }
 
             return super.convertToMessage(kind, diagnostic);

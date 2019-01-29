@@ -16,13 +16,13 @@
 
 package com.android.build.gradle.internal.ide;
 
-import static com.android.build.gradle.internal.scope.TaskOutputHolder.AnchorOutputType.ALL_CLASSES;
 import static com.google.common.truth.Truth.assertThat;
 import static org.mockito.Mockito.when;
 
 import com.android.build.FilterData;
 import com.android.build.OutputFile;
 import com.android.build.VariantOutput;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.ExtraModelInfo;
 import com.android.build.gradle.internal.TaskManager;
@@ -30,33 +30,35 @@ import com.android.build.gradle.internal.VariantManager;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.model.NativeLibraryFactory;
 import com.android.build.gradle.internal.ndk.NdkHandler;
-import com.android.build.gradle.internal.publishing.VariantPublishingSpec;
+import com.android.build.gradle.internal.publishing.PublishingSpecs;
+import com.android.build.gradle.internal.scope.AnchorOutputType;
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.GlobalScope;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.OutputFactory;
 import com.android.build.gradle.internal.scope.OutputScope;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.VariantType;
+import com.android.builder.core.VariantTypeImpl;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.ProjectBuildOutput;
 import com.android.builder.model.TestVariantBuildOutput;
 import com.android.builder.model.VariantBuildOutput;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterators;
 import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import org.gradle.api.Project;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.invocation.Gradle;
 import org.gradle.internal.impldep.com.google.common.base.Charsets;
 import org.junit.Before;
@@ -83,6 +85,7 @@ public class ModelBuilderTest {
     @Mock ExtraModelInfo extraModelInfo;
     @Mock NdkHandler ndkHandler;
     @Mock NativeLibraryFactory nativeLibraryFactory;
+    @Mock BuildArtifactsHolder artifacts;
 
     @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
@@ -108,12 +111,10 @@ public class ModelBuilderTest {
         modelBuilder =
                 new ModelBuilder(
                         globalScope,
-                        androidBuilder,
                         variantManager,
                         taskManager,
                         androidConfig,
                         extraModelInfo,
-                        ndkHandler,
                         nativeLibraryFactory,
                         AndroidProject.PROJECT_TYPE_APP,
                         AndroidProject.GENERATION_ORIGINAL);
@@ -131,6 +132,7 @@ public class ModelBuilderTest {
         GradleVariantConfiguration variantConfiguration =
                 Mockito.mock(GradleVariantConfiguration.class);
         when(variantConfiguration.getDirName()).thenReturn("variant/name");
+        when(variantConfiguration.getType()).thenReturn(VariantTypeImpl.BASE_APK);
 
         VariantScope variantScope =
                 createVariantScope("variantName", "variant/name", variantConfiguration);
@@ -155,6 +157,7 @@ public class ModelBuilderTest {
         GradleVariantConfiguration variantConfiguration =
                 Mockito.mock(GradleVariantConfiguration.class);
         when(variantConfiguration.getDirName()).thenReturn("variant/name");
+        when(variantConfiguration.getType()).thenReturn(VariantTypeImpl.BASE_APK);
 
         VariantScope variantScope =
                 createVariantScope("variantName", "variant/name", variantConfiguration);
@@ -172,7 +175,7 @@ public class ModelBuilderTest {
         new BuildElements(
                         ImmutableList.of(
                                 new BuildOutput(
-                                        TaskOutputHolder.TaskOutputType.APK,
+                                        InternalArtifactType.APK,
                                         outputFactory.addMainApk(),
                                         apkOutput)))
                 .save(variantOutputFolder);
@@ -206,6 +209,7 @@ public class ModelBuilderTest {
         GradleVariantConfiguration variantConfiguration =
                 Mockito.mock(GradleVariantConfiguration.class);
         when(variantConfiguration.getDirName()).thenReturn("variant/name");
+        when(variantConfiguration.getType()).thenReturn(VariantTypeImpl.BASE_APK);
 
         VariantScope variantScope =
                 createVariantScope("variantName", "variant/name", variantConfiguration);
@@ -221,17 +225,14 @@ public class ModelBuilderTest {
 
         ImmutableList.Builder<BuildOutput> buildOutputBuilder = ImmutableList.builder();
         buildOutputBuilder.add(
-                new BuildOutput(
-                        TaskOutputHolder.TaskOutputType.APK,
-                        outputFactory.addMainApk(),
-                        apkOutput));
+                new BuildOutput(InternalArtifactType.APK, outputFactory.addMainApk(), apkOutput));
 
         for (int i = 0; i < 5; i++) {
             apkOutput = createApk(variantOutputFolder, "split_" + i + ".apk");
 
             buildOutputBuilder.add(
                     new BuildOutput(
-                            TaskOutputHolder.TaskOutputType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT,
+                            InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT,
                             outputFactory.addConfigurationSplit(
                                     VariantOutput.FilterType.DENSITY, "hdpi", apkOutput.getName()),
                             apkOutput));
@@ -281,6 +282,7 @@ public class ModelBuilderTest {
             GradleVariantConfiguration variantConfiguration =
                     Mockito.mock(GradleVariantConfiguration.class);
             when(variantConfiguration.getDirName()).thenReturn("variant/name" + i);
+            when(variantConfiguration.getType()).thenReturn(VariantTypeImpl.BASE_APK);
 
             String variantName = "variantName" + i;
             VariantScope variantScope =
@@ -299,7 +301,7 @@ public class ModelBuilderTest {
             new BuildElements(
                             ImmutableList.of(
                                     new BuildOutput(
-                                            TaskOutputHolder.TaskOutputType.APK,
+                                            InternalArtifactType.APK,
                                             outputFactory.addMainApk(),
                                             apkOutput)))
                     .save(variantOutputFolder);
@@ -340,31 +342,37 @@ public class ModelBuilderTest {
         GradleVariantConfiguration variantConfiguration =
                 Mockito.mock(GradleVariantConfiguration.class);
         when(variantConfiguration.getDirName()).thenReturn("variant/name");
-        when(variantConfiguration.getType()).thenReturn(VariantType.LIBRARY);
+        when(variantConfiguration.getType()).thenReturn(VariantTypeImpl.LIBRARY);
 
         VariantScope variantScope =
                 createVariantScope("variantName", "variant/name", variantConfiguration);
+        when(variantScope.getArtifacts()).thenReturn(artifacts);
         BaseVariantData variantData = createVariantData(variantScope, variantConfiguration);
+
+        BuildableArtifact buildableArtifact = Mockito.mock(BuildableArtifact.class);
+        when(buildableArtifact.iterator())
+                .thenReturn(ImmutableSet.of(temporaryFolder.getRoot()).iterator());
+        when(artifacts.getFinalArtifactFiles(ArgumentMatchers.eq(InternalArtifactType.AAR)))
+                .thenReturn(buildableArtifact);
 
         GradleVariantConfiguration testVariantConfiguration =
                 Mockito.mock(GradleVariantConfiguration.class);
         when(testVariantConfiguration.getDirName()).thenReturn("test/name");
-        when(testVariantConfiguration.getType()).thenReturn(VariantType.UNIT_TEST);
+        when(testVariantConfiguration.getType()).thenReturn(VariantTypeImpl.UNIT_TEST);
 
         VariantScope testVariantScope =
                 createVariantScope("testVariant", "test/name", testVariantConfiguration);
         BaseVariantData testVariantData =
                 createVariantData(testVariantScope, testVariantConfiguration);
-        when(testVariantData.getType()).thenReturn(VariantType.UNIT_TEST);
+        when(testVariantData.getType()).thenReturn(VariantTypeImpl.UNIT_TEST);
         when(testVariantScope.getTestedVariantData()).thenReturn(variantData);
 
-        FileCollection outputCollection = Mockito.mock(FileCollection.class);
-        when(outputCollection.getSingleFile()).thenReturn(temporaryFolder.getRoot());
-        Iterator outputIterator = Mockito.mock(Iterator.class);
-        when(outputIterator.next()).thenReturn(temporaryFolder.getRoot());
-        when(outputCollection.iterator()).thenReturn(outputIterator);
-        when(testVariantScope.getOutput(ArgumentMatchers.eq(ALL_CLASSES)))
-                .thenReturn(outputCollection);
+        when(testVariantScope.getArtifacts()).thenReturn(artifacts);
+        BuildableArtifact testBuildableArtifact = Mockito.mock(BuildableArtifact.class);
+        when(artifacts.getFinalArtifactFiles(AnchorOutputType.ALL_CLASSES))
+                .thenReturn(testBuildableArtifact);
+        when(testBuildableArtifact.iterator())
+                .thenReturn(ImmutableSet.of(temporaryFolder.getRoot()).iterator());
 
         when(variantManager.getVariantScopes())
                 .thenReturn(ImmutableList.of(variantScope, testVariantScope));
@@ -379,7 +387,7 @@ public class ModelBuilderTest {
         new BuildElements(
                         ImmutableList.of(
                                 new BuildOutput(
-                                        TaskOutputHolder.TaskOutputType.APK,
+                                        InternalArtifactType.APK,
                                         outputFactory.addMainApk(),
                                         apkOutput)))
                 .save(variantOutputFolder);
@@ -410,10 +418,13 @@ public class ModelBuilderTest {
     private static BaseVariantData createVariantData(
             VariantScope variantScope, GradleVariantConfiguration variantConfiguration) {
         BaseVariantData variantData = Mockito.mock(BaseVariantData.class);
-        when(variantData.getType()).thenReturn(VariantType.DEFAULT);
+        final VariantType type = variantConfiguration.getType();
+        when(variantData.getType()).thenReturn(type);
         when(variantData.getScope()).thenReturn(variantScope);
         when(variantData.getVariantConfiguration()).thenReturn(variantConfiguration);
+
         when(variantScope.getVariantData()).thenReturn(variantData);
+
         return variantData;
     }
 
@@ -426,10 +437,11 @@ public class ModelBuilderTest {
         when(variantScope.getVariantConfiguration()).thenReturn(variantConfiguration);
 
         final VariantType type = variantConfiguration.getType();
+        when(variantScope.getType()).thenReturn(type);
+
         //noinspection ConstantConditions
         if (type != null) {
-            when(variantScope.getPublishingSpec())
-                    .thenReturn(VariantPublishingSpec.getVariantSpec(type));
+            when(variantScope.getPublishingSpec()).thenReturn(PublishingSpecs.getVariantSpec(type));
         }
 
         return variantScope;

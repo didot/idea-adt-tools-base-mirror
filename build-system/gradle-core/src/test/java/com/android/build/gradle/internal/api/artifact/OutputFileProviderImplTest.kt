@@ -18,9 +18,13 @@ package com.android.build.gradle.internal.api.artifact
 
 import com.android.build.api.artifact.BuildArtifactType.JAVAC_CLASSES
 import com.android.build.api.artifact.BuildArtifactType.JAVA_COMPILE_CLASSPATH
+import com.android.build.gradle.internal.fixtures.FakeDeprecationReporter
 import com.android.build.gradle.internal.fixtures.FakeEvalIssueReporter
-import com.android.build.gradle.internal.scope.BuildArtifactHolder
-import com.android.ide.common.util.multimapOf
+import com.android.build.gradle.internal.fixtures.FakeObjectFactory
+import com.android.build.gradle.internal.variant2.DslScopeImpl
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
+import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.VariantBuildArtifactsHolder
 import com.android.testutils.truth.PathSubject.assertThat
 import com.google.common.truth.Truth.assertThat
 import org.gradle.testfixtures.ProjectBuilder
@@ -35,6 +39,12 @@ import kotlin.test.assertFailsWith
 class OutputFileProviderImplTest {
 
     private val project = ProjectBuilder.builder().build()
+    private val task = project.task("task")
+
+    private val dslScope = DslScopeImpl(
+            FakeEvalIssueReporter(throwOnError = true),
+            FakeDeprecationReporter(),
+            FakeObjectFactory())
 
     companion object {
         @BeforeClass @JvmStatic
@@ -51,12 +61,14 @@ class OutputFileProviderImplTest {
                         holder,
                         listOf(JAVAC_CLASSES),
                         listOf(),
-                        multimapOf(JAVAC_CLASSES to "foo"),
-                        listOf(),
-                        "task",
-                        FakeEvalIssueReporter(throwOnError = true))
-        holder.createFirstArtifactFiles(JAVAC_CLASSES, "bar", "task")
-        assertThat(output.file).hasName("foo")
+                        task)
+        val outputFile = output.getFile("foo")
+        holder.createBuildableArtifact(JAVAC_CLASSES,
+            BuildArtifactsHolder.OperationType.TRANSFORM,
+            listOf(outputFile),
+            task.name)
+        assertThat(outputFile).hasName("foo")
+        BuildableArtifactImpl.enableResolution()
         assertThat(holder.getArtifactFiles(JAVAC_CLASSES).single()).hasName("foo")
     }
 
@@ -68,13 +80,20 @@ class OutputFileProviderImplTest {
                         holder,
                         listOf(),
                         listOf(JAVAC_CLASSES),
-                        multimapOf(JAVAC_CLASSES to "foo"),
-                        listOf(),
-                        "task",
-                        FakeEvalIssueReporter(throwOnError = true))
-        holder.createFirstArtifactFiles(JAVAC_CLASSES, "bar", "task")
+                        task)
+        val fooFile = output.getFile("foo")
+        holder.createBuildableArtifact(
+            JAVAC_CLASSES,
+            BuildArtifactsHolder.OperationType.INITIAL,
+            listOf(fooFile),
+            task.name)
+        holder.createDirectory(
+            JAVAC_CLASSES,
+            BuildArtifactsHolder.OperationType.APPEND,
+            task.name,
+            "bar")
         BuildableArtifactImpl.enableResolution()
-        assertThat(output.file).hasName("foo")
+        assertThat(fooFile).hasName("foo")
         assertThat(holder.getArtifactFiles(JAVAC_CLASSES).map(File::getName)).containsExactly("foo", "bar")
     }
 
@@ -86,20 +105,28 @@ class OutputFileProviderImplTest {
                         holder,
                         listOf(JAVAC_CLASSES),
                         listOf(JAVA_COMPILE_CLASSPATH),
-                        multimapOf(
-                                JAVAC_CLASSES to "foo",
-                                JAVA_COMPILE_CLASSPATH to "foo",
-                                JAVA_COMPILE_CLASSPATH to "bar"),
-                        listOf(),
-                        "task",
-                        FakeEvalIssueReporter(throwOnError = true))
-        holder.createFirstArtifactFiles(JAVAC_CLASSES, "javac", "task")
-        holder.createFirstArtifactFiles(JAVA_COMPILE_CLASSPATH, "classpath", "task")
+                        task)
+        val fooFile = output.getFile("foo", JAVAC_CLASSES, JAVA_COMPILE_CLASSPATH)
+        val barFile = output.getFile("bar", JAVA_COMPILE_CLASSPATH)
+        holder.createBuildableArtifact(
+            JAVAC_CLASSES,
+            BuildArtifactsHolder.OperationType.INITIAL,
+            listOf(fooFile),
+            task.name)
+        holder.createDirectory(JAVA_COMPILE_CLASSPATH,
+            BuildArtifactsHolder.OperationType.INITIAL,
+            task.name,
+            "classpath")
+        holder.createBuildableArtifact(
+            JAVA_COMPILE_CLASSPATH,
+            BuildArtifactsHolder.OperationType.APPEND,
+            listOf(barFile, fooFile),
+            task.name)
         BuildableArtifactImpl.enableResolution()
 
         assertThat(output.getFile("foo")).hasName("foo")
         assertThat(output.getFile("bar")).hasName("bar")
-        assertFailsWith<RuntimeException> { output.getFile("baz") }
+        assertFailsWith<RuntimeException> { output.getFile("baz", InternalArtifactType.JAVAC) }
 
         assertThat(holder.getArtifactFiles(JAVAC_CLASSES).map(File::getName)).containsExactly("foo")
         assertThat(holder.getArtifactFiles(JAVA_COMPILE_CLASSPATH).map(File::getName))
@@ -107,11 +134,9 @@ class OutputFileProviderImplTest {
     }
 
     private fun newTaskOutputHolder() =
-            BuildArtifactHolder(
-                    project,
-                    "debug",
-                    project.file("root"),
-                    "debug",
-                    listOf(JAVAC_CLASSES, JAVA_COMPILE_CLASSPATH),
-                    FakeEvalIssueReporter(throwOnError = true))
+            VariantBuildArtifactsHolder(
+                project,
+                "debug",
+                project.file("root"),
+                dslScope)
 }

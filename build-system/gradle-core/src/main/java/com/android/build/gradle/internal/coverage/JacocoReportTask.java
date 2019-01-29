@@ -20,16 +20,15 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.api.artifact.BuildableArtifact;
+import com.android.build.gradle.internal.scope.AnchorOutputType;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.TaskInputHelper;
-import com.android.build.gradle.internal.variant.TestVariantData;
+import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.builder.model.Version;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.io.Closeables;
-import com.google.common.io.Files;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -37,23 +36,21 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.util.Collection;
-import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import javax.inject.Inject;
-import org.gradle.api.DefaultTask;
-import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.InputDirectory;
-import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.workers.IsolationMode;
 import org.gradle.workers.WorkerExecutor;
 import org.jacoco.core.analysis.Analyzer;
@@ -70,18 +67,15 @@ import org.jacoco.report.MultiSourceFileLocator;
 import org.jacoco.report.html.HTMLFormatter;
 import org.jacoco.report.xml.XMLFormatter;
 
-/**
- * Simple Jacoco report task that calls the Ant version.
- */
-public class JacocoReportTask extends DefaultTask {
+/** Simple Jacoco report task that calls the Ant version. */
+public class JacocoReportTask extends AndroidVariantTask {
 
     private FileCollection jacocoClasspath;
 
-    private Supplier<File> coverageDirectory;
-    private FileCollection classFileCollection;
-    private Supplier<Collection<File>> sourceFolders;
+    private BuildableArtifact coverageDirectories;
+    private BuildableArtifact classFileCollection;
+    private Supplier<FileCollection> sourceFolders;
 
-    private File coverageFile;
     private File reportDir;
     private String reportName;
 
@@ -94,22 +88,16 @@ public class JacocoReportTask extends DefaultTask {
         this.executor = executor;
     }
 
-    @InputFile
-    @Optional
-    @Nullable
-    public File getCoverageFile() {
-        return coverageFile;
-    }
-
+    @Deprecated
     public void setCoverageFile(File coverageFile) {
-        this.coverageFile = coverageFile;
+        getLogger().info("JacocoReportTask.setCoverageDir is deprecated and has no effect.");
     }
 
-    @InputDirectory
+    @InputFiles
     @Optional
     @Nullable
-    public File getCoverageDirectory() {
-        return coverageDirectory.get();
+    public BuildableArtifact getCoverageDirectories() {
+        return coverageDirectories;
     }
 
     @OutputDirectory
@@ -122,12 +110,12 @@ public class JacocoReportTask extends DefaultTask {
     }
 
     @InputFiles
-    public FileCollection getClassFileCollection() {
+    public BuildableArtifact getClassFileCollection() {
         return classFileCollection;
     }
 
     @InputFiles
-    public Collection<File> getSourceFolders() {
+    public FileCollection getSourceFolders() {
         return sourceFolders.get();
     }
 
@@ -160,25 +148,20 @@ public class JacocoReportTask extends DefaultTask {
 
     @TaskAction
     public void generateReport() throws IOException {
-        File coverageFile = getCoverageFile();
-        File coverageDir = coverageDirectory.get();
-
-        List<File> coverageFiles = Lists.newArrayList();
-        if (coverageFile != null) {
-            coverageFiles.add(coverageFile);
-        }
-        if (coverageDir != null) {
-            Files.fileTreeTraverser().breadthFirstTraversal(coverageDir)
-                    .filter(File::isFile).copyInto(coverageFiles);
-        }
+        Set<File> coverageFiles =
+                coverageDirectories
+                        .get()
+                        .getAsFileTree()
+                        .getFiles()
+                        .stream()
+                        .filter(File::isFile)
+                        .collect(Collectors.toSet());
 
         if (coverageFiles.isEmpty()) {
-            if (coverageDir == null) {
-                throw new IOException("No input file or directory specified.");
-            } else {
-                throw new IOException(String.format(
-                        "No coverage data to process in directory '%1$s'", coverageDir));
-            }
+            throw new IOException(
+                    String.format(
+                            "No coverage data to process in directories [%1$s]",
+                            coverageDirectories.getFiles()));
         }
         executor.submit(
                 JacocoReportWorkerAction.class,
@@ -189,26 +172,25 @@ public class JacocoReportTask extends DefaultTask {
                             coverageFiles,
                             getReportDir(),
                             getClassFileCollection().getFiles(),
-                            getSourceFolders(),
+                            getSourceFolders().getFiles(),
                             getTabWidth(),
                             getReportName());
                 });
     }
 
-    public static class ConfigAction implements TaskConfigAction<JacocoReportTask> {
-        @NonNull private VariantScope scope;
+    public static class CreationAction extends VariantTaskCreationAction<JacocoReportTask> {
         @NonNull private final Configuration jacocoAntConfiguration;
 
-        public ConfigAction(
+        public CreationAction(
                 @NonNull VariantScope scope, @NonNull Configuration jacocoAntConfiguration) {
-            this.scope = scope;
+            super(scope);
             this.jacocoAntConfiguration = jacocoAntConfiguration;
         }
 
         @NonNull
         @Override
         public String getName() {
-            return scope.getTaskName("create", "CoverageReport");
+            return getVariantScope().getTaskName("create", "CoverageReport");
         }
 
         @NonNull
@@ -218,31 +200,36 @@ public class JacocoReportTask extends DefaultTask {
         }
 
         @Override
-        public void execute(@NonNull JacocoReportTask task) {
+        public void handleProvider(@NonNull TaskProvider<? extends JacocoReportTask> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setCoverageReportTask(taskProvider);
+        }
+
+        @Override
+        public void configure(@NonNull JacocoReportTask task) {
+            super.configure(task);
+            VariantScope scope = getVariantScope();
 
             task.setDescription("Creates JaCoCo test coverage report from data gathered on the "
                     + "device.");
 
             task.setReportName(scope.getVariantConfiguration().getFullName());
-            final Project project = scope.getGlobalScope().getProject();
 
             checkNotNull(scope.getTestedVariantData());
             final VariantScope testedScope = scope.getTestedVariantData().getScope();
 
             task.jacocoClasspath = jacocoAntConfiguration;
 
-            task.coverageDirectory =
-                    TaskInputHelper.memoize(
-                            () ->
-                                    ((TestVariantData) scope.getVariantData())
-                                            .connectedTestTask.getCoverageDir());
+            task.coverageDirectories =
+                    scope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.CODE_COVERAGE);
 
             task.classFileCollection =
-                    testedScope.getOutput(TaskOutputHolder.AnchorOutputType.ALL_CLASSES);
+                    testedScope
+                            .getArtifacts()
+                            .getFinalArtifactFiles(AnchorOutputType.ALL_CLASSES);
 
             task.sourceFolders =
-                    TaskInputHelper.bypassFileSupplier(
-                            () -> testedScope.getVariantData().getJavaSourceFoldersForCoverage());
+                    () -> testedScope.getVariantData().getJavaSourceFoldersForCoverage();
 
             task.setReportDir(testedScope.getCoverageReportDir());
         }
@@ -251,7 +238,7 @@ public class JacocoReportTask extends DefaultTask {
     static class JacocoReportWorkerAction implements Runnable {
         private static Logger logger = Logging.getLogger(JacocoReportWorkerAction.class);
 
-        @NonNull private List<File> coverageFiles;
+        @NonNull private Collection<File> coverageFiles;
         @NonNull private File reportDir;
         @NonNull private Collection<File> classFolders;
         @NonNull private Collection<File> sourceFolders;
@@ -260,7 +247,7 @@ public class JacocoReportTask extends DefaultTask {
 
         @Inject
         public JacocoReportWorkerAction(
-                @NonNull List<File> coverageFiles,
+                @NonNull Collection<File> coverageFiles,
                 @NonNull File reportDir,
                 @NonNull Collection<File> classFolders,
                 @NonNull Collection<File> sourceFolders,
@@ -291,7 +278,7 @@ public class JacocoReportTask extends DefaultTask {
 
         @VisibleForTesting
         static void generateReport(
-                @NonNull List<File> coverageFiles,
+                @NonNull Collection<File> coverageFiles,
                 @NonNull File reportDir,
                 @NonNull Collection<File> classFolders,
                 @NonNull Collection<File> sourceFolders,

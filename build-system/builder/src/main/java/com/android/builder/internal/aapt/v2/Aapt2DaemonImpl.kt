@@ -17,11 +17,14 @@
 package com.android.builder.internal.aapt.v2
 
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.ide.common.res2.CompileResourceRequest
+import com.android.ide.common.resources.CompileResourceRequest
 import com.android.utils.GrabProcessOutput
 import com.android.utils.ILogger
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.SettableFuture
+import java.io.IOException
 import java.io.Writer
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Locale
 import java.util.concurrent.TimeoutException
@@ -95,7 +98,7 @@ class Aapt2DaemonImpl(
             }
         }
 
-        try {
+        val ready = try {
             waitForReady.future.get(daemonTimeouts.start, daemonTimeouts.startUnit)
         } catch (e: TimeoutException) {
             stopQuietly("Failed to start AAPT2 process $displayName. " +
@@ -103,6 +106,10 @@ class Aapt2DaemonImpl(
                     "${daemonTimeouts.startUnit.name.toLowerCase(Locale.US)}.", e)
         } catch (e: Exception) {
             stopQuietly("Failed to start AAPT2 process.", e)
+        }
+        if (!ready) {
+            stopQuietly("Failed to start AAPT2 process.",
+                IOException("Process unexpectedly exit."))
         }
         //Process is ready
         processOutput.delegate = noOutputExpected
@@ -123,46 +130,72 @@ class Aapt2DaemonImpl(
         }
     }
 
-    @Throws(TimeoutException::class)
+    @Throws(TimeoutException::class, Aapt2InternalException::class, Aapt2Exception::class)
     override fun doCompile(request: CompileResourceRequest, logger: ILogger) {
         val waitForTask = WaitForTaskCompletion(displayName, logger)
         try {
             processOutput.delegate = waitForTask
             Aapt2DaemonUtil.requestCompile(writer, request)
-            val error = waitForTask.future.get(daemonTimeouts.compile, daemonTimeouts.compileUnit)
-            if (error != null) {
-                val args = AaptV2CommandBuilder.makeCompile(request).joinToString(" \\\n        ")
-                throw Aapt2Exception(
-                        "Android resource compilation failed ($displayName)\n" +
-                                "Command: $aaptPath compile $args\n" +
-                                "Output:  $error")
+            // Temporary workaround for b/111629686, manually generate the partial R file for raw and non xml res.
+            request.partialRFile?.apply {
+                if (request.inputDirectoryName.startsWith("raw") || !request.inputFile.path.endsWith(".xml")) {
+                    val type = request.inputDirectoryName.substringBefore('-')
+                    val nameWithoutExtension = request.inputFile.name.substringBefore('.')
+                    Files.write(toPath(), ImmutableList.of("default int $type $nameWithoutExtension"))
+                }
+            }
+            val result = waitForTask.future.get(daemonTimeouts.compile, daemonTimeouts.compileUnit)
+            when (result) {
+                is WaitForTaskCompletion.Result.Succeeded -> {}
+                is WaitForTaskCompletion.Result.Failed -> {
+                    val args = makeCompileCommand(request).joinToString(" \\\n        ")
+                    throw Aapt2Exception.create(
+                        logger = logger,
+                        description = "Android resource compilation failed",
+                        output = result.stdErr,
+                        processName = displayName,
+                        command = "$aaptPath compile $args"
+                    )
+                }
+                is WaitForTaskCompletion.Result.InternalAapt2Error -> {
+                    throw result.failure
+                }
             }
         } finally {
             processOutput.delegate = noOutputExpected
         }
     }
 
-    @Throws(TimeoutException::class)
+    @Throws(TimeoutException::class, Aapt2InternalException::class, Aapt2Exception::class)
     override fun doLink(request: AaptPackageConfig, logger: ILogger) {
         val waitForTask = WaitForTaskCompletion(displayName, logger)
         try {
             processOutput.delegate = waitForTask
             Aapt2DaemonUtil.requestLink(writer, request)
-            val error = waitForTask.future.get(daemonTimeouts.link, daemonTimeouts.linkUnit)
-            if (error != null) {
-                val configWithResourcesListed =
+            val result = waitForTask.future.get(daemonTimeouts.link, daemonTimeouts.linkUnit)
+            when (result) {
+                is WaitForTaskCompletion.Result.Succeeded -> { }
+                is WaitForTaskCompletion.Result.Failed -> {
+                    val configWithResourcesListed =
                         if (request.intermediateDir != null) {
                             request.copy(listResourceFiles = true)
                         } else {
                             request
                         }
-                val args =
-                        AaptV2CommandBuilder.makeLink(configWithResourcesListed)
-                                .joinToString("\\\n        ")
-                throw Aapt2Exception(
-                        ("Android resource linking failed ($displayName)\n" +
-                                "Command: $aaptPath link $args\n" +
-                                "Output:  $error"))
+                    val args =
+                        makeLinkCommand(configWithResourcesListed).joinToString("\\\n        ")
+
+                    throw Aapt2Exception.create(
+                        logger = logger,
+                        description = "Android resource linking failed",
+                        output = result.stdErr,
+                        processName = displayName,
+                        command = "$aaptPath link $args"
+                    )
+                }
+                is WaitForTaskCompletion.Result.InternalAapt2Error -> {
+                    throw result.failure
+                }
             }
         } finally {
             processOutput.delegate = noOutputExpected
@@ -172,8 +205,14 @@ class Aapt2DaemonImpl(
     @Throws(TimeoutException::class)
     override fun stopProcess() {
         processOutput.delegate = AllowShutdown(displayName, logger)
-        writer.write("quit\n\n")
-        writer.flush()
+        var suppressed: Exception? = null
+        try {
+            writer.write("quit\n\n")
+            writer.flush()
+        } catch (e: IOException) {
+            // This might happen if the process has already exited.
+            suppressed = e
+        }
 
         val shutdown = process.waitFor(daemonTimeouts.stop, daemonTimeouts.stopUnit)
         if (shutdown) {
@@ -184,6 +223,7 @@ class Aapt2DaemonImpl(
                         "${daemonTimeouts.stop} " +
                         "${daemonTimeouts.stopUnit.name.toLowerCase(Locale.US)}. " +
                         "Forcing shutdown").apply {
+            suppressed?.let { addSuppressed(it) }
             try {
                 process.destroyForcibly()
             } catch (suppressed: Exception) {
@@ -195,8 +235,11 @@ class Aapt2DaemonImpl(
     class NoOutputExpected(private val displayName: String,
             val logger: ILogger) : GrabProcessOutput.IProcessOutput {
         override fun out(line: String?) {
-            line?.let {
-                logger.error(null, "$displayName: Unexpected standard output: $it")
+            if (line != null) {
+                logger.error(null, "$displayName: Unexpected standard output: $line")
+            } else {
+                // Don't try to handle process exit here, just allow the next task to fail.
+                logger.error(null, "$displayName: Unexpectedly exit.")
             }
         }
 
@@ -210,13 +253,19 @@ class Aapt2DaemonImpl(
     class WaitForReadyOnStdOut(private val displayName: String,
             val logger: ILogger) : GrabProcessOutput.IProcessOutput {
 
-        val future: SettableFuture<Void> = SettableFuture.create<Void>()
+        val future: SettableFuture<Boolean> = SettableFuture.create<Boolean>()
 
         override fun out(line: String?) {
             when (line) {
-                null -> return
+                null -> {
+                    // This could happen just after "Ready" but before this IProcessOutput has been
+                    // swapped out. In that case, the task immediately after this will fail anyway.
+                    if (!future.isDone) {
+                        future.set(false)
+                    }
+                }
                 "" -> return
-                "Ready" -> future.set(null)
+                "Ready" -> future.set(true)
                 else -> {
                     logger.error(null, "$displayName: Unexpected error output: $line")
                 }
@@ -234,19 +283,50 @@ class Aapt2DaemonImpl(
             private val displayName: String,
             val logger: ILogger) : GrabProcessOutput.IProcessOutput {
 
+        sealed class Result {
+            object Succeeded : Result()
+            class Failed(val stdErr: String) : Result()
+            class InternalAapt2Error(val failure: IOException) : Result()
+        }
+
         /** Set to null on success, the error output on failure. */
-        val future = SettableFuture.create<String?>()!!
+        val future = SettableFuture.create<Result>()!!
         private var errors: StringBuilder? = null
+        private var foundError: Boolean = false
 
         override fun out(line: String?) {
-            line?.let { logger.info("%1\$s: %2\$s", displayName, it) }
+            line?.let { logger.lifecycle("%1\$s: %2\$s", displayName, it) }
         }
 
         override fun err(line: String?) {
             when (line) {
-                null -> return
-                "Done" -> future.set(errors?.toString())
-                "Error" -> if (errors == null) { errors = StringBuilder() }
+                null -> {
+                    foundError = true
+                    if (errors == null) {
+                        errors = StringBuilder()
+                    }
+                    future.set(
+                        Result.InternalAapt2Error(IOException(
+                            "AAPT2 process unexpectedly exit. Error output:\n" +
+                            errors.toString())))
+                }
+                "Done" -> {
+                    when {
+                        foundError -> future.set(Result.Failed(errors!!.toString()))
+                        errors != null -> {
+                            logger.warning(errors.toString())
+                            future.set(Result.Succeeded)
+                        }
+                        else -> future.set(Result.Succeeded)
+                    }
+                    errors = null
+                }
+                "Error" -> {
+                    foundError = true
+                    if (errors == null) {
+                        errors = StringBuilder()
+                    }
+                }
                 else -> {
                     if (errors == null) {
                         errors = StringBuilder()

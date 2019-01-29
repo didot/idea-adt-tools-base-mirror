@@ -16,13 +16,11 @@
 
 package com.android.builder.internal.aapt;
 
-import com.android.ide.common.res2.QueueableResourceCompiler;
+import com.android.ide.common.resources.QueueableResourceCompiler;
 
 
 /**
  * Interface to the {@code aapt} tool. To obtain an instance, a concrete class, tied to a specific
- * {@code aapt} implementation, should be used. For example, {@link
- * com.android.builder.internal.aapt.v1.AaptV1} can be used to create implementations that use
- * version 1 of the {@code aapt} tool.
+ * {@code aapt} implementation, should be used.
  */
-public interface Aapt extends QueueableResourceCompiler, BlockingResourceLinker {}
+public interface Aapt extends QueueableResourceCompiler, CloseableBlockingResourceLinker {}

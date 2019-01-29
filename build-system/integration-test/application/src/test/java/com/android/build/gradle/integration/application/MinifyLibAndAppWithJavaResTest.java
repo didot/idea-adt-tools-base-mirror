@@ -22,9 +22,9 @@ import static org.junit.Assert.assertNotNull;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
-import com.android.build.gradle.integration.shrinker.ShrinkerTestUtils;
+import com.android.build.gradle.internal.scope.CodeShrinker;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.testutils.apk.Apk;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -37,28 +37,23 @@ import org.junit.runners.Parameterized;
 @RunWith(FilterableParameterized.class)
 public class MinifyLibAndAppWithJavaResTest {
 
-    @Parameterized.Parameters(name = "useProguard = {0}")
-    public static Boolean[] data() {
-        return new Boolean[] {true, false};
+    @Parameterized.Parameters(name = "codeShrinker = {0}")
+    public static CodeShrinker[] data() {
+        return new CodeShrinker[] {CodeShrinker.PROGUARD, CodeShrinker.R8};
     }
 
     @Rule
     public GradleTestProject project =
             GradleTestProject.builder().fromTestProject("minifyLibWithJavaRes").create();
 
-    @Parameterized.Parameter() public boolean useProguard;
-
-    @Before
-    public void setUp() throws Exception {
-        if (!useProguard) {
-            ShrinkerTestUtils.enableShrinker(project.getSubproject("app"), "release");
-        }
-    }
+    @Parameterized.Parameter() public CodeShrinker codeShrinker;
 
     @Test
     public void testDebugPackaging() throws Exception {
-        project.execute(":app:assembleDebug");
-        Apk debugApk = project.getSubproject("app").getApk("debug");
+        project.executor()
+                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .run(":app:assembleDebug");
+        Apk debugApk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
         assertNotNull(debugApk);
         // check that resources with relative path lookup code have a matching obfuscated package
         // name.
@@ -72,20 +67,25 @@ public class MinifyLibAndAppWithJavaResTest {
 
     @Test
     public void testReleasePackaging() throws Exception {
-        project.execute(":app:assembleRelease");
-        Apk releaseApk = project.getSubproject("app").getApk("release");
+        project.executor()
+                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .run(":app:assembleRelease");
+        Apk releaseApk =
+                project.getSubproject("app").getApk(GradleTestProject.ApkType.RELEASE_SIGNED);
         assertNotNull(releaseApk);
         // check that resources with absolute path lookup remain in the original package name.
         assertThat(releaseApk).contains("com/android/tests/util/another.properties");
         assertThat(releaseApk).contains("com/android/tests/other/some.xml");
         assertThat(releaseApk).contains("com/android/tests/other/another.properties");
 
-        if (useProguard) {
-            // check that resources with relative path lookup code have a matching obfuscated
-            // package
-            // name.
+        // check that resources with relative path lookup code have a matching obfuscated
+        // package name.
+        if (codeShrinker == CodeShrinker.PROGUARD) {
             assertThat(releaseApk).contains("com/android/tests/b/resources.properties");
             assertThat(releaseApk).contains("com/android/tests/a/resources.properties");
+        } else {
+            assertThat(releaseApk).contains("a/a/a/b/resources.properties");
+            assertThat(releaseApk).contains("a/a/a/a/resources.properties");
         }
     }
 }

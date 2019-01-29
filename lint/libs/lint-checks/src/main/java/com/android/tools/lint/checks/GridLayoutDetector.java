@@ -42,7 +42,7 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
 import com.android.utils.XmlUtils;
-import java.util.Arrays;
+import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
@@ -56,28 +56,24 @@ import org.w3c.dom.Node;
  */
 public class GridLayoutDetector extends LayoutDetector {
     /** The main issue discovered by this detector */
-    public static final Issue ISSUE = Issue.create(
-            "GridLayout",
-            "GridLayout validation",
-            "Declaring a layout_row or layout_column that falls outside the declared size " +
-            "of a GridLayout's `rowCount` or `columnCount` is usually an unintentional error.",
-            Category.CORRECTNESS,
-            4,
-            Severity.FATAL,
-            new Implementation(
-                    GridLayoutDetector.class,
-                    Scope.RESOURCE_FILE_SCOPE));
+    public static final Issue ISSUE =
+            Issue.create(
+                    "GridLayout",
+                    "GridLayout validation",
+                    "Declaring a layout_row or layout_column that falls outside the declared size "
+                            + "of a GridLayout's `rowCount` or `columnCount` is usually an unintentional error.",
+                    Category.CORRECTNESS,
+                    4,
+                    Severity.FATAL,
+                    new Implementation(GridLayoutDetector.class, Scope.RESOURCE_FILE_SCOPE));
 
     /** Constructs a new {@link GridLayoutDetector} check */
-    public GridLayoutDetector() {
-    }
+    public GridLayoutDetector() {}
 
     @Override
     public Collection<String> getApplicableElements() {
-        return Arrays.asList(
-                GRID_LAYOUT,
-                FQCN_GRID_LAYOUT_V7
-        );
+        return ImmutableSet.of(
+                GRID_LAYOUT, FQCN_GRID_LAYOUT_V7.oldName(), FQCN_GRID_LAYOUT_V7.newName());
     }
 
     private static int getInt(Element element, String attribute, int defaultValue) {
@@ -104,8 +100,12 @@ public class GridLayoutDetector extends LayoutDetector {
                     int column = getInt(child, ATTR_LAYOUT_COLUMN, -1);
                     if (column >= declaredColumnCount) {
                         Attr node = child.getAttributeNodeNS(ANDROID_URI, ATTR_LAYOUT_COLUMN);
-                        context.report(ISSUE, node, context.getLocation(node),
-                                String.format("Column attribute (%1$d) exceeds declared grid column count (%2$d)",
+                        context.report(
+                                ISSUE,
+                                node,
+                                context.getLocation(node),
+                                String.format(
+                                        "Column attribute (%1$d) exceeds declared grid column count (%2$d)",
                                         column, declaredColumnCount));
                     }
                 }
@@ -113,15 +113,19 @@ public class GridLayoutDetector extends LayoutDetector {
                     int row = getInt(child, ATTR_LAYOUT_ROW, -1);
                     if (row > declaredRowCount) {
                         Attr node = child.getAttributeNodeNS(ANDROID_URI, ATTR_LAYOUT_ROW);
-                        context.report(ISSUE, node, context.getLocation(node),
-                                String.format("Row attribute (%1$d) exceeds declared grid row count (%2$d)",
+                        context.report(
+                                ISSUE,
+                                node,
+                                context.getLocation(node),
+                                String.format(
+                                        "Row attribute (%1$d) exceeds declared grid row count (%2$d)",
                                         row, declaredRowCount));
                     }
                 }
             }
         }
 
-        if (element.getTagName().equals(FQCN_GRID_LAYOUT_V7)) {
+        if (FQCN_GRID_LAYOUT_V7.isEquals(element.getTagName())) {
             // Make sure that we're not using android: namespace attributes where we should
             // be using app namespace attributes!
             ensureAppNamespace(context, element, ATTR_COLUMN_COUNT);
@@ -154,18 +158,23 @@ public class GridLayoutDetector extends LayoutDetector {
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("Wrong namespace; with v7 `GridLayout` you should use ").append(prefix)
-                    .append(":").append(name);
+            sb.append("Wrong namespace; with v7 `GridLayout` you should use ")
+                    .append(prefix)
+                    .append(":")
+                    .append(name);
             if (!haveNamespace) {
-                sb.append(" (and add `xmlns:app=\"").append(AUTO_URI)
+                sb.append(" (and add `xmlns:app=\"")
+                        .append(AUTO_URI)
                         .append("\"` to your root element)");
             }
             String message = sb.toString();
 
-            LintFix fix = fix().name("Update to " + prefix + ":" + name).composite(
-                    fix().set(AUTO_URI, name, attribute.getValue()).build(),
-                    fix().unset(ANDROID_URI, name).build()
-            );
+            LintFix fix =
+                    fix().name("Update to " + prefix + ":" + name)
+                            .composite(
+                                    fix().set(AUTO_URI, name, attribute.getValue()).build(),
+                                    fix().unset(ANDROID_URI, name).build())
+                            .autoFix();
 
             context.report(ISSUE, attribute, context.getLocation(attribute), message, fix);
         }
@@ -180,11 +189,10 @@ public class GridLayoutDetector extends LayoutDetector {
         NamedNodeMap attributes = root.getAttributes();
         for (int i = 0, n = attributes.getLength(); i < n; i++) {
             Node attribute = attributes.item(i);
-            if (attribute.getNodeName().startsWith(XMLNS_PREFIX) &&
-                    attribute.getNodeValue().equals(uri)) {
+            if (attribute.getNodeName().startsWith(XMLNS_PREFIX)
+                    && attribute.getNodeValue().equals(uri)) {
                 return attribute.getNodeName().substring(XMLNS_PREFIX.length());
             }
-
         }
 
         return null;

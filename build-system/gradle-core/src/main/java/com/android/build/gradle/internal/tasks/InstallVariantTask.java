@@ -20,14 +20,15 @@ import static com.android.sdklib.BuildToolInfo.PathId.SPLIT_SELECT;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.OutputFile;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.TaskManager;
+import com.android.build.gradle.internal.api.artifact.BuildableArtifactUtil;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.variant.ApkVariantData;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.builder.internal.InstallUtils;
 import com.android.builder.sdk.SdkInfo;
@@ -52,13 +53,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.gradle.api.GradleException;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.tasks.Input;
-import org.gradle.api.tasks.InputDirectory;
 import org.gradle.api.tasks.InputFile;
+import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
  * Task installing an app variant. It looks at connected device and install the best matching
@@ -77,7 +78,7 @@ public class InstallVariantTask extends AndroidBuilderTask {
 
     private Collection<String> installOptions;
 
-    private FileCollection apkDirectory;
+    private BuildableArtifact apkDirectory;
 
     private BaseVariantData variantData;
 
@@ -89,32 +90,38 @@ public class InstallVariantTask extends AndroidBuilderTask {
     }
 
     @TaskAction
-    public void install() throws DeviceException, ProcessException, InterruptedException {
+    public void install() throws DeviceException, ProcessException {
         final ILogger iLogger = getILogger();
         DeviceProvider deviceProvider = new ConnectedDeviceProvider(adbExe.get(),
                 getTimeOutInMs(),
                 iLogger);
         deviceProvider.init();
-        BaseVariantData variantData = getVariantData();
-        GradleVariantConfiguration variantConfig = variantData.getVariantConfiguration();
 
-        List<OutputFile> outputs =
-                ImmutableList.copyOf(
-                        ExistingBuildElements.from(
-                                VariantScope.TaskOutputType.APK, getApkDirectory()));
+        try {
+            BaseVariantData variantData = getVariantData();
+            GradleVariantConfiguration variantConfig = variantData.getVariantConfiguration();
 
-        install(
-                getProjectName(),
-                variantConfig.getFullName(),
-                deviceProvider,
-                variantConfig.getMinSdkVersion(),
-                getProcessExecutor(),
-                getSplitSelectExe(),
-                outputs,
-                variantConfig.getSupportedAbis(),
-                getInstallOptions(),
-                getTimeOutInMs(),
-                getLogger());
+            List<OutputFile> outputs =
+                    ImmutableList.copyOf(
+                            ExistingBuildElements.from(
+                                    InternalArtifactType.APK,
+                                    BuildableArtifactUtil.singleFile(apkDirectory)));
+
+            install(
+                    getProjectName(),
+                    variantConfig.getFullName(),
+                    deviceProvider,
+                    variantConfig.getMinSdkVersion(),
+                    getProcessExecutor(),
+                    getSplitSelectExe(),
+                    outputs,
+                    variantConfig.getSupportedAbis(),
+                    getInstallOptions(),
+                    getTimeOutInMs(),
+                    getLogger());
+        } finally {
+            deviceProvider.terminate();
+        }
     }
 
     static void install(
@@ -232,12 +239,12 @@ public class InstallVariantTask extends AndroidBuilderTask {
         this.installOptions = installOptions;
     }
 
-    @InputDirectory
-    public File getApkDirectory() {
-        return apkDirectory.getSingleFile();
+    @InputFiles
+    public BuildableArtifact getApkDirectory() {
+        return apkDirectory;
     }
 
-    public void setApkDirectory(FileCollection apkDirectory) {
+    public void setApkDirectory(BuildableArtifact apkDirectory) {
         this.apkDirectory = apkDirectory;
     }
 
@@ -249,18 +256,16 @@ public class InstallVariantTask extends AndroidBuilderTask {
         this.variantData = variantData;
     }
 
-    public static class ConfigAction implements TaskConfigAction<InstallVariantTask> {
+    public static class CreationAction extends VariantTaskCreationAction<InstallVariantTask> {
 
-        private final VariantScope scope;
-
-        public ConfigAction(VariantScope scope) {
-            this.scope = scope;
+        public CreationAction(VariantScope scope) {
+            super(scope);
         }
 
         @NonNull
         @Override
         public String getName() {
-            return scope.getTaskName("install");
+            return getVariantScope().getTaskName("install");
         }
 
         @NonNull
@@ -270,38 +275,54 @@ public class InstallVariantTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull InstallVariantTask installTask) {
-            installTask.setDescription(
-                    "Installs the " + scope.getVariantData().getDescription() + ".");
-            installTask.setVariantName(scope.getVariantConfiguration().getFullName());
-            installTask.setGroup(TaskManager.INSTALL_GROUP);
-            installTask.setProjectName(scope.getGlobalScope().getProject().getName());
-            installTask.setVariantData(scope.getVariantData());
-            installTask.setApkDirectory(scope.getOutput(TaskOutputHolder.TaskOutputType.APK));
-            installTask.setTimeOutInMs(
+        public void configure(@NonNull InstallVariantTask task) {
+            super.configure(task);
+            VariantScope scope = getVariantScope();
+            task.setVariantData(scope.getVariantData());
+
+            task.setDescription("Installs the " + scope.getVariantData().getDescription() + ".");
+            task.setGroup(TaskManager.INSTALL_GROUP);
+            task.setProjectName(scope.getGlobalScope().getProject().getName());
+            task.setApkDirectory(
+                    scope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.APK));
+            task.setTimeOutInMs(
                     scope.getGlobalScope().getExtension().getAdbOptions().getTimeOutInMs());
-            installTask.setInstallOptions(
+            task.setInstallOptions(
                     scope.getGlobalScope().getExtension().getAdbOptions().getInstallOptions());
-            installTask.setProcessExecutor(
+            task.setProcessExecutor(
                     scope.getGlobalScope().getAndroidBuilder().getProcessExecutor());
-            installTask.adbExe = TaskInputHelper.memoize(() -> {
-                final SdkInfo info = scope.getGlobalScope().getSdkHandler().getSdkInfo();
-                return (info == null ? null : info.getAdb());
-            });
-            installTask.splitSelectExe = TaskInputHelper.memoize(() -> {
-                // SDK is loaded somewhat dynamically, plus we don't want to do all this logic
-                // if the task is not going to run, so use a supplier.
-                final TargetInfo info =
-                        scope.getGlobalScope().getAndroidBuilder().getTargetInfo();
-                String path = info == null ? null : info.getBuildTools().getPath(SPLIT_SELECT);
-                if (path != null) {
-                    File splitSelectExe = new File(path);
-                    return splitSelectExe.exists() ? splitSelectExe : null;
-                } else {
-                    return null;
-                }
-            });
-            ((ApkVariantData) scope.getVariantData()).installTask = installTask;
+            task.adbExe =
+                    TaskInputHelper.memoize(
+                            () -> {
+                                final SdkInfo info =
+                                        scope.getGlobalScope().getSdkHandler().getSdkInfo();
+                                return (info == null ? null : info.getAdb());
+                            });
+            task.splitSelectExe =
+                    TaskInputHelper.memoize(
+                            () -> {
+                                // SDK is loaded somewhat dynamically, plus we don't want to do all this logic
+                                // if the task is not going to run, so use a supplier.
+                                final TargetInfo info =
+                                        scope.getGlobalScope().getAndroidBuilder().getTargetInfo();
+                                String path =
+                                        info == null
+                                                ? null
+                                                : info.getBuildTools().getPath(SPLIT_SELECT);
+                                if (path != null) {
+                                    File splitSelectExe = new File(path);
+                                    return splitSelectExe.exists() ? splitSelectExe : null;
+                                } else {
+                                    return null;
+                                }
+                            });
+        }
+
+        @Override
+        public void handleProvider(
+                @NonNull TaskProvider<? extends InstallVariantTask> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setInstallTask(taskProvider);
         }
     }
 }

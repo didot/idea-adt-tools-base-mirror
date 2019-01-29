@@ -27,16 +27,23 @@ import static com.android.sdklib.BuildToolInfo.PathId.SPLIT_SELECT;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
+import com.android.build.gradle.internal.scope.ExistingBuildElements;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.test.AbstractTestDataImpl;
 import com.android.build.gradle.internal.test.report.ReportType;
 import com.android.build.gradle.internal.test.report.TestReport;
+import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.TestVariantData;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.builder.internal.testing.SimpleTestCallable;
+import com.android.builder.model.TestOptions;
 import com.android.builder.sdk.TargetInfo;
 import com.android.builder.testing.ConnectedDeviceProvider;
 import com.android.builder.testing.OnDeviceOrchestratorTestRunner;
@@ -66,15 +73,17 @@ import java.util.stream.Collectors;
 import javax.xml.parsers.ParserConfigurationException;
 import org.gradle.api.GradleException;
 import org.gradle.api.InvalidUserDataException;
-import org.gradle.api.Nullable;
 import org.gradle.api.Project;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.JavaBasePlugin;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.internal.logging.ConsoleRenderer;
 import org.xml.sax.SAXException;
 
@@ -90,7 +99,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
     }
 
     private DeviceProvider deviceProvider;
-    private File coverageDir;
+    private Provider<Directory> coverageDir;
     private File reportsDir;
     private File resultsDir;
     private FileCollection buddyApks;
@@ -123,7 +132,8 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
 
         // populate the TestData from the tested variant build output.
         if (!testTargetManifests.isEmpty()) {
-            testData.loadFromMetadataFile(testTargetManifests.getSingleFile());
+            testData.loadFromMetadataFile(ExistingBuildElements.getMetadataFile(
+                    testTargetManifests.getSingleFile()));
         }
 
         boolean success;
@@ -234,11 +244,14 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
 
     @OutputDirectory
     public File getCoverageDir() {
-        return coverageDir;
+        return coverageDir.get().getAsFile();
     }
 
+    @Deprecated
     public void setCoverageDir(File coverageDir) {
-        this.coverageDir = coverageDir;
+        getLogger()
+                .info(
+                        "DeviceProviderInstrumentTestTask.setCoverageDir is deprecated and has no effect.");
     }
 
     public String getFlavorName() {
@@ -308,7 +321,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
      * @return tested variant metadata file.
      */
     @InputFiles
-    FileCollection getTestTargetManifests() {
+    public FileCollection getTestTargetManifests() {
         return testTargetManifests;
     }
 
@@ -318,31 +331,37 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
     }
 
     @InputFiles
-    FileCollection getTestApkDir() {
+    public BuildableArtifact getTestApkDir() {
         return testData.getTestApkDir();
     }
 
     @InputFiles
     @Optional
-    FileCollection getTestedApksDir() {
+    public BuildableArtifact getTestedApksDir() {
         return testData.getTestedApksDir();
     }
 
-    public static class ConfigAction implements TaskConfigAction<DeviceProviderInstrumentTestTask> {
+    @InputFiles
+    @Optional
+    public FileCollection getTestedApksFromBundle() {
+        return testData.getTestedApksFromBundle();
+    }
 
-        @NonNull
-        private final VariantScope scope;
+    public static class CreationAction
+            extends VariantTaskCreationAction<DeviceProviderInstrumentTestTask> {
+
         @NonNull
         private final DeviceProvider deviceProvider;
         @NonNull private final AbstractTestDataImpl testData;
         @NonNull private final FileCollection testTargetManifests;
+        private Provider<Directory> coverageDir;
 
-        public ConfigAction(
+        public CreationAction(
                 @NonNull VariantScope scope,
                 @NonNull DeviceProvider deviceProvider,
                 @NonNull AbstractTestDataImpl testData,
                 @NonNull FileCollection testTargetManifests) {
-            this.scope = scope;
+            super(scope);
             this.deviceProvider = deviceProvider;
             this.testData = testData;
             this.testTargetManifests = testTargetManifests;
@@ -351,7 +370,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         @NonNull
         @Override
         public String getName() {
-            return scope.getTaskName(deviceProvider.getName());
+            return getVariantScope().getTaskName(deviceProvider.getName());
         }
 
         @NonNull
@@ -361,13 +380,62 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         }
 
         @Override
-        public void execute(@NonNull DeviceProviderInstrumentTestTask task) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+
+            if (deviceProvider instanceof ConnectedDeviceProvider) {
+                coverageDir =
+                        getVariantScope()
+                                .getArtifacts()
+                                .createDirectory(
+                                        InternalArtifactType.CODE_COVERAGE,
+                                        taskName,
+                                        deviceProvider.getName());
+            } else {
+                coverageDir =
+                        getVariantScope()
+                                .getArtifacts()
+                                .createDirectory(
+                                        InternalArtifactType.DEVICE_PROVIDER_CODE_COVERAGE,
+                                        BuildArtifactsHolder.OperationType.APPEND,
+                                        taskName,
+                                        deviceProvider.getName());
+            }
+        }
+
+        @Override
+        public void handleProvider(
+                @NonNull TaskProvider<? extends DeviceProviderInstrumentTestTask> taskProvider) {
+            super.handleProvider(taskProvider);
+            VariantScope scope = getVariantScope();
+            if (scope.getVariantData() instanceof TestVariantData) {
+                if (deviceProvider instanceof ConnectedDeviceProvider) {
+                    scope.getTaskContainer().setConnectedTestTask(taskProvider);
+                    // possible redundant with setConnectedTestTask?
+                    scope.getTaskContainer().setConnectedTask(taskProvider);
+                } else {
+                    scope.getTaskContainer().getProviderTestTaskList().add(taskProvider);
+                }
+            }
+        }
+
+        @Override
+        public void configure(@NonNull DeviceProviderInstrumentTestTask task) {
+            super.configure(task);
+
+            VariantScope scope = getVariantScope();
             Project project = scope.getGlobalScope().getProject();
             ProjectOptions projectOptions = scope.getGlobalScope().getProjectOptions();
 
             final boolean connected = deviceProvider instanceof ConnectedDeviceProvider;
-            String variantName = scope.getTestedVariantData() != null ?
-                    scope.getTestedVariantData().getName() : scope.getVariantData().getName();
+
+
+            BaseVariantData testedVariantData = scope.getTestedVariantData();
+
+            String variantName =
+                    testedVariantData != null
+                            ? testedVariantData.getName()
+                            : scope.getVariantData().getName();
             if (connected) {
                 task.setDescription("Installs and runs the tests for " + variantName +
                         " on connected devices.");
@@ -380,8 +448,6 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                                 deviceProvider.getName()));
             }
             task.setGroup(JavaBasePlugin.VERIFICATION_GROUP);
-            task.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            task.setVariantName(variantName);
             task.setTestData(testData);
             task.setFlavorName(testData.getFlavorName());
             task.setDeviceProvider(deviceProvider);
@@ -393,11 +459,18 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
 
             boolean shardBetweenDevices = projectOptions.get(BooleanOption.ENABLE_TEST_SHARDING);
 
-            switch (scope.getGlobalScope().getExtension().getTestOptions().getExecutionEnum()) {
+            final TestOptions.Execution executionEnum =
+                    scope.getGlobalScope().getExtension().getTestOptions().getExecutionEnum();
+            switch (executionEnum) {
                 case ANDROID_TEST_ORCHESTRATOR:
+                case ANDROIDX_TEST_ORCHESTRATOR:
                     Preconditions.checkArgument(
-                            !shardBetweenDevices, "Sharding is not supported with Odo.");
-                    task.testRunnerFactory = OnDeviceOrchestratorTestRunner::new;
+                            !shardBetweenDevices,
+                            "Sharding is not supported with Android Test Orchestrator.");
+                    task.testRunnerFactory =
+                            (splitSelect, processExecutor) ->
+                                    new OnDeviceOrchestratorTestRunner(
+                                            splitSelect, processExecutor, executionEnum);
                     break;
                 case HOST:
                     if (shardBetweenDevices) {
@@ -412,12 +485,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                     }
                     break;
                 default:
-                    throw new AssertionError(
-                            "Unknown value "
-                                    + scope.getGlobalScope()
-                                            .getExtension()
-                                            .getTestOptions()
-                                            .getExecutionEnum());
+                    throw new AssertionError("Unknown value " + executionEnum);
             }
 
             String flavorFolder = testData.getFlavorName();
@@ -456,18 +524,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
             }
             task.reportsDir = project.file(rootLocation + subFolder);
 
-            rootLocation = scope.getGlobalScope().getBuildDir() + "/" + FD_OUTPUTS
-                    + "/code-coverage";
-            task.setCoverageDir(project.file(rootLocation + subFolder));
-
-            if (scope.getVariantData() instanceof TestVariantData) {
-                TestVariantData testVariantData = (TestVariantData) scope.getVariantData();
-                if (connected) {
-                    testVariantData.connectedTestTask = task;
-                } else {
-                    testVariantData.providerTestTaskList.add(task);
-                }
-            }
+            task.coverageDir = coverageDir;
 
             // The configuration is not created by the experimental plugin, so just create an empty
             // FileCollection in this case.
@@ -482,6 +539,24 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
 
             // outputs are never up-to-date
             task.getOutputs().upToDateWhen(t -> false);
+
+            // FIXME these should be task inputs!
+            // depends on the test APK
+            task.dependsOn(scope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.APK));
+
+            if (testedVariantData != null) {
+                task.dependsOn(
+                        testedVariantData
+                                .getScope()
+                                .getArtifacts()
+                                .getFinalArtifactFiles(InternalArtifactType.APK));
+
+            } else {
+                // this is a separate the test project, we should consume the BA for the tested
+                // app
+                // FIXME handle separate test project BA
+
+            }
         }
     }
 }

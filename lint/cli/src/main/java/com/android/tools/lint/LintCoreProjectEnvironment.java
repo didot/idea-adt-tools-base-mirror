@@ -16,6 +16,8 @@
 
 package com.android.tools.lint;
 
+import static com.android.SdkConstants.DOT_SRCJAR;
+
 import com.android.annotations.NonNull;
 import com.google.common.collect.Sets;
 import com.intellij.core.CoreApplicationEnvironment;
@@ -34,6 +36,7 @@ import com.intellij.psi.PsiElementFinder;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.PsiElementFinderImpl;
 import com.intellij.psi.impl.file.impl.JavaFileManager;
+import com.intellij.util.io.URLUtil;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -60,19 +63,21 @@ public class LintCoreProjectEnvironment extends JavaCoreProjectEnvironment {
         MockProject project = getProject();
         ExtensionsArea area = Extensions.getArea(project);
 
-        project.registerService(CoreJavaFileManager.class,
+        project.registerService(
+                CoreJavaFileManager.class,
                 (CoreJavaFileManager) ServiceManager.getService(project, JavaFileManager.class));
 
-        area.getExtensionPoint(PsiElementFinder.EP_NAME).registerExtension(
-                new PsiElementFinderImpl(
-                        project, ServiceManager.getService(project, JavaFileManager.class)));
-
+        area.getExtensionPoint(PsiElementFinder.EP_NAME)
+                .registerExtension(
+                        new PsiElementFinderImpl(
+                                project,
+                                ServiceManager.getService(project, JavaFileManager.class)));
 
         super.registerJavaPsiFacade();
     }
 
-    public LintCoreProjectEnvironment(Disposable parentDisposable,
-            CoreApplicationEnvironment applicationEnvironment) {
+    public LintCoreProjectEnvironment(
+            Disposable parentDisposable, CoreApplicationEnvironment applicationEnvironment) {
         super(parentDisposable, applicationEnvironment);
 
         MockProject project = getProject();
@@ -109,6 +114,17 @@ public class LintCoreProjectEnvironment extends JavaCoreProjectEnvironment {
                     // file systems.)
                     if (!path.isAbsolute()) {
                         path = path.getAbsoluteFile();
+                    }
+                    String pathString = path.getPath();
+                    if (pathString.endsWith(DOT_SRCJAR)) {
+                        // Mount as source files
+                        VirtualFile root =
+                                StandardFileSystems.jar()
+                                        .findFileByPath(pathString + URLUtil.JAR_SEPARATOR);
+                        if (root != null) {
+                            addSourcesToClasspath(root);
+                            continue;
+                        }
                     }
                     addJarToClassPath(path);
                 } else if (path.isDirectory()) {

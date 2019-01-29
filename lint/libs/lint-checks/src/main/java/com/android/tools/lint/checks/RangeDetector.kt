@@ -30,6 +30,7 @@ import com.android.tools.lint.detector.api.JavaContext
 import com.android.tools.lint.detector.api.Scope
 import com.android.tools.lint.detector.api.Severity
 import com.android.tools.lint.detector.api.SourceCodeScanner
+import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.PsiModifierListOwner
 import org.jetbrains.uast.UAnnotation
@@ -42,48 +43,63 @@ import org.jetbrains.uast.util.isNewArrayWithInitializer
 
 class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
     override fun applicableAnnotations(): List<String> = listOf(
-            INT_RANGE_ANNOTATION,
-            FLOAT_RANGE_ANNOTATION,
-            SIZE_ANNOTATION,
+        INT_RANGE_ANNOTATION.oldName(),
+        INT_RANGE_ANNOTATION.newName(),
+        FLOAT_RANGE_ANNOTATION.oldName(),
+        FLOAT_RANGE_ANNOTATION.newName(),
+        SIZE_ANNOTATION.oldName(),
+        SIZE_ANNOTATION.newName(),
 
-            // Such that the annotation is considered relevant by the annotation handler
-            // even if the typedef check itself is disabled
-            INT_DEF_ANNOTATION,
-            LONG_DEF_ANNOTATION
+        // Such that the annotation is considered relevant by the annotation handler
+        // even if the typedef check itself is disabled
+        INT_DEF_ANNOTATION.oldName(),
+        INT_DEF_ANNOTATION.newName(),
+
+        LONG_DEF_ANNOTATION.oldName(),
+        LONG_DEF_ANNOTATION.newName()
+
+        // Consider including org.jetbrains.annotations.Range here, but be careful
+        // such that we don't end up with a double set of warnings in the IDE (one
+        // from Lint, one from IntelliJ's support for this annotation)
     )
 
     override fun visitAnnotationUsage(
-            context: JavaContext,
-            usage: UElement,
-            type: AnnotationUsageType,
-            annotation: UAnnotation,
-            qualifiedName: String,
-            method: PsiMethod?,
-            annotations: List<UAnnotation>,
-            allMemberAnnotations: List<UAnnotation>,
-            allClassAnnotations: List<UAnnotation>,
-            allPackageAnnotations: List<UAnnotation>) {
+        context: JavaContext,
+        usage: UElement,
+        type: AnnotationUsageType,
+        annotation: UAnnotation,
+        qualifiedName: String,
+        method: PsiMethod?,
+        referenced: PsiElement?,
+        annotations: List<UAnnotation>,
+        allMemberAnnotations: List<UAnnotation>,
+        allClassAnnotations: List<UAnnotation>,
+        allPackageAnnotations: List<UAnnotation>
+    ) {
         when (qualifiedName) {
-            INT_RANGE_ANNOTATION -> {
+            INT_RANGE_ANNOTATION.oldName(), INT_RANGE_ANNOTATION.newName() -> {
                 checkIntRange(context, annotation, usage, annotations)
             }
 
-            FLOAT_RANGE_ANNOTATION -> {
+            FLOAT_RANGE_ANNOTATION.oldName(), FLOAT_RANGE_ANNOTATION.newName() -> {
                 checkFloatRange(context, annotation, usage)
             }
-            SIZE_ANNOTATION -> {
+            SIZE_ANNOTATION.oldName(), SIZE_ANNOTATION.newName() -> {
                 checkSize(context, annotation, usage)
             }
 
-            INT_DEF_ANNOTATION, LONG_DEF_ANNOTATION -> {}
+            INT_DEF_ANNOTATION.oldName(), INT_DEF_ANNOTATION.newName(),
+            LONG_DEF_ANNOTATION.oldName(), LONG_DEF_ANNOTATION.newName() -> {
+            }
         }
     }
 
     private fun checkIntRange(
-            context: JavaContext,
-            annotation: UAnnotation,
-            argument: UElement,
-            allAnnotations: List<UAnnotation>) {
+        context: JavaContext,
+        annotation: UAnnotation,
+        argument: UElement,
+        allAnnotations: List<UAnnotation>
+    ) {
         if (argument is UIfExpression) {
             if (argument.thenExpression != null) {
                 checkIntRange(context, annotation, argument.thenExpression!!, allAnnotations)
@@ -108,9 +124,10 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
     }
 
     private fun checkFloatRange(
-            context: JavaContext,
-            annotation: UAnnotation,
-            argument: UElement) {
+        context: JavaContext,
+        annotation: UAnnotation,
+        argument: UElement
+    ) {
         if (argument is UIfExpression) {
             if (argument.thenExpression != null) {
                 checkFloatRange(context, annotation, argument.thenExpression!!)
@@ -123,50 +140,59 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
 
         val constraint = FloatRangeConstraint.create(annotation)
 
-        val `object` = ConstantEvaluator.evaluate(context, argument)
-        if (`object` !is Number) {
+        val constant = ConstantEvaluator.evaluate(context, argument)
+        if (constant !is Number) {
             // Number arrays
-            if (`object` is FloatArray
-                    || `object` is DoubleArray
-                    || `object` is IntArray
-                    || `object` is LongArray) {
-                if (`object` is FloatArray) {
-                    for (value in (`object` as FloatArray?)!!) {
+            if (constant is FloatArray ||
+                constant is DoubleArray ||
+                constant is IntArray ||
+                constant is LongArray
+            ) {
+                if (constant is FloatArray) {
+                    for (value in (constant as FloatArray?)!!) {
                         if (!constraint.isValid(value.toDouble())) {
                             val message = constraint.describe(value.toDouble())
-                            report(context, RANGE, argument, context.getLocation(argument),
-                                    message)
+                            report(
+                                context, RANGE, argument, context.getLocation(argument),
+                                message
+                            )
                             return
                         }
                     }
                 }
                 // Kinda repetitive but primitive arrays are not related by subtyping
-                if (`object` is DoubleArray) {
-                    for (value in (`object` as DoubleArray?)!!) {
+                if (constant is DoubleArray) {
+                    for (value in (constant as DoubleArray?)!!) {
                         if (!constraint.isValid(value)) {
                             val message = constraint.describe(value)
-                            report(context, RANGE, argument, context.getLocation(argument),
-                                    message)
+                            report(
+                                context, RANGE, argument, context.getLocation(argument),
+                                message
+                            )
                             return
                         }
                     }
                 }
-                if (`object` is IntArray) {
-                    for (value in (`object` as IntArray?)!!) {
+                if (constant is IntArray) {
+                    for (value in (constant as IntArray?)!!) {
                         if (!constraint.isValid(value.toDouble())) {
                             val message = constraint.describe(value.toDouble())
-                            report(context, RANGE, argument, context.getLocation(argument),
-                                    message)
+                            report(
+                                context, RANGE, argument, context.getLocation(argument),
+                                message
+                            )
                             return
                         }
                     }
                 }
-                if (`object` is LongArray) {
-                    for (value in (`object` as LongArray?)!!) {
+                if (constant is LongArray) {
+                    for (value in (constant as LongArray?)!!) {
                         if (!constraint.isValid(value.toDouble())) {
                             val message = constraint.describe(value.toDouble())
-                            report(context, RANGE, argument, context.getLocation(argument),
-                                    message)
+                            report(
+                                context, RANGE, argument, context.getLocation(argument),
+                                message
+                            )
                             return
                         }
                     }
@@ -180,7 +206,8 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
                 // UAST-wise we could look for UDeclaration but it turns out
                 // UDeclaration also extends PsiModifierListOwner!
                 if (resolved is PsiModifierListOwner) {
-                    val referenceConstraint = RangeConstraint.create((resolved as PsiModifierListOwner?)!!)
+                    val referenceConstraint =
+                        RangeConstraint.create((resolved as PsiModifierListOwner?)!!)
                     val here = RangeConstraint.create(annotation)
                     if (here != null && referenceConstraint != null) {
                         val contains = here.contains(referenceConstraint)
@@ -195,18 +222,20 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
             return
         }
 
-        val value = `object`.toDouble()
+        val value = constant.toDouble()
         if (!constraint.isValid(value)) {
             val message = constraint.describe(
-                    argument as? UExpression, value)
+                argument as? UExpression, value
+            )
             report(context, RANGE, argument, context.getLocation(argument), message)
         }
     }
 
     private fun checkSize(
-            context: JavaContext,
-            annotation: UAnnotation,
-            argument: UElement) {
+        context: JavaContext,
+        annotation: UAnnotation,
+        argument: UElement
+    ) {
         val actual: Long
         var isString = false
 
@@ -230,21 +259,23 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
                 actual = `object`.length.toLong()
                 isString = true
             } else {
-                actual = getArrayLength(`object`).toLong()
+                actual = ConstantEvaluator.getArraySize(`object`).toLong()
                 if (actual == -1L) {
                     // Try to resolve it; see if there's an annotation on the variable/parameter/field
                     if (argument is UResolvable) {
                         val resolved = (argument as UResolvable).resolve()
                         if (resolved is PsiModifierListOwner) {
                             val constraint = RangeConstraint
-                                    .create((resolved as PsiModifierListOwner?)!!)
+                                .create((resolved as PsiModifierListOwner?)!!)
                             val here = RangeConstraint.create(annotation)
                             if (here != null && constraint != null) {
                                 val contains = here.contains(constraint)
                                 if (contains != null && !contains) {
                                     val message = here.toString()
-                                    report(context, RANGE, argument, context.getLocation(argument),
-                                            message)
+                                    report(
+                                        context, RANGE, argument, context.getLocation(argument),
+                                        message
+                                    )
                                 }
                             }
                         }
@@ -264,35 +295,22 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
             }
 
             val message = constraint.describe(
-                    argument as? UExpression,
-                    unit, actual)
+                argument as? UExpression,
+                unit, actual
+            )
             report(context, RANGE, argument, context.getLocation(argument), message)
         }
     }
 
-    private fun getArrayLength(array: Any?): Int {
-        // This is kinda repetitive but there is no subtyping relationship between
-        // primitive arrays; int[] is not a subtype of Object[] etc.
-        return when (array) {
-            is IntArray -> array.size
-            is LongArray -> array.size
-            is FloatArray -> array.size
-            is DoubleArray -> array.size
-            is CharArray -> array.size
-            is ByteArray -> array.size
-            is ShortArray -> array.size
-            is Array<*> -> array.size
-            else -> -1
-        }
-    }
-
     companion object {
-        private val IMPLEMENTATION = Implementation(RangeDetector::class.java,
-                Scope.JAVA_FILE_SCOPE)
+        private val IMPLEMENTATION = Implementation(
+            RangeDetector::class.java,
+            Scope.JAVA_FILE_SCOPE
+        )
 
         fun findIntRange(annotations: List<UAnnotation>): UAnnotation? {
             for (annotation in annotations) {
-                if (INT_RANGE_ANNOTATION == annotation.qualifiedName) {
+                if (INT_RANGE_ANNOTATION.isEquals(annotation.qualifiedName)) {
                     return annotation
                 }
             }
@@ -301,9 +319,10 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         }
 
         fun getIntRangeError(
-                context: JavaContext,
-                annotation: UAnnotation,
-                argument: UElement): String? {
+            context: JavaContext,
+            annotation: UAnnotation,
+            argument: UElement
+        ): String? {
             if (argument.isNewArrayWithInitializer()) {
                 val newExpression = argument as UCallExpression
                 for (expression in newExpression.valueArguments) {
@@ -343,7 +362,8 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
                     // UAST-wise we could look for UDeclaration but it turns out
                     // UDeclaration also extends PsiModifierListOwner!
                     if (resolved is PsiModifierListOwner) {
-                        val referenceConstraint = RangeConstraint.create((resolved as PsiModifierListOwner?)!!)
+                        val referenceConstraint =
+                            RangeConstraint.create((resolved as PsiModifierListOwner?)!!)
                         val here = RangeConstraint.create(annotation)
                         if (here != null && referenceConstraint != null) {
                             val contains = here.contains(referenceConstraint)
@@ -363,20 +383,19 @@ class RangeDetector : AbstractAnnotationDetector(), SourceCodeScanner {
             } else null
         }
 
-
         /** Makes sure values are within the allowed range */
         @JvmField
         val RANGE = Issue.create(
-                "Range",
-                "Outside Range",
-
-                "Some parameters are required to in a particular numerical range; this check " +
-                "makes sure that arguments passed fall within the range. For arrays, Strings " +
-                "and collections this refers to the size or length.",
-
-                Category.CORRECTNESS,
-                6,
-                Severity.ERROR,
-                IMPLEMENTATION)
+            id = "Range",
+            briefDescription = "Outside Range",
+            explanation = """
+                Some parameters are required to in a particular numerical range; this check \
+                makes sure that arguments passed fall within the range. For arrays, Strings \
+                and collections this refers to the size or length.""",
+            category = Category.CORRECTNESS,
+            priority = 6,
+            severity = Severity.ERROR,
+            implementation = IMPLEMENTATION
+        )
     }
 }

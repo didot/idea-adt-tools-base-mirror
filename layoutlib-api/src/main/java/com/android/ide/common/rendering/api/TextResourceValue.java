@@ -15,54 +15,5 @@
  */
 package com.android.ide.common.rendering.api;
 
-import com.android.resources.ResourceUrl;
-
-/** A {@link ResourceValue} intended for text nodes where we need access to the raw XML text */
-public class TextResourceValue extends ResourceValue {
-    private String mRawXmlValue;
-
-    public TextResourceValue(
-            ResourceUrl url, String textValue, String rawXmlValue, String libraryName) {
-        super(url, textValue, libraryName);
-        mRawXmlValue = rawXmlValue;
-    }
-
-    @Override
-    public String getRawXmlValue() {
-        if (mRawXmlValue != null) {
-            return mRawXmlValue;
-        }
-        return super.getValue();
-    }
-
-    public void setRawXmlValue(String value) {
-        mRawXmlValue = value;
-    }
-
-    @Override
-    public int hashCode() {
-        final int prime = 31;
-        int result = super.hashCode();
-        result = prime * result + ((mRawXmlValue == null) ? 0 : mRawXmlValue.hashCode());
-        return result;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj)
-            return true;
-        if (!super.equals(obj))
-            return false;
-        if (getClass() != obj.getClass())
-            return false;
-        TextResourceValue other = (TextResourceValue) obj;
-        if (mRawXmlValue == null) {
-            //noinspection VariableNotUsedInsideIf
-            if (other.mRawXmlValue != null)
-                return false;
-        } else if (!mRawXmlValue.equals(other.mRawXmlValue))
-            return false;
-        return true;
-    }
-
-}
+/** A {@link ResourceValue} intended for text nodes where we need access to the raw XML text. */
+public interface TextResourceValue extends ResourceValue {}

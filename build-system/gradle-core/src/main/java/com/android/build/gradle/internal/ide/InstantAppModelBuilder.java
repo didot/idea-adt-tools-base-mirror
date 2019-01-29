@@ -21,6 +21,7 @@ import static com.android.builder.model.AndroidProject.PROJECT_TYPE_INSTANTAPP;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
 import com.android.build.OutputFile;
 import com.android.build.VariantOutput;
 import com.android.build.gradle.AndroidConfig;
@@ -31,13 +32,13 @@ import com.android.build.gradle.internal.ProductFlavorData;
 import com.android.build.gradle.internal.VariantManager;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.dsl.LintOptions;
+import com.android.build.gradle.internal.ide.dependencies.BuildMappingUtils;
 import com.android.build.gradle.internal.incremental.BuildInfoWriterTask;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.InstantAppOutputScope;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.variant.BaseVariantData;
-import com.android.build.gradle.internal.variant.TaskContainer;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.SyncOptions;
@@ -47,6 +48,7 @@ import com.android.builder.model.BuildTypeContainer;
 import com.android.builder.model.Dependencies;
 import com.android.builder.model.InstantAppProjectBuildOutput;
 import com.android.builder.model.InstantAppVariantBuildOutput;
+import com.android.builder.model.ModelBuilderParameter;
 import com.android.builder.model.ProductFlavor;
 import com.android.builder.model.ProductFlavorContainer;
 import com.android.builder.model.SyncIssue;
@@ -54,6 +56,7 @@ import com.android.builder.model.Variant;
 import com.android.builder.model.Version;
 import com.android.builder.model.level2.DependencyGraphs;
 import com.android.ide.common.build.ApkInfo;
+import com.android.sdklib.SdkVersionInfo;
 import com.android.utils.Pair;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -69,11 +72,11 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
-import org.gradle.tooling.provider.model.ToolingModelBuilder;
+import org.gradle.tooling.provider.model.ParameterizedToolingModelBuilder;
 
 /** Builder for the custom instantApp model. */
-public class InstantAppModelBuilder implements ToolingModelBuilder {
+public class InstantAppModelBuilder
+        implements ParameterizedToolingModelBuilder<ModelBuilderParameter> {
     private int modelLevel = AndroidProject.MODEL_LEVEL_0_ORIGINAL;
 
     @NonNull private final AndroidConfig config;
@@ -98,21 +101,55 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
     public boolean canBuild(@NonNull String modelName) {
         // FIXME: We should not return an AndroidProject here.
         return modelName.equals(AndroidProject.class.getName())
-                || modelName.equals(InstantAppProjectBuildOutput.class.getName());
+                || modelName.equals(InstantAppProjectBuildOutput.class.getName())
+                || modelName.equals(Variant.class.getName());
     }
 
+    @NonNull
     @Override
     public Object buildAll(@NonNull String modelName, @NonNull Project project) {
         if (modelName.equals(AndroidProject.class.getName())) {
-            return buildAndroidProject(project);
+            return buildAndroidProject(project, true);
         }
+        if (modelName.equals(Variant.class.getName())) {
+            throw new RuntimeException(
+                    "Please use parameterized tooling API to obtain Variant model.");
+        }
+        return buildNonParameterizedModels(modelName);
+    }
+
+    // Build parameterized model.
+    @NonNull
+    @Override
+    public Object buildAll(
+            @NonNull String modelName,
+            @NonNull ModelBuilderParameter parameter,
+            @NonNull Project project) {
+        if (modelName.equals(AndroidProject.class.getName())) {
+            return buildAndroidProject(project, parameter.getShouldBuildVariant());
+        }
+        if (modelName.equals(Variant.class.getName())) {
+            return buildVariant(parameter.getVariantName());
+        }
+        return buildNonParameterizedModels(modelName);
+    }
+
+    @NonNull
+    private Object buildNonParameterizedModels(@NonNull String modelName) {
         if (modelName.equals(InstantAppProjectBuildOutput.class.getName())) {
             return buildMinimalisticModel();
         }
-        return null;
+        // should not happen based on canBuild
+        throw new RuntimeException("Cannot build model " + modelName);
     }
 
-    private Object buildAndroidProject(Project project) {
+    @NonNull
+    @Override
+    public Class<ModelBuilderParameter> getParameterType() {
+        return ModelBuilderParameter.class;
+    }
+
+    private Object buildAndroidProject(Project project, boolean shouldBuildVariant) {
         // Cannot be injected, as the project might not be the same as the project used to construct
         // the model builder e.g. when lint explicitly builds the model.
         ProjectOptions projectOptions = new ProjectOptions(project);
@@ -145,6 +182,7 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
         Collection<BuildTypeContainer> buildTypes = Lists.newArrayList();
         Collection<ProductFlavorContainer> productFlavors = Lists.newArrayList();
         Collection<Variant> variants = Lists.newArrayList();
+        Collection<String> variantNames = Lists.newArrayList();
 
         for (BuildTypeData btData : variantManager.getBuildTypes().values()) {
             buildTypes.add(
@@ -162,8 +200,11 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
         }
 
         for (VariantScope variantScope : variantManager.getVariantScopes()) {
-            if (!variantScope.getVariantData().getType().isForTesting()) {
-                variants.add(createVariant(variantScope.getVariantData()));
+            if (!variantScope.getVariantData().getType().isTestComponent()) {
+                variantNames.add(variantScope.getFullVariantName());
+                if (shouldBuildVariant) {
+                    variants.add(createVariant(variantScope.getVariantData()));
+                }
             }
         }
 
@@ -174,7 +215,8 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                 buildTypes,
                 productFlavors,
                 variants,
-                "android-26",
+                variantNames,
+                "android-" + SdkVersionInfo.HIGHEST_KNOWN_STABLE_API,
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList(),
@@ -190,7 +232,8 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                 PROJECT_TYPE_INSTANTAPP,
                 Version.BUILDER_MODEL_API_VERSION,
                 generation,
-                false);
+                false,
+                ImmutableList.of());
     }
 
     private Object buildMinimalisticModel() {
@@ -211,7 +254,7 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                                 variantScope.getFullVariantName(),
                                 instantAppOutputScope.getApplicationId(),
                                 new BuildOutput(
-                                        VariantScope.TaskOutputType.INSTANTAPP_BUNDLE,
+                                        InternalArtifactType.INSTANTAPP_BUNDLE,
                                         ApkInfo.of(
                                                 VariantOutput.OutputType.MAIN,
                                                 ImmutableList.of(),
@@ -219,10 +262,9 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                                         instantAppOutputScope.getInstantAppBundle()),
                                 new BuildOutputsSupplier(
                                                 ImmutableList.of(
-                                                        VariantScope.TaskOutputType.APK,
-                                                        VariantScope.TaskOutputType
-                                                                .ABI_PACKAGED_SPLIT,
-                                                        VariantScope.TaskOutputType
+                                                        InternalArtifactType.APK,
+                                                        InternalArtifactType.ABI_PACKAGED_SPLIT,
+                                                        InternalArtifactType
                                                                 .DENSITY_OR_LANGUAGE_PACKAGED_SPLIT),
                                                 instantAppOutputScope.getApkDirectories())
                                         .get()));
@@ -233,10 +275,25 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
     }
 
     @NonNull
+    private VariantImpl buildVariant(@Nullable String variantName) {
+        if (variantName == null) {
+            throw new IllegalArgumentException("Variant name cannot be null.");
+        }
+        for (VariantScope variantScope : variantManager.getVariantScopes()) {
+            if (!variantScope.getVariantData().getType().isTestComponent()
+                    && variantScope.getFullVariantName().equals(variantName)) {
+                return createVariant(variantScope.getVariantData());
+            }
+        }
+        throw new IllegalArgumentException(
+                String.format("Variant with name '%s' doesn't exist.", variantName));
+    }
+
+    @NonNull
     private VariantImpl createVariant(@NonNull BaseVariantData variantData) {
         VariantScope variantScope = variantData.getScope();
         ImmutableMap<String, String> buildMapping =
-                ModelBuilder.computeBuildMapping(
+                BuildMappingUtils.computeBuildMapping(
                         variantScope.getGlobalScope().getProject().getGradle());
         GradleVariantConfiguration variantConfiguration = variantData.getVariantConfiguration();
         Pair<Dependencies, DependencyGraphs> dependencies =
@@ -247,7 +304,7 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                         syncIssues,
                         modelLevel,
                         modelWithFullDependency);
-        Task assembleTask = variantData.getTaskByKind(TaskContainer.TaskKind.ASSEMBLE);
+
         File outputLocation = variantScope.getApkLocation();
         String baseName =
                 variantScope.getGlobalScope().getProjectBaseName()
@@ -258,9 +315,7 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                 new AndroidArtifactImpl(
                         ARTIFACT_MAIN,
                         baseName,
-                        assembleTask == null
-                                ? variantScope.getTaskName("assemble")
-                                : assembleTask.getName(),
+                        variantScope.getTaskContainer().getAssembleTask().getName(),
                         false,
                         null,
                         "unused",
@@ -281,14 +336,14 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                         variantConfiguration.getMergedBuildConfigFields(),
                         variantConfiguration.getMergedResValues(),
                         new InstantRunImpl(
-                                BuildInfoWriterTask.ConfigAction.getBuildInfoFile(variantScope),
-                                variantConfiguration.getInstantRunSupportStatus()),
+                                BuildInfoWriterTask.CreationAction.getBuildInfoFile(variantScope),
+                                variantConfiguration.getInstantRunSupportStatus(
+                                        variantScope.getGlobalScope())),
                         (BuildOutputSupplier<Collection<EarlySyncBuildOutput>>)
                                 () ->
                                         ImmutableList.of(
                                                 new EarlySyncBuildOutput(
-                                                        TaskOutputHolder.TaskOutputType
-                                                                .INSTANTAPP_BUNDLE,
+                                                        InternalArtifactType.INSTANTAPP_BUNDLE,
                                                         OutputFile.OutputType.MAIN,
                                                         ImmutableList.of(),
                                                         -1,
@@ -296,6 +351,8 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                                                                 outputLocation,
                                                                 baseName + SdkConstants.DOT_ZIP))),
                         new BuildOutputsSupplier(ImmutableList.of(), ImmutableList.of()),
+                        null,
+                        null,
                         null,
                         null);
 
@@ -313,6 +370,8 @@ public class InstantAppModelBuilder implements ToolingModelBuilder {
                 mainArtifact,
                 Collections.emptyList(),
                 Collections.emptyList(),
-                Collections.emptyList());
+                Collections.emptyList(),
+                false);
+        // InstantAppCompatible property is false for legacy feature module projects
     }
 }

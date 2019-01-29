@@ -71,7 +71,7 @@ public class ManifestMergingTest {
                 libsTest.file(
                         "libapp/build/"
                                 + FD_INTERMEDIATES
-                                + "/manifests/full/debug/AndroidManifest.xml");
+                                + "/library_manifest/debug/AndroidManifest.xml");
 
         assertThat(fileOutput).isFile();
 
@@ -79,7 +79,7 @@ public class ManifestMergingTest {
                 libsTest.file(
                         "libapp/build/"
                                 + FD_INTERMEDIATES
-                                + "/manifests/full/release/AndroidManifest.xml");
+                                + "/library_manifest/release/AndroidManifest.xml");
 
         assertThat(fileOutput).isFile();
 
@@ -101,14 +101,18 @@ public class ManifestMergingTest {
         flavors.executor()
                 .run("clean", "assembleF1FaDebug");
 
-        assertThat(flavors.file("build/intermediates/manifests/full/f1Fa/debug/AndroidManifest.xml"))
+        assertThat(
+                        flavors.file(
+                                "build/intermediates/merged_manifests/f1FaDebug/AndroidManifest.xml"))
                 .doesNotContain("android:testOnly=\"true\"");
 
         flavors.executor()
                 .with(OptionalBooleanOption.IDE_TEST_ONLY, true)
                 .run("clean", "assembleF1FaDebug");
 
-        assertThat(flavors.file("build/intermediates/manifests/full/f1Fa/debug/AndroidManifest.xml"))
+        assertThat(
+                        flavors.file(
+                                "build/intermediates/merged_manifests/f1FaDebug/AndroidManifest.xml"))
                 .contains("android:testOnly=\"true\"");
     }
 
@@ -122,11 +126,14 @@ public class ManifestMergingTest {
                         + "    compileSdkVersion 24\n"
                         + "    defaultConfig{\n"
                         + "        minSdkVersion 15\n"
+                        + "        //noinspection ExpiringTargetSdkVersion,ExpiredTargetSdkVersion\n"
                         + "        targetSdkVersion 'N'\n"
                         + "    }\n"
                         + "}");
         libsTest.execute("clean", ":app:build");
-        assertThat(appProject.file("build/intermediates/manifests/full/debug/AndroidManifest.xml"))
+        assertThat(
+                        appProject.file(
+                                "build/intermediates/merged_manifests/debug/AndroidManifest.xml"))
                 .containsAllOf(
                         "android:minSdkVersion=\"15\"",
                         "android:targetSdkVersion=\"N\"",
@@ -143,11 +150,14 @@ public class ManifestMergingTest {
                         + "    compileSdkVersion 24\n"
                         + "    defaultConfig{\n"
                         + "        minSdkVersion 'N'\n"
+                        + "        //noinspection ExpiringTargetSdkVersion,ExpiredTargetSdkVersion\n"
                         + "        targetSdkVersion 15\n"
                         + "    }\n"
                         + "}");
         libsTest.execute("clean", ":app:assembleDebug");
-        assertThat(appProject.file("build/intermediates/manifests/full/debug/AndroidManifest.xml"))
+        assertThat(
+                        appProject.file(
+                                "build/intermediates/merged_manifests/debug/AndroidManifest.xml"))
                 .containsAllOf(
                         "android:minSdkVersion=\"N\"",
                         "android:targetSdkVersion=\"15\"",
@@ -163,6 +173,7 @@ public class ManifestMergingTest {
                         + "    compileSdkVersion 24\n"
                         + "    defaultConfig {\n"
                         + "        minSdkVersion 15\n"
+                        + "        //noinspection ExpiringTargetSdkVersion,ExpiredTargetSdkVersion\n"
                         + "        targetSdkVersion 24\n"
                         + "    }\n"
                         + "}");
@@ -170,7 +181,7 @@ public class ManifestMergingTest {
                 .with(IntegerOption.IDE_TARGET_DEVICE_API, 22)
                 .run("clean", "assembleF1FaDebug");
         File manifestFile =
-                flavors.file("build/intermediates/manifests/full/f1Fa/debug/AndroidManifest.xml");
+                flavors.file("build/intermediates/merged_manifests/f1FaDebug/AndroidManifest.xml");
         assertThat(manifestFile)
                 .containsAllOf("android:minSdkVersion=\"15\"", "android:targetSdkVersion=\"24\"");
     }
@@ -184,7 +195,7 @@ public class ManifestMergingTest {
         navigation.executor().run("clean", ":app:assembleF1Debug");
         File manifestFile =
                 navigation.file(
-                        "app/build/intermediates/manifests/full/f1/debug/AndroidManifest.xml");
+                        "app/build/intermediates/merged_manifests/f1Debug/AndroidManifest.xml");
         assertThat(manifestFile).contains("/library/nav1");
         assertThat(manifestFile).contains("/main/nav1");
         assertThat(manifestFile).contains("/f1/nav2");

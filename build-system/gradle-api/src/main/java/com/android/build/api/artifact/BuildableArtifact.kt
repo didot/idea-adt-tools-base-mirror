@@ -18,15 +18,19 @@ package com.android.build.api.artifact
 
 import org.gradle.api.Buildable
 import org.gradle.api.Incubating
+import org.gradle.api.file.FileCollection
 import java.io.File
+import java.util.function.Supplier
 
 /**
  * A Iterable<File> that implements [Buildable]
  *
  * [BuildableArtifact] can be used as Task inputs.
+ *
+ * This interface is not currently usable. It is a work in progress.
  */
 @Incubating
-interface BuildableArtifact : Iterable<File>, Buildable {
+interface BuildableArtifact : Iterable<File>, Buildable, Supplier<FileCollection> {
     val files : Set<File>
     fun isEmpty() : Boolean
 }

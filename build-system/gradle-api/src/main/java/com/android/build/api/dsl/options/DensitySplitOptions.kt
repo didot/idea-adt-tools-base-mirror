@@ -24,6 +24,8 @@ import org.gradle.api.Incubating
  *
  * See [APK
  * Splits](https://developer.android.com/studio/build/configure-apk-splits.html).
+ *
+ * This interface is not currently usable. It is a work in progress.
  */
 @Incubating
 interface DensitySplitOptions : SplitOptions {
@@ -38,12 +40,4 @@ interface DensitySplitOptions : SplitOptions {
      * in the manifest. This is optional.
      */
     val compatibleScreens: Set<String>
-
-    /**
-     * Sets whether the build system should automatically determine the splits based on the
-     * "language-*" folders in the resources.
-     *
-     * FIXME this makes no sense for Density?
-     */
-    var auto: Boolean
 }

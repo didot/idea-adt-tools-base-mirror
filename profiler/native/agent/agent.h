@@ -25,8 +25,9 @@
 #include <grpc++/grpc++.h>
 
 #include "proto/agent_service.grpc.pb.h"
+#include "proto/internal_cpu.grpc.pb.h"
+#include "proto/internal_energy.grpc.pb.h"
 #include "proto/internal_event.grpc.pb.h"
-#include "proto/internal_io.grpc.pb.h"
 #include "proto/internal_network.grpc.pb.h"
 
 #include "memory_component.h"
@@ -46,15 +47,20 @@ using PerfdStatusChanged = std::function<void(bool)>;
 using NetworkServiceTask = std::function<grpc::Status(
     proto::InternalNetworkService::Stub& stub, grpc::ClientContext& context)>;
 
-// Function for submitting an I/O grpc request via |stub| using the given
-// |context|. Returns the status from the grpc call.
-using IoServiceTask = std::function<grpc::Status(
-    proto::InternalIoService::Stub& stub, grpc::ClientContext& context)>;
-
 // Function for submitting an event grpc request via |stub| using the given
 // |context|. Returns the status from the grpc call.
 using EventServiceTask = std::function<grpc::Status(
     proto::InternalEventService::Stub& stub, grpc::ClientContext& context)>;
+
+// Function for submitting an energy grpc request via |stub| using the given
+// |context|. Returns the status from the grpc call.
+using EnergyServiceTask = std::function<grpc::Status(
+    proto::InternalEnergyService::Stub& stub, grpc::ClientContext& context)>;
+
+// Function for submitting a CPU grpc request via |stub| using the given
+// |context|. Returns the status from the grpc call.
+using CpuServiceTask = std::function<grpc::Status(
+    proto::InternalCpuService::Stub& stub, grpc::ClientContext& context)>;
 
 // Function for submitting an agent grpc request via |stub| using the given
 // |context|. Returns the status from the grpc call.
@@ -82,13 +88,23 @@ class Agent {
   // new Perfd, the stub will resolve to the correct grpc target.
   MemoryComponent& memory_component();
 
-  void SubmitNetworkTasks(const std::vector<NetworkServiceTask>& tasks);
+  // Tell the agent to start sending heartbeats back to perfd to signal
+  // that the app agent is alive.
+  void StartHeartbeat();
 
-  void SubmitIoTasks(const std::vector<IoServiceTask>& tasks);
+  void SubmitNetworkTasks(const std::vector<NetworkServiceTask>& tasks);
 
   void SubmitEventTasks(const std::vector<EventServiceTask>& tasks);
 
+  void SubmitEnergyTasks(const std::vector<EnergyServiceTask>& tasks);
+
+  void SubmitCpuTasks(const std::vector<CpuServiceTask>& tasks);
+
   void AddPerfdStatusChangedCallback(PerfdStatusChanged callback);
+
+  // Callback for everytime perfd is reconnected to perfa.
+  // (e.g. Studio restarts within the duration of the same app instance)
+  void AddPerfdConnectedCallback(std::function<void()> callback);
 
  private:
   static constexpr int64_t kHeartBeatIntervalNs = Clock::ms_to_ns(250);
@@ -105,9 +121,10 @@ class Agent {
   // isntance sends a new client socket fd to the Agent, the stubs will be
   // resolved to the correct grpc target.
   proto::AgentService::Stub& agent_stub();
+  proto::InternalCpuService::Stub& cpu_stub();
+  proto::InternalEnergyService::Stub& energy_stub();
   proto::InternalEventService::Stub& event_stub();
   proto::InternalNetworkService::Stub& network_stub();
-  proto::InternalIoService::Stub& io_stub();
 
   /**
    * Connects/reconnects to perfd via the provided target.
@@ -146,8 +163,9 @@ class Agent {
   std::string current_connected_target_;
   std::shared_ptr<grpc::Channel> channel_;
   std::unique_ptr<proto::AgentService::Stub> agent_stub_;
+  std::unique_ptr<proto::InternalCpuService::Stub> cpu_stub_;
+  std::unique_ptr<proto::InternalEnergyService::Stub> energy_stub_;
   std::unique_ptr<proto::InternalEventService::Stub> event_stub_;
-  std::unique_ptr<proto::InternalIoService::Stub> io_stub_;
   std::unique_ptr<proto::InternalNetworkService::Stub> network_stub_;
   MemoryComponent* memory_component_;
 
@@ -155,6 +173,8 @@ class Agent {
   std::mutex callback_mutex_;
   std::list<PerfdStatusChanged> perfd_status_changed_callbacks_;
 
+  std::mutex perfd_connected_mutex_;
+  std::vector<std::function<void()>> perfd_connected_callbacks_;
   // Used for |RunHeartbeatThread|
   std::thread heartbeat_thread_;
   // O+ only - Used for |RunSocketThread|

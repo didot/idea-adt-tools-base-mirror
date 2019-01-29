@@ -18,8 +18,11 @@ package com.android.sdklib.tool.sdkmanager;
 
 import static com.android.repository.testframework.FakePackage.FakeRemotePackage;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.android.annotations.NonNull;
@@ -31,11 +34,13 @@ import com.android.repository.api.RepoManager;
 import com.android.repository.impl.manager.RemoteRepoLoader;
 import com.android.repository.impl.manager.RepoManagerImpl;
 import com.android.repository.impl.meta.CommonFactory;
+import com.android.repository.impl.meta.RepositoryPackages;
 import com.android.repository.testframework.FakeDependency;
 import com.android.repository.testframework.FakeDownloader;
 import com.android.repository.testframework.FakeLoader;
 import com.android.repository.testframework.FakePackage;
 import com.android.repository.testframework.FakeProgressIndicator;
+import com.android.repository.testframework.FakeRepoManager;
 import com.android.repository.testframework.FakeRepositorySourceProvider;
 import com.android.repository.testframework.FakeSettingsController;
 import com.android.repository.testframework.MockFileOp;
@@ -43,26 +48,29 @@ import com.android.repository.util.InstallerUtil;
 import com.android.sdklib.repository.AndroidSdkHandler;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.net.MalformedURLException;
+import java.net.Proxy;
 import java.net.URL;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.Before;
 import org.junit.Test;
 
-/**
- * Tests for {@link SdkManagerCli}
- */
+/** Tests for {@link SdkManagerCli} */
+@SuppressWarnings("resource")
 public class SdkManagerCliTest {
 
     private static final String SDK_LOCATION = "/sdk";
@@ -330,11 +338,9 @@ public class SdkManagerCliTest {
         assertEquals(expected, out.toString().replaceAll("\\r\\n", "\n"));
     }
 
-    /**
-     * Verify that the --channel sets us up with the right channel.
-     */
+    /** Verify that the --channel sets us up with the right channel. */
     @Test
-    public void channel() throws Exception {
+    public void channel() {
         SdkManagerCliSettings settings =
                 SdkManagerCliSettings.createSettings(
                         ImmutableList.of("--list", "--channel=1", "--sdk_root=/sdk"),
@@ -825,6 +831,7 @@ public class SdkManagerCliTest {
         SdkManagerCliSettings settings =
                 SdkManagerCliSettings.createSettings(
                         ImmutableList.of("--sdk_root=/sdk", "--version"), mFileOp.getFileSystem());
+        assertNotNull(settings);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         SdkManagerCli sdkmanager =
                 new SdkManagerCli(
@@ -871,7 +878,7 @@ public class SdkManagerCliTest {
     }
 
     @Test
-    public void unknownArgument() throws Exception {
+    public void unknownArgument() {
         assertNull(
                 SdkManagerCliSettings.createSettings(
                         ImmutableList.of("--sdk_root=/sdk", "--foo"), mFileOp.getFileSystem()));
@@ -891,5 +898,118 @@ public class SdkManagerCliTest {
                 SdkManagerCliSettings.createSettings(
                         ImmutableList.of("--sdk_root=/sdk", "--licenses", "foo"),
                         mFileOp.getFileSystem()));
+    }
+
+    @Test
+    public void proxySettings() throws MalformedURLException {
+        final String HTTP_PROXY = "http://studio-unittest.name:2340";
+        final String HTTPS_PROXY = "https://studio-other-unittest.name:2341";
+        String httpProxyHost = new URL(HTTP_PROXY).getHost();
+        String httpsProxyHost = new URL(HTTPS_PROXY).getHost();
+
+        Map<String, String> environment =
+                ImmutableMap.of(
+                        "HTTP_PROXY", HTTP_PROXY,
+                        "HTTPS_PROXY", HTTPS_PROXY,
+                        "STUDIO_UNITTEST_DO_NOT_RESOLVE_PROXY", "1");
+
+        assertNull(
+                SdkManagerCliSettings.createSettings(
+                        ImmutableList.of("--sdk_root=/sdk", "--no_proxy", "--proxy_port=80"),
+                        mFileOp.getFileSystem(),
+                        environment));
+        assertNull(
+                SdkManagerCliSettings.createSettings(
+                        ImmutableList.of("--sdk_root=/sdk", "--no_proxy", "--proxy_host=foo.bar"),
+                        mFileOp.getFileSystem(),
+                        environment));
+        assertNull(
+                SdkManagerCliSettings.createSettings(
+                        ImmutableList.of("--sdk_root=/sdk", "--no_proxy", "--proxy=bar.baz"),
+                        mFileOp.getFileSystem(),
+                        environment));
+
+        {
+            SdkManagerCliSettings settings =
+                    SdkManagerCliSettings.createSettings(
+                            ImmutableList.of("--sdk_root=/sdk", "--no_proxy"),
+                            mFileOp.getFileSystem(),
+                            environment);
+            assertNotNull(settings);
+            assertTrue(settings.getForceNoProxy());
+            assertSame(Proxy.NO_PROXY, settings.getProxy());
+        }
+
+        {
+            SdkManagerCliSettings settings =
+                    SdkManagerCliSettings.createSettings(
+                            ImmutableList.of("--sdk_root=/sdk", "--no_https"),
+                            mFileOp.getFileSystem(),
+                            environment);
+            assertNotNull(settings);
+            assertTrue(settings.getForceHttp());
+            assertEquals(httpProxyHost, settings.getProxyHostStr());
+        }
+
+        {
+            SdkManagerCliSettings settings =
+                    SdkManagerCliSettings.createSettings(
+                            ImmutableList.of("--sdk_root=/sdk"),
+                            mFileOp.getFileSystem(),
+                            environment);
+            assertNotNull(settings);
+            assertFalse(settings.getForceNoProxy());
+            assertFalse(settings.getForceHttp());
+            assertEquals(httpsProxyHost, settings.getProxyHostStr());
+        }
+
+        {
+            Map<String, String> environmentHttpOnly =
+                    ImmutableMap.of(
+                            "HTTP_PROXY", HTTP_PROXY, "STUDIO_UNITTEST_DO_NOT_RESOLVE_PROXY", "1");
+            SdkManagerCliSettings settings =
+                    SdkManagerCliSettings.createSettings(
+                            ImmutableList.of("--sdk_root=/sdk"),
+                            mFileOp.getFileSystem(),
+                            environmentHttpOnly);
+            assertNotNull(settings);
+            assertFalse(settings.getForceNoProxy());
+            assertFalse(settings.getForceHttp());
+            assertEquals(httpProxyHost, settings.getProxyHostStr());
+        }
+
+        {
+            Map<String, String> environmentInvalidProxyUrl =
+                    ImmutableMap.of(
+                            "HTTP_PROXY", "Ти до мене не ходи",
+                            "STUDIO_UNITTEST_DO_NOT_RESOLVE_PROXY", "1");
+            SdkManagerCliSettings settings =
+                    SdkManagerCliSettings.createSettings(
+                            ImmutableList.of("--sdk_root=/sdk"),
+                            mFileOp.getFileSystem(),
+                            environmentInvalidProxyUrl);
+            assertNull(settings);
+        }
+    }
+
+    @Test
+    public void packageFile() {
+        mFileOp.recordExistingFile("/foo.bar", "package1\r\npackage2\r\n");
+        SdkManagerCliSettings settings =
+                SdkManagerCliSettings.createSettings(
+                        ImmutableList.of("--package_file=/foo.bar", "--sdk_root=/sdk"),
+                        mFileOp.getFileSystem());
+
+        assertNotNull(settings);
+        SdkAction action = settings.getAction();
+        assertNotNull(action);
+        assertTrue(action instanceof SdkPackagesAction);
+        SdkPackagesAction packagesAction = (SdkPackagesAction) action;
+
+        FakeRepoManager fakeRepoManager = new FakeRepoManager(new RepositoryPackages());
+        List<String> packages = packagesAction.getPaths(fakeRepoManager);
+        assertEquals(2, packages.size());
+        assertEquals("package1", packages.get(0));
+        assertEquals("package2", packages.get(1));
     }
 }

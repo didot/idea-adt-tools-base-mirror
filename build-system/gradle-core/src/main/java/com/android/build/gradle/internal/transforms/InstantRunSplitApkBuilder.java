@@ -21,27 +21,30 @@ import static java.nio.file.Files.deleteIfExists;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.SecondaryFile;
 import com.android.build.api.transform.Transform;
 import com.android.build.api.transform.TransformException;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
-import com.android.build.gradle.internal.aapt.AaptGradleFactory;
-import com.android.build.gradle.internal.dsl.CoreSigningConfig;
 import com.android.build.gradle.internal.incremental.FileType;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.incremental.InstantRunVerifierStatus;
 import com.android.build.gradle.internal.packaging.ApkCreatorFactories;
+import com.android.build.gradle.internal.res.namespaced.Aapt2DaemonManagerService;
+import com.android.build.gradle.internal.res.namespaced.Aapt2ServiceKey;
+import com.android.build.gradle.internal.tasks.SigningConfigMetadata;
 import com.android.builder.core.AndroidBuilder;
-import com.android.builder.core.VariantType;
-import com.android.builder.internal.aapt.Aapt;
+import com.android.builder.core.VariantTypeImpl;
 import com.android.builder.internal.aapt.AaptOptions;
 import com.android.builder.internal.aapt.AaptPackageConfig;
+import com.android.builder.internal.aapt.BlockingResourceLinker;
+import com.android.builder.internal.aapt.CloseableBlockingResourceLinker;
 import com.android.builder.packaging.PackagerException;
 import com.android.ide.common.build.ApkInfo;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.resources.configuration.VersionQualifier;
 import com.android.ide.common.signing.KeytoolException;
 import com.android.utils.FileUtils;
+import com.android.utils.XmlUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -54,6 +57,7 @@ import java.io.OutputStreamWriter;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.gradle.api.Project;
 import org.gradle.api.file.FileCollection;
@@ -67,28 +71,27 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
     @NonNull
     protected final Project project;
     @NonNull protected final AndroidBuilder androidBuilder;
-    @NonNull private final AaptGeneration aaptGeneration;
+    @Nullable private FileCollection aapt2FromMaven;
     @NonNull protected final InstantRunBuildContext buildContext;
     @NonNull
     protected final File outputDirectory;
-    @Nullable protected final CoreSigningConfig signingConf;
-    @NonNull private final String applicationId;
+    @Nullable protected final FileCollection signingConf;
+    @NonNull private final Supplier<String> applicationIdSupplier;
     @NonNull
     private final AaptOptions aaptOptions;
     @NonNull protected final File supportDirectory;
-    @NonNull protected final File aaptIntermediateDirectory;
     // there is no need to make the resources a dependency of this transform
     // as we only use it to successfully compile the split manifest file. Any change to the
     // manifest that should force regenerating our split manifest is captured by the resource
     // dependency below.
-    @NonNull protected final FileCollection resources;
+    @NonNull protected final BuildableArtifact resources;
     // the resources containing the main manifest, which could be the same as above depending if
     // a separate APK for resources is used or not.
     // we are only interested in manifest binary changes, therefore, it is only needed as a
     // secondary input so we don't repackage all of our slices when only the resources change.
-    @NonNull protected final FileCollection resourcesWithMainManifest;
+    @NonNull protected final BuildableArtifact resourcesWithMainManifest;
 
-    @NonNull private final FileCollection apkList;
+    @NonNull private final BuildableArtifact apkList;
     @NonNull protected final ApkInfo mainApk;
 
     public InstantRunSplitApkBuilder(
@@ -96,28 +99,26 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
             @NonNull Project project,
             @NonNull InstantRunBuildContext buildContext,
             @NonNull AndroidBuilder androidBuilder,
-            @NonNull String applicationId,
-            @Nullable CoreSigningConfig signingConf,
-            @NonNull AaptGeneration aaptGeneration,
+            @Nullable FileCollection aapt2FromMaven,
+            @NonNull Supplier<String> applicationIdSupplier,
+            @Nullable FileCollection signingConf,
             @NonNull AaptOptions aaptOptions,
             @NonNull File outputDirectory,
             @NonNull File supportDirectory,
-            @NonNull File aaptIntermediateDirectory,
-            @NonNull FileCollection resources,
-            @NonNull FileCollection resourcesWithMainManifest,
-            @NonNull FileCollection apkList,
+            @NonNull BuildableArtifact resources,
+            @NonNull BuildableArtifact resourcesWithMainManifest,
+            @NonNull BuildableArtifact apkList,
             @NonNull ApkInfo mainApk) {
         this.logger = logger;
         this.project = project;
         this.buildContext = buildContext;
         this.androidBuilder = androidBuilder;
-        this.applicationId = applicationId;
+        this.aapt2FromMaven = aapt2FromMaven;
+        this.applicationIdSupplier = applicationIdSupplier;
         this.signingConf = signingConf;
-        this.aaptGeneration = aaptGeneration;
         this.aaptOptions = aaptOptions;
         this.outputDirectory = outputDirectory;
         this.supportDirectory = supportDirectory;
-        this.aaptIntermediateDirectory = aaptIntermediateDirectory;
         this.resources = resources;
         this.resourcesWithMainManifest = resourcesWithMainManifest;
         this.apkList = apkList;
@@ -128,7 +129,14 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
     @Override
     public Collection<SecondaryFile> getSecondaryFiles() {
         ImmutableList.Builder<SecondaryFile> list = ImmutableList.builder();
+        if (aapt2FromMaven != null) {
+            list.add(SecondaryFile.nonIncremental(aapt2FromMaven));
+        }
+        if (signingConf != null) {
+            list.add(SecondaryFile.nonIncremental(signingConf));
+        }
         resourcesWithMainManifest
+                .get()
                 .getAsFileTree()
                 .getFiles()
                 .stream()
@@ -170,8 +178,10 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
     public final Map<String, Object> getParameterInputs() {
         ImmutableMap.Builder<String, Object> builder =
                 ImmutableMap.<String, Object>builder()
-                        .put("applicationId", applicationId)
-                        .put("aaptGeneration", aaptGeneration.name());
+                        .put("applicationId", applicationIdSupplier.get())
+                        .put(
+                                "aaptVersion",
+                                androidBuilder.getBuildToolInfo().getRevision().toString());
         return builder.build();
     }
 
@@ -199,19 +209,19 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
 
     @NonNull
     protected File generateSplitApk(@NonNull ApkInfo apkData, @NonNull DexFiles dexFiles)
-            throws IOException, KeytoolException, PackagerException, InterruptedException,
-                    ProcessException, TransformException {
+            throws IOException, KeytoolException, PackagerException, ProcessException,
+                    TransformException {
 
         String uniqueName = dexFiles.encodeName();
         final File alignedOutput = new File(outputDirectory, uniqueName + ".apk");
         Files.createParentDirs(alignedOutput);
 
-        try (Aapt aapt = getAapt()) {
+        try (CloseableBlockingResourceLinker aapt = getLinker()) {
             File resPackageFile =
                     generateSplitApkResourcesAp(
                             logger,
                             aapt,
-                            applicationId,
+                            applicationIdSupplier,
                             apkData,
                             supportDirectory,
                             aaptOptions,
@@ -232,7 +242,7 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
             androidBuilder.packageCodeSplitApk(
                     resPackageFile,
                     dexFiles.dexFiles,
-                    signingConf,
+                    SigningConfigMetadata.Companion.load(signingConf),
                     alignedOutput,
                     tempDir,
                     ApkCreatorFactories.fromProjectProperties(project, true));
@@ -248,7 +258,7 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
     public static File generateSplitApkManifest(
             @NonNull File apkSupportDir,
             @NonNull String splitName,
-            @NonNull String packageId,
+            @NonNull Supplier<String> packageIdSupplier,
             @Nullable String versionName,
             int versionCode,
             @Nullable String minSdkVersion)
@@ -258,6 +268,10 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
         if (versionNameToUse == null) {
             versionNameToUse = String.valueOf(versionCode);
         }
+        StringBuilder escapedVersionNameToUse = new StringBuilder();
+        // We need to escape the version name in case the users want to use special characters, for
+        // example apostrophes.
+        XmlUtils.appendXmlAttributeValue(escapedVersionNameToUse, versionNameToUse);
 
         File androidManifest = new File(apkSupportDir, SdkConstants.ANDROID_MANIFEST_XML);
         try (BufferedWriter fileWriter =
@@ -268,13 +282,15 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
                     .append(
                             "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n")
                     .append("      package=\"")
-                    .append(packageId)
+                    .append(packageIdSupplier.get())
                     .append("\"\n");
             if (versionCode != VersionQualifier.DEFAULT_VERSION) {
                 fileWriter
-                        .append("      android:versionCode=\"").append(String.valueOf(versionCode))
+                        .append("      android:versionCode=\"")
+                        .append(String.valueOf(versionCode))
                         .append("\"\n")
-                        .append("      android:versionName=\"").append(versionNameToUse)
+                        .append("      android:versionName=\"")
+                        .append(escapedVersionNameToUse)
                         .append("\"\n");
             }
             fileWriter.append("      split=\"lib_").append(splitName).append("_apk\">\n");
@@ -297,15 +313,15 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
     @NonNull
     public static File generateSplitApkResourcesAp(
             @NonNull Logger logger,
-            @NonNull Aapt aapt,
-            @NonNull String applicationId,
+            @NonNull BlockingResourceLinker aapt,
+            @NonNull Supplier<String> applicationIdSupplier,
             @NonNull ApkInfo apkInfo,
             @NonNull File supportDirectory,
             @NonNull AaptOptions aaptOptions,
             @NonNull AndroidBuilder androidBuilder,
             @NonNull String uniqueName,
-            @NonNull FileCollection imports)
-            throws IOException, ProcessException, InterruptedException {
+            @NonNull BuildableArtifact imports)
+            throws IOException, ProcessException {
 
         File apkSupportDir = new File(supportDirectory, uniqueName);
         if (!apkSupportDir.exists() && !apkSupportDir.mkdirs()) {
@@ -315,7 +331,7 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
                 generateSplitApkManifest(
                         apkSupportDir,
                         uniqueName,
-                        applicationId,
+                        applicationIdSupplier,
                         apkInfo.getVersionName(),
                         apkInfo.getVersionCode(),
                         null);
@@ -338,14 +354,14 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
     @NonNull
     public static File generateSplitApkResourcesAp(
             @NonNull Logger logger,
-            @NonNull Aapt aapt,
+            @NonNull BlockingResourceLinker aapt,
             @NonNull File androidManifest,
             @NonNull File supportDirectory,
             @NonNull AaptOptions aaptOptions,
             @NonNull AndroidBuilder androidBuilder,
-            @Nullable FileCollection imports,
+            @Nullable BuildableArtifact imports,
             @NonNull String uniqueName)
-            throws IOException, ProcessException, InterruptedException {
+            throws IOException, ProcessException {
 
         File apkSupportDir = new File(supportDirectory, uniqueName);
         if (!apkSupportDir.exists() && !apkSupportDir.mkdirs()) {
@@ -356,7 +372,8 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
 
         List<File> importedAPKs =
                 imports != null
-                        ? imports.getAsFileTree()
+                        ? imports.get()
+                                .getAsFileTree()
                                 .getFiles()
                                 .stream()
                                 .filter(file -> file.getName().endsWith(SdkConstants.EXT_RES))
@@ -368,7 +385,7 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
                         .setManifestFile(androidManifest)
                         .setOptions(aaptOptions)
                         .setDebuggable(true)
-                        .setVariantType(VariantType.DEFAULT)
+                        .setVariantType(VariantTypeImpl.BASE_APK)
                         .setImports(ImmutableList.copyOf(importedAPKs))
                         .setResourceOutputApk(resFilePackageFile);
 
@@ -377,22 +394,21 @@ public abstract class InstantRunSplitApkBuilder extends Transform {
         return resFilePackageFile;
     }
 
-    protected Aapt getAapt() {
-        return makeAapt(aaptGeneration, androidBuilder, aaptIntermediateDirectory);
+    protected CloseableBlockingResourceLinker getLinker() {
+        return getLinker(aapt2FromMaven, androidBuilder);
     }
 
     @NonNull
-    public static Aapt makeAapt(
-            @NonNull AaptGeneration aaptGeneration,
-            @NonNull AndroidBuilder androidBuilder,
-            @NonNull File intermediateFolder) {
-        return AaptGradleFactory.make(
-                aaptGeneration,
-                androidBuilder,
-                null,
-                true,
-                FileUtils.mkdirs(intermediateFolder),
-                0);
+    public static CloseableBlockingResourceLinker getLinker(
+            @Nullable FileCollection aapt2FromMaven,
+            @NonNull AndroidBuilder androidBuilder) {
+        Aapt2ServiceKey aapt2ServiceKey =
+                Aapt2DaemonManagerService.registerAaptService(
+                        aapt2FromMaven,
+                        androidBuilder.getBuildToolInfo(),
+                        androidBuilder.getLogger());
+
+        return Aapt2DaemonManagerService.getAaptDaemon(aapt2ServiceKey);
     }
 
 }

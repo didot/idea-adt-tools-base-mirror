@@ -27,7 +27,7 @@ import org.junit.Test
  *
  *
  * To run just this test:
- * ./gradlew :base:integration-test:test -D:base:integration-test:test.single=LintStandaloneVitalTest
+ * ./gradlew :base:build-system:integration-test:application:test -D:base:build-system:integration-test:application:test.single=LintStandaloneVitalTest
  */
 class LintStandaloneVitalTest {
     @Rule
@@ -39,8 +39,8 @@ class LintStandaloneVitalTest {
     fun checkStandaloneLintVital() {
         project.executeExpectingFailure("clean", "lintVital")
 
-        val stderr = project.buildResult.stderr
-        assertThat(stderr).contains("" +
+        val stdout = project.buildResult.stdout
+        assertThat(stdout).contains("" +
                 "Lint found errors in the project; aborting build.\n" +
                 "  \n" +
                 "  Fix the issues identified by lint, or add the following to your build script to proceed with errors:\n" +
@@ -52,7 +52,7 @@ class LintStandaloneVitalTest {
 
         val file = project.file("lint-results.txt")
         assertThat(file).exists()
-        assertThat(file).contains("MyClass.java:4: Error: Do not hardcode \"/sdcard/\"")
+        assertThat(file).contains("MyClass.java:5: Error: Use Boolean.valueOf(true) instead")
         assertThat(file).contains("1 errors, 0 warnings")
     }
 }

@@ -61,12 +61,12 @@ public final class ApiClass implements Comparable<ApiClass> {
 
     // Persistence data: Used when writing out binary data in ApiLookup
     List<String> members;
-    int index;               // class number, e.g. entry in index where the pointer can be found
-    int indexOffset;         // offset of the class entry
-    int memberOffsetBegin;   // offset of the first member entry in the class
-    int memberOffsetEnd;     // offset after the last member entry in the class
-    int memberIndexStart;    // entry in index for first member
-    int memberIndexLength;   // number of entries
+    int index; // class number, e.g. entry in index where the pointer can be found
+    int indexOffset; // offset of the class entry
+    int memberOffsetBegin; // offset of the first member entry in the class
+    int memberOffsetEnd; // offset after the last member entry in the class
+    int memberIndexStart; // entry in index for first member
+    int memberIndexLength; // number of entries
 
     ApiClass(String name, int since, int deprecatedIn, int removedIn) {
         mName = name;
@@ -77,6 +77,7 @@ public final class ApiClass implements Comparable<ApiClass> {
 
     /**
      * Returns the name of the class.
+     *
      * @return the name of the class
      */
     String getName() {
@@ -85,6 +86,7 @@ public final class ApiClass implements Comparable<ApiClass> {
 
     /**
      * Returns when the class was introduced.
+     *
      * @return the api level the class was introduced.
      */
     int getSince() {
@@ -265,8 +267,6 @@ public final class ApiClass implements Comparable<ApiClass> {
     }
 
     void addField(String name, int since, int deprecatedIn, int removedIn) {
-        Integer i = mFields.get(name);
-        assert i == null;
         mFields.put(name, since);
         addToDeprecated(name, deprecatedIn);
         addToRemoved(name, removedIn);
@@ -283,9 +283,6 @@ public final class ApiClass implements Comparable<ApiClass> {
         if (index != -1) {
             name = name.substring(0, index + 1);
         }
-
-        Integer i = mMethods.get(name);
-        assert i == null || i == since : i;
         mMethods.put(name, since);
         addToDeprecated(name, deprecatedIn);
         addToRemoved(name, removedIn);
@@ -311,7 +308,6 @@ public final class ApiClass implements Comparable<ApiClass> {
         }
 
         list.add(Pair.of(name, value));
-
     }
 
     private void addToDeprecated(String name, int deprecatedIn) {
@@ -343,7 +339,7 @@ public final class ApiClass implements Comparable<ApiClass> {
     }
 
     private static int lastIndexOfSlashOrDollar(String className) {
-        for (int i = className.length(); --i >= 0;) {
+        for (int i = className.length(); --i >= 0; ) {
             char c = className.charAt(i);
             if (c == '/' || c == '$') {
                 return i;

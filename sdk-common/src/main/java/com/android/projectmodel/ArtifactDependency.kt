@@ -16,6 +16,8 @@
 package com.android.projectmodel
 
 import com.android.ide.common.repository.GradleCoordinate
+import com.android.ide.common.util.PathString
+import java.util.IdentityHashMap
 
 /**
  * Represents a node in the dependency graph.
@@ -41,4 +43,38 @@ data class ArtifactDependency(
          * Resolved Maven coordinate for this dependency, if one existed and is known to the build system.
          */
         val resolvedMavenCoordinate: GradleCoordinate? = null
-)
+) {
+    /**
+     * Constructs a new [ArtifactDependency] with no dependencies or gradle coordinates. Intended
+     * to simplify construction from Java.
+     */
+    constructor(library: Library) : this(library=library, dependencies=emptyList())
+
+    override fun toString(): String = printProperties(
+        this, ArtifactDependency(ExternalLibrary("")))
+}
+
+/**
+ * Uses a depth-first search to visit each dependency exactly once. The result may contain multiple
+ * equal [ArtifactDependency] instances, but it will never contain the same instance twice.
+ */
+fun Iterable<ArtifactDependency>.visitEach(): Sequence<ArtifactDependency> =
+    visitEachImpl(IdentityHashMap<ArtifactDependency, Boolean?>(), asSequence())
+
+/**
+ * Uses a depth-first search to visit each dependency exactly once. The result may contain multiple
+ * equal [ArtifactDependency] instances, but it will never contain the same instance twice.
+ */
+fun Sequence<ArtifactDependency>.visitEach(): Sequence<ArtifactDependency> =
+    visitEachImpl(IdentityHashMap<ArtifactDependency, Boolean?>(), this)
+
+internal fun visitEachImpl(
+    visited: IdentityHashMap<ArtifactDependency, Boolean?>,
+    sequence: Sequence<ArtifactDependency>
+): Sequence<ArtifactDependency> =
+    sequence.flatMap {
+        // If we've seen this instance before, skip it. If not, visit it.
+        if (visited.put(it, true) == null) {
+            visitEachImpl(visited, it.dependencies.asSequence()) + it
+        } else emptySequence()
+    }

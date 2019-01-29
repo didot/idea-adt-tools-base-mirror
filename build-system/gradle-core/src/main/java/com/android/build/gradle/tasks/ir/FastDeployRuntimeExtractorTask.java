@@ -17,9 +17,10 @@
 package com.android.build.gradle.tasks.ir;
 
 import com.android.annotations.NonNull;
+import com.android.build.gradle.internal.incremental.BuildInfoLoaderTask;
 import com.android.build.gradle.internal.scope.InstantRunVariantScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
 import java.io.BufferedOutputStream;
@@ -34,6 +35,7 @@ import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
  * Task to extract the FastDeploy runtime from the gradle-core jar file into a folder to be picked
@@ -94,16 +96,22 @@ public class FastDeployRuntimeExtractorTask extends AndroidVariantTask {
      */
     private static boolean isValidForPackaging(String name) {
         // don't extract metadata or classes supposed to be replaced by generated ones.
-        return !name.startsWith("META-INF") && !name.endsWith("AppInfo.class");
+        return !name.startsWith("META-INF")
+                && !name.endsWith("AppInfo.class")
+                && !name.contains("../");
     }
 
-    public static class ConfigAction implements TaskConfigAction<FastDeployRuntimeExtractorTask> {
+    public static class CreationAction extends TaskCreationAction<FastDeployRuntimeExtractorTask> {
 
         @NonNull
         private final InstantRunVariantScope instantRunVariantScope;
+        private final TaskProvider<BuildInfoLoaderTask> buildInfoLoaderTask;
 
-        public ConfigAction(@NonNull InstantRunVariantScope instantRunVariantScope) {
+        public CreationAction(
+                @NonNull InstantRunVariantScope instantRunVariantScope,
+                TaskProvider<BuildInfoLoaderTask> buildInfoLoaderTask) {
             this.instantRunVariantScope = instantRunVariantScope;
+            this.buildInfoLoaderTask = buildInfoLoaderTask;
         }
 
         @NonNull
@@ -120,11 +128,10 @@ public class FastDeployRuntimeExtractorTask extends AndroidVariantTask {
         }
 
         @Override
-        public void execute(@NonNull FastDeployRuntimeExtractorTask fastDeployRuntimeExtractorTask) {
-            fastDeployRuntimeExtractorTask.setVariantName(
-                    instantRunVariantScope.getFullVariantName());
-            fastDeployRuntimeExtractorTask.setOutputFile(
-                    instantRunVariantScope.getIncrementalRuntimeSupportJar());
+        public void configure(@NonNull FastDeployRuntimeExtractorTask task) {
+            task.setVariantName(instantRunVariantScope.getFullVariantName());
+            task.setOutputFile(instantRunVariantScope.getIncrementalRuntimeSupportJar());
+            task.dependsOn(buildInfoLoaderTask);
         }
     }
 }

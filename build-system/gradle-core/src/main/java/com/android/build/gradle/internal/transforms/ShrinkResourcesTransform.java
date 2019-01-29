@@ -18,24 +18,28 @@ package com.android.build.gradle.internal.transforms;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.DirectoryInput;
 import com.android.build.api.transform.JarInput;
 import com.android.build.api.transform.QualifiedContent.ContentType;
+import com.android.build.api.transform.QualifiedContent.DefaultContentType;
 import com.android.build.api.transform.QualifiedContent.Scope;
 import com.android.build.api.transform.SecondaryFile;
 import com.android.build.api.transform.Transform;
 import com.android.build.api.transform.TransformException;
 import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
+import com.android.build.gradle.internal.api.artifact.BuildableArtifactUtil;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.dsl.AaptOptions;
+import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.build.gradle.internal.pipeline.TransformManager;
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.MultiOutputPolicy;
@@ -46,6 +50,7 @@ import com.android.utils.FileUtils;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.io.File;
@@ -56,7 +61,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.xml.parsers.ParserConfigurationException;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
 import org.xml.sax.SAXException;
@@ -89,13 +93,12 @@ public class ShrinkResourcesTransform extends Transform {
 
     @NonNull private final Logger logger;
 
-    @NonNull private final File sourceDir;
-    @NonNull private final FileCollection resourceDir;
-    @Nullable private final FileCollection mappingFileSrc;
-    @NonNull private final FileCollection mergedManifests;
-    @NonNull private final FileCollection uncompressedResources;
+    @NonNull private final BuildableArtifact sourceDir;
+    @NonNull private final BuildableArtifact resourceDir;
+    @Nullable private final BuildableArtifact mappingFileSrc;
+    @NonNull private final BuildableArtifact mergedManifests;
+    @NonNull private final BuildableArtifact uncompressedResources;
 
-    @NonNull private final AaptGeneration aaptGeneration;
     @NonNull private final AaptOptions aaptOptions;
     @NonNull private final VariantType variantType;
     private final boolean isDebuggableBuildType;
@@ -105,9 +108,8 @@ public class ShrinkResourcesTransform extends Transform {
 
     public ShrinkResourcesTransform(
             @NonNull BaseVariantData variantData,
-            @NonNull FileCollection uncompressedResources,
+            @NonNull BuildableArtifact uncompressedResources,
             @NonNull File compressedResources,
-            @NonNull AaptGeneration aaptGeneration,
             @NonNull Logger logger) {
         VariantScope variantScope = variantData.getScope();
         GlobalScope globalScope = variantScope.getGlobalScope();
@@ -116,16 +118,22 @@ public class ShrinkResourcesTransform extends Transform {
         this.variantData = variantData;
         this.logger = logger;
 
-        this.sourceDir = variantScope.getRClassSourceOutputDir();
-        this.resourceDir = variantScope.getOutput(TaskOutputType.MERGED_NOT_COMPILED_RES);
+        BuildArtifactsHolder artifacts = variantScope.getArtifacts();
+        this.sourceDir =
+                artifacts.getFinalArtifactFiles(
+                        InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES);
+        this.resourceDir = variantScope.getArtifacts().getFinalArtifactFiles(
+                InternalArtifactType.MERGED_NOT_COMPILED_RES);
         this.mappingFileSrc =
-                variantScope.hasOutput(TaskOutputType.APK_MAPPING)
-                        ? variantScope.getOutput(TaskOutputType.APK_MAPPING)
+                variantScope.getArtifacts().hasArtifact(InternalArtifactType.APK_MAPPING)
+                        ? variantScope
+                                .getArtifacts()
+                                .getFinalArtifactFiles(InternalArtifactType.APK_MAPPING)
                         : null;
-        this.mergedManifests = variantScope.getOutput(TaskOutputType.MERGED_MANIFESTS);
+        this.mergedManifests =
+                artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_MANIFESTS);
         this.uncompressedResources = uncompressedResources;
 
-        this.aaptGeneration = aaptGeneration;
         this.aaptOptions = globalScope.getExtension().getAaptOptions();
         this.variantType = variantData.getType();
         this.isDebuggableBuildType = variantConfig.getBuildType().isDebuggable();
@@ -143,7 +151,9 @@ public class ShrinkResourcesTransform extends Transform {
     @NonNull
     @Override
     public Set<ContentType> getInputTypes() {
-        return TransformManager.CONTENT_CLASS;
+        // When R8 produces dex files, this transform analyzes them. If R8 or Proguard produce
+        // class files, this transform will analyze those. That is why both types are specified.
+        return ImmutableSet.of(ExtendedContentType.DEX, DefaultContentType.CLASSES);
     }
 
     @NonNull
@@ -187,7 +197,6 @@ public class ShrinkResourcesTransform extends Transform {
     @Override
     public Map<String, Object> getParameterInputs() {
         Map<String, Object> params = Maps.newHashMapWithExpectedSize(7);
-        params.put("aaptGeneration", aaptGeneration.name());
         params.put(
                 "aaptOptions",
                 Joiner.on(";")
@@ -203,7 +212,7 @@ public class ShrinkResourcesTransform extends Transform {
                                         ? Joiner.on(":").join(aaptOptions.getAdditionalParameters())
                                         : "",
                                 aaptOptions.getCruncherProcesses()));
-        params.put("variantType", variantType.name());
+        params.put("variantType", variantType.getName());
         params.put("isDebuggableBuildType", isDebuggableBuildType);
         params.put("splitHandlingPolicy", multiOutputPolicy);
 
@@ -231,14 +240,14 @@ public class ShrinkResourcesTransform extends Transform {
             throws IOException, TransformException, InterruptedException {
 
         BuildElements mergedManifestsOutputs =
-                ExistingBuildElements.from(TaskOutputType.MERGED_MANIFESTS, mergedManifests);
+                ExistingBuildElements.from(InternalArtifactType.MERGED_MANIFESTS, mergedManifests);
 
-        ExistingBuildElements.from(TaskOutputType.PROCESSED_RES, uncompressedResources)
+        ExistingBuildElements.from(InternalArtifactType.PROCESSED_RES, uncompressedResources)
                 .transform(
                         (ApkInfo apkInfo, File buildInput) ->
                                 splitAction(
                                         apkInfo, buildInput, mergedManifestsOutputs, invocation))
-                .into(TaskOutputType.SHRUNK_PROCESSED_RES, compressedResources);
+                .into(InternalArtifactType.SHRUNK_PROCESSED_RES, compressedResources);
 
     }
 
@@ -265,7 +274,8 @@ public class ShrinkResourcesTransform extends Transform {
         }
 
         File reportFile = null;
-        File mappingFile = mappingFileSrc != null ? mappingFileSrc.getSingleFile() : null;
+        File mappingFile =
+                mappingFileSrc != null ? BuildableArtifactUtil.singleFile(mappingFileSrc) : null;
         if (mappingFile != null) {
             File logDir = mappingFile.getParentFile();
             if (logDir != null) {
@@ -293,12 +303,13 @@ public class ShrinkResourcesTransform extends Transform {
         // Analyze resources and usages and strip out unused
         ResourceUsageAnalyzer analyzer =
                 new ResourceUsageAnalyzer(
-                        sourceDir,
+                        Iterables.getOnlyElement(sourceDir.getFiles()),
                         classes,
                         mergedManifest.getOutputFile(),
                         mappingFile,
-                        resourceDir.getSingleFile(),
-                        reportFile);
+                        BuildableArtifactUtil.singleFile(resourceDir),
+                        reportFile,
+                        ResourceUsageAnalyzer.ApkFormat.BINARY);
         try {
             analyzer.setVerbose(logger.isEnabled(LogLevel.INFO));
             analyzer.setDebug(logger.isEnabled(LogLevel.DEBUG));

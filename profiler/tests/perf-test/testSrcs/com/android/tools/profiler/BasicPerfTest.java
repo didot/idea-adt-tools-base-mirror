@@ -18,13 +18,10 @@ package com.android.tools.profiler;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.android.tools.profiler.proto.Common.*;
 import com.android.tools.profiler.proto.EventProfiler.ActivityDataResponse;
-import com.android.tools.profiler.proto.Profiler.*;
 import java.util.Arrays;
 import java.util.Collection;
-
-import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -32,40 +29,25 @@ import org.junit.runners.Parameterized;
 @RunWith(Parameterized.class)
 public class BasicPerfTest {
     @Parameterized.Parameters
-    public static Collection<Boolean> data() {
-        return Arrays.asList(new Boolean[] {false, true});
+    public static Collection<Integer> data() {
+        return Arrays.asList(24, 26);
     }
 
-    private PerfDriver myPerfDriver;
-    private GrpcUtils myGrpc;
-    private Session mySession;
-    private boolean myIsOPlusDevice;
+    private static final String ACTIVITY_CLASS = "com.activity.MyActivity";
 
-    public BasicPerfTest(boolean isOPlusDevice) {
-        myIsOPlusDevice = isOPlusDevice;
-    }
+    @Rule public final PerfDriver myPerfDriver;
 
-    @Before
-    public void setup() throws Exception {
-        myPerfDriver = new PerfDriver(myIsOPlusDevice);
-        myPerfDriver.start("com.activity.MyActivity");
-        myGrpc = myPerfDriver.getGrpc();
-
-        // Invoke beginSession to establish a session we can use to query data
-        BeginSessionResponse response =
-                myGrpc.getProfilerStub()
-                        .beginSession(
-                                BeginSessionRequest.newBuilder()
-                                        .setDeviceId(1234)
-                                        .setProcessId(myGrpc.getProcessId())
-                                        .build());
-        mySession = response.getSession();
+    public BasicPerfTest(int sdkLevel) {
+        myPerfDriver = new PerfDriver(ACTIVITY_CLASS, sdkLevel);
     }
 
     @Test
     public void testPerfGetActivity() throws Exception {
         // Verify that the activity we launched was created.
-        ActivityDataResponse response = myGrpc.getActivity(mySession);
+        ActivityDataResponse response =
+                TestUtils.waitForAndReturn(
+                        () -> myPerfDriver.getGrpc().getActivity(myPerfDriver.getSession()),
+                        value -> !value.getDataList().isEmpty());
         assertThat(response.getData(0).getName()).isEqualTo("My Activity");
     }
 }

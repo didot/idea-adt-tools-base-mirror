@@ -26,13 +26,6 @@ enum AppId {
   ANY = -1;
 }
 
-// TODO: Add more essential fields.
-message CommonData {
-  int32 process_id = 1;
-  Session session = 2;
-  int64 end_timestamp = 3;
-}
-
 // Note that |Device| instance refers to a device (physical/emulator) associated
 // with a particular boot. e.g. if the same device is started twice, they are
 // considered two separate |Device| instances.
@@ -43,6 +36,14 @@ message Device {
     OFFLINE = 2; // e.g. emulator that is turned off
     DISCONNECTED = 3; // e.g. unplugged
   }
+
+  // Special Android api levels that the profiler cares about.
+  enum AndroidVersion {
+    UNKNOWN = 0;
+    O = 26; // First API where JVMTI is supported.
+    P = 28;
+  }
+
   // Numeric representation of the device's |serial| and |boot_id| properties.
   // Used for quickly indexing the device instead of having to perform string comparisons.
   int64 device_id = 1;
@@ -94,7 +95,32 @@ message Session {
   // The PID of the app. Note that this is actually an int16, but gRPC only
   // provides int32.
   int32 pid = 3;
+  // Start timestamp in device wall clock time.(ns)
   int64 start_timestamp = 4;
+  // End timestamp in device wall clock time. (ns)
   // If LLONG_MAX, the session is ongoing and hasn't ended yet.
   int64 end_timestamp = 5;
+}
+
+message SessionMetaData {
+  enum SessionType {
+    UNSPECIFIED = 0;
+    FULL = 1;
+    MEMORY_CAPTURE = 2;
+    CPU_CAPTURE = 3;
+  }
+  // References Session's |session_id| field
+  int64 session_id = 1;
+  // Session start time (unix epoch) as provided by the BeginSessionRequest.
+  // For Studio-side display only.
+  int64 start_timestamp_epoch_ms = 2;
+  // Session name as provided by the BeginSessionRequest.
+  // For Studio-side display only.
+  string session_name = 3;
+  // Whether JVMTI is used for the session
+  bool jvmti_enabled = 4;
+  // Whether JVMTI live allocation is enabled for the session.
+  bool live_allocation_enabled = 5;
+  // Session's type which indicates what data it has.
+  SessionType type = 6;
 }

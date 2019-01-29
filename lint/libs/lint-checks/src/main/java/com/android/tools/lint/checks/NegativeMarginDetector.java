@@ -32,10 +32,11 @@ import static com.android.SdkConstants.TAG_STYLE;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.rendering.api.ResourceValue;
-import com.android.ide.common.res2.AbstractResourceRepository;
-import com.android.ide.common.res2.ResourceFile;
-import com.android.ide.common.res2.ResourceItem;
+import com.android.ide.common.resources.ResourceItem;
+import com.android.ide.common.resources.ResourceRepository;
+import com.android.ide.common.util.PathString;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceUrl;
 import com.android.tools.lint.client.api.LintClient;
@@ -43,7 +44,7 @@ import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.LayoutDetector;
-import com.android.tools.lint.detector.api.LintUtils;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
@@ -60,41 +61,40 @@ import org.w3c.dom.NodeList;
 
 /**
  * Checks for negative margins in the following scenarios:
+ *
  * <ul>
- *     <li>In direct layout attribute usages, e.g. {@code <Button android:layoutMargin="-5dp"}</li>
- *     <li>In theme styles, e.g. {@code <item name="android:layoutMargin">-5dp</item>}</li>
- *     <li>In dimension usages, e.g. {@code <Button android:layoutMargin="@dimen/foo"} along
- *      with {@code <dimen name="foo">-5dp</dimen>}</li>
+ *   <li>In direct layout attribute usages, e.g. {@code <Button android:layoutMargin="-5dp"}
+ *   <li>In theme styles, e.g. {@code <item name="android:layoutMargin">-5dp</item>}
+ *   <li>In dimension usages, e.g. {@code <Button android:layoutMargin="@dimen/foo"} along with
+ *       {@code <dimen name="foo">-5dp</dimen>}
  * </ul>
  */
 public class NegativeMarginDetector extends LayoutDetector {
-    private static final Implementation IMPLEMENTATION = new Implementation(
-            NegativeMarginDetector.class,
-            Scope.RESOURCE_FILE_SCOPE);
+    private static final Implementation IMPLEMENTATION =
+            new Implementation(NegativeMarginDetector.class, Scope.RESOURCE_FILE_SCOPE);
 
     /** Negative margins */
-    public static final Issue ISSUE = Issue.create(
-            "NegativeMargin",
-            "Negative Margins",
-
-            "Margin values should be positive. Negative values are generally a sign that " +
-            "you are making assumptions about views surrounding the current one, or may be "+
-            "tempted to turn off child clipping to allow a view to escape its parent. " +
-            "Turning off child clipping to do this not only leads to poor graphical " +
-            "performance, it also results in wrong touch event handling since touch events " +
-            "are based strictly on a chain of parent-rect hit tests. Finally, making " +
-            "assumptions about the size of strings can lead to localization problems.",
-            Category.USABILITY,
-            4,
-            Severity.WARNING,
-            IMPLEMENTATION).setEnabledByDefault(false);
+    public static final Issue ISSUE =
+            Issue.create(
+                            "NegativeMargin",
+                            "Negative Margins",
+                            "Margin values should be positive. Negative values are generally a sign that "
+                                    + "you are making assumptions about views surrounding the current one, or may be "
+                                    + "tempted to turn off child clipping to allow a view to escape its parent. "
+                                    + "Turning off child clipping to do this not only leads to poor graphical "
+                                    + "performance, it also results in wrong touch event handling since touch events "
+                                    + "are based strictly on a chain of parent-rect hit tests. Finally, making "
+                                    + "assumptions about the size of strings can lead to localization problems.",
+                            Category.USABILITY,
+                            4,
+                            Severity.WARNING,
+                            IMPLEMENTATION)
+                    .setEnabledByDefault(false);
 
     private HashMap<String, Location.Handle> mDimenUsage;
 
-
     /** Constructs a new {@link NegativeMarginDetector} */
-    public NegativeMarginDetector() {
-    }
+    public NegativeMarginDetector() {}
 
     @Override
     public boolean appliesTo(@NonNull ResourceFolderType folderType) {
@@ -112,8 +112,7 @@ public class NegativeMarginDetector extends LayoutDetector {
                 ATTR_LAYOUT_MARGIN_RIGHT,
                 ATTR_LAYOUT_MARGIN_BOTTOM,
                 ATTR_LAYOUT_MARGIN_START,
-                ATTR_LAYOUT_MARGIN_END
-        );
+                ATTR_LAYOUT_MARGIN_END);
     }
 
     @Override
@@ -153,12 +152,12 @@ public class NegativeMarginDetector extends LayoutDetector {
             NodeList itemNodes = element.getChildNodes();
             for (int j = 0, nodeCount = itemNodes.getLength(); j < nodeCount; j++) {
                 Node item = itemNodes.item(j);
-                if (item.getNodeType() == Node.ELEMENT_NODE &&
-                        TAG_ITEM.equals(item.getNodeName())) {
+                if (item.getNodeType() == Node.ELEMENT_NODE
+                        && TAG_ITEM.equals(item.getNodeName())) {
                     Element itemElement = (Element) item;
                     String name = itemElement.getAttribute(ATTR_NAME);
-                    if (name.startsWith(PREFIX_ANDROID) &&
-                            name.startsWith(ATTR_LAYOUT_MARGIN, PREFIX_ANDROID.length())) {
+                    if (name.startsWith(PREFIX_ANDROID)
+                            && name.startsWith(ATTR_LAYOUT_MARGIN, PREFIX_ANDROID.length())) {
                         NodeList childNodes = item.getChildNodes();
                         for (int i = 0, n = childNodes.getLength(); i < n; i++) {
                             Node child = childNodes.item(i);
@@ -170,7 +169,6 @@ public class NegativeMarginDetector extends LayoutDetector {
                         }
                     }
                 }
-
             }
         }
     }
@@ -202,29 +200,26 @@ public class NegativeMarginDetector extends LayoutDetector {
                 // but we can use the IDE to resolve resource URLs
                 LintClient client = context.getClient();
                 Project project = context.getProject();
-                AbstractResourceRepository resources = client.getResourceRepository(project, true,
-                    true);
+                ResourceRepository resources = client.getResourceRepository(project, true, true);
                 if (resources != null) {
-                    List<ResourceItem> items = resources.getResourceItem(url.type, url.name);
-                    if (items != null) {
-                        for (ResourceItem item : items) {
-                            ResourceValue resourceValue = item.getResourceValue(false);
-                            if (resourceValue != null) {
-                                String dimenValue = resourceValue.getValue();
-                                if (dimenValue != null && isNegativeDimension(dimenValue)) {
-                                    ResourceFile sourceFile = item.getSource();
-                                    assert sourceFile != null;
-                                    String message = String.format(
-                                            "Margin values should not be negative "
-                                                    + "(`%1$s` is defined as `%2$s` in `%3$s`",
-                                            value, dimenValue,
-                                            LintUtils.getFileNameWithParent(client,
-                                                    sourceFile.getFile()));
-                                    context.report(ISSUE, scope,
-                                            context.getLocation(scope),
-                                            message);
-                                    break;
-                                }
+                    List<ResourceItem> items =
+                            resources.getResources(ResourceNamespace.TODO(), url.type, url.name);
+                    for (ResourceItem item : items) {
+                        ResourceValue resourceValue = item.getResourceValue();
+                        if (resourceValue != null) {
+                            String dimenValue = resourceValue.getValue();
+                            if (dimenValue != null && isNegativeDimension(dimenValue)) {
+                                PathString sourceFile = item.getSource();
+                                assert sourceFile != null;
+                                String message =
+                                        String.format(
+                                                "Margin values should not be negative "
+                                                        + "(`%1$s` is defined as `%2$s` in `%3$s`",
+                                                value,
+                                                dimenValue,
+                                                Lint.getFileNameWithParent(client, sourceFile));
+                                context.report(ISSUE, scope, context.getLocation(scope), message);
+                                break;
                             }
                         }
                     }

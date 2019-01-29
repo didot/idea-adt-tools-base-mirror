@@ -27,6 +27,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Directory representing a dex archive. All dex entries, {@link DexArchiveEntry}, are stored under
@@ -58,24 +59,16 @@ final class DirDexArchive implements DexArchive {
     }
 
     @Override
-    public void removeFile(@NonNull String relativePath) throws IOException {
-        Path finalPath = rootDir.resolve(relativePath);
-        if (Files.isDirectory(finalPath)) {
-            FileUtils.deleteDirectoryContents(finalPath.toFile());
-        }
-        Files.deleteIfExists(finalPath);
-    }
-
-    @Override
     @NonNull
     public List<DexArchiveEntry> getFiles() throws IOException {
         ImmutableList.Builder<DexArchiveEntry> builder = ImmutableList.builder();
 
-        Iterator<Path> files =
-                Files.walk(getRootPath()).filter(DexArchives.DEX_ENTRY_FILTER).iterator();
-
-        while (files.hasNext()) {
-            builder.add(createEntry(files.next()));
+        Iterator<Path> files;
+        try (Stream<Path> paths = Files.walk(getRootPath())) {
+            files = paths.filter(DexArchives.DEX_ENTRY_FILTER).iterator();
+            while (files.hasNext()) {
+                builder.add(createEntry(files.next()));
+            }
         }
 
         return builder.build();

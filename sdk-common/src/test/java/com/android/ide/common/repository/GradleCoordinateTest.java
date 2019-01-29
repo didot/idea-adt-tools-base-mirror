@@ -23,7 +23,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
-import com.android.ide.common.res2.BaseTestCase;
+import com.android.ide.common.resources.BaseTestCase;
 import com.google.common.collect.Lists;
 import java.util.List;
 import org.junit.Test;
@@ -217,6 +217,13 @@ public class GradleCoordinateTest extends BaseTestCase {
         assertTrue(COMPARE_PLUS_HIGHER.compare(a, b) < 0);
         assertTrue(COMPARE_PLUS_HIGHER.compare(b, a) > 0);
 
+        a = GradleCoordinate.parseCoordinateString("a.b.c:package:5.4.+");
+        b = GradleCoordinate.parseCoordinateString("a.b.c:package:5.4.+");
+        assert a != null;
+        assert b != null;
+        assertTrue(COMPARE_PLUS_HIGHER.compare(a, b) == 0);
+        assertTrue(COMPARE_PLUS_HIGHER.compare(b, a) == 0);
+
         a = GradleCoordinate.parseCoordinateString("a.b.c:package:5");
         b = GradleCoordinate.parseCoordinateString("a.b.c:package:+");
         assert a != null;
@@ -274,6 +281,13 @@ public class GradleCoordinateTest extends BaseTestCase {
         assert b != null;
         assertTrue(COMPARE_PLUS_LOWER.compare(a, b) > 0);
         assertTrue(COMPARE_PLUS_LOWER.compare(b, a) < 0);
+
+        a = GradleCoordinate.parseCoordinateString("a.b.c:package:5.4.+");
+        b = GradleCoordinate.parseCoordinateString("a.b.c:package:5.4.+");
+        assert a != null;
+        assert b != null;
+        assertTrue(COMPARE_PLUS_LOWER.compare(a, b) == 0);
+        assertTrue(COMPARE_PLUS_LOWER.compare(b, a) == 0);
     }
 
     @Test

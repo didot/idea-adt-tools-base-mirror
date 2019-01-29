@@ -13,86 +13,47 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.ide.common.rendering.api;
 
+import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
-import com.android.resources.ResourceUrl;
+import java.util.Collections;
 import java.util.List;
 
 /**
  * A class containing all the resources needed to do a rendering.
- * <p>
- * This contains both the project specific resources and the framework resources, and provide
+ *
+ * <p>Contains both the project specific resources and the framework resources, and provides
  * convenience methods to resolve resource and theme references.
  */
 public class RenderResources {
-
     public static final String REFERENCE_NULL = "@null";
     public static final String REFERENCE_EMPTY = "@empty";
     public static final String REFERENCE_UNDEFINED = "@undefined";
 
-    public static class ResourceIdProvider {
-        public Integer getId(ResourceType resType, String resName) {
-            return null;
-        }
-    }
-
-    /**
-     * @deprecated This class will be removed after layoutlib is updated. Use {@link
-     *     ResourceIdProvider}
-     */
-    @Deprecated
-    public static class FrameworkResourceIdProvider extends ResourceIdProvider {}
-
-    public void setFrameworkResourceIdProvider(ResourceIdProvider provider) {}
-
-    /**
-     * @deprecated This method will be removed after layoutlib is updated. Use {@link
-     *     #setFrameworkResourceIdProvider(ResourceIdProvider)}
-     */
-    @Deprecated
-    public void setFrameworkResourceIdProvider(FrameworkResourceIdProvider provider) {
-        setFrameworkResourceIdProvider((ResourceIdProvider) provider);
-    }
-
     public void setLogger(LayoutLog logger) {
     }
 
-    /**
-     * Returns the {@link StyleResourceValue} representing the current theme.
-     * @return the theme or null if there is no current theme.
-     * @deprecated Use {@link #getDefaultTheme()} or {@link #getAllThemes()}
-     */
-    @Deprecated
-    public StyleResourceValue getCurrentTheme() {
-        // Default theme is same as the current theme was on older versions of the API.
-        // With the introduction of applyStyle() "current" theme makes little sense.
-        // Hence, simply return defaultTheme.
-        return getDefaultTheme();
-    }
-
-    /**
-     * Returns the {@link StyleResourceValue} representing the default theme.
-     */
+    /** Returns the {@link StyleResourceValue} representing the default theme. */
+    @Nullable
     public StyleResourceValue getDefaultTheme() {
         return null;
     }
 
     /**
      * Use this theme to resolve resources.
-     * <p>
-     * Remember to call {@link #clearStyles()} to clear the applied styles, so the default theme
+     *
+     * <p>Remember to call {@link #clearStyles()} to clear the applied styles, so the default theme
      * may be restored.
      *
      * @param theme The style to use for resource resolution in addition to the the default theme
-     *      and the styles applied earlier. If null, the operation is a no-op.
-     * @param useAsPrimary If true, the {@code theme} is used first to resolve attributes. If
-     *      false, the theme is used if the resource cannot be resolved using the default theme and
-     *      all the themes that have been applied prior to this call.
+     *     and the styles applied earlier. If null, the operation is a no-op.
+     * @param useAsPrimary If true, the {@code theme} is used first to resolve attributes. If false,
+     *     the theme is used if the resource cannot be resolved using the default theme and all the
+     *     themes that have been applied prior to this call.
      */
-    public void applyStyle(StyleResourceValue theme, boolean useAsPrimary) {
-    }
+    public void applyStyle(@Nullable StyleResourceValue theme, boolean useAsPrimary) {}
 
     /**
      * Clear all the themes applied with {@link #applyStyle(StyleResourceValue, boolean)}
@@ -105,68 +66,21 @@ public class RenderResources {
      * resolving resources. The order of the themes in the list specifies the order in which they
      * should be used to resolve resources.
      */
+    @NonNull
     public List<StyleResourceValue> getAllThemes() {
-       return null;
+        return Collections.emptyList();
     }
 
     /**
-     * Returns a theme by its name.
-     *
-     * @param name the name of the theme
-     * @param frameworkTheme whether the theme is a framework theme.
-     * @return the theme or null if there's no match
+     * Returns the {@link ResourceValue} for a given attr in the all themes returned by {@link
+     * #getAllThemes()}. If the item is not directly available in a theme, its parent theme is
+     * used before checking the next theme from the list.
      */
-    public StyleResourceValue getTheme(String name, boolean frameworkTheme) {
-        return null;
-    }
-
-    /**
-     * Returns whether a theme is a parent of a given theme.
-     * @param parentTheme the parent theme
-     * @param childTheme the child theme.
-     * @return true if the parent theme is indeed a parent theme of the child theme.
-     */
-    public boolean themeIsParentOf(StyleResourceValue parentTheme, StyleResourceValue childTheme) {
-        return false;
-    }
-
-    /**
-     * Returns a framework resource by type and name. The returned resource is resolved.
-     * @param resourceType the type of the resource
-     * @param resourceName the name of the resource
-     */
-    public ResourceValue getFrameworkResource(ResourceType resourceType, String resourceName) {
-        return null;
-    }
-
-    /**
-     * Returns a project resource by type and name. The returned resource is resolved.
-     * @param resourceType the type of the resource
-     * @param resourceName the name of the resource
-     */
-    public ResourceValue getProjectResource(ResourceType resourceType, String resourceName) {
-        return null;
-    }
-
-    /**
-     * Returns the {@link ResourceValue} matching a given name in the all themes returned by
-     * {@link #getAllThemes()}. If the item is not directly available in the a theme, its parent
-     * theme is used before checking the next theme from the list.
-     *
-     * @param itemName the name of the item to search for.
-     * @return the {@link ResourceValue} object or <code>null</code>
-     *
-     * @deprecated Use {@link #findItemInTheme(String, boolean)}
-     */
-    @Deprecated
-    public ResourceValue findItemInTheme(String itemName) {
+    @Nullable
+    public ResourceValue findItemInTheme(@NonNull ResourceReference attr) {
         List<StyleResourceValue> allThemes = getAllThemes();
-        if (allThemes == null) {
-            return null;
-        }
         for (StyleResourceValue theme : allThemes) {
-            //noinspection deprecation
-            ResourceValue value = findItemInStyle(theme, itemName);
+            ResourceValue value = findItemInStyle(theme, attr);
             if (value != null) {
                 return value;
             }
@@ -175,129 +89,114 @@ public class RenderResources {
     }
 
     /**
-     * Returns the {@link ResourceValue} matching a given name in the all themes returned by
-     * {@link #getAllThemes()}. If the item is not directly available in the a theme, its parent
-     * theme is used before checking the next theme from the list.
-     *
-     * @param attrName the name of the attribute to search for.
-     * @param isFrameworkAttr whether the attribute is a framework attribute
-     * @return the {@link ResourceValue} object or <code>null</code>
+     * Returns the {@link ResourceValue} matching a given attribute in a given style. If the item is
+     * not directly available in the style, the method looks in its parent style.
      */
-    public ResourceValue findItemInTheme(String attrName, boolean isFrameworkAttr) {
-        List<StyleResourceValue> allThemes = getAllThemes();
-        if (allThemes == null) {
-            return null;
-        }
-        for (StyleResourceValue theme : allThemes) {
-            ResourceValue value = findItemInStyle(theme, attrName, isFrameworkAttr);
-            if (value != null) {
-                return value;
-            }
-        }
+    @Nullable
+    public ResourceValue findItemInStyle(
+            @NonNull StyleResourceValue style, @NonNull ResourceReference attr) {
         return null;
     }
 
     /**
-     * Returns the {@link ResourceValue} matching a given name in a given style. If the
-     * item is not directly available in the style, the method looks in its parent style.
-     *
-     * This version of doesn't support providing the namespace of the attribute so it'll search
-     * in both the project's namespace and then in the android namespace.
-     *
-     * @param style the style to search in
-     * @param attrName the name of the attribute to search for.
-     * @return the {@link ResourceValue} object or <code>null</code>
-     *
-     * @deprecated Use {@link #findItemInStyle(StyleResourceValue, String, boolean)} since this
-     * method doesn't know the item namespace.
+     * @deprecated Use {@link #dereference(ResourceValue)} instead, to provide context necessary to
+     *     handle namespaces correctly, like the "current" namespace or namespace prefix lookup
+     *     logic. Alternatively, use {@link #getUnresolvedResource(ResourceReference)} or {@link
+     *     #getResolvedResource(ResourceReference)} if you already know exactly what you're looking
+     *     for.
      */
     @Deprecated
-    public ResourceValue findItemInStyle(StyleResourceValue style, String attrName) {
+    @Nullable
+    public ResourceValue findResValue(@Nullable String reference, boolean forceFrameworkOnly) {
+        if (reference == null) {
+            return null;
+        }
+
+        // Type is ignored. We don't call setNamespaceResolver, because this method is called from code that's not namespace aware anyway.
+        return dereference(
+                new ResourceValueImpl(
+                        ResourceNamespace.fromBoolean(forceFrameworkOnly),
+                        ResourceType.ID,
+                        "com.android.ide.common.rendering.api.RenderResources",
+                        reference));
+    }
+
+    /**
+     * Searches for a {@link ResourceValue} referenced by the given value. This method doesn't
+     * perform recursive resolution, so the returned {@link ResourceValue} (if not null) may be just
+     * another reference.
+     *
+     * <p>References to theme attributes is supported and resolved against the theme from {@link
+     * #getDefaultTheme()}. For more details see <a
+     * href="https://developer.android.com/guide/topics/resources/accessing-resources.html#ReferencesToThemeAttributes">Referencing
+     * style attributes</a>
+     *
+     * <p>Unlike {@link #resolveResValue(ResourceValue)}, this method returns null if the input is
+     * not a reference (i.e. doesn't start with '@' or '?').
+     *
+     * @param resourceValue the value to dereference. Its namespace and namespace lookup logic are
+     *     used to handle namespaces when interpreting the textual value. The type is ignored and
+     *     will not affect the type of the returned value.
+     * @see #resolveResValue(ResourceValue)
+     */
+    @Nullable
+    public ResourceValue dereference(@NonNull ResourceValue resourceValue) {
+        return null;
+    }
+
+    /** Returns a resource by namespace, type and name. The returned resource is unresolved. */
+    @Nullable
+    public ResourceValue getUnresolvedResource(@NonNull ResourceReference reference) {
         return null;
     }
 
     /**
-     * Returns the {@link ResourceValue} matching a given attribute in a given style. If the
-     * item is not directly available in the style, the method looks in its parent style.
+     * Returns a resource by namespace, type and name. The returned resource is resolved, as defined
+     * in {@link #resolveResValue(ResourceValue)}.
      *
-     * @param style the style to search in
-     * @param attrName the name of the attribute to search for.
-     * @param isFrameworkAttr whether the attribute is a framework attribute
-     * @return the {@link ResourceValue} object or <code>null</code>
+     * @see #resolveResValue(ResourceValue)
      */
-    public ResourceValue findItemInStyle(StyleResourceValue style, String attrName,
-            boolean isFrameworkAttr) {
-        return null;
+    @Nullable
+    public ResourceValue getResolvedResource(@NonNull ResourceReference reference) {
+        ResourceValue referencedValue = getUnresolvedResource(reference);
+        if (referencedValue == null) {
+            return null;
+        }
+
+        return resolveResValue(referencedValue);
     }
 
     /**
-     * Searches for, and returns a {@link ResourceValue} by its reference.
-     * <p>
-     * The reference format can be:
-     * <pre>@resType/resName</pre>
-     * <pre>@android:resType/resName</pre>
-     * <pre>@resType/android:resName</pre>
-     * <pre>?resType/resName</pre>
-     * <pre>?android:resType/resName</pre>
-     * <pre>?resType/android:resName</pre>
-     * Any other string format will return <code>null</code>.
-     * <p>
-     * The actual format of a reference is <pre>@[namespace:]resType/resName</pre> but this method
-     * only support the android namespace.
+     * Returns the "final" {@link ResourceValue} referenced by the value of <var>value</var>.
      *
-     * @param reference the resource reference to search for.
-     * @param forceFrameworkOnly if true all references are considered to be toward framework
-     *      resource even if the reference does not include the android: prefix.
-     * @return a {@link ResourceValue} or <code>null</code>.
-     */
-    public ResourceValue findResValue(String reference, boolean forceFrameworkOnly) {
-        return null;
-    }
-
-
-    /**
-     * Kept for layoutlib. Remove ASAP.
+     * <p>This method ensures that the returned {@link ResourceValue} object is not a valid
+     * reference to another resource. It may be just a leaf value (e.g. "#000000") or a reference
+     * that could not be dereferenced.
      *
-     * @deprecated Use {@link #resolveResValue(ResourceValue)}
-     */
-    public ResourceValue resolveValue(
-            ResourceType type, String name, String value, boolean isFrameworkValue) {
-        return resolveResValue(
-                new ResourceValue(ResourceUrl.create(type, name, isFrameworkValue), value));
-    }
-
-    /**
-     * Returns the {@link ResourceValue} referenced by the value of <var>value</var>.
-     * <p>
-     * This method ensures that it returns a {@link ResourceValue} object that does not
-     * reference another resource.
-     * If the resource cannot be resolved, it returns <code>null</code>.
-     * <p>
-     * If a value that does not need to be resolved is given, the method will return the input
+     * <p>If a value that does not need to be resolved is given, the method will return the input
      * value.
      *
      * @param value the value containing the reference to resolve.
      * @return a {@link ResourceValue} object or <code>null</code>
      */
-    public ResourceValue resolveResValue(ResourceValue value) {
+    @Nullable
+    public ResourceValue resolveResValue(@Nullable ResourceValue value) {
         return null;
     }
 
     /**
      * Returns the parent style of the given style, if any
+     *
      * @param style the style to look up
      * @return the parent style, or null
      */
-    public StyleResourceValue getParent(StyleResourceValue style) {
+    public StyleResourceValue getParent(@NonNull StyleResourceValue style) {
         return null;
     }
 
-    /**
-     * Returns the style matching the given name. The name should not contain any namespace prefix.
-     * @param styleName Name of the style. For example, "Widget.ListView.DropDown".
-     * @return the {link StyleResourceValue} for the style, or null if not found.
-     */
-    public StyleResourceValue getStyle(String styleName, boolean isFramework) {
-         return null;
-     }
+    /** Returns the style matching the given reference. */
+    @Nullable
+    public StyleResourceValue getStyle(@NonNull ResourceReference reference) {
+        return null;
+    }
 }

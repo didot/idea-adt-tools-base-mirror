@@ -18,16 +18,15 @@ package com.android.build.gradle.internal.tasks.featuresplit
 
 import com.android.build.api.attributes.VariantAttr
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.utils.FileUtils
 import com.google.common.base.Charsets
 import com.google.common.base.Joiner
 import com.google.common.io.Files
-import java.io.File
-import java.io.IOException
-import java.util.stream.Collectors
 import org.gradle.api.artifacts.ArtifactCollection
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
@@ -37,6 +36,9 @@ import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.CompileClasspath
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
+import java.io.File
+import java.io.IOException
+import java.util.stream.Collectors
 
 /** Task to write the list of transitive dependencies.  */
 @CacheableTask
@@ -46,7 +48,8 @@ open class FeatureSplitTransitiveDepsWriterTask : AndroidVariantTask() {
     private lateinit var runtimeJars: ArtifactCollection
 
     @get:OutputFile
-    private lateinit var outputFile: File
+    lateinit var outputFile: File
+        private set
 
     // use CompileClasspath to get as little notifications as possible.
     // technically we only care when the list changes, not the content but there's no way
@@ -68,15 +71,32 @@ open class FeatureSplitTransitiveDepsWriterTask : AndroidVariantTask() {
                 .write(Joiner.on(System.lineSeparator()).join(content))
     }
 
-    class ConfigAction(
-            private val variantScope: VariantScope,
-            private val outputFile: File) : TaskConfigAction<FeatureSplitTransitiveDepsWriterTask> {
+    /**
+     * Action to create the task that generates the transitive dependency list to be consumed by
+     * other modules.
+     *
+     * This cannot depend on preBuild as it would introduce a dependency cycle.
+     */
+    class CreationAction(private val variantScope: VariantScope) :
+        TaskCreationAction<FeatureSplitTransitiveDepsWriterTask>() {
 
-        override fun getName() = variantScope.getTaskName("generate", "FeatureTransitiveDeps")
-        override fun getType() = FeatureSplitTransitiveDepsWriterTask::class.java
+        override val name: String
+            get() = variantScope.getTaskName("generate", "FeatureTransitiveDeps")
+        override val type: Class<FeatureSplitTransitiveDepsWriterTask>
+            get() = FeatureSplitTransitiveDepsWriterTask::class.java
 
-        override fun execute(task: FeatureSplitTransitiveDepsWriterTask) {
+        private lateinit var outputFile: File
+
+        override fun preConfigure(taskName: String) {
+            outputFile = variantScope.artifacts
+                .appendArtifact(InternalArtifactType.FEATURE_TRANSITIVE_DEPS,
+                    taskName,
+                    "deps.txt")
+        }
+
+        override fun configure(task: FeatureSplitTransitiveDepsWriterTask) {
             task.variantName = variantScope.fullVariantName
+
             task.outputFile = outputFile
             task.runtimeJars = variantScope.getArtifactCollection(
                     AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,

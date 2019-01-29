@@ -17,6 +17,7 @@
 package com.android.build.gradle.tasks.ir;
 
 import static com.android.SdkConstants.ATTR_PACKAGE;
+import static com.android.build.gradle.internal.scope.InternalArtifactType.INSTANT_RUN_APP_INFO_OUTPUT_FILE;
 import static org.objectweb.asm.Opcodes.ACC_PUBLIC;
 import static org.objectweb.asm.Opcodes.ACC_STATIC;
 import static org.objectweb.asm.Opcodes.ACC_SUPER;
@@ -29,14 +30,16 @@ import static org.objectweb.asm.Opcodes.V1_6;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.build.gradle.tasks.PackageAndroidArtifact;
 import com.android.utils.XmlUtils;
 import java.io.BufferedOutputStream;
@@ -46,8 +49,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
-import javax.xml.parsers.ParserConfigurationException;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputFile;
@@ -70,7 +71,7 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
     private static final String SERVER_PACKAGE = "com/android/tools/ir/server";
 
     private File outputFile;
-    private FileCollection mergedManifests;
+    private BuildableArtifact mergedManifests;
     private InstantRunBuildContext buildContext;
 
     @OutputFile
@@ -84,12 +85,12 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
     }
 
     @InputFiles
-    public FileCollection getMergedManifests() {
+    public BuildableArtifact getMergedManifests() {
         return mergedManifests;
     }
 
     @VisibleForTesting
-    void setMergedManifests(FileCollection mergedManifests) {
+    void setMergedManifests(BuildableArtifact mergedManifests) {
         this.mergedManifests = mergedManifests;
     }
 
@@ -108,8 +109,7 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
 
         BuildElements buildElements =
                 ExistingBuildElements.from(
-                        VariantScope.TaskOutputType.INSTANT_RUN_MERGED_MANIFESTS,
-                        getMergedManifests());
+                        InternalArtifactType.INSTANT_RUN_MERGED_MANIFESTS, getMergedManifests());
 
         if (buildElements.isEmpty()) {
             throw new RuntimeException(
@@ -133,7 +133,7 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
                         writeAppInfoClass(applicationId, getSecretToken());
                     }
                 }
-            } catch (ParserConfigurationException | IOException | SAXException e) {
+            } catch (IOException | SAXException e) {
                 throw new BuildException("Failed to inject bootstrapping application", e);
             }
         } else {
@@ -194,16 +194,17 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
         }
     }
 
-    public static class ConfigAction implements TaskConfigAction<GenerateInstantRunAppInfoTask> {
+    public static class CreationAction extends TaskCreationAction<GenerateInstantRunAppInfoTask> {
         @NonNull private final VariantScope variantScope;
         @NonNull
         private final TransformVariantScope transformVariantScope;
-        @NonNull private final FileCollection manifests;
+        @NonNull private final BuildableArtifact manifests;
+        private File outputFile;
 
-        public ConfigAction(
+        public CreationAction(
                 @NonNull TransformVariantScope transformVariantScope,
                 @NonNull VariantScope variantScope,
-                @NonNull FileCollection manifests) {
+                @NonNull BuildableArtifact manifests) {
             this.transformVariantScope = transformVariantScope;
             this.variantScope = variantScope;
             this.manifests = manifests;
@@ -222,13 +223,23 @@ public class GenerateInstantRunAppInfoTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull GenerateInstantRunAppInfoTask task) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+            outputFile =
+                    variantScope
+                            .getArtifacts()
+                            .appendArtifact(
+                                    INSTANT_RUN_APP_INFO_OUTPUT_FILE,
+                                    taskName,
+                                    PackageAndroidArtifact.INSTANT_RUN_PACKAGES_PREFIX
+                                            + "-bootstrap.jar");
+        }
+
+        @Override
+        public void configure(@NonNull GenerateInstantRunAppInfoTask task) {
             task.setVariantName(variantScope.getFullVariantName());
             task.buildContext = variantScope.getInstantRunBuildContext();
-            task.outputFile =
-                    new File(variantScope.getIncrementalApplicationSupportDir(),
-                            PackageAndroidArtifact.INSTANT_RUN_PACKAGES_PREFIX + "-bootstrap.jar");
-
+            task.outputFile = outputFile;
             task.mergedManifests = manifests;
         }
     }

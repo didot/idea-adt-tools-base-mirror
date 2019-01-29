@@ -19,11 +19,15 @@ package com.android.build.gradle.internal.res.namespaced
 import com.android.builder.packaging.JarMerger
 import java.io.File
 import java.io.Serializable
+import java.util.function.Predicate
 import javax.inject.Inject
 
 class JarWorkerRunnable @Inject constructor(val params: JarRequest) : Runnable {
     override fun run() {
-        JarMerger(params.toFile.toPath()).use { out ->
+        JarMerger(params.toFile.toPath(), params.filter).use { out ->
+            if (params.manifestProperties.isNotEmpty()) {
+                out.setManifestProperties(params.manifestProperties)
+            }
             params.fromDirectories.forEach { dir -> out.addDirectory(dir.toPath()) }
             params.fromJars.forEach { jar -> out.addJar(jar.toPath()) }
             params.fromFiles.forEach { (path, file) -> out.addFile(path, file.toPath()) }
@@ -35,5 +39,8 @@ data class JarRequest(
         val toFile: File,
         val fromDirectories: List<File> = listOf(),
         val fromJars: List<File> = listOf(),
-        val fromFiles: Map<String, File> = mapOf()): Serializable
+        val fromFiles: Map<String, File> = mapOf(),
+        val manifestProperties: Map<String, String> = mapOf(),
+        val filter: Predicate<String>? = null
+): Serializable
 

@@ -16,6 +16,7 @@
 
 package com.android.tools.lint.checks
 
+import com.android.SdkConstants.ANDROIDX_PKG_PREFIX
 import com.android.SdkConstants.ANDROID_PKG_PREFIX
 import com.android.SdkConstants.ANDROID_SUPPORT_PKG_PREFIX
 import com.android.SdkConstants.ANDROID_URI
@@ -35,6 +36,7 @@ import com.android.SdkConstants.TOOLS_URI
 import com.android.SdkConstants.VIEW_FRAGMENT
 import com.android.SdkConstants.VIEW_TAG
 import com.android.SdkConstants.XMLNS
+import com.android.ide.common.rendering.api.ResourceNamespace
 import com.android.resources.ResourceFolderType
 import com.android.resources.ResourceFolderType.ANIM
 import com.android.resources.ResourceFolderType.ANIMATOR
@@ -63,41 +65,43 @@ import org.w3c.dom.Node
 class DetectMissingPrefix : LayoutDetector() {
     companion object Issues {
         /** Attributes missing the android: prefix  */
-        @JvmField val MISSING_NAMESPACE = Issue.create(
-                "MissingPrefix",
-                "Missing Android XML namespace",
-                """
-Most Android views have attributes in the Android namespace. When referencing these attributes \
-you **must** include the namespace prefix, or your attribute will be interpreted by `aapt` as \
-just a custom attribute.
+        @JvmField
+        val MISSING_NAMESPACE = Issue.create(
+            id = "MissingPrefix",
+            briefDescription = "Missing Android XML namespace",
+            explanation = """
+            Most Android views have attributes in the Android namespace. When referencing these attributes \
+            you **must** include the namespace prefix, or your attribute will be interpreted by `aapt` as \
+            just a custom attribute.
 
-Similarly, in manifest files, nearly all attributes should be in the `android:` namespace.""",
-
-                Category.CORRECTNESS,
-                6,
-                Severity.ERROR,
-                Implementation(
-                        DetectMissingPrefix::class.java,
-                        Scope.MANIFEST_AND_RESOURCE_SCOPE,
-                        Scope.MANIFEST_SCOPE, Scope.RESOURCE_FILE_SCOPE))
+            Similarly, in manifest files, nearly all attributes should be in the `android:` namespace.""",
+            category = Category.CORRECTNESS,
+            priority = 6,
+            severity = Severity.ERROR,
+            implementation = Implementation(
+                DetectMissingPrefix::class.java,
+                Scope.MANIFEST_AND_RESOURCE_SCOPE,
+                Scope.MANIFEST_SCOPE, Scope.RESOURCE_FILE_SCOPE
+            )
+        )
     }
 
     override fun appliesTo(folderType: ResourceFolderType): Boolean =
-            folderType == LAYOUT
-            || folderType == MENU
-            || folderType == DRAWABLE
-            || folderType == ANIM
-            || folderType == ANIMATOR
-            || folderType == COLOR
-            || folderType == INTERPOLATOR
+        folderType == LAYOUT ||
+                folderType == MENU ||
+                folderType == DRAWABLE ||
+                folderType == ANIM ||
+                folderType == ANIMATOR ||
+                folderType == COLOR ||
+                folderType == INTERPOLATOR
 
     override fun getApplicableAttributes(): Collection<String>? = ALL
 
     private fun isNoPrefixAttribute(attribute: String): Boolean =
-            when (attribute) {
-                ATTR_CLASS, ATTR_STYLE, ATTR_LAYOUT, ATTR_PACKAGE, ATTR_CORE_APP -> true
-                else -> false
-            }
+        when (attribute) {
+            ATTR_CLASS, ATTR_STYLE, ATTR_LAYOUT, ATTR_PACKAGE, ATTR_CORE_APP, "split" -> true
+            else -> false
+        }
 
     override fun visitAttribute(context: XmlContext, attribute: Attr) {
         val uri = attribute.namespaceURI
@@ -136,56 +140,19 @@ Similarly, in manifest files, nearly all attributes should be in the `android:` 
                 return
             }
 
-            context.report(MISSING_NAMESPACE, attribute,
-                    context.getLocation(attribute),
-                    "Attribute is missing the Android namespace prefix")
-        } else if (ANDROID_URI != uri
-                && TOOLS_URI != uri
-                && context.resourceFolderType == LAYOUT
-                && !isCustomView(attribute.ownerElement)
-                && !isFragment(attribute.ownerElement)
-                && !attribute.localName.startsWith(ATTR_LAYOUT_RESOURCE_PREFIX)
-                // TODO: Consider not enforcing that the parent is a custom view
-                // too, though in that case we should filter out views that are
-                // layout params for the custom view parent:
-                // ....&& !attribute.getLocalName().startsWith(ATTR_LAYOUT_RESOURCE_PREFIX)
-                && attribute.ownerElement.parentNode.nodeType == Node.ELEMENT_NODE
-                && !isCustomView(attribute.ownerElement.parentNode as Element)) {
-
-            if (context.resourceFolderType == LAYOUT && AUTO_URI == uri) {
-                // Data binding: Can add attributes like onClickListener to buttons etc.
-                val root = attribute.ownerDocument.documentElement
-                if (TAG_LAYOUT == root.tagName) {
-                    return
-                }
-
-                // Appcompat now encourages decorating standard views (like ImageView and
-                // ImageButton) with srcCompat in the app namespace
-                if (attribute.localName == ATTR_SRC_COMPAT ||
-                        // Now handled by appcompat
-                        attribute.localName == ATTR_FONT_FAMILY) {
-                    return
-                }
-
-                // Look for other app compat attributes - such as buttonTint
-                val project = context.mainProject
-                val client = context.client
-                val repository = client.getResourceRepository(project,
-                        true, true)
-                if (repository != null) {
-                    val items = repository.getResourceItem(ResourceType.ATTR,
-                            attribute.localName)
-                    if (items != null && !items.isEmpty()) {
-                        for (item in items) {
-                            val libraryName = item.libraryName
-                            if (libraryName != null && libraryName.startsWith("appcompat-")) {
-                                return
-                            }
-                        }
-                    }
-                }
-            }
-
+            context.report(
+                MISSING_NAMESPACE, attribute,
+                context.getLocation(attribute),
+                "Attribute is missing the Android namespace prefix"
+            )
+        } else if (ANDROID_URI != uri &&
+            TOOLS_URI != uri &&
+            context.resourceFolderType == LAYOUT &&
+            !isCustomView(attribute.ownerElement) &&
+            !isFragment(attribute.ownerElement) &&
+            !attribute.localName.startsWith(ATTR_LAYOUT_RESOURCE_PREFIX) &&
+            attribute.ownerElement.parentNode.nodeType == Node.ELEMENT_NODE
+        ) {
             // A namespace declaration?
             val prefix = attribute.prefix
             if (XMLNS == prefix) {
@@ -198,11 +165,15 @@ Similarly, in manifest files, nearly all attributes should be in the `android:` 
                 while (i < n) {
                     val item = attributes.item(i)
                     if (name == item.nodeName && attribute.value == item.nodeValue) {
-                        context.report(NamespaceDetector.UNUSED, attribute,
-                                context.getLocation(attribute),
-                                String.format("Unused namespace declaration %1\$s; already " +
+                        context.report(
+                            NamespaceDetector.UNUSED, attribute,
+                            context.getLocation(attribute),
+                            String.format(
+                                "Unused namespace declaration %1\$s; already " +
                                         "declared on the root element",
-                                        name))
+                                name
+                            )
+                        )
                     }
                     i++
                 }
@@ -210,9 +181,51 @@ Similarly, in manifest files, nearly all attributes should be in the `android:` 
                 return
             }
 
-            context.report(MISSING_NAMESPACE, attribute,
-                    context.getLocation(attribute),
-                    "Unexpected namespace prefix \"$prefix\" found for tag `${attribute.ownerElement.tagName}`")
+            if (context.resourceFolderType == LAYOUT && AUTO_URI == uri) {
+                // Data binding: Can add attributes like onClickListener to buttons etc.
+                val root = attribute.ownerDocument.documentElement
+                if (TAG_LAYOUT == root.tagName) {
+                    return
+                }
+
+                // Appcompat now encourages decorating standard views (like ImageView and
+                // ImageButton) with srcCompat in the app namespace
+                if (attribute.localName == ATTR_SRC_COMPAT ||
+                    // Now handled by appcompat
+                    attribute.localName == ATTR_FONT_FAMILY
+                ) {
+                    return
+                }
+
+                // Look for other app compat attributes - such as buttonTint
+                val project = context.mainProject
+                val client = context.client
+                val repository = client.getResourceRepository(
+                    project,
+                    true, true
+                )
+                if (repository != null) {
+                    val items = repository.getResources(
+                        ResourceNamespace.TODO(),
+                        ResourceType.ATTR,
+                        attribute.localName
+                    )
+                    if (!items.isEmpty()) {
+                        for (item in items) {
+                            val libraryName = item.libraryName ?: continue
+                            if (libraryName.contains("appcompat") || libraryName.contains("material")) {
+                                return
+                            }
+                        }
+                    }
+
+                    context.report(
+                        MISSING_NAMESPACE, attribute,
+                        context.getLocation(attribute),
+                        "Unexpected namespace prefix \"$prefix\" found for tag `${attribute.ownerElement.tagName}`"
+                    )
+                }
+            }
         }
     }
 
@@ -228,11 +241,12 @@ Similarly, in manifest files, nearly all attributes should be in the `android:` 
 
         // For the purposes of this check, the ConstraintLayout isn't a custom view
 
-        if (CONSTRAINT_LAYOUT == tag || CONSTRAINT_LAYOUT_GUIDELINE == tag) {
+        if (CONSTRAINT_LAYOUT.isEquals(tag) || CONSTRAINT_LAYOUT_GUIDELINE.isEquals(tag)) {
             return false
         }
 
         return tag.indexOf('.') != -1 && (!tag.startsWith(ANDROID_PKG_PREFIX) ||
-                tag.startsWith(ANDROID_SUPPORT_PKG_PREFIX))
+                tag.startsWith(ANDROID_SUPPORT_PKG_PREFIX) ||
+                tag.startsWith(ANDROIDX_PKG_PREFIX))
     }
 }

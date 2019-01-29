@@ -16,8 +16,6 @@
 
 package com.android.build.gradle.integration.feature;
 
-import static com.android.SdkConstants.FD_RES_CLASS;
-import static com.android.SdkConstants.FD_SOURCE_GEN;
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThatApk;
 import static com.android.testutils.truth.FileSubject.assertThat;
 import static com.android.testutils.truth.MoreTruth.assertThatZip;
@@ -29,8 +27,11 @@ import com.android.build.VariantOutput;
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.truth.ApkSubject;
+import com.android.build.gradle.integration.common.utils.TestFileUtils;
+import com.android.build.gradle.internal.scope.ArtifactTypeUtil;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
+import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSplitDeclaration;
-import com.android.build.gradle.internal.tasks.featuresplit.FeatureSplitPackageIds;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.ProjectBuildOutput;
 import com.android.builder.model.VariantBuildOutput;
@@ -46,56 +47,157 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
+import org.junit.Rule;
 import org.junit.Test;
 
 /** Test a simple project with features with a library dependency. */
 public class FeatureTest {
-    @ClassRule
-    public static GradleTestProject sProject =
+    @Rule
+    public GradleTestProject project =
             GradleTestProject.builder()
                     .fromTestProject("projectWithFeatures")
                     .withoutNdk()
                     .create();
 
-    @BeforeClass
-    public static void setUp() throws Exception {}
-
-    @AfterClass
-    public static void cleanUp() {
-        sProject = null;
-    }
-
     @Test
     public void publishApplicationId() throws Exception {
         // Call the task to publish the base feature application ID.
-        sProject.executor()
-                .withEnabledAapt2(true)
+        project.executor()
                 .run("clean", ":baseFeature:writeDebugFeatureApplicationId");
+    }
+
+    @Test
+    public void testOreoAndAboveFeatureIdAllocation() throws Exception {
+        testFeatureIdAllocation(26, 26, 0x80);
+    }
+
+    @Test
+    public void testBeforeOreoFeatureIdAllocation() throws Exception {
+        testFeatureIdAllocation(25, 25, 0x7e);
+    }
+
+    @Test
+    public void testDifferentMinSdkVersionForFeatureIdAllocation() throws Exception {
+        // base module sets the allocation policy.
+        testFeatureIdAllocation(25, 26, 0x7e);
+        testFeatureIdAllocation(26, 25, 0x80);
+    }
+
+    private void testFeatureIdAllocation(
+            int baseMinSdkVersion, int featureMinSdkVersion, int expectedFeatureId)
+            throws Exception {
+        GradleTestProject featureProject = project.getSubproject(":feature");
+
+        TestFileUtils.appendToFile(
+                project.getSubproject(":app").getBuildFile(),
+                "android.defaultConfig.minSdkVersion " + baseMinSdkVersion + "\n");
+        TestFileUtils.appendToFile(
+                featureProject.getBuildFile(),
+                "android.defaultConfig.minSdkVersion " + featureMinSdkVersion + "\n");
+        TestFileUtils.appendToFile(
+                project.getSubproject(":baseFeature").getBuildFile(),
+                "android.defaultConfig.minSdkVersion " + baseMinSdkVersion + "\n");
+
+        if (featureMinSdkVersion > baseMinSdkVersion) {
+            FileUtils.writeToFile(
+                    FileUtils.join(
+                            project.getSubproject(":baseFeature").getTestDir(),
+                            "src",
+                            "main",
+                            SdkConstants.ANDROID_MANIFEST_XML),
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                            + "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                            + "      package=\"com.example.android.multiproject.base\"\n"
+                            + "      xmlns:tools=\"http://schemas.android.com/tools\">\n"
+                            + "\n"
+                            + "      <uses-sdk tools:overrideLibrary=\"com.example.android.multiproject\"/>\n"
+                            + "\n"
+                            + "</manifest>");
+
+            FileUtils.writeToFile(
+                    FileUtils.join(
+                            project.getSubproject(":app").getTestDir(),
+                            "src",
+                            "main",
+                            SdkConstants.ANDROID_MANIFEST_XML),
+                    "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                            + "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                            + "      package=\"com.example.android.multiproject.app\"\n"
+                            + "      android:versionCode=\"1\"\n"
+                            + "      android:versionName=\"1.0\"\n"
+                            + "      xmlns:tools=\"http://schemas.android.com/tools\">\n"
+                            + "\n"
+                            + "      <uses-sdk tools:overrideLibrary=\"com.example.android.multiproject.feature\"/>\n"
+                            + "\n"
+                            + "</manifest>");
+        }
+
+
+        // Build all the things.
+        project.executor().run("clean", "assemble");
+
+        // check the base feature declared the list of features and their associated IDs.
+        GradleTestProject baseProject = project.getSubproject(":baseFeature");
+        File idsList =
+                baseProject.getIntermediateFile(
+                        "feature_set_metadata",
+                        "debugFeature",
+                        "generateDebugFeatureFeatureMetadata",
+                        "feature-metadata.json");
+        assertThat(idsList).exists();
+        FeatureSetMetadata packageIds = FeatureSetMetadata.load(idsList);
+        assertThat(packageIds).isNotNull();
+        assertThat(packageIds.getResOffsetFor(":feature")).isEqualTo(expectedFeatureId);
+
+        // Check the R.java file builds with the right IDs.
+        File featureResFile =
+                FileUtils.join(
+                        ArtifactTypeUtil.getOutputDir(
+                                InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES,
+                                featureProject.file("build")),
+                        "debugFeature",
+                        "processDebugFeatureResources",
+                        SdkConstants.FD_RES_CLASS,
+                        "com",
+                        "example",
+                        "android",
+                        "multiproject",
+                        "feature",
+                        "R.java");
+        assertThat(featureResFile).isFile();
+        // check the feature ID in hexadecimal format.
+        assertThat(featureResFile)
+                .containsAllOf(
+                        "public static final int feature_value="
+                                + String.format("0x%02x", expectedFeatureId));
     }
 
     @Test
     public void build() throws Exception {
         // Build all the things.
-        sProject.executor().withEnabledAapt2(true).run("clean", "assemble");
+        project.executor().run("clean", "assemble");
 
         // check the feature declaration file presence.
-        GradleTestProject featureProject = sProject.getSubproject(":feature");
+        GradleTestProject featureProject = project.getSubproject(":feature");
         File featureSplit =
                 featureProject.getIntermediateFile(
-                        "feature-split", "declaration", "feature", "release", "feature-split.json");
+                        "metadata_feature_declaration",
+                        "releaseFeature",
+                        "featureReleaseFeatureWriter",
+                        "out",
+                        "feature-split.json");
         assertThat(featureSplit).exists();
         FeatureSplitDeclaration featureSplitDeclaration =
                 FeatureSplitDeclaration.load(featureSplit);
         assertThat(featureSplitDeclaration).isNotNull();
-        assertThat(featureSplitDeclaration.getUniqueIdentifier()).isEqualTo(":feature");
+        assertThat(featureSplitDeclaration.getModulePath()).isEqualTo(":feature");
 
         // Check the feature manifest contains only the feature data.
         File featureManifest =
                 featureProject.getIntermediateFile(
-                        "manifests", "full", "feature", "release", "AndroidManifest.xml");
+                        "merged_manifests",
+                        "releaseFeature",
+                        "AndroidManifest.xml");
         assertThat(featureManifest).exists();
 
         assertThat(featureManifest)
@@ -113,30 +215,12 @@ public class FeatureTest {
         assertThat(featureManifest).doesNotContain("android:name=\"library\"");
         assertThat(featureManifest).doesNotContain("android:value=\"42\"");
 
-        // Check the R.java file builds with the right IDs.
-        File featureResFile =
-                featureProject.file(
-                        FileUtils.join(
-                                "build",
-                                AndroidProject.FD_GENERATED,
-                                FD_SOURCE_GEN,
-                                FD_RES_CLASS,
-                                "feature",
-                                "debug",
-                                "com",
-                                "example",
-                                "android",
-                                "multiproject",
-                                "feature",
-                                "R.java"));
-        assertThat(featureResFile).isFile();
-        assertThat(featureResFile).containsAllOf("public static final int feature_value=0x80");
-
         // Check the feature APK contains the expected classes.
         try (ApkSubject featureApk =
                 assertThatApk(featureProject.getFeatureApk(GradleTestProject.ApkType.DEBUG))) {
             featureApk.exists();
             featureApk.containsClass("Lcom/example/android/multiproject/feature/R;");
+            featureApk.containsClass("Lcom/example/android/multiproject/feature/R$string;");
             featureApk.containsClass("Lcom/example/android/multiproject/feature/MainActivity;");
             featureApk.doesNotContainClass("Lcom/example/android/multiproject/R;");
             featureApk.doesNotContainClass("Lcom/example/android/multiproject/library/R;");
@@ -144,20 +228,14 @@ public class FeatureTest {
             featureApk.doesNotContainClass("Lcom/example/android/multiproject/base/PersonView2;");
         }
 
-        // check the base feature declared the list of features and their associated IDs.
-        GradleTestProject baseProject = sProject.getSubproject(":baseFeature");
-        File idsList =
-                baseProject.getIntermediateFile(
-                        "feature-split", "ids", "feature", "debug", "package_ids.json");
-        assertThat(idsList).exists();
-        FeatureSplitPackageIds packageIds = FeatureSplitPackageIds.load(idsList);
-        assertThat(packageIds).isNotNull();
-        assertThat(packageIds.getIdFor(":feature")).isEqualTo(FeatureSplitPackageIds.BASE_ID);
+        GradleTestProject baseProject = project.getSubproject(":baseFeature");
 
         // Check that the base feature manifest contains the expected content.
         File baseFeatureManifest =
                 baseProject.getIntermediateFile(
-                        "manifests", "full", "feature", "release", "AndroidManifest.xml");
+                        "merged_manifests",
+                        "releaseFeature",
+                        "AndroidManifest.xml");
         assertThat(baseFeatureManifest).exists();
         assertThat(baseFeatureManifest)
                 .containsAllOf(
@@ -176,7 +254,11 @@ public class FeatureTest {
         try (ZipFileSubject baseFeatureResources =
                 assertThatZip(
                         baseProject.getIntermediateFile(
-                                "res", "feature", "debug", "resources-debugFeature.ap_"))) {
+                                "processed_res",
+                                "debugFeature",
+                                "processDebugFeatureResources",
+                                "out",
+                                "resources-debugFeature.ap_"))) {
             baseFeatureResources.exists();
             baseFeatureResources.contains("AndroidManifest.xml");
             baseFeatureResources.contains("resources.arsc");
@@ -194,20 +276,20 @@ public class FeatureTest {
 
         // Check that the instantApp bundle gets built properly.
         try (ZipFileSubject instantAppBundle =
-                assertThatZip(sProject.getSubproject(":bundle").getInstantAppBundle("release"))) {
+                assertThatZip(project.getSubproject(":bundle").getInstantAppBundle("release"))) {
             instantAppBundle.exists();
             instantAppBundle.contains("baseFeature-release-unsigned.apk");
-            instantAppBundle.contains("feature-release-unsigned.apk");
+            instantAppBundle.contains("feature-release.apk");
         }
     }
 
     @Test
     public void testMinimalisticModel() throws Exception {
-        sProject.executor().withEnabledAapt2(true).run("clean", "assemble");
+        project.executor().run("clean", "assemble");
 
         // get the initial minimalistic model.
         Map<String, ProjectBuildOutput> multi =
-                sProject.model().fetchMulti(ProjectBuildOutput.class);
+                project.model().fetchMulti(ProjectBuildOutput.class);
 
         ProjectBuildOutput projectBuildOutput = multi.get(":feature");
         assertThat(projectBuildOutput).isNotNull();
@@ -233,20 +315,20 @@ public class FeatureTest {
         assertThat(expectedVariantNames).isEmpty();
 
         Map<String, AndroidProject> models =
-                sProject.model().fetchAndroidProjects().getOnlyModelMap();
+                project.model().fetchAndroidProjects().getOnlyModelMap();
         assertThat(models.get(":feature").isBaseSplit()).isFalse();
         assertThat(models.get(":baseFeature").isBaseSplit()).isTrue();
     }
 
     @Test
     public void incrementalAllVariantsBuild() throws Exception {
-        sProject.executor().withEnabledAapt2(true).run("clean", "assemble");
+        project.executor().run("clean", "assemble");
 
-        GradleTestProject featureProject = sProject.getSubproject(":feature");
+        GradleTestProject featureProject = project.getSubproject(":feature");
 
         // get the initial minimalistic model.
         Map<String, ProjectBuildOutput> multi =
-                sProject.model().fetchMulti(ProjectBuildOutput.class);
+                project.model().fetchMulti(ProjectBuildOutput.class);
 
         ProjectBuildOutput projectBuildOutput = multi.get(":feature");
         assertThat(projectBuildOutput).isNotNull();
@@ -263,15 +345,11 @@ public class FeatureTest {
 
         Files.write(javaCode, addedSource, Charsets.UTF_8);
 
-        GradleBuildResult assemble =
-                sProject.executor()
-                        .withEnabledAapt2(true)
-                        .run("assemble");
+        GradleBuildResult assemble = project.executor().run("assemble");
 
-        multi = sProject.model().fetchMulti(ProjectBuildOutput.class);
+        multi = project.model().fetchMulti(ProjectBuildOutput.class);
 
         assertThat(assemble.getNotUpToDateTasks()).contains(":feature:assembleDebug");
-        assertThat(assemble.getNotUpToDateTasks()).contains(":baseFeature:assemble");
 
         Map<String, File> modifiedApks =
                 getVariantNameToOutputFileMap(multi.get(":feature").getVariantsBuildOutput());
@@ -292,13 +370,13 @@ public class FeatureTest {
 
     @Test
     public void incrementalBuild() throws Exception {
-        sProject.executor().withEnabledAapt2(true).run("clean", "assemble");
+        project.executor().run("clean", "assemble");
 
-        GradleTestProject featureProject = sProject.getSubproject(":feature");
+        GradleTestProject featureProject = project.getSubproject(":feature");
 
         // get the initial minimalistic model.
         Map<String, ProjectBuildOutput> multi =
-                sProject.model().fetchMulti(ProjectBuildOutput.class);
+                project.model().fetchMulti(ProjectBuildOutput.class);
 
         ProjectBuildOutput projectBuildOutput = multi.get(":feature");
         assertThat(projectBuildOutput).isNotNull();
@@ -320,15 +398,11 @@ public class FeatureTest {
 
         Files.write(javaCode, addedSource, Charsets.UTF_8);
 
-        GradleBuildResult assembleDebug =
-                sProject.executor()
-                        .withEnabledAapt2(true)
-                        .run("assembleDebug");
+        GradleBuildResult assembleDebug = project.executor().run("assembleDebug");
 
-        multi = sProject.model().fetchMulti(ProjectBuildOutput.class);
+        multi = project.model().fetchMulti(ProjectBuildOutput.class);
 
         assertThat(assembleDebug.getNotUpToDateTasks()).contains(":feature:assembleDebug");
-        assertThat(assembleDebug.getNotUpToDateTasks()).contains(":baseFeature:assembleDebug");
 
         Map<String, File> modifiedApks =
                 getVariantNameToOutputFileMap(multi.get(":feature").getVariantsBuildOutput());
@@ -357,16 +431,16 @@ public class FeatureTest {
 
     @Test
     public void incrementalManifestBuild() throws Exception {
-        sProject.executor().withEnabledAapt2(true).run("clean", "assembleDebug");
+        project.executor().run("clean", "assembleDebug");
 
         // now change the feature manifest
-        GradleTestProject featureProject = sProject.getSubproject(":feature");
+        GradleTestProject featureProject = project.getSubproject(":feature");
         File featureManifest = featureProject.file("src/main/AndroidManifest.xml");
         String content = Files.toString(featureManifest, Charsets.UTF_8);
         content = content.replace("84", "42");
         Files.write(content, featureManifest, Charsets.UTF_8);
 
-        GradleBuildResult run = sProject.executor().withEnabledAapt2(true).run("assembleDebug");
+        GradleBuildResult run = project.executor().run("assembleDebug");
         assertThat(run.getNotUpToDateTasks()).contains(":baseFeature:processDebugFeatureManifest");
     }
 

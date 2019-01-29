@@ -1,5 +1,3 @@
-load("//tools/base/bazel:maven.bzl", "maven_repo")
-
 java_library(
     name = "utils",
     srcs = glob(["src/com/android/tools/utils/*.java"]),
@@ -20,6 +18,14 @@ java_binary(
     ],
 )
 
+config_setting(
+    name = "agent_coverage",
+    values = {
+        "define": "agent_coverage=true",
+    },
+    visibility = ["//visibility:public"],
+)
+
 java_library(
     name = "groovy-compiler",
     srcs = glob(["src/com/android/tools/groovy/*.java"]),
@@ -28,6 +34,7 @@ java_library(
     # TODO: Update and use the prebuilts dependency
     deps = [
         ":utils",
+        "//tools/idea/.idea/libraries:Ant",
         "//tools/idea/.idea/libraries:Groovy",
     ],
 )
@@ -61,7 +68,7 @@ java_binary(
     visibility = ["//visibility:public"],
     runtime_deps = [
         "//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-reflect",
-        "//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-runtime",
+        "//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-stdlib",
     ],
     deps = [
         ":utils",
@@ -74,7 +81,7 @@ java_binary(
     srcs = ["src/com/android/tools/form/FormCompiler.java"],
     main_class = "com.android.tools.form.FormCompiler",
     visibility = ["//visibility:public"],
-    runtime_deps = ["//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-runtime"],
+    runtime_deps = ["//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-stdlib"],
     deps = [
         ":utils",
         "//prebuilts/tools/common/bazel/formc-deps",
@@ -97,7 +104,7 @@ java_library(
 
 java_import(
     name = "langtools",
-    jars = ["@local_jdk//:langtools"],
+    jars = ["//prebuilts/studio/jdk:langtools"],
     visibility = ["//visibility:public"],
 )
 
@@ -110,6 +117,14 @@ java_binary(
         ":bazel_generator",
         ":utils",
     ],
+)
+
+java_binary(
+    name = "bin2c",
+    srcs = ["src/com/android/tools/binaries/Bin2C.java"],
+    main_class = "com.android.tools.binaries.Bin2C",
+    visibility = ["//visibility:public"],
+    deps = ["//tools/base/third_party:com.google.guava_guava"],
 )
 
 java_binary(
@@ -245,15 +260,54 @@ java_binary(
     ],
 )
 
+java_library(
+    name = "coverage_report_generator",
+    srcs = [
+        "src/com/android/tools/coverage/CoverageReportGenerator.java",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":utils",
+        "//prebuilts/tools/common/m2/repository/org/jacoco/org.jacoco.core/0.8.2:jar",
+        "//prebuilts/tools/common/m2/repository/org/jacoco/org.jacoco.report/0.8.2:jar",
+        "//prebuilts/tools/common/m2/repository/org/ow2/asm/asm-commons/6.2.1:jar",
+        "//prebuilts/tools/common/m2/repository/org/ow2/asm/asm-tree/6.2.1:jar",
+        "//prebuilts/tools/common/m2/repository/org/ow2/asm/asm/6.2.1:jar",
+        "//tools/base/third_party:com.google.guava_guava",
+    ],
+)
+
 java_binary(
     name = "gradlew",
-    srcs = ["src/com/android/tools/gradle/GradleW.java"],
     main_class = "com.android.tools.gradle.GradleW",
+    visibility = ["//visibility:public"],
+    runtime_deps = [":gradle"],
+)
+
+java_library(
+    name = "gradle",
+    srcs = glob(["src/com/android/tools/gradle/*.java"]),
     visibility = ["//visibility:public"],
     deps = [
         "//tools/base/annotations",
-        "//tools/base/build-system:gradle-api",
+        "//tools/base/build-system:gradle-tooling-api",
+        "//tools/base/common:tools.common",
         "//tools/base/testutils:tools.testutils",
+        "//tools/base/third_party:com.google.guava_guava",
+    ],
+)
+
+java_library(
+    name = "gradle_benchmarks",
+    testonly = 1,
+    srcs = glob(["testSrc/com/android/tools/gradle/*.java"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tools/analytics-library/protos/src/main/proto",
+        "//tools/analytics-library/shared:tools.analytics-shared",
+        "//tools/base/annotations",
+        "//tools/base/bazel:gradle",
+        "//tools/base/perf-logger:studio.perf-logger_testlib",
         "//tools/base/third_party:com.google.guava_guava",
     ],
 )
@@ -271,6 +325,18 @@ java_binary(
 )
 
 config_setting(
+    name = "host_darwin",
+    values = {"host_cpu": "darwin"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "host_windows",
+    values = {"host_cpu": "x64_windows"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
     name = "darwin",
     values = {"cpu": "darwin"},
     visibility = ["//visibility:public"],
@@ -284,32 +350,37 @@ config_setting(
 
 config_setting(
     name = "android_cpu_x86",
-    values = {"android_cpu": "x86"},
+    values = {"cpu": "x86"},
     visibility = ["//visibility:public"],
 )
 
 config_setting(
     name = "android_cpu_x86_64",
-    values = {"android_cpu": "x86_64"},
+    values = {"cpu": "x86_64"},
     visibility = ["//visibility:public"],
 )
 
 config_setting(
     name = "android_cpu_arm",
-    values = {"android_cpu": "armeabi-v7a"},
+    values = {"cpu": "armeabi-v7a"},
     visibility = ["//visibility:public"],
 )
 
 config_setting(
     name = "android_cpu_arm_64",
-    values = {"android_cpu": "arm64-v8a"},
+    values = {"cpu": "arm64-v8a"},
     visibility = ["//visibility:public"],
 )
 
-# Use cpu for armeabi since android_cpu default value is armeabi
 config_setting(
     name = "android_cpu_armeabi",
     values = {"cpu": "armeabi"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "coverage",
+    values = {"define": "coverage=true"},
     visibility = ["//visibility:public"],
 )
 
@@ -317,11 +388,25 @@ java_test(
     name = "iml_to_build_tests",
     srcs = ["testSrc/com/android/tools/binaries/ImlToBazelTest.java"],
     data = ["//tools/base/bazel/test:iml_to_bazel"],
+    tags = [
+        "no_test_windows",
+    ],
     test_class = "com.android.tools.binaries.ImlToBazelTest",
     deps = [
         ":bazel_generator",
         ":iml_to_build",
         ":utils",
+        "//tools/base/third_party:junit_junit",
     ],
-    tags = ["no_test_windows"],
+)
+
+java_test(
+    name = "bin2c_tests",
+    srcs = ["testSrc/com/android/tools/binaries/Bin2CTest.java"],
+    test_class = "com.android.tools.binaries.Bin2CTest",
+    deps = [
+        ":bin2c",
+        "//tools/base/third_party:com.google.guava_guava",
+        "//tools/base/third_party:junit_junit",
+    ],
 )

@@ -29,38 +29,35 @@ import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.SourceCodeScanner;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.util.PsiTreeUtil;
 import java.util.Collections;
 import java.util.List;
 import org.jetbrains.uast.UClass;
+import org.jetbrains.uast.UastUtils;
 
 /**
- * Checks that subclasses of certain APIs are overriding all methods that were abstract
- * in one or more earlier API levels that are still targeted by the minSdkVersion
- * of this project.
+ * Checks that subclasses of certain APIs are overriding all methods that were abstract in one or
+ * more earlier API levels that are still targeted by the minSdkVersion of this project.
  */
 public class OverrideConcreteDetector extends Detector implements SourceCodeScanner {
     /** Are previously-abstract methods all overridden? */
-    public static final Issue ISSUE = Issue.create(
-        "OverrideAbstract",
-        "Not overriding abstract methods on older platforms",
-
-        "To improve the usability of some APIs, some methods that used to be `abstract` have " +
-        "been made concrete by adding default implementations. This means that when compiling " +
-        "with new versions of the SDK, your code does not have to override these methods.\n" +
-        "\n" +
-        "However, if your code is also targeting older versions of the platform where these " +
-        "methods were still `abstract`, the code will crash. You must override all methods " +
-        "that used to be abstract in any versions targeted by your application's " +
-        "`minSdkVersion`.",
-
-        Category.CORRECTNESS,
-        6,
-        Severity.ERROR,
-        new Implementation(
-                OverrideConcreteDetector.class,
-                Scope.JAVA_FILE_SCOPE)
-    );
+    public static final Issue ISSUE =
+            Issue.create(
+                            "OverrideAbstract",
+                            "Not overriding abstract methods on older platforms",
+                            "To improve the usability of some APIs, some methods that used to be `abstract` have "
+                                    + "been made concrete by adding default implementations. This means that when compiling "
+                                    + "with new versions of the SDK, your code does not have to override these methods.\n"
+                                    + "\n"
+                                    + "However, if your code is also targeting older versions of the platform where these "
+                                    + "methods were still `abstract`, the code will crash. You must override all methods "
+                                    + "that used to be abstract in any versions targeted by your application's "
+                                    + "`minSdkVersion`.",
+                            Category.CORRECTNESS,
+                            6,
+                            Severity.ERROR,
+                            new Implementation(
+                                    OverrideConcreteDetector.class, Scope.JAVA_FILE_SCOPE))
+                    .setAndroidSpecific(true);
 
     // This check is currently hardcoded for the specific case of the
     // NotificationListenerService change in API 21. We should consider
@@ -68,17 +65,16 @@ public class OverrideConcreteDetector extends Detector implements SourceCodeScan
     // the API current.txt file and making this detector more database driven,
     // like the API detector.
 
-    private static final String NOTIFICATION_LISTENER_SERVICE_FQN
-            = "android.service.notification.NotificationListenerService";
-    public static final String STATUS_BAR_NOTIFICATION_FQN
-            = "android.service.notification.StatusBarNotification";
+    private static final String NOTIFICATION_LISTENER_SERVICE_FQN =
+            "android.service.notification.NotificationListenerService";
+    public static final String STATUS_BAR_NOTIFICATION_FQN =
+            "android.service.notification.StatusBarNotification";
     private static final String ON_NOTIFICATION_POSTED = "onNotificationPosted";
     private static final String ON_NOTIFICATION_REMOVED = "onNotificationRemoved";
     private static final int CONCRETE_IN = 21;
 
     /** Constructs a new {@link OverrideConcreteDetector} */
-    public OverrideConcreteDetector() {
-    }
+    public OverrideConcreteDetector() {}
 
     // ---- implements SourceCodeScanner ----
 
@@ -131,25 +127,28 @@ public class OverrideConcreteDetector extends Detector implements SourceCodeScan
             }
 
             if (!found) {
-                String message = String.format(
-                        "Must override `%1$s.%2$s(%3$s)`: Method was abstract until %4$d, and your `minSdkVersion` is %5$d",
-                        NOTIFICATION_LISTENER_SERVICE_FQN, methodName,
-                        STATUS_BAR_NOTIFICATION_FQN, CONCRETE_IN, minSdk);
+                String message =
+                        String.format(
+                                "Must override `%1$s.%2$s(%3$s)`: Method was abstract until %4$d, and your `minSdkVersion` is %5$d",
+                                NOTIFICATION_LISTENER_SERVICE_FQN,
+                                methodName,
+                                STATUS_BAR_NOTIFICATION_FQN,
+                                CONCRETE_IN,
+                                minSdk);
                 context.report(ISSUE, declaration, context.getNameLocation(declaration), message);
                 break;
             }
-
         }
     }
 
-    private static int getTargetApi(@NonNull PsiClass node) {
+    private static int getTargetApi(@NonNull UClass node) {
         while (node != null) {
-            int targetApi = ApiDetector.getTargetApi(node.getModifierList());
+            int targetApi = ApiDetector.getTargetApi(node);
             if (targetApi != -1) {
                 return targetApi;
             }
 
-            node = PsiTreeUtil.getParentOfType(node, PsiClass.class, true);
+            node = UastUtils.getParentOfType(node, UClass.class, true);
         }
 
         return -1;

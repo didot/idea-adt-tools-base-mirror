@@ -201,6 +201,7 @@ public final class HttpTracker {
     private static final class Connection implements HttpConnectionTracker {
 
         private long myId;
+        private Thread myLastThread = null;
 
         private Connection(String url, StackTraceElement[] callstack) {
             myId = nextId();
@@ -231,11 +232,8 @@ public final class HttpTracker {
          */
         @Override
         public OutputStream trackRequestBody(OutputStream stream) {
-            if (myRequestPayloadEnabled) {
-                onRequestBody(myId);
-                return new OutputStreamTracker(stream, this);
-            }
-            return stream;
+            onRequestBody(myId);
+            return new OutputStreamTracker(stream, this);
         }
 
         @Override
@@ -276,7 +274,10 @@ public final class HttpTracker {
 
         void trackThread() {
             Thread thread = Thread.currentThread();
-            trackThread(myId, thread.getName(), thread.getId());
+            if (thread != myLastThread) {
+                trackThread(myId, thread.getName(), thread.getId());
+                myLastThread = thread;
+            }
         }
 
         private native long nextId();
@@ -290,8 +291,6 @@ public final class HttpTracker {
         private native void onError(long id, String status);
     }
 
-    private static boolean myRequestPayloadEnabled = false;
-
     /**
      * Starts tracking a HTTP request
      *
@@ -302,9 +301,5 @@ public final class HttpTracker {
      */
     public static HttpConnectionTracker trackConnection(String url, StackTraceElement[] callstack) {
         return new Connection(url, callstack);
-    }
-
-    public static void setRequestPayloadEnabled(boolean enabled) {
-        myRequestPayloadEnabled = enabled;
     }
 }

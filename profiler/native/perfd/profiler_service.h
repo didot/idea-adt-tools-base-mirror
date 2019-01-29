@@ -18,27 +18,16 @@
 
 #include <grpc++/grpc++.h>
 
+#include "perfd/commands/command.h"
 #include "perfd/daemon.h"
-#include "perfd/sessions/sessions_manager.h"
 #include "proto/profiler.grpc.pb.h"
-#include "utils/clock.h"
-#include "utils/file_cache.h"
-
-#include <unordered_map>
 
 namespace profiler {
 
 class ProfilerServiceImpl final
     : public profiler::proto::ProfilerService::Service {
  public:
-  explicit ProfilerServiceImpl(
-      Daemon::Utilities* utilities, SessionsManager* sessions,
-      std::unordered_map<int32_t, int64_t>* heartbeat_timestamp_map)
-      : clock_(utilities->clock()),
-        config_(utilities->config()),
-        file_cache_(*utilities->file_cache()),
-        sessions_(sessions),
-        heartbeat_timestamp_map_(*heartbeat_timestamp_map) {}
+  explicit ProfilerServiceImpl(Daemon* daemon) : daemon_(daemon) {}
 
   grpc::Status GetCurrentTime(grpc::ServerContext* context,
                               const profiler::proto::TimeRequest* request,
@@ -57,23 +46,15 @@ class ProfilerServiceImpl final
       const profiler::proto::AgentStatusRequest* request,
       profiler::proto::AgentStatusResponse* response) override;
 
-  // The current implementation only returns 'connected processes' and is for
-  // testing only. When we move process discover to perfd, we will fix this.
-  // TODO: If needed, add a flag to indicate a process is 'connected'.
-  grpc::Status GetProcesses(
-      grpc::ServerContext* context,
-      const profiler::proto::GetProcessesRequest* request,
-      profiler::proto::GetProcessesResponse* response) override;
-
   grpc::Status GetDevices(
       grpc::ServerContext* context,
       const profiler::proto::GetDevicesRequest* request,
       profiler::proto::GetDevicesResponse* response) override;
 
-  grpc::Status AttachAgent(
+  grpc::Status ConfigureStartupAgent(
       grpc::ServerContext* context,
-      const profiler::proto::AgentAttachRequest* request,
-      profiler::proto::AgentAttachResponse* response) override;
+      const profiler::proto::ConfigureStartupAgentRequest* request,
+      profiler::proto::ConfigureStartupAgentResponse* response) override;
 
   grpc::Status BeginSession(
       grpc::ServerContext* context,
@@ -85,35 +66,27 @@ class ProfilerServiceImpl final
       const profiler::proto::EndSessionRequest* request,
       profiler::proto::EndSessionResponse* response) override;
 
-  grpc::Status GetSession(
-      grpc::ServerContext* context,
-      const profiler::proto::GetSessionRequest* request,
-      profiler::proto::GetSessionResponse* response) override;
-
   grpc::Status GetSessions(
       grpc::ServerContext* context,
       const profiler::proto::GetSessionsRequest* request,
       profiler::proto::GetSessionsResponse* response) override;
 
-  grpc::Status DeleteSession(
+  grpc::Status Execute(grpc::ServerContext* context,
+                       const profiler::proto::ExecuteRequest* request,
+                       profiler::proto::ExecuteResponse* response) override;
+
+  grpc::Status GetEvents(grpc::ServerContext* context,
+                         const profiler::proto::GetEventsRequest* request,
+                         profiler::proto::GetEventsResponse* response) override;
+
+  grpc::Status GetEventGroups(
       grpc::ServerContext* context,
-      const profiler::proto::DeleteSessionRequest* request,
-      profiler::proto::DeleteSessionResponse* response) override;
+      const profiler::proto::GetEventGroupsRequest* request,
+      profiler::proto::GetEventGroupsResponse* response) override;
 
  private:
-  // True if an JVMTI agent has been attached to an app. False otherwise.
-  bool IsAppAgentAlive(int app_pid, const char* app_name);
-  // True if perfd has received a heartbeat from an app within the last
-  // time interval (as specified by |GenericComponent::kHeartbeatThresholdNs|.
-  // False otherwise.
-  bool CheckAppHeartBeat(int app_pid);
-
-  // Clock knows about timestamps.
-  const Clock& clock_;
-  const Config& config_;
-  FileCache& file_cache_;
-  SessionsManager* sessions_;
-  std::unordered_map<int32_t, int64_t>& heartbeat_timestamp_map_;
+  // The daemon this service talks to.
+  Daemon* daemon_;
 };
 
 }  // namespace profiler

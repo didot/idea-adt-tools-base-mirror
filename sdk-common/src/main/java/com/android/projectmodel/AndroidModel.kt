@@ -21,9 +21,21 @@ package com.android.projectmodel
  * New properties may be added in the future; clients that invoke the constructor are encouraged to
  * use Kotlin named arguments to stay source compatible.
  */
-data class AndroidModel(
-        /**
-         * List of [AndroidProject] that are present in this module.
-         */
-        val projects: List<AndroidProject> = emptyList()
-)
+data class AndroidModel (
+    /**
+     * List of [AndroidSubmodule] that are present in this module.
+     */
+    val submodules: Collection<AndroidSubmodule> = emptyList()
+) {
+    /**
+     * Map of project names onto [AndroidSubmodule].
+     */
+    val submodulesByName: Map<String, AndroidSubmodule> = submodules.associateBy { it.name }
+
+    override fun toString(): String = printProperties(this, AndroidModel())
+
+    /**
+     * Returns the submodule with the given name or null if none.
+     */
+    fun getSubmodule(name: String): AndroidSubmodule? = submodulesByName[name]
+}

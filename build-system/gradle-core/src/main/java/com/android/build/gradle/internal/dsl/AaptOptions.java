@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import javax.inject.Inject;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
@@ -31,7 +32,12 @@ import org.gradle.api.tasks.Optional;
 /** DSL object for configuring aapt options. */
 public class AaptOptions {
 
-    @Nullable private Boolean namespaced;
+    @Inject
+    public AaptOptions(boolean namespaced) {
+        this.namespaced = namespaced;
+    }
+
+    private boolean namespaced;
 
     @Nullable
     private String ignoreAssetsPattern;
@@ -72,6 +78,7 @@ public class AaptOptions {
      *
      * <p>See <code>aapt --help</code>
      */
+    @Nullable
     @Internal
     public String getIgnoreAssetsPattern() {
         return ignoreAssetsPattern;
@@ -110,12 +117,14 @@ public class AaptOptions {
         return noCompressList;
     }
 
+    @SuppressWarnings("MethodMayBeStatic")
     public void useNewCruncher(boolean value) {
         LoggerWrapper.getLogger(AaptOptions.class).warning("useNewCruncher has been deprecated. "
                 + "It will be removed in a future version of the gradle plugin. New cruncher is "
                 + "now always enabled.");
     }
 
+    @SuppressWarnings("MethodMayBeStatic")
     public void setUseNewCruncher(boolean value) {
         LoggerWrapper.getLogger(AaptOptions.class).warning("useNewCruncher has been deprecated. "
                 + "It will be removed in a future version of the gradle plugin. New cruncher is "
@@ -213,9 +222,7 @@ public class AaptOptions {
         additionalParameters = parameters;
     }
 
-    /**
-     * Returns the list of additional parameters to pass to {@code appt}.
-     */
+    /** Returns the list of additional parameters to pass to {@code aapt}. */
     @Nullable
     @Optional
     @Input
@@ -244,16 +251,15 @@ public class AaptOptions {
      * <p>This property is incubating and may change in a future release.
      */
     @Internal
-    @Nullable
-    public Boolean getNamespaced() {
+    public boolean getNamespaced() {
         return namespaced;
     }
 
-    public void setNamespaced(@Nullable Boolean namespaced) {
+    public void setNamespaced(boolean namespaced) {
         this.namespaced = namespaced;
     }
 
-    public void namespaced(@Nullable Boolean namespaced) {
+    public void namespaced(boolean namespaced) {
         this.namespaced = namespaced;
     }
 }

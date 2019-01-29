@@ -17,6 +17,9 @@
 package com.android.build.gradle.tasks;
 
 import static com.android.build.gradle.external.cmake.CmakeUtils.getObjectToString;
+import static com.android.build.gradle.internal.cxx.configure.CmakeSourceFileNamingKt.hasCmakeHeaderFileExtensions;
+import static com.android.build.gradle.internal.cxx.json.CompilationDatabaseIndexingVisitorKt.indexCompilationDatabase;
+import static com.android.build.gradle.internal.cxx.json.CompilationDatabaseToolchainVisitorKt.populateCompilationDatabaseToolchains;
 import static com.android.build.gradle.tasks.ExternalNativeBuildTaskUtils.getOutputFolder;
 import static com.android.build.gradle.tasks.ExternalNativeBuildTaskUtils.getOutputJson;
 
@@ -34,6 +37,7 @@ import com.android.build.gradle.external.cmake.server.ConfigureCommandResult;
 import com.android.build.gradle.external.cmake.server.FileGroup;
 import com.android.build.gradle.external.cmake.server.HandshakeRequest;
 import com.android.build.gradle.external.cmake.server.HandshakeResult;
+import com.android.build.gradle.external.cmake.server.IncludePath;
 import com.android.build.gradle.external.cmake.server.Project;
 import com.android.build.gradle.external.cmake.server.ProtocolVersion;
 import com.android.build.gradle.external.cmake.server.Server;
@@ -43,22 +47,28 @@ import com.android.build.gradle.external.cmake.server.Target;
 import com.android.build.gradle.external.cmake.server.receiver.InteractiveMessage;
 import com.android.build.gradle.external.cmake.server.receiver.ServerReceiver;
 import com.android.build.gradle.internal.LoggerWrapper;
-import com.android.build.gradle.internal.core.Abi;
+import com.android.build.gradle.internal.cxx.configure.JsonGenerationVariantConfiguration;
 import com.android.build.gradle.internal.cxx.json.AndroidBuildGradleJsons;
+import com.android.build.gradle.internal.cxx.json.CompilationDatabaseToolchain;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValue;
+import com.android.build.gradle.internal.cxx.json.NativeHeaderFileValue;
 import com.android.build.gradle.internal.cxx.json.NativeLibraryValue;
 import com.android.build.gradle.internal.cxx.json.NativeSourceFileValue;
 import com.android.build.gradle.internal.cxx.json.NativeToolchainValue;
-import com.android.build.gradle.internal.ndk.NdkHandler;
+import com.android.build.gradle.internal.cxx.json.StringTable;
 import com.android.builder.core.AndroidBuilder;
 import com.android.ide.common.process.ProcessException;
 import com.android.utils.ILogger;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.primitives.UnsignedInts;
+import com.google.gson.stream.JsonReader;
 import com.google.wireless.android.sdk.stats.GradleBuildVariant;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Path;
@@ -79,53 +89,13 @@ import org.apache.commons.io.FileUtils;
 class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGenerator {
 
     private static final String CMAKE_SERVER_LOG_PREFIX = "CMAKE SERVER: ";
-    // Constructor
+
     public CmakeServerExternalNativeJsonGenerator(
-            @NonNull NdkHandler ndkHandler,
-            int minSdkVersion,
-            @NonNull String variantName,
-            @NonNull Collection<Abi> abis,
+            @NonNull JsonGenerationVariantConfiguration config,
             @NonNull AndroidBuilder androidBuilder,
-            @NonNull File sdkFolder,
-            @NonNull File ndkFolder,
-            @NonNull File soFolder,
-            @NonNull File objFolder,
-            @NonNull File jsonFolder,
-            @NonNull File makeFile,
             @NonNull File cmakeFolder,
-            boolean debuggable,
-            @Nullable List<String> buildArguments,
-            @Nullable List<String> cFlags,
-            @Nullable List<String> cppFlags,
-            @NonNull List<File> nativeBuildConfigurationsJsons,
             @NonNull GradleBuildVariant.Builder stats) {
-        super(
-                ndkHandler,
-                minSdkVersion,
-                variantName,
-                abis,
-                androidBuilder,
-                sdkFolder,
-                ndkFolder,
-                soFolder,
-                objFolder,
-                jsonFolder,
-                makeFile,
-                cmakeFolder,
-                debuggable,
-                buildArguments,
-                cFlags,
-                cppFlags,
-                nativeBuildConfigurationsJsons,
-                stats);
-
-        logPreviewWarning(androidBuilder);
-    }
-
-    private static void logPreviewWarning(@NonNull AndroidBuilder androidBuilder) {
-        String previewWarning =
-                "Support for CMake 3.7 and higher is a preview feature. To report a bug, see https://developer.android.com/studio/report-bugs.html";
-        androidBuilder.getLogger().warning(previewWarning);
+        super(config, androidBuilder, cmakeFolder, stats);
     }
 
     /**
@@ -171,6 +141,16 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
 
         // By default, use the ninja generator.
         cacheArguments.add("-G Ninja");
+
+        // To preserve backward compatibility with fork CMake look for ninja.exe next to cmake.exe
+        // and use it. If it's not there then normal CMake search logic will be used.
+        File possibleNinja =
+                isWindows()
+                        ? new File(getCmakeBinFolder(), "ninja.exe")
+                        : new File(getCmakeBinFolder(), "ninja");
+        if (possibleNinja.isFile()) {
+            cacheArguments.add(String.format("-DCMAKE_MAKE_PROGRAM=%s", possibleNinja));
+        }
         return cacheArguments;
     }
 
@@ -195,12 +175,18 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
             ConfigureCommandResult configureCommandResult =
                     doConfigure(abi, abiPlatformVersion, cmakeServer);
             if (!ServerUtils.isConfigureResultValid(configureCommandResult.configureResult)) {
-                throw new ProcessException("Error configuring");
+                throw new ProcessException(
+                        String.format(
+                                "Error configuring CMake server (%s).\r\n%s",
+                                cmakeServer.getCmakePath(),
+                                configureCommandResult.interactiveMessages));
             }
 
             ComputeResult computeResult = doCompute(cmakeServer);
             if (!ServerUtils.isComputedResultValid(computeResult)) {
-                throw new ProcessException("Error computing");
+                throw new ProcessException(
+                        "Error computing CMake server result.\r\n"
+                                + configureCommandResult.interactiveMessages);
             }
 
             generateAndroidGradleBuild(abi, cmakeServer);
@@ -265,7 +251,7 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
     }
 
     /** Processes an interactive message received from the CMake server. */
-    void receiveInteractiveMessage(
+    static void receiveInteractiveMessage(
             @NonNull PrintWriter writer,
             @NonNull ILogger logger,
             @NonNull InteractiveMessage message,
@@ -387,10 +373,9 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
             throws IOException {
         List<String> cacheArgumentsList = getCacheArguments(abi, abiPlatformVersion);
         cacheArgumentsList.addAll(getBuildArguments());
-        ConfigureCommandResult configureCommandResult =
-                cmakeServer.configure(
-                        cacheArgumentsList.toArray(new String[cacheArgumentsList.size()]));
-        return configureCommandResult;
+        String argsArray[] = new String[cacheArgumentsList.size()];
+        cacheArgumentsList.toArray(argsArray);
+        return cmakeServer.configure(argsArray);
     }
 
     /**
@@ -455,6 +440,9 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
             @NonNull String abi, @NonNull Server cmakeServer) throws IOException {
         NativeBuildConfigValue nativeBuildConfigValue = createDefaultNativeBuildConfigValue();
 
+        assert nativeBuildConfigValue.stringTable != null;
+        StringTable strings = new StringTable(nativeBuildConfigValue.stringTable);
+
         // Build file
         assert nativeBuildConfigValue.buildFiles != null;
         nativeBuildConfigValue.buildFiles.addAll(getBuildFiles(abi, cmakeServer));
@@ -499,7 +487,8 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
                         continue;
                     }
 
-                    NativeLibraryValue nativeLibraryValue = getNativeLibraryValue(abi, target);
+                    NativeLibraryValue nativeLibraryValue =
+                            getNativeLibraryValue(abi, target, strings);
                     nativeLibraryValue.toolchain = toolchainHashString;
                     String libraryName = target.name + "-" + config.name + "-" + abi;
                     assert nativeBuildConfigValue.libraries != null;
@@ -511,45 +500,107 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
     }
 
     @VisibleForTesting
-    protected NativeLibraryValue getNativeLibraryValue(@NonNull String abi, @NonNull Target target)
-            throws IOException {
+    protected NativeLibraryValue getNativeLibraryValue(
+            @NonNull String abi, @NonNull Target target, StringTable strings)
+            throws FileNotFoundException {
+        return getNativeLibraryValue(
+                getCmakeExecutable(),
+                getOutputFolder(getJsonFolder(), abi),
+                isDebuggable(),
+                new JsonReader(new FileReader(getCompileCommandsJson(abi))),
+                abi,
+                target,
+                strings);
+    }
+
+    @VisibleForTesting
+    static NativeLibraryValue getNativeLibraryValue(
+            @NonNull File cmakeExecutable,
+            @NonNull File outputFolder,
+            boolean isDebuggable,
+            @NonNull JsonReader compileCommandsJson,
+            @NonNull String abi,
+            @NonNull Target target,
+            @NonNull StringTable strings) {
         NativeLibraryValue nativeLibraryValue = new NativeLibraryValue();
         nativeLibraryValue.abi = abi;
         nativeLibraryValue.buildCommand =
-                CmakeUtils.getBuildCommand(
-                        getCmakeExecutable(), getOutputFolder(getJsonFolder(), abi), target.name);
+                CmakeUtils.getBuildCommand(cmakeExecutable, outputFolder, target.name);
         nativeLibraryValue.artifactName = target.name;
-        nativeLibraryValue.buildType = isDebuggable() ? "debug" : "release";
+        nativeLibraryValue.buildType = isDebuggable ? "debug" : "release";
         // We'll have only one output, so get the first one.
         if (target.artifacts.length > 0) {
             nativeLibraryValue.output = new File(target.artifacts[0]);
         }
 
         nativeLibraryValue.files = new ArrayList<>();
+        nativeLibraryValue.headers = new ArrayList<>();
+        Map<String, Integer> compilationDatabaseFlags = Maps.newHashMap();
 
         for (FileGroup fileGroup : target.fileGroups) {
+            int workingDirectoryOrdinal = strings.intern(target.buildDirectory);
             for (String source : fileGroup.sources) {
-                NativeSourceFileValue nativeSourceFileValue = new NativeSourceFileValue();
-                nativeSourceFileValue.workingDirectory = new File(target.buildDirectory);
                 File sourceFile = new File(target.sourceDirectory, source);
-                nativeSourceFileValue.src = sourceFile;
-                nativeSourceFileValue.flags = fileGroup.compileFlags;
-                if (Strings.isNullOrEmpty(nativeSourceFileValue.flags)) {
-                    // If flags weren't available in the CMake server model then fall back to using
-                    // compilation_database.json.
-                    // This is related to http://b/72065334 in which the compilation database did
-                    // not have flags for a particular file. Unclear why. I think the correct flags
-                    // to use is fileGroup.compileFlags and that compilation database should be
-                    // a fall-back case.
+                if (hasCmakeHeaderFileExtensions(sourceFile)) {
+                    nativeLibraryValue.headers.add(
+                            new NativeHeaderFileValue(sourceFile, workingDirectoryOrdinal));
+                } else {
+                    NativeSourceFileValue nativeSourceFileValue = new NativeSourceFileValue();
+                    nativeSourceFileValue.workingDirectoryOrdinal =
+                            strings.intern(target.buildDirectory);
+                    nativeSourceFileValue.src = sourceFile;
 
-                    nativeSourceFileValue.flags =
-                            getAndroidGradleFileLibFlags(abi, sourceFile.getAbsolutePath());
+                    // We use flags from compile_commands.json if present. Otherwise, fall back
+                    // to server model compile flags (which is known to not always return a
+                    // complete set).
+                    // Reference b/116237485
+                    if (compilationDatabaseFlags.isEmpty()) {
+                        compilationDatabaseFlags =
+                                indexCompilationDatabase(compileCommandsJson, strings);
+                    }
+                    if (compilationDatabaseFlags.containsKey(sourceFile.getPath())) {
+                        nativeSourceFileValue.flagsOrdinal =
+                                compilationDatabaseFlags.get(sourceFile.getPath());
+                    } else {
+                        // TODO I think this path is always wrong because it won't have --targets
+                        // I don't want to make it an exception this late in 3.3 cycle so I'm
+                        // leaving it as-is for now.
+                        String compileFlags = compileFlagsFromFileGroup(fileGroup);
+                        if (!Strings.isNullOrEmpty(compileFlags)) {
+                            nativeSourceFileValue.flagsOrdinal = strings.intern(compileFlags);
+                        }
+                    }
+                    nativeLibraryValue.files.add(nativeSourceFileValue);
                 }
-                nativeLibraryValue.files.add(nativeSourceFileValue);
             }
         }
 
         return nativeLibraryValue;
+    }
+
+    private static String compileFlagsFromFileGroup(FileGroup fileGroup) {
+        StringBuilder flags = new StringBuilder();
+        flags.append(fileGroup.compileFlags);
+        if (fileGroup.defines != null) {
+            for (String define : fileGroup.defines) {
+                flags.append(" -D").append(define);
+            }
+        }
+        if (fileGroup.includePath != null) {
+            for (IncludePath includePath : fileGroup.includePath) {
+                if (includePath == null || includePath.path == null) {
+                    continue;
+                }
+                if (includePath.isSystem != null && includePath.isSystem) {
+                    flags.append(" -system ");
+                } else {
+                    flags.append(" -I ");
+                }
+                flags.append(includePath.path);
+            }
+        }
+
+        return flags.toString();
     }
 
     /**
@@ -557,12 +608,9 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
      * library.
      */
     private static boolean canAddTargetToNativeLibrary(@NonNull Target target) {
-        // If the target has no artifacts or filegroups, the target will be get ignored, so mark
+        // If the target has no artifacts or file groups, the target will be get ignored, so mark
         // it valid.
-        if ((target.artifacts == null) || (target.fileGroups == null)) {
-            return false;
-        }
-        return true;
+        return (target.artifacts != null) && (target.fileGroups != null);
     }
 
     /**
@@ -655,7 +703,7 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
         nativeBuildConfigValue.toolchains = new HashMap<>();
         nativeBuildConfigValue.cFileExtensions = new ArrayList<>();
         nativeBuildConfigValue.cppFileExtensions = new ArrayList<>();
-
+        nativeBuildConfigValue.stringTable = Maps.newHashMap();
         return nativeBuildConfigValue;
     }
 
@@ -681,40 +729,14 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
         File cCompilerExecutable = null;
         File cppCompilerExecutable = null;
 
-        try {
-            List<CompileCommand> compileCommands = getCompileCommands(abi);
-            if (!compileCommands.isEmpty()) {
-                for (CompileCommand compileCommand : compileCommands) {
-                    if (compileCommand.file == null || compileCommand.command == null) {
-                        continue;
-                    }
-                    String extension =
-                            compileCommand
-                                    .file
-                                    .substring(compileCommand.file.lastIndexOf('.') + 1)
-                                    .trim();
-                    String executable =
-                            compileCommand.command.substring(
-                                    0, compileCommand.command.indexOf(' '));
-                    if (toolchainValue.cppCompilerExecutable == null
-                            && cppExtensionSet.contains(extension)) {
-                        toolchainValue.cppCompilerExecutable = new File(executable);
-                        continue;
-                    }
-                    if (toolchainValue.cCompilerExecutable == null
-                            && cExtensionSet.contains(extension)) {
-                        toolchainValue.cCompilerExecutable = new File(executable);
-                    }
-                }
-            } else {
-                if (!cmakeServer.getCCompilerExecutable().isEmpty()) {
-                    cCompilerExecutable = new File(cmakeServer.getCCompilerExecutable());
-                }
-                if (!cmakeServer.getCppCompilerExecutable().isEmpty()) {
-                    cppCompilerExecutable = new File(cmakeServer.getCppCompilerExecutable());
-                }
-            }
-        } catch (IOException e) {
+        File compilationDatabase = getCompileCommandsJson(abi);
+        if (compilationDatabase.exists()) {
+            CompilationDatabaseToolchain toolchain =
+                    populateCompilationDatabaseToolchains(
+                            compilationDatabase, cppExtensionSet, cExtensionSet);
+            cppCompilerExecutable = toolchain.getCppCompilerExecutable();
+            cCompilerExecutable = toolchain.getCCompilerExecutable();
+        } else {
             if (!cmakeServer.getCCompilerExecutable().isEmpty()) {
                 cCompilerExecutable = new File(cmakeServer.getCCompilerExecutable());
             }
@@ -737,30 +759,6 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
         toolchains.put(toolchainHashString, toolchainValue);
 
         return toolchains;
-    }
-
-    /**
-     * Returns a list of all CompileCommand from compile-commands json file if one is available.
-     *
-     * @param abi - ABI for which compile commands json file needs to be read
-     * @return list of all CompileCommand
-     * @throws IOException I/O failure
-     */
-    @NonNull
-    private List<CompileCommand> getCompileCommands(@NonNull String abi) throws IOException {
-        return ServerUtils.getCompilationDatabase(getCompileCommandsJson(abi));
-    }
-
-    /**
-     * Returns the flags used to compile a given file.
-     *
-     * @param abi - ABI for which compiler flags for the given json file needs to be returned
-     * @param fileName - file name
-     * @return flags used to compile a give CXX/C file
-     */
-    private String getAndroidGradleFileLibFlags(@NonNull String abi, @NonNull String fileName)
-            throws IOException {
-        return getAndroidGradleFileLibFlags(fileName, getCompileCommands(abi));
     }
 
     /** Helper function that returns the flags used to compile a given file. */
@@ -799,8 +797,7 @@ class CmakeServerExternalNativeJsonGenerator extends CmakeExternalNativeJsonGene
         // NDK versions r15 and above have the fix in android.toolchain.cmake to work with CMake
         // version 3.7+, but if the user has NDK r14 or below, we add the (hacky) fix
         // programmatically.
-        if (getNdkHandler().getRevision() != null
-                && getNdkHandler().getRevision().getMajor() >= 15) {
+        if (config.ndkVersion.getMajor() >= 15) {
             // Add our toolchain file.
             // Note: When setting this flag, Cmake's android toolchain would end up calling our
             // toolchain via ndk-cmake-hooks, but our toolchains will (ideally) be executed only

@@ -26,6 +26,8 @@ import static com.android.SdkConstants.DOT_XML;
 import static com.android.SdkConstants.TAG_DATA;
 import static com.android.SdkConstants.TAG_LAYOUT;
 import static com.android.SdkConstants.TOOLS_PREFIX;
+import static com.android.SdkConstants.VALUE_FALSE;
+import static com.android.SdkConstants.VALUE_TRUE;
 import static com.android.SdkConstants.XMLNS_PREFIX;
 import static com.android.utils.SdkUtils.endsWithIgnoreCase;
 import static com.android.utils.XmlUtils.getFirstSubTagByName;
@@ -35,6 +37,7 @@ import static com.google.common.base.Charsets.UTF_8;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.builder.model.AndroidProject;
+import com.android.builder.model.BuildType;
 import com.android.builder.model.BuildTypeContainer;
 import com.android.builder.model.ClassField;
 import com.android.builder.model.ProductFlavor;
@@ -45,6 +48,8 @@ import com.android.ide.common.resources.usage.ResourceUsageModel;
 import com.android.ide.common.resources.usage.ResourceUsageModel.Resource;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
+import com.android.tools.lint.client.api.JavaEvaluator;
+import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.client.api.UElementHandler;
 import com.android.tools.lint.detector.api.BinaryResourceScanner;
 import com.android.tools.lint.detector.api.Category;
@@ -52,8 +57,8 @@ import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.LintFix;
-import com.android.tools.lint.detector.api.LintUtils;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.ResourceContext;
@@ -87,46 +92,82 @@ import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 
-/**
- * Finds unused resources.
- */
-public class UnusedResourceDetector extends ResourceXmlDetector implements SourceCodeScanner,
-        BinaryResourceScanner, XmlScanner {
+/** Finds unused resources. */
+public class UnusedResourceDetector extends ResourceXmlDetector
+        implements SourceCodeScanner, BinaryResourceScanner, XmlScanner {
 
-    private static final Implementation IMPLEMENTATION = new Implementation(
-            UnusedResourceDetector.class,
-            EnumSet.of(Scope.MANIFEST, Scope.ALL_RESOURCE_FILES, Scope.ALL_JAVA_FILES,
-                    Scope.BINARY_RESOURCE_FILE, Scope.TEST_SOURCES));
+    private static final Implementation IMPLEMENTATION;
+
+    public static final String EXCLUDE_TESTS_PROPERTY = "lint.unused-resources.exclude-tests";
+    public static final String INCLUDE_TESTS_PROPERTY = "lint.unused-resources.include-tests";
+
+    static {
+        EnumSet<Scope> scopeSet =
+                EnumSet.of(
+                        Scope.MANIFEST,
+                        Scope.ALL_RESOURCE_FILES,
+                        Scope.ALL_JAVA_FILES,
+                        Scope.BINARY_RESOURCE_FILE);
+
+        // Whether to include test sources in the scope. Currently true but controllable
+        // with a couple of flags.
+        if (VALUE_TRUE.equals(System.getProperty(INCLUDE_TESTS_PROPERTY))
+                || !VALUE_FALSE.equals(System.getProperty(EXCLUDE_TESTS_PROPERTY))) {
+            scopeSet.add(Scope.TEST_SOURCES);
+        }
+
+        IMPLEMENTATION = new Implementation(UnusedResourceDetector.class, scopeSet);
+    }
+
+    private static final String EXCLUDING_TESTS_EXPLANATION =
+            ""
+                    + "The unused resource check can ignore tests. If you want to include "
+                    + "resources that are only referenced from tests, consider packaging them "
+                    + "in a test source set instead.\n"
+                    + "\n"
+                    + "You can include test sources in the unused resource check by setting "
+                    + "the system property "
+                    + INCLUDE_TESTS_PROPERTY
+                    + "=true, and to "
+                    + "exclude them (usually for performance reasons), use "
+                    + EXCLUDE_TESTS_PROPERTY
+                    + "=true.";
 
     /** Unused resources (other than ids). */
-    public static final Issue ISSUE = Issue.create(
-            "UnusedResources",
-            "Unused resources",
-            "Unused resources make applications larger and slow down builds.",
-            Category.PERFORMANCE,
-            3,
-            Severity.WARNING,
-            IMPLEMENTATION);
+    public static final Issue ISSUE =
+            Issue.create(
+                    "UnusedResources",
+                    "Unused resources",
+                    "Unused resources make applications larger and slow down builds.\n"
+                            + "\n"
+                            + EXCLUDING_TESTS_EXPLANATION,
+                    Category.PERFORMANCE,
+                    3,
+                    Severity.WARNING,
+                    IMPLEMENTATION);
 
     /** Unused id's */
-    public static final Issue ISSUE_IDS = Issue.create(
-            "UnusedIds",
-            "Unused id",
-            "This resource id definition appears not to be needed since it is not referenced " +
-            "from anywhere. Having id definitions, even if unused, is not necessarily a bad " +
-            "idea since they make working on layouts and menus easier, so there is not a " +
-            "strong reason to delete these.",
-            Category.PERFORMANCE,
-            1,
-            Severity.WARNING,
-            IMPLEMENTATION)
-            .setEnabledByDefault(false);
+    public static final Issue ISSUE_IDS =
+            Issue.create(
+                            "UnusedIds",
+                            "Unused id",
+                            "This resource id definition appears not to be needed since it is not referenced "
+                                    + "from anywhere. Having id definitions, even if unused, is not necessarily a bad "
+                                    + "idea since they make working on layouts and menus easier, so there is not a "
+                                    + "strong reason to delete these.\n"
+                                    + "\n"
+                                    + EXCLUDING_TESTS_EXPLANATION,
+                            Category.PERFORMANCE,
+                            1,
+                            Severity.WARNING,
+                            IMPLEMENTATION)
+                    .setEnabledByDefault(false);
 
     private final UnusedResourceDetectorUsageModel model = new UnusedResourceDetectorUsageModel();
 
     // Map from data-binding ViewBinding classes (base names, not fully qualified names)
     // to corresponding layout resource names, if any
-    private Map<String,String> bindingClasses;
+    private Map<String, String> bindingClasses;
 
     /**
      * Whether the resource detector will look for inactive resources (e.g. resource and code
@@ -134,22 +175,22 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
      */
     public static boolean sIncludeInactiveReferences = true;
 
-    /**
-     * Constructs a new {@link UnusedResourceDetector}
-     */
-    public UnusedResourceDetector() {
-    }
+    /** Constructs a new {@link UnusedResourceDetector} */
+    public UnusedResourceDetector() {}
 
-    private void addDynamicResources(
-            @NonNull Context context) {
+    private void addDynamicResources(@NonNull Context context) {
         Project project = context.getProject();
         AndroidProject model = project.getGradleProjectModel();
         if (model != null) {
             Variant selectedVariant = project.getCurrentVariant();
             if (selectedVariant != null) {
+                ProductFlavor mergedProductFlavor = selectedVariant.getMergedFlavor();
+                recordManifestPlaceHolderUsages(mergedProductFlavor.getManifestPlaceholders());
                 for (BuildTypeContainer container : model.getBuildTypes()) {
-                    if (selectedVariant.getBuildType().equals(container.getBuildType().getName())) {
-                        addDynamicResources(project, container.getBuildType().getResValues());
+                    BuildType buildType = container.getBuildType();
+                    if (selectedVariant.getBuildType().equals(buildType.getName())) {
+                        addDynamicResources(project, buildType.getResValues());
+                        recordManifestPlaceHolderUsages(buildType.getManifestPlaceholders());
                     }
                 }
             }
@@ -158,14 +199,24 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
         }
     }
 
-    private void addDynamicResources(@NonNull Project project,
-            @NonNull Map<String, ClassField> resValues) {
+    private void recordManifestPlaceHolderUsages(Map<String, Object> manifestPlaceholders) {
+        for (Object value : manifestPlaceholders.values()) {
+            if (value instanceof String) {
+                String string = (String) value;
+                Resource resource = model.getResourceFromUrl(string);
+                ResourceUsageModel.markReachable(resource);
+            }
+        }
+    }
+
+    private void addDynamicResources(
+            @NonNull Project project, @NonNull Map<String, ClassField> resValues) {
         Set<String> keys = resValues.keySet();
         if (!keys.isEmpty()) {
-            Location location = LintUtils.guessGradleLocation(project);
+            Location location = Lint.guessGradleLocation(project);
             for (String name : keys) {
                 ClassField field = resValues.get(name);
-                ResourceType type = ResourceType.getEnum(field.getType());
+                ResourceType type = ResourceType.fromClassName(field.getType());
                 if (type == null) {
                     // Highly unlikely. This would happen if in the future we add
                     // some new ResourceType, that the Gradle plugin (and the user's
@@ -180,7 +231,16 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
     }
 
     @Override
-    public void afterCheckProject(@NonNull Context context) {
+    public void afterCheckRootProject(@NonNull Context context) {
+        if (context.getMainProject().isLibrary() && LintClient.isGradle()) {
+            // In Gradle, don't report unused resources for a library project;
+            // these are usually processed separately (without the main app
+            // module) and results in a lot of false positives. To get unused
+            // resources accounted correctly, run the check on the app project,
+            // preferably with checkDependencies true.
+            return;
+        }
+
         if (context.getPhase() == 1) {
             Project project = context.getProject();
 
@@ -188,7 +248,11 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
             // we need to make sure we find references in those source sets as well
             // such that we don't incorrectly remove resources that are
             // used by some other source set.
-            if (sIncludeInactiveReferences && project.isGradleProject() && !project.isLibrary()) {
+            // In Gradle etc we don't need to do this (and in large projects it's expensive)
+            if (sIncludeInactiveReferences
+                    && project.isGradleProject()
+                    && !project.isLibrary()
+                    && LintClient.isStudio()) {
                 AndroidProject model = project.getGradleProjectModel();
                 Variant variant = project.getCurrentVariant();
                 if (model != null && variant != null) {
@@ -259,7 +323,7 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
                     // from the resource name (though the presence of qualifiers like -land etc
                     // makes it a little tricky if there's no base file provided)
                     ResourceType type = resource.type;
-                    if (type != null && LintUtils.isFileBasedResourceType(type)) {
+                    if (type != null && Lint.isFileBasedResourceType(type)) {
                         String name = resource.name;
 
                         List<File> folders = Lists.newArrayList();
@@ -283,8 +347,7 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
                                         for (File file : files) {
                                             String fileName = file.getName();
                                             if (fileName.startsWith(name)
-                                                    && fileName.startsWith(".",
-                                                            name.length())) {
+                                                    && fileName.startsWith(".", name.length())) {
                                                 resource.recordLocation(Location.create(file));
                                             }
                                         }
@@ -301,7 +364,7 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
                 Boolean skippedLibraries = null;
 
                 for (Resource resource : sorted) {
-                    Location location = ((LintResource)resource).locations;
+                    Location location = ((LintResource) resource).locations;
                     if (location != null) {
                         // We were prepending locations, but we want to prefer the base folders
                         location = Location.reverse(location);
@@ -327,8 +390,8 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
                     }
 
                     String field = resource.getField();
-                    String message = String.format("The resource `%1$s` appears to be unused",
-                            field);
+                    String message =
+                            String.format("The resource `%1$s` appears to be unused", field);
                     if (location == null) {
                         location = Location.create(context.getProject().getDir());
                     }
@@ -342,8 +405,7 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
     /** Returns source providers that are <b>not</b> part of the given variant */
     @NonNull
     private static List<SourceProvider> getInactiveSourceProviders(
-            @NonNull AndroidProject project,
-            @NonNull Variant variant) {
+            @NonNull AndroidProject project, @NonNull Variant variant) {
         Collection<Variant> variants = project.getVariants();
         List<SourceProvider> providers = Lists.newArrayList();
 
@@ -424,8 +486,8 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
     // Used for traversing resource folders *outside* of the normal Gradle variant
     // folders: these are not necessarily on the project path, so we don't have PSI files
     // for them
-    private void recordInactiveXmlResources(@NonNull ResourceFolderType folderType,
-      @NonNull File folder) {
+    private void recordInactiveXmlResources(
+            @NonNull ResourceFolderType folderType, @NonNull File folder) {
         File[] files = folder.listFiles();
         if (files != null) {
             for (File file : files) {
@@ -447,8 +509,7 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
         }
     }
 
-    private void addInactiveReferences(@NonNull AndroidProject model,
-                              @NonNull Variant variant) {
+    private void addInactiveReferences(@NonNull AndroidProject model, @NonNull Variant variant) {
         for (SourceProvider provider : getInactiveSourceProviders(model, variant)) {
             for (File res : provider.getResDirectories()) {
                 // Scan resource directory
@@ -497,13 +558,14 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
 
             // Data binding layout? If so look for usages of the binding class too
             Element root = document.getDocumentElement();
-            if (folderType == ResourceFolderType.LAYOUT && root != null
+            if (folderType == ResourceFolderType.LAYOUT
+                    && root != null
                     && TAG_LAYOUT.equals(root.getTagName())) {
                 if (bindingClasses == null) {
                     bindingClasses = Maps.newHashMap();
                 }
                 String fileName = context.file.getName();
-                String resourceName = LintUtils.getBaseName(fileName);
+                String resourceName = Lint.getBaseName(fileName);
                 Element data = getFirstSubTagByName(root, TAG_DATA);
                 String bindingClass = null;
                 while (data != null) {
@@ -558,8 +620,12 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
     }
 
     @Override
-    public void visitResourceReference(@NonNull JavaContext context, @NonNull UElement node,
-            @NonNull ResourceType type, @NonNull String name, boolean isFramework) {
+    public void visitResourceReference(
+            @NonNull JavaContext context,
+            @NonNull UElement node,
+            @NonNull ResourceType type,
+            @NonNull String name,
+            boolean isFramework) {
         if (!isFramework) {
             ResourceUsageModel.markReachable(model.addResource(type, name, null));
         }
@@ -583,26 +649,30 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
         return new UElementHandler() {
             @Override
             public void visitSimpleNameReferenceExpression(
-                    USimpleNameReferenceExpression expression) {
+                    @NonNull USimpleNameReferenceExpression expression) {
 
                 String name = expression.getIdentifier();
                 String resourceName = bindingClasses.get(name);
                 if (resourceName != null) {
                     // Make sure it's really a binding class
                     PsiElement resolved = expression.resolve();
-                    if (resolved instanceof PsiClass
-                            && context.getEvaluator().extendsClass((PsiClass) resolved,
-                            "android.databinding.ViewDataBinding", true)) {
-                        ResourceUsageModel.markReachable(model.getResource(ResourceType.LAYOUT,
-                                resourceName));
+                    if (resolved instanceof PsiClass) {
+                        JavaEvaluator evaluator = context.getEvaluator();
+                        PsiClass binding = (PsiClass) resolved;
+                        if (evaluator.extendsClass(
+                                        binding, "android.databinding.ViewDataBinding", true)
+                                || evaluator.extendsClass(
+                                        binding, "androidx.databinding.ViewDataBinding", true)) {
+                            ResourceUsageModel.markReachable(
+                                    model.getResource(ResourceType.LAYOUT, resourceName));
+                        }
                     }
                 }
             }
         };
     }
 
-    private static class LintResource
-            extends Resource {
+    private static class LintResource extends Resource {
         /** Chained list of declaration locations */
         public Location locations;
 
@@ -626,8 +696,8 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
 
         @NonNull
         @Override
-        protected Resource createResource(@NonNull ResourceType type,
-                @NonNull String name, int realValue) {
+        protected Resource createResource(
+                @NonNull ResourceType type, @NonNull String name, int realValue) {
             return new LintResource(type, name, realValue);
         }
 
@@ -646,8 +716,10 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
             if (context != null) {
                 resource.setDeclared(context.getProject().getReportIssues());
                 if (context.getPhase() == 2 && unused.contains(resource)) {
-                    if (xmlContext != null && xmlContext.getDriver().isSuppressed(xmlContext,
-                            getIssue(resource), node)) {
+                    if (xmlContext != null
+                            && xmlContext
+                                    .getDriver()
+                                    .isSuppressed(xmlContext, getIssue(resource), node)) {
                         resource.setKeep(true);
                     } else {
                         // For positions we try to use the name node rather than the
@@ -666,7 +738,7 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
                     }
                 }
 
-                if (type == ResourceType.RAW &&isKeepFile(name, xmlContext)) {
+                if (type == ResourceType.RAW && isKeepFile(name, xmlContext)) {
                     // Don't flag raw.keep: these are used for resource shrinking
                     // keep lists
                     //    https://developer.android.com/studio/build/shrink-code.html
@@ -677,9 +749,7 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
             return resource;
         }
 
-        private static boolean isKeepFile(
-          @NonNull String name,
-          @Nullable XmlContext xmlContext) {
+        private static boolean isKeepFile(@NonNull String name, @Nullable XmlContext xmlContext) {
             if ("keep".equals(name)) {
                 return true;
             }
@@ -695,9 +765,9 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
                         if (!nodeName.startsWith(XMLNS_PREFIX)
                                 && !nodeName.startsWith(TOOLS_PREFIX)) {
                             return false;
-                        } else if (nodeName.endsWith(ATTR_SHRINK_MODE) ||
-                                nodeName.endsWith(ATTR_DISCARD) ||
-                                nodeName.endsWith(ATTR_KEEP)) {
+                        } else if (nodeName.endsWith(ATTR_SHRINK_MODE)
+                                || nodeName.endsWith(ATTR_DISCARD)
+                                || nodeName.endsWith(ATTR_KEEP)) {
                             found = true;
                         }
                     }
@@ -705,7 +775,6 @@ public class UnusedResourceDetector extends ResourceXmlDetector implements Sourc
                     return found;
                 }
             }
-
 
             return false;
         }

@@ -22,6 +22,8 @@ import static com.android.SdkConstants.AUTO_URI;
 import static com.android.SdkConstants.DOT_XML;
 import static com.android.SdkConstants.TOOLS_URI;
 import static com.android.SdkConstants.XMLNS_PREFIX;
+import static com.android.tools.lint.detector.api.LintFix.ReplaceString.INSERT_BEGINNING;
+import static com.android.tools.lint.detector.api.LintFix.ReplaceString.INSERT_END;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
@@ -57,9 +59,7 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
-/**
- * Verifier which can simulate IDE quickfixes and check fix data
- */
+/** Verifier which can simulate IDE quickfixes and check fix data */
 public class LintFixVerifier {
     private final TestLintTask task;
     private final List<Warning> warnings;
@@ -71,17 +71,13 @@ public class LintFixVerifier {
         this.warnings = warnings;
     }
 
-    /**
-     * Sets up 2 lines of context in the diffs
-     */
+    /** Sets up 2 lines of context in the diffs */
     public LintFixVerifier window() {
         diffWindow = 2;
         return this;
     }
 
-    /**
-     * Sets up a specific number of lines of contexts around diffs
-     */
+    /** Sets up a specific number of lines of contexts around diffs */
     public LintFixVerifier window(int size) {
         assertTrue(size >= 0 && size <= 100);
         diffWindow = size;
@@ -89,10 +85,9 @@ public class LintFixVerifier {
     }
 
     /**
-     * Sets whether lint should reformat before and after files before
-     * diffing. If not set explicitly to true or false, it will default
-     * to true for XML files that set/remove attributes and false
-     * otherwise. (May not have any effect on other file types than XML.)
+     * Sets whether lint should reformat before and after files before diffing. If not set
+     * explicitly to true or false, it will default to true for XML files that set/remove attributes
+     * and false otherwise. (May not have any effect on other file types than XML.)
      */
     public LintFixVerifier reformatDiffs(boolean reformatDiffs) {
         this.reformat = reformatDiffs;
@@ -100,10 +95,10 @@ public class LintFixVerifier {
     }
 
     /**
-     * Checks what happens with the given fix in this result as applied to the given
-     * test file, and making sure that the result is the new contents
+     * Checks what happens with the given fix in this result as applied to the given test file, and
+     * making sure that the result is the new contents
      *
-     * @param fix   the fix description, or null to pick the first one
+     * @param fix the fix description, or null to pick the first one
      * @param after the file after applying the fix
      * @return this
      */
@@ -113,8 +108,8 @@ public class LintFixVerifier {
     }
 
     /**
-     * Applies the fixes and provides diffs of all the affected files, then
-     * compares it against the expected result.
+     * Applies the fixes and provides diffs of all the affected files, then compares it against the
+     * expected result.
      *
      * @param expected the diff description resulting from applying the diffs
      * @return this
@@ -122,9 +117,40 @@ public class LintFixVerifier {
     public LintFixVerifier expectFixDiffs(@NonNull String expected) {
         StringBuilder diff = new StringBuilder(100);
         checkFixes(null, null, diff);
-        assertEquals(StringsKt.trimIndent(expected),
-                StringsKt.trimIndent(diff.toString().replace("\r\n", "\n")));
+        String actual = StringsKt.trimIndent(diff.toString().replace("\r\n", "\n"));
+        expected = StringsKt.trimIndent(expected);
+        if (!expected.equals(actual)) {
+            // Until 3.2 canary 10 the line numbers were off by one; try adjusting
+            if (!bumpFixLineNumbers(expected).trim().equals(actual.trim())) {
+                assertEquals(expected, actual);
+            }
+        }
         return this;
+    }
+
+    /**
+     * Given fix-delta output, increases the line numbers by one (needed to gracefully handle older
+     * fix diffs where the line numbers were 0-based instead of 1-based like the error output.)
+     */
+    @NonNull
+    private static String bumpFixLineNumbers(@NonNull String output) {
+        StringBuilder sb = new StringBuilder(output.length());
+        Pattern pattern = Pattern.compile("((Fix|Data) for .* line )(\\d+)(: .+)");
+        for (String line : output.split("\n")) {
+            Matcher matcher = pattern.matcher(line);
+            if (matcher.matches()) {
+                String prefix = matcher.group(1);
+                String lineNumber = matcher.group(3);
+                String suffix = matcher.group(4);
+                sb.append(prefix);
+                sb.append(Integer.toString(Integer.parseInt(lineNumber) + 1));
+                sb.append(suffix);
+            } else {
+                sb.append(line);
+            }
+            sb.append('\n');
+        }
+        return sb.toString();
     }
 
     @Nullable
@@ -141,7 +167,9 @@ public class LintFixVerifier {
         return null;
     }
 
-    private void checkFixes(@Nullable String fixName, @Nullable TestFile expectedFile,
+    private void checkFixes(
+            @Nullable String fixName,
+            @Nullable TestFile expectedFile,
             @Nullable StringBuilder diffs) {
         assertTrue(expectedFile != null || diffs != null);
         List<String> names = Lists.newArrayList();
@@ -172,7 +200,7 @@ public class LintFixVerifier {
                 if (lintFix instanceof DataMap && diffs != null) {
                     // Doesn't edit file, but include in diffs so fixes can verify the
                     // correct data is passed
-                    appendDataMap(warning, (DataMap)lintFix, diffs);
+                    appendDataMap(warning, (DataMap) lintFix, diffs);
                 }
 
                 String after;
@@ -187,18 +215,21 @@ public class LintFixVerifier {
                 }
 
                 if (expectedFile != null) {
-                    assertEquals(StringsKt.trimIndent(expectedFile.getContents()),
+                    assertEquals(
+                            StringsKt.trimIndent(expectedFile.getContents()),
                             StringsKt.trimIndent(after));
                 }
 
                 if (diffs != null) {
                     if (reformat != null && reformat && warning.path.endsWith(DOT_XML)) {
                         try {
-                            before = XmlPrettyPrinter.prettyPrint(
-                                    XmlUtils.parseDocument(before, true), true);
-                            after = XmlPrettyPrinter.prettyPrint(
-                                    XmlUtils.parseDocument(after, true), true);
-                        } catch (ParserConfigurationException | SAXException | IOException e) {
+                            before =
+                                    XmlPrettyPrinter.prettyPrint(
+                                            XmlUtils.parseDocument(before, true), true);
+                            after =
+                                    XmlPrettyPrinter.prettyPrint(
+                                            XmlUtils.parseDocument(after, true), true);
+                        } catch (SAXException | IOException e) {
                             throw new RuntimeException(e);
                         }
                     }
@@ -220,17 +251,15 @@ public class LintFixVerifier {
 
     @Nullable
     private static String applyFix(
-            @NonNull Warning warning,
-            @NonNull LintFix lintFix,
-            @NonNull String before) {
+            @NonNull Warning warning, @NonNull LintFix lintFix, @NonNull String before) {
         if (lintFix instanceof ReplaceString) {
             ReplaceString replaceFix = (ReplaceString) lintFix;
             return checkReplaceString(replaceFix, warning, before);
         } else if (lintFix instanceof SetAttribute) {
             SetAttribute setFix = (SetAttribute) lintFix;
             return checkSetAttribute(setFix, before, warning);
-        } else if (lintFix instanceof LintFixGroup &&
-                ((LintFixGroup)lintFix).type == GroupType.COMPOSITE) {
+        } else if (lintFix instanceof LintFixGroup
+                && ((LintFixGroup) lintFix).type == GroupType.COMPOSITE) {
             for (LintFix nested : ((LintFixGroup) lintFix).fixes) {
                 String after = applyFix(warning, nested, before);
                 if (after == null) {
@@ -246,8 +275,8 @@ public class LintFixVerifier {
     private static boolean haveSetAttribute(@NonNull LintFix lintFix) {
         if (lintFix instanceof SetAttribute) {
             return true;
-        } else if (lintFix instanceof LintFixGroup &&
-                ((LintFixGroup)lintFix).type == GroupType.COMPOSITE) {
+        } else if (lintFix instanceof LintFixGroup
+                && ((LintFixGroup) lintFix).type == GroupType.COMPOSITE) {
             for (LintFix nested : ((LintFixGroup) lintFix).fixes) {
                 if (haveSetAttribute(nested)) {
                     return true;
@@ -258,10 +287,8 @@ public class LintFixVerifier {
     }
 
     private static String checkSetAttribute(
-            @NonNull SetAttribute setFix,
-            @NonNull String contents,
-            @NonNull Warning warning) {
-        Location location = warning.location;
+            @NonNull SetAttribute setFix, @NonNull String contents, @NonNull Warning warning) {
+        Location location = setFix.range != null ? setFix.range : warning.location;
         Position start = location.getStart();
         Position end = location.getEnd();
         assert start != null;
@@ -280,35 +307,44 @@ public class LintFixVerifier {
                 node = node.getParentNode();
             }
             if (node == null || node.getNodeType() != Node.ELEMENT_NODE) {
-                fail("Didn't find element at offset " + start.getOffset()
-                        + " (line " + start.getLine() + ", column "
-                        + start.getColumn() + ") in " + warning.path
-                        + ":\n" + contents);
+                fail(
+                        "Didn't find element at offset "
+                                + start.getOffset()
+                                + " (line "
+                                + start.getLine()
+                                + 1
+                                + ", column "
+                                + start.getColumn()
+                                + 1
+                                + ") in "
+                                + warning.path
+                                + ":\n"
+                                + contents);
             }
             Element element = (Element) node;
             String value = setFix.value;
             String namespace = setFix.namespace;
             if (value == null) {
                 if (namespace != null) {
-                    element.removeAttributeNS(namespace,
-                            setFix.attribute);
+                    element.removeAttributeNS(namespace, setFix.attribute);
                 } else {
                     element.removeAttribute(setFix.attribute);
                 }
             } else {
                 // Indicate the caret position by "|"
-                if (setFix.dot >= 0
-                        && setFix.dot <= value.length()) {
+                if (setFix.dot >= 0 && setFix.dot <= value.length()) {
                     if (setFix.mark >= 0 && setFix.mark != setFix.dot) {
                         // Selection
                         assert setFix.mark < setFix.dot;
-                        value = value.substring(0, setFix.mark) + "["
-                                + value.substring(setFix.mark, setFix.dot)
-                                + "]|" + value.substring(setFix.dot);
+                        value =
+                                value.substring(0, setFix.mark)
+                                        + "["
+                                        + value.substring(setFix.mark, setFix.dot)
+                                        + "]|"
+                                        + value.substring(setFix.dot);
                     } else {
                         // Just caret
-                        value = value.substring(0, setFix.dot) + "|" +
-                                value.substring(setFix.dot);
+                        value = value.substring(0, setFix.dot) + "|" + value.substring(setFix.dot);
                     }
                 }
 
@@ -350,9 +386,7 @@ public class LintFixVerifier {
     }
 
     private static String checkReplaceString(
-            @NonNull ReplaceString replaceFix,
-            @NonNull Warning warning,
-            @NonNull String contents) {
+            @NonNull ReplaceString replaceFix, @NonNull Warning warning, @NonNull String contents) {
         String oldPattern = replaceFix.oldPattern;
         String oldString = replaceFix.oldString;
         Location location = replaceFix.range != null ? replaceFix.range : warning.location;
@@ -412,11 +446,21 @@ public class LintFixVerifier {
             if (index != -1) {
                 startOffset = start.getOffset() + index;
                 endOffset = start.getOffset() + index + oldString.length();
+            } else if (oldString.equals(INSERT_BEGINNING)) {
+                startOffset = start.getOffset();
+                endOffset = startOffset;
+            } else if (oldString.equals(INSERT_END)) {
+                startOffset = end.getOffset();
+                endOffset = startOffset;
             } else {
-                fail("Did not find \"" + oldString + "\" in \"" + locationRange
-                        + "\" as suggested in the quickfix. Consider calling " +
-                        "ReplaceStringBuilder#range() to set a larger range to " +
-                        "search than the default highlight range.");
+                fail(
+                        "Did not find \""
+                                + oldString
+                                + "\" in \""
+                                + locationRange
+                                + "\" as suggested in the quickfix. Consider calling "
+                                + "ReplaceStringBuilder#range() to set a larger range to "
+                                + "search than the default highlight range.");
                 return null;
             }
         } else {
@@ -425,9 +469,12 @@ public class LintFixVerifier {
             Pattern pattern = Pattern.compile(oldPattern);
             Matcher matcher = pattern.matcher(locationRange);
             if (!matcher.find()) {
-                fail("Did not match pattern \"" + oldPattern + "\" in \""
-                        + locationRange
-                        + "\" as suggested in the quickfix");
+                fail(
+                        "Did not match pattern \""
+                                + oldPattern
+                                + "\" in \""
+                                + locationRange
+                                + "\" as suggested in the quickfix");
                 return null;
             } else {
                 startOffset = start.getOffset();
@@ -456,8 +503,7 @@ public class LintFixVerifier {
             }
         }
 
-        return contents.substring(0, startOffset) + replacement +
-                contents.substring(endOffset);
+        return contents.substring(0, startOffset) + replacement + contents.substring(endOffset);
     }
 
     private void appendDiff(
@@ -469,8 +515,11 @@ public class LintFixVerifier {
         String diff = TestUtils.getDiff(before, after, diffWindow);
         if (!diff.isEmpty()) {
             String targetPath = warning.path.replace(File.separatorChar, '/');
-            diffs.append("Fix for ").append(targetPath).append(" line ")
-                    .append(warning.line).append(": ");
+            diffs.append("Fix for ")
+                    .append(targetPath)
+                    .append(" line ")
+                    .append(warning.line + 1)
+                    .append(": ");
             if (fixDescription != null) {
                 diffs.append(fixDescription).append(":\n");
             }
@@ -478,11 +527,14 @@ public class LintFixVerifier {
         }
     }
 
-    private static void appendDataMap(@NonNull Warning warning, @NonNull DataMap map,
-            @NonNull StringBuilder diffs) {
+    private static void appendDataMap(
+            @NonNull Warning warning, @NonNull DataMap map, @NonNull StringBuilder diffs) {
         String targetPath = warning.path;
-        diffs.append("Data for ").append(targetPath.replace(File.separatorChar, '/'))
-                .append(" line ").append(warning.line).append(": ");
+        diffs.append("Data for ")
+                .append(targetPath.replace(File.separatorChar, '/'))
+                .append(" line ")
+                .append(warning.line + 1)
+                .append(": ");
         String fixDescription = map.getDisplayName();
         if (fixDescription != null) {
             diffs.append(fixDescription).append(":\n");
@@ -492,14 +544,14 @@ public class LintFixVerifier {
         for (Object key : keys) {
             diffs.append("  ");
             if (key instanceof Class<?>) {
-                diffs.append(((Class<?>)key).getSimpleName());
+                diffs.append(((Class<?>) key).getSimpleName());
             } else {
                 assert key instanceof String;
                 diffs.append(key.toString());
             }
             diffs.append(" : ");
             if (key instanceof Class<?>) {
-                diffs.append(map.get((Class<?>)key));
+                diffs.append(map.get((Class<?>) key));
             } else {
                 diffs.append(map.get(key.toString()));
             }

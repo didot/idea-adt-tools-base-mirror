@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import com.android.annotations.NonNull;
 import com.android.build.VariantOutput;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.Format;
 import com.android.build.api.transform.QualifiedContent;
 import com.android.build.api.transform.Status;
@@ -29,8 +30,6 @@ import com.android.build.api.transform.TransformException;
 import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.api.transform.TransformOutputProvider;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
-import com.android.build.gradle.internal.dsl.CoreSigningConfig;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
@@ -67,11 +66,11 @@ public class InstantRunDependenciesApkBuilderTest {
     @Mock Project project;
     @Mock InstantRunBuildContext buildContext;
     @Mock AndroidBuilder androidBuilder;
-    @Mock CoreSigningConfig coreSigningConfig;
-    @Mock FileCollection mainResources;
+    @Mock FileCollection coreSigningConfig;
+    @Mock BuildableArtifact mainResources;
     @Mock TargetInfo targetInfo;
     @Mock BuildToolInfo buildTools;
-    @Mock FileCollection apkList;
+    @Mock BuildableArtifact apkList;
 
 
     @Rule public TemporaryFolder outputDirectory = new TemporaryFolder();
@@ -99,7 +98,7 @@ public class InstantRunDependenciesApkBuilderTest {
         File apkListFile = apkListDirectory.newFile("apk-list.json");
         org.apache.commons.io.FileUtils.write(
                 apkListFile, ExistingBuildElements.persistApkList(ImmutableList.of(apkInfo)));
-        when(apkList.getSingleFile()).thenReturn(apkListFile);
+        when(apkList.iterator()).thenReturn(ImmutableList.of(apkListFile).iterator());
 
         instantRunSliceSplitApkBuilder =
                 new InstantRunDependenciesApkBuilder(
@@ -107,13 +106,12 @@ public class InstantRunDependenciesApkBuilderTest {
                         project,
                         buildContext,
                         androidBuilder,
-                        "com.foo.test",
+                        null,
+                        () -> "com.foo.test",
                         coreSigningConfig,
-                        AaptGeneration.AAPT_V2_DAEMON_MODE,
                         new AaptOptions(null, false, null),
                         outputDirectory.getRoot(),
                         supportDirectory.newFolder("instant-run"),
-                        supportDirectory.newFolder("aapt-temp"),
                         mainResources,
                         mainResources,
                         apkList,

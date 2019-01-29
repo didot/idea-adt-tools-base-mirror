@@ -24,6 +24,7 @@ import static com.android.SdkConstants.FD_RENDERSCRIPT;
 import static com.android.SdkConstants.FD_RES;
 import static com.android.SdkConstants.FN_ANDROID_MANIFEST_XML;
 import static com.android.SdkConstants.FN_ANNOTATIONS_ZIP;
+import static com.android.SdkConstants.FN_API_JAR;
 import static com.android.SdkConstants.FN_CLASSES_JAR;
 import static com.android.SdkConstants.FN_LINT_JAR;
 import static com.android.SdkConstants.FN_PROGUARD_TXT;
@@ -33,6 +34,7 @@ import static com.android.SdkConstants.FN_RESOURCE_TEXT;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.builder.model.level2.Library;
+import com.android.utils.FileUtils;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
@@ -50,16 +52,19 @@ public final class AndroidLibraryImpl implements Library, Serializable {
     @NonNull private final String address;
     @NonNull private final File artifact;
     @NonNull private final File folder;
+    @Nullable private final File resStaticLibrary;
     @NonNull private final List<String> localJarPaths;
 
     public AndroidLibraryImpl(
             @NonNull String address,
             @NonNull File artifact,
             @NonNull File folder,
+            @Nullable File resStaticLibrary,
             @NonNull List<String> localJarPaths) {
         this.address = address;
         this.artifact = artifact;
         this.folder = folder;
+        this.resStaticLibrary = resStaticLibrary;
         this.localJarPaths = ImmutableList.copyOf(localJarPaths);
     }
 
@@ -100,8 +105,22 @@ public final class AndroidLibraryImpl implements Library, Serializable {
 
     @NonNull
     @Override
+    public String getCompileJarFile() {
+        // Use api.jar file for compilation if that file exists (api.jar is optional in an
+        // AAR); otherwise, use the regular jar file.
+        return FileUtils.join(folder, FN_API_JAR).exists() ? FN_API_JAR : getJarFile();
+    }
+
+    @NonNull
+    @Override
     public String getResFolder() {
         return FD_RES;
+    }
+
+    @Nullable
+    @Override
+    public File getResStaticLibrary() {
+        return resStaticLibrary;
     }
 
     @NonNull
@@ -197,12 +216,13 @@ public final class AndroidLibraryImpl implements Library, Serializable {
         return Objects.equals(address, that.address)
                 && Objects.equals(artifact, that.artifact)
                 && Objects.equals(folder, that.folder)
+                && Objects.equals(resStaticLibrary, that.resStaticLibrary)
                 && Objects.equals(localJarPaths, that.localJarPaths);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(address, artifact, folder, localJarPaths);
+        return Objects.hash(address, artifact, folder, resStaticLibrary, localJarPaths);
     }
 
     @Override
@@ -211,6 +231,7 @@ public final class AndroidLibraryImpl implements Library, Serializable {
                 .add("address", address)
                 .add("artifact", artifact)
                 .add("folder", folder)
+                .add("resStaticLibrary", resStaticLibrary)
                 .add("localJarPath", localJarPaths)
                 .toString();
     }

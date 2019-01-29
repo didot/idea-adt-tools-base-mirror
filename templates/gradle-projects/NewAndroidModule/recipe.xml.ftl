@@ -145,14 +145,16 @@
     </#if>
 </#if>
 
-
 <#if includeCppSupport>
     <mkdir at="${escapeXmlAttribute(nativeSrcOut)}" />
 
     <instantiate from="root/CMakeLists.txt.ftl"
-                   to="${escapeXmlAttribute(projectOut)}/CMakeLists.txt" />
+                   to="${escapeXmlAttribute(nativeSrcOut)}/CMakeLists.txt" />
     <instantiate from="root/native-lib.cpp.ftl"
                    to="${escapeXmlAttribute(nativeSrcOut)}/native-lib.cpp" />
 </#if>
 
+<#if generateKotlin && useAndroidX>
+    <dependency mavenUrl="androidx.core:core-ktx:+" />
+</#if>
 </recipe>

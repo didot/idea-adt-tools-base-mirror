@@ -16,16 +16,19 @@
 
 package com.android.ide.common.symbols
 
+import com.android.SdkConstants
 import com.android.annotations.concurrency.Immutable
-import com.android.resources.ResourceAccessibility
 import com.android.resources.ResourceType
+import com.android.resources.ResourceVisibility
+import com.google.common.base.Preconditions
 import com.google.common.base.Splitter
+import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableTable
 import com.google.common.collect.Lists
 import com.google.common.collect.Maps
 import com.google.common.collect.Table
 import com.google.common.collect.Tables
-import java.util.Arrays
+import java.io.File
 import java.util.Collections
 import java.util.HashMap
 import java.util.HashSet
@@ -40,6 +43,8 @@ import javax.lang.model.SourceVersion
  * / name. Tables have one main attribute: a package name. This should be unique and are used to
  * generate the `R.java` file.
  */
+private const val ANDROID_ATTR_PREFIX = "android_"
+
 @Immutable
 abstract class SymbolTable protected constructor() {
 
@@ -48,7 +53,11 @@ abstract class SymbolTable protected constructor() {
 
     private data class SymbolTableImpl(
             override val tablePackage: String,
-            override val symbols: ImmutableTable<ResourceType, String, Symbol>) : SymbolTable()
+            override val symbols: ImmutableTable<ResourceType, String, Symbol>) : SymbolTable() {
+
+        override fun toString(): String = "SymbolTable ($tablePackage)" +
+                "\n  " + symbols.values().joinToString("\n  ")
+    }
 
     /**
      * Produces a subset of this symbol table that has the symbols with resource type / name defined
@@ -62,19 +71,19 @@ abstract class SymbolTable protected constructor() {
     fun filter(table: SymbolTable): SymbolTable {
         val builder = ImmutableTable.builder<ResourceType, String, Symbol>()
 
-        for (resourceType in symbols.rowKeySet()) {
-            val symbols = symbols.row(resourceType).values
-            val filteringSymbolNames = table.symbols.row(resourceType).keys
+        for (resourceType in table.symbols.rowKeySet()) {
+            val symbols = table.symbols.row(resourceType).values
+            val filteringSymbolNames = this.symbols.row(resourceType).keys
 
             for (symbol in symbols) {
-                if (filteringSymbolNames.contains(symbol.name)) {
-                    builder.put(resourceType, symbol.name, symbol)
+                if (filteringSymbolNames.contains(symbol.canonicalName)) {
+                    builder.put(
+                        resourceType, symbol.canonicalName, this.symbols.get(resourceType, symbol.canonicalName))
                 }
             }
         }
 
-        return SymbolTableImpl(tablePackage,
-                builder.build())
+        return SymbolTableImpl(tablePackage, builder.build())
     }
 
     /**
@@ -84,7 +93,7 @@ abstract class SymbolTable protected constructor() {
      * @return the result of merging `this` with `m`
      */
     fun merge(m: SymbolTable): SymbolTable {
-        return merge(Arrays.asList(this, m))
+        return merge(listOf(this, m))
     }
 
     /**
@@ -105,22 +114,76 @@ abstract class SymbolTable protected constructor() {
      */
     fun getSymbolByResourceType(type: ResourceType): List<Symbol> {
         val symbols = Lists.newArrayList(symbols.row(type).values)
-        symbols.sortWith(compareBy { it.name })
+        symbols.sortWith(compareBy { it.canonicalName })
         return Collections.unmodifiableList(symbols)
     }
 
     /**
-     * Collect all the symbols for a particular resource accessibility to a sorted list of symbols.
+     * Collect all the symbols for a particular resource visibility to a sorted list of symbols.
      *
      * The symbols are sorted by name to make the output predicable.
      */
-    fun getSymbolByAccessibility(accessibility: ResourceAccessibility): List<Symbol> {
+    fun getSymbolByVisibility(visibility: ResourceVisibility): List<Symbol> {
         val symbols =
                 Lists.newArrayList(
-                        symbols.values().filter { it.resourceAccessibility == accessibility })
-        symbols.sortWith(compareBy { it.name })
+                        symbols.values().filter { it.resourceVisibility == visibility })
+        symbols.sortWith(compareBy { it.canonicalName })
         return Collections.unmodifiableList(symbols)
     }
+
+    /**
+     * Checks if the table contains a resource with matching type and name.
+     */
+    fun containsSymbol(type: ResourceType, canonicalName: String): Boolean {
+        var found = symbols.contains(type, canonicalName)
+        if (!found && type == ResourceType.STYLEABLE && canonicalName.contains('_')) {
+            // If the symbol is a styleable and contains the underscore character, it is very likely
+            // that we're looking for a styleable child. These are stored under the parent's symbol,
+            // so try finding the parent first and then the child under it.
+            found = containsStyleableSymbol(canonicalName)
+        }
+        return found
+    }
+
+    /**
+     * Checks if the table contains a declare-styleable's child with the given name. For example:
+     * <pre>
+     *     <declare-styleable name="s1">
+     *         <item name="foo"/>
+     *     </declare-styleable>
+     * </pre>
+     * Calling {@code containsStyleableSymbol("s1_foo")} would return {@code true}, but calling
+     * {@code containsStyleableSymbol("foo")} or {@code containsSymbol(STYLEABLE, "foo")} would
+     * both return {@code false}.
+     */
+    private fun containsStyleableSymbol(canonicalName: String, start: Int = 0): Boolean {
+        var found = false
+        val index = canonicalName.indexOf('_', start)
+        if (index > -1) {
+            val parentName = canonicalName.substring(0, index)
+            if (symbols.contains(ResourceType.STYLEABLE, parentName)) {
+                var childName = canonicalName.substring(index + 1, canonicalName.length)
+                val parent = symbols.get(ResourceType.STYLEABLE, parentName)
+                found = parent.children.any { it == childName }
+                // styleable children of the format <parent>_android_<child> could have been either
+                // declared as <item name="android_foo"/> or <item name="android:foo>.
+                // If we didn't find the "android_" child, look for one in the "android:" namespace.
+                if (!found && childName.startsWith(ANDROID_ATTR_PREFIX)) {
+                    childName =
+                            SdkConstants.ANDROID_NS_NAME_PREFIX +
+                                    childName.substring(ANDROID_ATTR_PREFIX.length)
+                    found = parent.children.any { it == childName }
+                }
+            }
+            if (!found) {
+                found = containsStyleableSymbol(canonicalName, index + 1)
+            }
+        }
+        return found
+    }
+
+    /** [ResourceType]s present in the table. */
+    val resourceTypes: Set<ResourceType> get() = symbols.rowKeySet()
 
     /** Builder that creates a symbol table.  */
     class Builder {
@@ -128,9 +191,7 @@ abstract class SymbolTable protected constructor() {
         private var tablePackage = ""
 
         private val symbols: Table<ResourceType, String, Symbol> =
-                Tables.newCustomTable(
-                        Maps.newEnumMap<ResourceType, Map<String, Symbol>>(ResourceType::class.java),
-                        { HashMap() })
+                Tables.newCustomTable(Maps.newEnumMap(ResourceType::class.java), ::HashMap)
 
         /**
          * Adds a symbol to the table to be built. The table must not contain a symbol with the same
@@ -139,12 +200,12 @@ abstract class SymbolTable protected constructor() {
          * @param symbol the symbol to add
          */
         fun add(symbol: Symbol): Builder {
-            if (symbols.contains(symbol.resourceType, symbol.name)) {
+            if (symbols.contains(symbol.resourceType, symbol.canonicalName)) {
                 throw IllegalArgumentException(
                         "Duplicate symbol in table with resource type '${symbol.resourceType}' " +
-                                "and symbol name '${symbol.name}'")
+                                "and symbol name '${symbol.canonicalName}'")
             }
-            symbols.put(symbol.resourceType, symbol.name, symbol)
+            symbols.put(symbol.resourceType, symbol.canonicalName, symbol)
             return this
         }
 
@@ -156,6 +217,81 @@ abstract class SymbolTable protected constructor() {
          */
         fun addAll(symbols: Collection<Symbol>): Builder {
             symbols.forEach { this.add(it) }
+            return this
+        }
+
+        /**
+         * Adds a symbol if it doesn't exist in the table yet. If a symbol already exists, choose
+         * the correct resource accessibility.
+         *
+         * @param table the other table to merge into the current symbol table.
+         */
+        internal fun addFromPartial(table: SymbolTable): Builder {
+            table.symbols.values().forEach {
+                Preconditions.checkArgument(
+                        it.resourceVisibility != ResourceVisibility.UNDEFINED,
+                        "Resource visibility needs to be defined for partial files.")
+
+                if (!this.symbols.contains(it.resourceType, it.canonicalName)) {
+                    // If this symbol hasn't been encountered yet, simply add it as is.
+                    this.symbols.put(it.resourceType, it.canonicalName, it)
+                } else {
+                    val existing = this.symbols.get(it.resourceType, it.canonicalName)
+                    // If we already encountered it, check the qualifiers.
+                    // - if it's a styleable and visibilities don't conflict, merge them into one
+                    //   with the highest visibility of the two
+                    // - if they're the same, leave the existing one (the existing one overrode the
+                    //   new one)
+                    // - if the existing one is PRIVATE_XML_ONLY, use the new one (overriding
+                    //   resource was defined as PRIVATE or PUBLIC)
+                    // - if the new one is PRIVATE_XML_ONLY, leave the existing one (overridden
+                    //   resource was defined as PRIVATE or PUBLIC)
+                    // - if neither of them is PRIVATE_XML_ONLY and they differ, that's an error
+                    if (existing.resourceVisibility != it.resourceVisibility
+                            && existing.resourceVisibility != ResourceVisibility.PRIVATE_XML_ONLY
+                            && it.resourceVisibility != ResourceVisibility.PRIVATE_XML_ONLY) {
+                        // Conflicting visibilities.
+                        throw IllegalResourceVisibilityException(
+                                "Symbol with resource type ${it.resourceType} and name " +
+                                        "${it.canonicalName} defined both as ${it.resourceVisibility} and " +
+                                        "${existing.resourceVisibility}.")
+                    }
+                    if (it.resourceType == ResourceType.STYLEABLE) {
+                        // Merge the styleables. Join the children and sort by name, do not keep
+                        // duplicates.
+                        it as Symbol.StyleableSymbol
+                        existing as Symbol.StyleableSymbol
+
+                        val children =
+                                ImmutableList.copyOf(
+                                        mutableSetOf<String>()
+                                                .plus(it.children)
+                                                .plus(existing.children)
+                                                .sorted())
+                        val visibility =
+                                ResourceVisibility.max(
+                                        it.resourceVisibility, existing.resourceVisibility)
+
+                        this.symbols.remove(existing.resourceType, existing.canonicalName)
+                        this.symbols.put(
+                                it.resourceType,
+                                it.canonicalName,
+                                Symbol.StyleableSymbol(
+                                        it.canonicalName,
+                                        ImmutableList.of(),
+                                        children,
+                                        visibility))
+                    } else {
+                        // We only need to replace the existing symbol with the new one if the
+                        // visibilities differ and the new visibility is higher than the old one.
+                        if (it.resourceVisibility > existing.resourceVisibility) {
+                            this.symbols.remove(existing.resourceType, existing.canonicalName)
+                            this.symbols.put(it.resourceType, it.canonicalName, it)
+                        }
+                    }
+
+                }
+            }
             return this
         }
 
@@ -197,7 +333,7 @@ abstract class SymbolTable protected constructor() {
          * @return has a symbol with the same resource type / name been added?
          */
         operator fun contains(symbol: Symbol): Boolean {
-            return contains(symbol.resourceType, symbol.name)
+            return contains(symbol.resourceType, symbol.canonicalName)
         }
 
         /**
@@ -205,12 +341,12 @@ abstract class SymbolTable protected constructor() {
          *
          * @param resourceType the resource type
          *
-         * @param name the name
+         * @param canonicalName the name
          *
          * @return does the table contain a symbol with the given resource type / name?
          */
-        fun contains(resourceType: ResourceType, name: String): Boolean {
-            return symbols.contains(resourceType, name)
+        fun contains(resourceType: ResourceType, canonicalName: String): Boolean {
+            return symbols.contains(resourceType, canonicalName)
         }
 
         /**
@@ -219,7 +355,12 @@ abstract class SymbolTable protected constructor() {
          * @param symbol the symbol
          */
         operator fun get(symbol: Symbol): Symbol? {
-            return symbols.get(symbol.resourceType, symbol.name)
+            return symbols.get(symbol.resourceType, symbol.canonicalName)
+        }
+
+
+        fun remove(resourceType: ResourceType, canonicalName: String): Symbol? {
+            return symbols.remove(resourceType, canonicalName)
         }
 
         /**
@@ -255,10 +396,10 @@ abstract class SymbolTable protected constructor() {
                     val tableSymbolMap = t.symbols.row(resourceType)
                     if (tableSymbolMap != null && !tableSymbolMap.isEmpty()) {
                         for (s in tableSymbolMap.values) {
-                            val name = s.name
-                            if (!present.contains(name)) {
-                                present.add(name)
-                                builder.put(resourceType, name, s)
+                            val canonicalName = s.canonicalName
+                            if (!present.contains(canonicalName)) {
+                                present.add(canonicalName)
+                                builder.put(resourceType, canonicalName, s)
                             }
                         }
                     }
@@ -272,6 +413,50 @@ abstract class SymbolTable protected constructor() {
         }
 
         /**
+         * Merges a list of partial R files. See 'package-info.java' for a detailed description of
+         * the merging algorithm.
+         *
+         * @param tables partial R files in oder of the source-sets relation (base first, overriding
+         *  source-set afterwards etc).
+         * @param packageName the package name for the merged symbol table.
+         */
+        @JvmStatic fun mergePartialTables(tables: List<File>, packageName: String): SymbolTable {
+            val builder = SymbolTable.builder()
+            builder.tablePackage(packageName)
+
+            // A set to keep the names of the visited layout files.
+            val visitedFiles = HashSet<String>()
+
+            try {
+                // Reverse the file list, since we have to start from the 'highest' source-set (base
+                // source-set will be last).
+                tables.reversed().forEach {
+                    if (it.name.startsWith("layout")) {
+                        // When a layout file is overridden, its' contents get overridden too. That
+                        // is why we need to keep the 'highest' version of the file.
+                        if (!visitedFiles.contains(it.name)) {
+                            // If we haven't encountered a file with this name yet, remember it and
+                            // process the partial R file.
+                            visitedFiles.add(it.name)
+                            builder.addFromPartial(SymbolIo.readFromPartialRFile(it, null))
+                        }
+                    } else {
+                        // Partial R files for values XML files and non-XML files need to be parsed
+                        // always. The order matters for declare-styleables and for resource
+                        // accessibility.
+                        builder.addFromPartial(SymbolIo.readFromPartialRFile(it, null))
+                    }
+                }
+            } catch (e: Exception) {
+                throw PartialRMergingException(
+                        "An error occurred during merging of the partial R files", e)
+            }
+
+
+            return builder.build()
+        }
+
+        /**
          * Creates a new builder to create a `SymbolTable`.
          *
          * @return a builder
@@ -280,4 +465,6 @@ abstract class SymbolTable protected constructor() {
             return Builder()
         }
     }
+
+    class IllegalResourceVisibilityException(description: String) : Exception(description)
 }

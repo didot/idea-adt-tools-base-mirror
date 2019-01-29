@@ -1,32 +1,45 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
-load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
+load("//tools/base/bazel:bazel.bzl", "fileset")
+load("//tools/base/bazel:kotlin.bzl", "kotlin_library", "kotlin_test")
+load("//tools/base/bazel:maven.bzl", "maven_pom")
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.common",
+    name = "studio.android.sdktools.common",
     srcs = ["src/main/java"],
     bundle_data = [
         "src/main/java/com/android/SdkConstants.java",
     ],
-    iml_files = ["common.iml"],
-    tags = ["managed"],
+    iml_files = ["android.sdktools.common.iml"],
+    resources = ["src/main/resources"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     exports = [
         "//tools/idea/.idea/libraries:Guava",
-        "//tools/base/annotations:studio.android-annotations",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations",
     ],
     # do not sort: must match IML order
     deps = [
         "//tools/idea/.idea/libraries:Guava",
-        "//tools/base/annotations:studio.android-annotations[module]",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",
     ],
 )
 
-maven_java_library(
+fileset(
+    name = "tools.common.resources",
+    srcs = glob(["src/main/resources/**"]),
+    mappings = {
+        "src/main/resources/": "",
+    },
+)
+
+kotlin_library(
     name = "tools.common",
-    srcs = glob(["src/main/java/**"]),
+    srcs = ["src/main/java"],
     pom = ":pom",
+    resource_strip_prefix = "tools/base/common",
+    resources = [":tools.common.resources"],
     visibility = ["//visibility:public"],
     deps = [
         "//tools/base/annotations",
@@ -41,10 +54,11 @@ maven_pom(
     source = "//tools/buildSrc/base:base_version",
 )
 
-java_test(
+kotlin_test(
     name = "tools.tests",
-    srcs = glob(["src/test/java/**"]),
+    srcs = ["src/test/java"],
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
+    tags = ["no_windows"],
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.common",
@@ -55,25 +69,26 @@ java_test(
     ],
 )
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.common-tests",
-    iml_files = ["common-tests.iml"],
-    tags = ["managed"],
+    name = "studio.android.sdktools.common.tests",
+    iml_files = ["android.sdktools.common.tests.iml"],
+    tags = ["no_windows"],
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     exports = [
         "//tools/idea/.idea/libraries:Guava",
-        "//tools/base/annotations:studio.android-annotations",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations",
     ],
     # do not sort: must match IML order
     deps = [
         "//tools/idea/.idea/libraries:Guava",
         "//tools/idea/.idea/libraries:JUnit4[test]",
-        "//tools/base/testutils:studio.testutils[module, test]",
-        "//tools/base/annotations:studio.android-annotations[module]",
+        "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/idea/.idea/libraries:truth[test]",
-        "//tools/base/common:studio.common[module]",
+        "//tools/base/common:studio.android.sdktools.common[module]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",
     ],
 )

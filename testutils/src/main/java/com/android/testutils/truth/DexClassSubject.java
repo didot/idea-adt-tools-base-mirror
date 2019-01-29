@@ -21,6 +21,9 @@ import com.android.annotations.Nullable;
 import com.google.common.truth.FailureStrategy;
 import com.google.common.truth.Subject;
 import com.google.common.truth.SubjectFactory;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 import org.jf.dexlib2.DebugItemType;
 import org.jf.dexlib2.dexbacked.DexBackedClassDef;
 import org.jf.dexlib2.dexbacked.DexBackedField;
@@ -44,6 +47,12 @@ public class DexClassSubject extends Subject<DexClassSubject, DexBackedClassDef>
             @NonNull FailureStrategy failureStrategy,
             @Nullable DexBackedClassDef subject) {
         super(failureStrategy, subject);
+    }
+
+    public void hasSuperclass(@NonNull String name) {
+        if (assertSubjectIsNonNull() && !name.equals(actual().getSuperclass())) {
+            fail("has superclass", name);
+        }
     }
 
     public void hasMethod(@NonNull String name) {
@@ -88,9 +97,21 @@ public class DexClassSubject extends Subject<DexClassSubject, DexBackedClassDef>
         fail("contains method", name);
     }
 
+    public void hasExactFields(@NonNull Set<String> names) {
+        if (assertSubjectIsNonNull() && !checkHasExactFields(names)) {
+            fail("Expected exactly " + names + " fields but have " + getAllFieldNames());
+        }
+    }
+
     public void hasField(@NonNull String name) {
         if (assertSubjectIsNonNull() && !checkHasField(name)) {
             fail("contains field", name);
+        }
+    }
+
+    public void hasFieldWithType(@NonNull String name, @NonNull String type) {
+        if (assertSubjectIsNonNull() && !checkHasField(name, type)) {
+            fail("contains field ", name + ":" + type);
         }
     }
 
@@ -100,15 +121,35 @@ public class DexClassSubject extends Subject<DexClassSubject, DexBackedClassDef>
         }
     }
 
+    public void doesNotHaveFieldWithType(@NonNull String name, @NonNull String type) {
+        if (assertSubjectIsNonNull() && checkHasField(name, type)) {
+            fail("does not contain field ", name + ":" + type);
+        }
+    }
+
     public void doesNotHaveMethod(@NonNull String name) {
         if (assertSubjectIsNonNull() && checkHasMethod(name)) {
             fail("does not contain method", name);
         }
     }
 
-    /**
-     * Should not be called when the subject is null.
-     */
+    public void hasAnnotations() {
+        if (assertSubjectIsNonNull() && !checkHasAnnotations()) {
+            fail("has annotations");
+        }
+    }
+
+    public void doesNotHaveAnnotations() {
+        if (assertSubjectIsNonNull() && checkHasAnnotations()) {
+            fail(" does not have annotations");
+        }
+    }
+
+    private boolean checkHasAnnotations() {
+        return !actual().getAnnotations().isEmpty();
+    }
+
+    /** Check if the class has method with the specified name. */
     private boolean checkHasMethod(@NonNull String name) {
         for (DexBackedMethod method : getSubject().getMethods()) {
             if (method.getName().equals(name)) {
@@ -118,9 +159,7 @@ public class DexClassSubject extends Subject<DexClassSubject, DexBackedClassDef>
         return false;
     }
 
-    /**
-     * Should not be called when the subject is null.
-     */
+    /** Check if the class has field with the specified name. */
     private boolean checkHasField(@NonNull String name) {
         for (DexBackedField field : getSubject().getFields()) {
             if (field.getName().equals(name)) {
@@ -128,6 +167,28 @@ public class DexClassSubject extends Subject<DexClassSubject, DexBackedClassDef>
             }
         }
         return false;
+    }
+
+    /** Check if the class has field with the specified name and type. */
+    private boolean checkHasField(@NonNull String name, @NonNull String type) {
+        for (DexBackedField field : getSubject().getFields()) {
+            if (field.getName().equals(name) && field.getType().equals(type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Checks the subject has the given fields and no other fields. */
+    private boolean checkHasExactFields(@NonNull Set<String> names) {
+        return getAllFieldNames().equals(names);
+    }
+
+    /** Returns all of the field names */
+    private Set<String> getAllFieldNames() {
+        return StreamSupport.stream(getSubject().getFields().spliterator(), false)
+                .map(DexBackedField::getName)
+                .collect(Collectors.toSet());
     }
 
     private boolean assertSubjectIsNonNull() {

@@ -1,12 +1,13 @@
 package com.android.build.gradle.integration.application;
 
-import static com.android.build.gradle.integration.common.truth.ApkSubject.assertThat;
 import static com.android.testutils.truth.FileSubject.assertThat;
 
+import com.android.SdkConstants;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
-import com.android.testutils.apk.Apk;
+import com.android.build.gradle.internal.scope.ArtifactTypeUtil;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.utils.FileUtils;
 import com.google.common.base.Joiner;
 import java.io.File;
@@ -31,42 +32,6 @@ public class AaptOptionsTest {
     }
 
     @Test
-    public void testAaptOptionsFlagsWithAapt() throws IOException, InterruptedException {
-        TestFileUtils.appendToFile(
-                project.getBuildFile(),
-                "\n"
-                        + "android {\n"
-                        + "  aaptOptions {\n"
-                        + "    additionalParameters \"--ignore-assets\", \"!ignored*\"\n"
-                        + "  }\n"
-                        + "}\n");
-        project.executor().withEnabledAapt2(false).run("clean", "assembleDebug");
-        Apk apk = project.getApk(GradleTestProject.ApkType.DEBUG);
-        assertThat(apk).containsFileWithContent("res/raw/kept", "kept");
-        assertThat(apk).doesNotContain("res/raw/ignored");
-
-        FileUtils.createFile(project.file("src/main/res/raw/ignored2"), "ignored2");
-        FileUtils.createFile(project.file("src/main/res/raw/kept2"), "kept2");
-
-        project.executor().withEnabledAapt2(false).run("assembleDebug");
-        apk = project.getApk(GradleTestProject.ApkType.DEBUG);
-        assertThat(apk).containsFileWithContent("res/raw/kept2", "kept2");
-        assertThat(apk).doesNotContain("res/raw/ignored2");
-
-        TestFileUtils.searchAndReplace(
-                project.getBuildFile(),
-                "additionalParameters \"--ignore-assets\", \"!ignored\\*\"",
-                "");
-
-        project.executor().withEnabledAapt2(false).run("assembleDebug");
-        apk = project.getApk(GradleTestProject.ApkType.DEBUG);
-        assertThat(apk).containsFileWithContent("res/raw/kept", "kept");
-        assertThat(apk).containsFileWithContent("res/raw/ignored", "ignored");
-        assertThat(apk).containsFileWithContent("res/raw/kept2", "kept2");
-        assertThat(apk).containsFileWithContent("res/raw/ignored2", "ignored2");
-    }
-
-    @Test
     public void testAaptOptionsFlagsWithAapt2() throws IOException, InterruptedException {
         TestFileUtils.appendToFile(
                 project.getBuildFile(),
@@ -77,17 +42,18 @@ public class AaptOptionsTest {
                         + "  }\n"
                         + "}\n");
 
-        project.executor().withEnabledAapt2(true).run("clean", "assembleDebug");
+        project.executor().run("clean", "assembleDebug");
 
         Joiner joiner = Joiner.on(File.separator);
         File extraR =
                 new File(
                         joiner.join(
-                                project.getOutputDir().getParentFile(),
-                                "generated",
-                                "source",
-                                "r",
+                                ArtifactTypeUtil.getOutputDir(
+                                        InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES,
+                                        project.getOutputDir().getParentFile()),
                                 "debug",
+                                "processDebugResources",
+                                SdkConstants.FD_RES_CLASS,
                                 "com",
                                 "boop",
                                 "beep",
@@ -102,9 +68,24 @@ public class AaptOptionsTest {
                 "additionalParameters \"--extra-packages\", \"com.boop.beep\"",
                 "");
 
-        project.executor().withEnabledAapt2(true).run("assembleDebug");
+        project.executor().run("assembleDebug");
 
         // Check that the extra R.java file is not generated if the extra options aren't present.
         assertThat(extraR).doesNotExist();
+    }
+
+    @Test
+    public void emptyNoCompressList() throws IOException, InterruptedException {
+        TestFileUtils.appendToFile(
+                project.getBuildFile(),
+                "\n"
+                        + "android {\n"
+                        + "  aaptOptions {\n"
+                        + "    noCompress \"\"\n"
+                        + "  }\n"
+                        + "}\n");
+
+        // Should execute without failure.
+        project.executor().run("clean", "assembleDebug");
     }
 }

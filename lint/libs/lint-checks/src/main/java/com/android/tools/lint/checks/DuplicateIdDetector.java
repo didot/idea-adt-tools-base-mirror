@@ -18,6 +18,12 @@ package com.android.tools.lint.checks;
 
 import static com.android.SdkConstants.ATTR_ID;
 import static com.android.SdkConstants.ATTR_LAYOUT;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_BARRIER;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_CHAIN;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_CONSTRAINTS;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_GROUP;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_LAYER;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_REFERENCE;
 import static com.android.SdkConstants.DOT_XML;
 import static com.android.SdkConstants.LAYOUT_RESOURCE_PREFIX;
 import static com.android.SdkConstants.NEW_ID_PREFIX;
@@ -34,7 +40,7 @@ import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.LayoutDetector;
-import com.android.tools.lint.detector.api.LintUtils;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
@@ -57,9 +63,7 @@ import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
-/**
- * Checks for duplicate ids within a layout and within an included layout
- */
+/** Checks for duplicate ids within a layout and within an included layout */
 public class DuplicateIdDetector extends LayoutDetector {
     private Map<String, Attr> mFileIds;
     private Map<File, Set<String>> mFileToIds;
@@ -72,38 +76,39 @@ public class DuplicateIdDetector extends LayoutDetector {
     private Multimap<File, Multimap<String, Occurrence>> mLocations;
     private List<Occurrence> mErrors;
 
-    private static final Implementation IMPLEMENTATION = new Implementation(
-            DuplicateIdDetector.class,
-            Scope.RESOURCE_FILE_SCOPE);
+    private static final Implementation IMPLEMENTATION =
+            new Implementation(DuplicateIdDetector.class, Scope.RESOURCE_FILE_SCOPE);
+
+    private static final String MOTION_SCENE_CONSTRAINT = "Constraint";
 
     /** The main issue discovered by this detector */
-    public static final Issue WITHIN_LAYOUT = Issue.create(
-            "DuplicateIds",
-            "Duplicate ids within a single layout",
-            "Within a layout, id's should be unique since otherwise `findViewById()` can " +
-            "return an unexpected view.",
-            Category.CORRECTNESS,
-            7,
-            Severity.FATAL,
-            IMPLEMENTATION);
+    public static final Issue WITHIN_LAYOUT =
+            Issue.create(
+                    "DuplicateIds",
+                    "Duplicate ids within a single layout",
+                    "Within a layout, id's should be unique since otherwise `findViewById()` can "
+                            + "return an unexpected view.",
+                    Category.CORRECTNESS,
+                    7,
+                    Severity.FATAL,
+                    IMPLEMENTATION);
 
     /** The main issue discovered by this detector */
-    public static final Issue CROSS_LAYOUT = Issue.create(
-            "DuplicateIncludedIds",
-            "Duplicate ids across layouts combined with include tags",
-            "It's okay for two independent layouts to use the same ids. However, if " +
-            "layouts are combined with include tags, then the id's need to be unique " +
-            "within any chain of included layouts, or `Activity#findViewById()` can " +
-            "return an unexpected view.",
-            Category.CORRECTNESS,
-            6,
-            Severity.WARNING,
-            IMPLEMENTATION);
+    public static final Issue CROSS_LAYOUT =
+            Issue.create(
+                    "DuplicateIncludedIds",
+                    "Duplicate ids across layouts combined with include tags",
+                    "It's okay for two independent layouts to use the same ids. However, if "
+                            + "layouts are combined with include tags, then the id's need to be unique "
+                            + "within any chain of included layouts, or `Activity#findViewById()` can "
+                            + "return an unexpected view.",
+                    Category.CORRECTNESS,
+                    6,
+                    Severity.WARNING,
+                    IMPLEMENTATION);
 
     /** Constructs a duplicate id check */
-    public DuplicateIdDetector() {
-    }
-
+    public DuplicateIdDetector() {}
 
     @Override
     public boolean appliesTo(@NonNull ResourceFolderType folderType) {
@@ -137,7 +142,7 @@ public class DuplicateIdDetector extends LayoutDetector {
     }
 
     @Override
-    public void beforeCheckProject(@NonNull Context context) {
+    public void beforeCheckRootProject(@NonNull Context context) {
         if (context.getPhase() == 1) {
             mFileToIds = new HashMap<>();
             mIncludes = new HashMap<>();
@@ -145,7 +150,7 @@ public class DuplicateIdDetector extends LayoutDetector {
     }
 
     @Override
-    public void afterCheckProject(@NonNull Context context) {
+    public void afterCheckRootProject(@NonNull Context context) {
         if (context.getPhase() == 1) {
             // Look for duplicates
             if (!mIncludes.isEmpty()) {
@@ -247,14 +252,15 @@ public class DuplicateIdDetector extends LayoutDetector {
         assert attribute.getName().equals(ATTR_ID) || ATTR_ID.equals(attribute.getLocalName());
         String id = attribute.getValue();
         if (context.getPhase() == 1) {
+            String ownerName = null;
             if (attribute.getOwnerElement() != null) {
-                String ownerName = attribute.getOwnerElement().getTagName();
-                if (ownerName != null && ownerName.equals(SdkConstants.CLASS_CONSTRAINT_LAYOUT_REFERENCE)) {
+                ownerName = attribute.getOwnerElement().getTagName();
+                if (ownerName != null && CLASS_CONSTRAINT_LAYOUT_REFERENCE.isEquals(ownerName)) {
                     Node parentNode = attribute.getOwnerElement().getParentNode();
                     if (parentNode != null) {
                         String parentName = parentNode.getNodeName();
-                        if (parentName != null && parentName.equals(
-                          SdkConstants.CLASS_CONSTRAINT_LAYOUT_CONSTRAINTS)) {
+                        if (parentName != null
+                                && CLASS_CONSTRAINT_LAYOUT_CONSTRAINTS.isEquals(parentName)) {
                             return;
                         }
                     }
@@ -264,19 +270,22 @@ public class DuplicateIdDetector extends LayoutDetector {
                     if (parentNode != null) {
                         String parentName = parentNode.getNodeName();
                         if (parentName != null
-                                && (parentName.equals(SdkConstants.CLASS_CONSTRAINT_LAYOUT_BARRIER)
-                                        || parentName.equals(
-                                                SdkConstants.CLASS_CONSTRAINT_LAYOUT_CHAIN)
-                                        || parentName.equals(
-                                                SdkConstants.CLASS_CONSTRAINT_LAYOUT_LAYER)
-                                        || parentName.equals(
-                                                SdkConstants.CLASS_CONSTRAINT_LAYOUT_GROUP)
-                                    )) {
+                                && (CLASS_CONSTRAINT_LAYOUT_BARRIER.isEquals(parentName)
+                                        || CLASS_CONSTRAINT_LAYOUT_CHAIN.isEquals(parentName)
+                                        || CLASS_CONSTRAINT_LAYOUT_LAYER.isEquals(parentName)
+                                        || CLASS_CONSTRAINT_LAYOUT_GROUP.isEquals(parentName))) {
                             return;
                         }
                     }
                 }
             }
+
+            if (MOTION_SCENE_CONSTRAINT.equals(ownerName)) {
+                // We bypass id check for Constraint as the id here is a reference to the id in layout. Id that is not found in layout
+                // is also a valid use case.
+                return;
+            }
+
             if (mFileIds.containsKey(id)) {
                 Location location = context.getLocation(attribute);
 
@@ -284,20 +293,24 @@ public class DuplicateIdDetector extends LayoutDetector {
                 if (first != null && first != attribute) {
                     // Make sure they have the same parent if it's a navigation document
                     if (context.getResourceFolderType() == ResourceFolderType.NAVIGATION
-                          && first.getOwnerElement().getParentNode() !=
-                          attribute.getOwnerElement().getParentNode()) {
+                            && first.getOwnerElement().getParentNode()
+                                    != attribute.getOwnerElement().getParentNode()) {
                         mFileIds.put(id, attribute);
                         return;
                     }
 
                     Location secondLocation = context.getLocation(first);
-                    secondLocation.setMessage(String.format("Duplicate id `%1$s` originally defined here", id), true);
+                    secondLocation.setMessage(
+                            String.format("Duplicate id `%1$s` originally defined here", id), true);
                     location.setSecondary(secondLocation);
                 }
 
-                context.report(WITHIN_LAYOUT, attribute, location,
-                        String.format("Duplicate id `%1$s`, already defined earlier in this layout",
-                                id));
+                context.report(
+                        WITHIN_LAYOUT,
+                        attribute,
+                        location,
+                        String.format(
+                                "Duplicate id `%1$s`, already defined earlier in this layout", id));
             } else if (id.startsWith(NEW_ID_PREFIX)) {
                 // Skip id's on include tags
                 if (attribute.getOwnerElement().getTagName().equals(VIEW_INCLUDE)) {
@@ -314,8 +327,8 @@ public class DuplicateIdDetector extends LayoutDetector {
                         Collection<Occurrence> occurrences = map.get(id);
                         if (occurrences != null && !occurrences.isEmpty()) {
                             for (Occurrence occurrence : occurrences) {
-                                if (context.getDriver().isSuppressed(context, CROSS_LAYOUT,
-                                        attribute)) {
+                                if (context.getDriver()
+                                        .isSuppressed(context, CROSS_LAYOUT, attribute)) {
                                     return;
                                 }
                                 Location location = context.getLocation(attribute);
@@ -348,11 +361,11 @@ public class DuplicateIdDetector extends LayoutDetector {
         }
 
         String getLayoutName() {
-            return LintUtils.getLayoutName(mFile);
+            return Lint.getLayoutName(mFile);
         }
 
         String getDisplayName(@NonNull LintClient client) {
-            return LintUtils.getFileNameWithParent(client, mFile);
+            return Lint.getFileNameWithParent(client, mFile);
         }
 
         void include(Layout target) {
@@ -408,7 +421,7 @@ public class DuplicateIdDetector extends LayoutDetector {
             Multimap<String, Layout> nameToLayout =
                     ArrayListMultimap.create(mFileToLayout.size(), 4);
             for (File file : mFileToLayout.keySet()) {
-                String name = LintUtils.getLayoutName(file);
+                String name = Lint.getLayoutName(file);
                 nameToLayout.put(name, mFileToLayout.get(file));
             }
 
@@ -455,11 +468,14 @@ public class DuplicateIdDetector extends LayoutDetector {
             }
         }
 
-        /** Determine whether two layouts are compatible. They are not if they (for example)
-         * specify conflicting qualifiers such as {@code -land} and {@code -port}.
+        /**
+         * Determine whether two layouts are compatible. They are not if they (for example) specify
+         * conflicting qualifiers such as {@code -land} and {@code -port}.
+         *
          * @param from the include from
          * @param to the include to
-         * @return true if the two are compatible */
+         * @return true if the two are compatible
+         */
         boolean isCompatible(Layout from, Layout to) {
             File fromFolder = from.mFile.getParentFile();
             File toFolder = to.mFile.getParentFile();
@@ -496,11 +512,10 @@ public class DuplicateIdDetector extends LayoutDetector {
         }
 
         /**
-         * Computes the cumulative set of ids used in a given layout. We can't
-         * just depth-first-search the graph and check the set of ids
-         * encountered along the way, because we need to detect when multiple
-         * includes contribute the same ids. For example, if a file is included
-         * more than once, that would result in duplicates.
+         * Computes the cumulative set of ids used in a given layout. We can't just
+         * depth-first-search the graph and check the set of ids encountered along the way, because
+         * we need to detect when multiple includes contribute the same ids. For example, if a file
+         * is included more than once, that would result in duplicates.
          */
         private Set<String> getIds(Layout layout, Deque<Layout> stack, Set<Layout> seen) {
             seen.add(layout);
@@ -545,13 +560,18 @@ public class DuplicateIdDetector extends LayoutDetector {
                                 if (mLocations == null) {
                                     mErrors = new ArrayList<>();
                                     mLocations = ArrayListMultimap.create();
-                                    mContext.getDriver().requestRepeat(DuplicateIdDetector.this,
-                                            Scope.ALL_RESOURCES_SCOPE);
+                                    mContext.getDriver()
+                                            .requestRepeat(
+                                                    DuplicateIdDetector.this,
+                                                    Scope.ALL_RESOURCES_SCOPE);
                                 }
 
-                                Map<Layout, Occurrence> occurrences =
-                                        new HashMap<>();
-                                findId(layout, id, new ArrayDeque<>(), occurrences,
+                                Map<Layout, Occurrence> occurrences = new HashMap<>();
+                                findId(
+                                        layout,
+                                        id,
+                                        new ArrayDeque<>(),
+                                        occurrences,
                                         new HashSet<>());
                                 assert occurrences.size() >= 2;
 
@@ -559,11 +579,13 @@ public class DuplicateIdDetector extends LayoutDetector {
                                 Collection<Occurrence> values = occurrences.values();
                                 List<Occurrence> sorted = new ArrayList<>(values);
                                 Collections.sort(sorted);
-                                String msg = String.format(
-                                        "Duplicate id %1$s, defined or included multiple " +
-                                        "times in %2$s: %3$s",
-                                        id, layout.getDisplayName(client),
-                                        sorted.toString());
+                                String msg =
+                                        String.format(
+                                                "Duplicate id %1$s, defined or included multiple "
+                                                        + "times in %2$s: %3$s",
+                                                id,
+                                                layout.getDisplayName(client),
+                                                sorted.toString());
 
                                 // Store location request for the <include> tag
                                 Occurrence primary = new Occurrence(layout.getFile(), msg, null);
@@ -579,9 +601,10 @@ public class DuplicateIdDetector extends LayoutDetector {
                                     if (occurrence.file.equals(layout.getFile())) {
                                         occurrence.message = "Defined here";
                                     } else {
-                                        occurrence.message = String.format(
-                                                "Defined here, included via %1$s",
-                                                occurrence.includePath);
+                                        occurrence.message =
+                                                String.format(
+                                                        "Defined here, included via %1$s",
+                                                        occurrence.includePath);
                                     }
 
                                     m = ArrayListMultimap.create();
@@ -609,8 +632,12 @@ public class DuplicateIdDetector extends LayoutDetector {
             }
         }
 
-        private void findId(Layout layout, String id, Deque<Layout> stack,
-                Map<Layout, Occurrence> occurrences, Set<Layout> seen) {
+        private void findId(
+                Layout layout,
+                String id,
+                Deque<Layout> stack,
+                Map<Layout, Occurrence> occurrences,
+                Set<Layout> seen) {
             seen.add(layout);
 
             LintClient client = mContext.getClient();

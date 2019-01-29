@@ -18,7 +18,11 @@ package com.android.tools.lint.client.api
 
 import com.android.SdkConstants
 import com.android.SdkConstants.ANDROID_PKG
+import com.android.SdkConstants.ID_PREFIX
+import com.android.SdkConstants.NEW_ID_PREFIX
 import com.android.resources.ResourceType
+import com.android.tools.lint.detector.api.isKotlin
+import com.android.tools.lint.detector.api.stripIdPrefix
 import com.google.common.base.Joiner
 import com.intellij.psi.PsiArrayType
 import com.intellij.psi.PsiField
@@ -26,6 +30,7 @@ import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiModifier
 import com.intellij.psi.PsiType
 import com.intellij.psi.PsiVariable
+import org.jetbrains.uast.UCallExpression
 import org.jetbrains.uast.UElement
 import org.jetbrains.uast.UExpression
 import org.jetbrains.uast.UQualifiedReferenceExpression
@@ -34,6 +39,7 @@ import org.jetbrains.uast.USimpleNameReferenceExpression
 import org.jetbrains.uast.UVariable
 import org.jetbrains.uast.asQualifiedPath
 import org.jetbrains.uast.getContainingClass
+import org.jetbrains.uast.getContainingUFile
 import org.jetbrains.uast.getQualifiedParentOrThis
 import org.jetbrains.uast.java.JavaAbstractUExpression
 import org.jetbrains.uast.java.JavaUDeclarationsExpression
@@ -49,11 +55,12 @@ import org.jetbrains.uast.java.JavaUDeclarationsExpression
 </pre> *
  */
 class ResourceReference(
-        val node: UExpression,
-        // getPackage() can be empty if not a package-qualified import (e.g. android.R.id.name).
-        val `package`: String,
-        val type: ResourceType,
-        val name: String) {
+    val node: UExpression,
+    // getPackage() can be empty if not a package-qualified import (e.g. android.R.id.name).
+    val `package`: String,
+    val type: ResourceType,
+    val name: String
+) {
 
     internal val isFramework: Boolean
         get() = `package` == ANDROID_PKG
@@ -87,13 +94,12 @@ class ResourceReference(
 
             val packageName = if (packageNameFromResolved != null)
                 packageNameFromResolved
-            else
-                Joiner.on('.').join(path.subList(0, size - 3))
+            else Joiner.on('.').join(path.subList(0, size - 3))
 
             val type = path[size - 2]
             val name = path[size - 1]
 
-            val resourceType = ResourceType.getEnum(type) ?: return null
+            val resourceType = ResourceType.fromClassName(type) ?: return null
             return ResourceReference(expression, packageName, resourceType, name)
         }
 
@@ -128,18 +134,75 @@ class ResourceReference(
             }
 
             if (declaration !is PsiVariable) {
+                // Synthetic import?
+                // In the IDE, this will resolved into XML PSI. Attempt to use reflection to
+                // pick out the relevant attribute.
+                if (declaration != null &&
+                    declaration::class.java.name == "com.intellij.psi.impl.source.xml.XmlAttributeValueImpl" &&
+                    element is UExpression
+                ) {
+                    try {
+                        val method = declaration::class.java.getDeclaredMethod("getValue")
+                        val value = method.invoke(declaration)?.toString() ?: ""
+                        if (value.startsWith(ID_PREFIX) || value.startsWith(NEW_ID_PREFIX)) {
+                            return ResourceReference(
+                                element,
+                                "",
+                                ResourceType.ID,
+                                stripIdPrefix(value)
+                            )
+                        }
+                    } catch (ignore: Throwable) {
+                    }
+                }
+
+                val parent = element.uastParent
+                if (parent is UQualifiedReferenceExpression && parent.selector === element) {
+                    // synthetic import reference is usually not qualified
+                    return null
+                }
+                if (parent is UCallExpression && parent.classReference === element) {
+                    return null
+                }
+
+                if (declaration == null &&
+                    // In the IDE we have proper reference resolving for synthetic imports
+                    !LintClient.isStudio &&
+                    element is USimpleNameReferenceExpression &&
+                    isKotlin(element.sourcePsi) &&
+                    element.identifier != "it"
+                ) {
+                    // If we have any synthetic imports in this class, this unresolved symbol is
+                    // probably referring to it
+                    element.getContainingUFile()?.imports?.forEach {
+                        val expression = it.importReference as? USimpleNameReferenceExpression
+                        val resolved = expression?.resolvedName
+                        if (resolved != null &&
+                            (resolved.startsWith("import kotlinx.android.synthetic.") ||
+                                    resolved.startsWith("kotlinx.android.synthetic."))
+                        ) {
+                            return ResourceReference(
+                                element,
+                                "",
+                                ResourceType.ID,
+                                element.identifier
+                            )
+                        }
+                    }
+                }
+
                 return null
             }
 
             val variable = declaration as PsiVariable?
-            if (variable !is PsiField
-                    || (variable.type != PsiType.INT && !isIntArray(variable.type))
-
-                    // Note that we don't check for PsiModifier.FINAL; in library projects
-                    // the R class fields are deliberately not made final such that their
-                    // values can be substituted when all the resources are merged together
-                    // in the app module and unique id's can be assigned for all resources
-                    || !variable.hasModifierProperty(PsiModifier.STATIC)) {
+            if (variable !is PsiField ||
+                (variable.type != PsiType.INT && !isIntArray(variable.type)) ||
+                // Note that we don't check for PsiModifier.FINAL; in library projects
+                // the R class fields are deliberately not made final such that their
+                // values can be substituted when all the resources are merged together
+                // in the app module and unique id's can be assigned for all resources
+                !variable.hasModifierProperty(PsiModifier.STATIC)
+            ) {
                 return null
             }
 
@@ -163,7 +226,8 @@ class ResourceReference(
                 return null
             }
 
-            val resourceType = ResourceType.getEnum(resTypeClass.name ?: return null) ?: return null
+            val resourceType =
+                ResourceType.fromClassName(resTypeClass.name ?: return null) ?: return null
             val resourceName = variable.name
             val node: UExpression = when (element) {
                 is UExpression -> element
@@ -179,6 +243,6 @@ class ResourceReference(
          * type of styleable R fields.
          */
         private fun isIntArray(type: PsiType): Boolean =
-                (type as? PsiArrayType)?.componentType == PsiType.INT
+            (type as? PsiArrayType)?.componentType == PsiType.INT
     }
 }

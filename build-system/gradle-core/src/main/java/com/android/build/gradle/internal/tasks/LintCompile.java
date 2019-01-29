@@ -18,9 +18,10 @@ package com.android.build.gradle.internal.tasks;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.utils.FileUtils;
 import java.io.File;
+import org.gradle.api.DefaultTask;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
 
@@ -29,7 +30,7 @@ import org.gradle.api.tasks.TaskAction;
  *
  * <p>TODO - should compile src/lint/java from src/lint/java and jar it into build/lint/lint.jar
  */
-public class LintCompile extends AndroidBuilderTask {
+public class LintCompile extends DefaultTask {
 
     private File outputDirectory;
 
@@ -49,11 +50,11 @@ public class LintCompile extends AndroidBuilderTask {
     }
 
 
-    public static class ConfigAction implements TaskConfigAction<LintCompile> {
+    public static class CreationAction extends TaskCreationAction<LintCompile> {
 
         private final GlobalScope globalScope;
 
-        public ConfigAction(@NonNull GlobalScope globalScope) {
+        public CreationAction(@NonNull GlobalScope globalScope) {
             this.globalScope = globalScope;
         }
 
@@ -70,9 +71,8 @@ public class LintCompile extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull LintCompile task) {
+        public void configure(@NonNull LintCompile task) {
             task.setOutputDirectory(new File(globalScope.getIntermediatesDir(), "lint"));
-            task.setVariantName("");
         }
     }
 }

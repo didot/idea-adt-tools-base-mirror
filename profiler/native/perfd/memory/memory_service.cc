@@ -39,6 +39,8 @@ using profiler::proto::MemoryStartResponse;
 using profiler::proto::MemoryStopRequest;
 using profiler::proto::MemoryStopResponse;
 using profiler::proto::Session;
+using profiler::proto::SetAllocationSamplingRateRequest;
+using profiler::proto::SetAllocationSamplingRateResponse;
 using profiler::proto::TrackAllocationsRequest;
 using profiler::proto::TrackAllocationsResponse;
 using profiler::proto::TriggerHeapDumpRequest;
@@ -60,10 +62,12 @@ grpc::Status MemoryServiceImpl::StartMonitoringApp(
 grpc::Status MemoryServiceImpl::StopMonitoringApp(
     ::grpc::ServerContext* context, const MemoryStopRequest* request,
     MemoryStopResponse* response) {
-  auto got = collectors_.find(request->session().session_id());
-  if (got != collectors_.end() && got->second.IsRunning()) {
-    got->second.Stop();
-    // TODO remove stopped collector?
+  auto got = collectors_.find(request->session().pid());
+  if (got != collectors_.end()) {
+    if (got->second.IsRunning()) {
+      got->second.Stop();
+    }
+    collectors_.erase(got);
   }
   response->set_status(MemoryStopResponse::SUCCESS);
   return ::grpc::Status::OK;
@@ -73,7 +77,7 @@ grpc::Status MemoryServiceImpl::StopMonitoringApp(
                                           const MemoryRequest* request,
                                           MemoryData* response) {
   Trace trace("MEM:GetData");
-  auto result = collectors_.find(request->session().session_id());
+  auto result = collectors_.find(request->session().pid());
   if (result == collectors_.end()) {
     return ::grpc::Status(::grpc::StatusCode::NOT_FOUND,
                           "The memory collector for the specified session has "
@@ -90,7 +94,7 @@ grpc::Status MemoryServiceImpl::StopMonitoringApp(
                                                const MemoryRequest* request,
                                                MemoryData* response) {
   Trace trace("MEM:GetJvmtiData");
-  auto result = collectors_.find(request->session().session_id());
+  auto result = collectors_.find(request->session().pid());
   if (result == collectors_.end()) {
     return ::grpc::Status(::grpc::StatusCode::NOT_FOUND,
                           "The memory collector for the specified session has "
@@ -100,6 +104,24 @@ grpc::Status MemoryServiceImpl::StopMonitoringApp(
   result->second.memory_cache()->LoadMemoryJvmtiData(
       request->start_time(), request->end_time(), response);
 
+  return ::grpc::Status::OK;
+}
+
+::grpc::Status MemoryServiceImpl::SetAllocationSamplingRate(
+    ::grpc::ServerContext* context,
+    const SetAllocationSamplingRateRequest* request,
+    SetAllocationSamplingRateResponse* reponse) {
+  Trace trace("MEM:SetAllocationSamplingRate");
+  MemoryControlRequest control_request;
+  control_request.set_pid(request->session().pid());
+  MemoryControlRequest::SetSamplingRate* set_sampling_rate_request =
+      control_request.mutable_set_sampling_rate_request();
+  set_sampling_rate_request->mutable_sampling_rate()->set_sampling_num_interval(
+      request->sampling_rate().sampling_num_interval());
+  if (!private_service_->SendRequestToAgent(control_request)) {
+    return ::grpc::Status(::grpc::StatusCode::UNKNOWN,
+                          "Unable to update live allocation sampling rate.");
+  }
   return ::grpc::Status::OK;
 }
 
@@ -118,7 +140,7 @@ grpc::Status MemoryServiceImpl::StopMonitoringApp(
     ::grpc::ServerContext* context, const TriggerHeapDumpRequest* request,
     TriggerHeapDumpResponse* response) {
   Trace trace("MEM:TriggerHeapDump");
-  auto result = collectors_.find(request->session().session_id());
+  auto result = collectors_.find(request->session().pid());
   PROFILER_MEMORY_SERVICE_RETURN_IF_NOT_FOUND_WITH_STATUS(
       result, collectors_, response, TriggerHeapDumpResponse::FAILURE_UNKNOWN)
 
@@ -139,7 +161,7 @@ grpc::Status MemoryServiceImpl::StopMonitoringApp(
                                               const DumpDataRequest* request,
                                               DumpDataResponse* response) {
   Trace trace("MEM:GetHeapDump");
-  auto result = collectors_.find(request->session().session_id());
+  auto result = collectors_.find(request->session().pid());
   PROFILER_MEMORY_SERVICE_RETURN_IF_NOT_FOUND_WITH_STATUS(
       result, collectors_, response, DumpDataResponse::FAILURE_UNKNOWN)
 
@@ -161,7 +183,7 @@ grpc::Status MemoryServiceImpl::StopMonitoringApp(
     ::grpc::ServerContext* context, const TrackAllocationsRequest* request,
     TrackAllocationsResponse* response) {
   Trace trace("MEM:TrackAllocations");
-  auto result = collectors_.find(request->session().session_id());
+  auto result = collectors_.find(request->session().pid());
   PROFILER_MEMORY_SERVICE_RETURN_IF_NOT_FOUND_WITH_STATUS(
       result, collectors_, response, TrackAllocationsResponse::FAILURE_UNKNOWN)
 
@@ -210,12 +232,13 @@ grpc::Status MemoryServiceImpl::StopMonitoringApp(
 
 #undef PROFILER_MEMORY_SERVICE_RETURN_IF_NOT_FOUND
 
-MemoryCollector* MemoryServiceImpl::GetCollector(const Session& session) {
-  auto got = collectors_.find(session.session_id());
+MemoryCollector* MemoryServiceImpl::GetCollector(
+    const proto::Session& session) {
+  auto got = collectors_.find(session.pid());
   if (got == collectors_.end()) {
     // Use the forward version of pair to avoid defining a move constructor.
     auto emplace_result = collectors_.emplace(
-        std::piecewise_construct, std::forward_as_tuple(session.session_id()),
+        std::piecewise_construct, std::forward_as_tuple(session.pid()),
         std::forward_as_tuple(session.pid(), clock_, file_cache_));
     assert(emplace_result.second);
     got = emplace_result.first;

@@ -16,16 +16,23 @@
 
 package com.android.build.gradle.internal.transforms
 
+import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.api.transform.QualifiedContent
+import com.android.build.api.transform.TransformException
+import com.android.builder.dexing.ERROR_DUPLICATE
+import com.android.builder.dexing.ERROR_DUPLICATE_HELP_PAGE
 import com.android.testutils.TestInputsGenerator
 import com.android.testutils.TestUtils
+import com.google.common.collect.Iterators
 import com.google.common.truth.Truth
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.mockito.Mockito
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.function.Supplier
+import kotlin.test.assertFailsWith
 
 /**
  * Test for calculating the main dex list using D8.
@@ -53,9 +60,10 @@ class D8MainDexListTransformTest {
 
         val transform =
                 D8MainDexListTransform(
-                        manifestProguardRules = proguardRules,
-                        outputMainDexList = output,
-                        bootClasspath = Supplier { getBootClasspath() })
+                        manifestProguardRules = proguardRules.stubBuildableArtifact(),
+                        bootClasspath = Supplier { getBootClasspath() },
+                        messageReceiver = NoOpMessageReceiver())
+        transform.setMainDexListOutputFile(output.toFile())
         transform.transform(invocation)
 
         Truth.assertThat(Files.readAllLines(output)).containsExactly("test/A.class")
@@ -78,10 +86,11 @@ class D8MainDexListTransformTest {
 
         val transform =
                 D8MainDexListTransform(
-                        manifestProguardRules = tmpDir.newFile().toPath(),
+                        manifestProguardRules = tmpDir.newFile().toPath().stubBuildableArtifact(),
                         userProguardRules = userProguardRules,
-                        outputMainDexList = output,
-                        bootClasspath = Supplier { getBootClasspath() })
+                        bootClasspath = Supplier { getBootClasspath() },
+                        messageReceiver = NoOpMessageReceiver())
+        transform.setMainDexListOutputFile(output.toFile())
         transform.transform(invocation)
 
         Truth.assertThat(Files.readAllLines(output)).containsExactly("test/A.class")
@@ -107,10 +116,11 @@ class D8MainDexListTransformTest {
 
         val transform =
                 D8MainDexListTransform(
-                        manifestProguardRules = proguardRules,
+                        manifestProguardRules = proguardRules.stubBuildableArtifact(),
                         userProguardRules = userProguardRules,
-                        outputMainDexList = output,
-                        bootClasspath = Supplier { getBootClasspath() })
+                        bootClasspath = Supplier { getBootClasspath() },
+                        messageReceiver = NoOpMessageReceiver())
+        transform.setMainDexListOutputFile(output.toFile())
         transform.transform(invocation)
 
         Truth.assertThat(Files.readAllLines(output))
@@ -132,10 +142,11 @@ class D8MainDexListTransformTest {
 
         val transform =
                 D8MainDexListTransform(
-                        manifestProguardRules = tmpDir.newFile().toPath(),
+                        manifestProguardRules = tmpDir.newFile().toPath().stubBuildableArtifact(),
                         userClasses = userClasses,
-                        outputMainDexList = output,
-                        bootClasspath = Supplier { getBootClasspath() })
+                        bootClasspath = Supplier { getBootClasspath() },
+                        messageReceiver = NoOpMessageReceiver())
+        transform.setMainDexListOutputFile(output.toFile())
         transform.transform(invocation)
 
         Truth.assertThat(Files.readAllLines(output))
@@ -154,12 +165,59 @@ class D8MainDexListTransformTest {
 
         val transform =
                 D8MainDexListTransform(
-                        manifestProguardRules = tmpDir.newFile().toPath(),
-                        outputMainDexList = output,
-                        bootClasspath = Supplier { getBootClasspath() })
+                        manifestProguardRules = tmpDir.newFile().toPath().stubBuildableArtifact(),
+                        bootClasspath = Supplier { getBootClasspath() },
+                        messageReceiver = NoOpMessageReceiver())
+        transform.setMainDexListOutputFile(output.toFile())
         transform.transform(invocation)
 
         Truth.assertThat(Files.readAllLines(output)).isEmpty()
+    }
+
+    @Test
+    fun testThrowsIfDuplicateClasses() {
+        val output = tmpDir.newFile().toPath()
+
+        val inputJar1 = tmpDir.root.toPath().resolve("input1.jar")
+        TestInputsGenerator.jarWithEmptyClasses(inputJar1, listOf("test/A"))
+
+        val inputJar2 = tmpDir.root.toPath().resolve("input2.jar")
+        TestInputsGenerator.jarWithEmptyClasses(inputJar2, listOf("test/A"))
+
+        val input1 = TransformTestHelper
+            .singleJarBuilder(inputJar1.toFile())
+            .setScopes(QualifiedContent.Scope.PROJECT)
+            .build()
+        val input2 = TransformTestHelper
+            .singleJarBuilder(inputJar2.toFile())
+            .setScopes(QualifiedContent.Scope.PROJECT)
+            .build()
+        val invocation = TransformTestHelper
+            .invocationBuilder()
+            .addReferenceInput(input1)
+            .addReferenceInput(input2)
+            .build()
+
+        val transform =
+            D8MainDexListTransform(
+                manifestProguardRules = tmpDir.newFile().toPath().stubBuildableArtifact(),
+                bootClasspath = Supplier { getBootClasspath() },
+                messageReceiver = NoOpMessageReceiver())
+        transform.setMainDexListOutputFile(output.toFile())
+
+        val exception = assertFailsWith(TransformException::class) {
+            transform.transform(invocation)
+        }
+
+        Truth.assertThat(exception.message).contains(ERROR_DUPLICATE)
+        Truth.assertThat(exception.message).contains(ERROR_DUPLICATE_HELP_PAGE)
+    }
+
+    private fun Path.stubBuildableArtifact() : BuildableArtifact {
+        return Mockito.mock(BuildableArtifact::class.java).apply {
+            Mockito.`when`(iterator()).thenReturn(Iterators.singletonIterator(
+                this@stubBuildableArtifact.toFile()))
+        }
     }
 
     private fun getBootClasspath():

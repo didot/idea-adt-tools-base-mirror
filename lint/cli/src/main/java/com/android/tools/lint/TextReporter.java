@@ -16,7 +16,7 @@
 
 package com.android.tools.lint;
 
-import static com.android.tools.lint.detector.api.LintUtils.describeCounts;
+import static com.android.tools.lint.detector.api.Lint.describeCounts;
 import static com.android.tools.lint.detector.api.TextFormat.RAW;
 import static com.android.tools.lint.detector.api.TextFormat.TEXT;
 
@@ -39,9 +39,9 @@ import java.util.List;
 
 /**
  * A reporter which emits lint warnings as plain text strings
- * <p>
- * <b>NOTE: This is not a public or final API; if you rely on this be prepared
- * to adjust your code for the next tools release.</b>
+ *
+ * <p><b>NOTE: This is not a public or final API; if you rely on this be prepared to adjust your
+ * code for the next tools release.</b>
  */
 @Beta
 public class TextReporter extends Reporter {
@@ -59,8 +59,11 @@ public class TextReporter extends Reporter {
      * @param writer the writer to write into
      * @param close whether the writer should be closed when done
      */
-    public TextReporter(@NonNull LintCliClient client, @NonNull LintCliFlags flags,
-            @NonNull Writer writer, boolean close) {
+    public TextReporter(
+            @NonNull LintCliClient client,
+            @NonNull LintCliFlags flags,
+            @NonNull Writer writer,
+            boolean close) {
         this(client, flags, null, writer, close);
     }
 
@@ -73,8 +76,12 @@ public class TextReporter extends Reporter {
      * @param writer the writer to write into
      * @param close whether the writer should be closed when done
      */
-    public TextReporter(@NonNull LintCliClient client, @NonNull LintCliFlags flags,
-            @Nullable File file, @NonNull Writer writer, boolean close) {
+    public TextReporter(
+            @NonNull LintCliClient client,
+            @NonNull LintCliFlags flags,
+            @Nullable File file,
+            @NonNull Writer writer,
+            boolean close) {
         super(client, file);
         this.flags = flags;
         this.writer = writer;
@@ -82,20 +89,25 @@ public class TextReporter extends Reporter {
     }
 
     @Override
-    public void write(@NonNull Stats stats, List<Warning> issues) throws IOException {
+    public void write(@NonNull LintStats stats, List<Warning> issues) throws IOException {
         boolean abbreviate = !flags.isShowEverything();
 
         StringBuilder output = new StringBuilder(issues.size() * 200);
         if (issues.isEmpty()) {
             if (isDisplayEmpty() && writeStats) {
                 writer.write("No issues found");
-                if (stats.baselineErrorCount > 0 || stats.baselineWarningCount > 0) {
+                if (stats.getBaselineErrorCount() > 0 || stats.getBaselineWarningCount() > 0) {
                     File baselineFile = flags.getBaselineFile();
                     assert baselineFile != null;
-                    writer.write(String.format(" (%1$s filtered by baseline %2$s)",
-                            describeCounts(stats.baselineErrorCount, stats.baselineWarningCount,
-                                    true, true),
-                            baselineFile.getName()));
+                    writer.write(
+                            String.format(
+                                    " (%1$s filtered by baseline %2$s)",
+                                    describeCounts(
+                                            stats.getBaselineErrorCount(),
+                                            stats.getBaselineWarningCount(),
+                                            true,
+                                            true),
+                                    baselineFile.getName()));
                 }
                 writer.write('.');
                 writer.write('\n');
@@ -144,6 +156,10 @@ public class TextReporter extends Reporter {
 
                 output.append('\n');
 
+                if (warning.wasAutoFixed) {
+                    output.append("This issue has been automatically fixed.\n");
+                }
+
                 if (warning.errorLine != null && !warning.errorLine.isEmpty()) {
                     output.append(warning.errorLine);
                 }
@@ -152,11 +168,10 @@ public class TextReporter extends Reporter {
                     Location location = warning.location.getSecondary();
                     boolean omitted = false;
                     while (location != null) {
-                        if (location.getMessage() != null
-                                && !location.getMessage().isEmpty()) {
+                        if (location.getMessage() != null && !location.getMessage().isEmpty()) {
                             output.append("    ");
-                            String path = client.getDisplayPath(warning.project,
-                                    location.getFile());
+                            String path =
+                                    client.getDisplayPath(warning.project, location.getFile());
                             appendPath(output, path);
 
                             Position start = location.getStart();
@@ -168,8 +183,7 @@ public class TextReporter extends Reporter {
                                 }
                             }
 
-                            if (location.getMessage() != null
-                                    && !location.getMessage().isEmpty()) {
+                            if (location.getMessage() != null && !location.getMessage().isEmpty()) {
                                 output.append(':');
                                 output.append(' ');
                                 output.append(RAW.convertTo(location.getMessage(), TEXT));
@@ -189,14 +203,13 @@ public class TextReporter extends Reporter {
                         sb.append("Also affects: ");
                         int begin = sb.length();
                         while (location != null) {
-                            if (location.getMessage() == null
-                                    || location.getMessage().isEmpty()) {
+                            if (location.getMessage() == null || location.getMessage().isEmpty()) {
                                 if (sb.length() > begin) {
                                     sb.append(", ");
                                 }
 
-                                String path = client.getDisplayPath(warning.project,
-                                        location.getFile());
+                                String path =
+                                        client.getDisplayPath(warning.project, location.getFile());
                                 appendPath(sb, path);
 
                                 Position start = location.getStart();
@@ -235,16 +248,22 @@ public class TextReporter extends Reporter {
 
             if (writeStats) {
                 // TODO: Update to using describeCounts
-                writer.write(String.format("%1$d errors, %2$d warnings",
-                        stats.errorCount, stats.warningCount));
-                if (stats.baselineErrorCount > 0 || stats.baselineWarningCount > 0) {
+                writer.write(
+                        String.format(
+                                "%1$d errors, %2$d warnings",
+                                stats.getErrorCount(), stats.getWarningCount()));
+                if (stats.getBaselineErrorCount() > 0 || stats.getBaselineWarningCount() > 0) {
                     File baselineFile = flags.getBaselineFile();
                     assert baselineFile != null;
-                    writer.write(String.format(" (%1$s filtered by baseline %2$s)",
-                            describeCounts(stats.baselineErrorCount, stats.baselineWarningCount,
-                                    true,
-                                    true),
-                            baselineFile.getName()));
+                    writer.write(
+                            String.format(
+                                    " (%1$s filtered by baseline %2$s)",
+                                    describeCounts(
+                                            stats.getBaselineErrorCount(),
+                                            stats.getBaselineWarningCount(),
+                                            true,
+                                            true),
+                                    baselineFile.getName()));
                 }
             }
             writer.write('\n');
@@ -277,7 +296,9 @@ public class TextReporter extends Reporter {
     }
 
     private void explainIssue(@NonNull StringBuilder output, @Nullable Issue issue) {
-        if (issue == null || !flags.isExplainIssues() || issue == IssueRegistry.LINT_ERROR
+        if (issue == null
+                || !flags.isExplainIssues()
+                || issue == IssueRegistry.LINT_ERROR
                 || issue == IssueRegistry.BASELINE) {
             return;
         }
@@ -319,6 +340,7 @@ public class TextReporter extends Reporter {
 
     /**
      * Gets whether the reporter should convert paths to forward slashes
+     *
      * @return true if forcing paths to forward slashes
      */
     public boolean isForwardSlashPaths() {
@@ -327,6 +349,7 @@ public class TextReporter extends Reporter {
 
     /**
      * Sets whether the reporter should convert paths to forward slashes
+     *
      * @param forwardSlashPaths true to force paths to forward slashes
      */
     public void setForwardSlashPaths(boolean forwardSlashPaths) {

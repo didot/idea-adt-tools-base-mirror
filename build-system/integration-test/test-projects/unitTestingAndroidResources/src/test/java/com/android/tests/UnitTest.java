@@ -47,7 +47,8 @@ public class UnitTest {
                     throw new AssertionError("Expected R class in package " + value, e);
                 }
             } else {
-                assertTrue(key + " = " + value + " exists", new File(value).exists());
+                assertTrue(key + " = " + value + " doesn't exist",
+                        new File(value).exists());
             }
         }
     }
@@ -64,7 +65,8 @@ public class UnitTest {
 
             // Make sure the "main" R class uses the same numbers.
             int idInMainClass = (Integer) mainRClass.getField(name).get(null);
-            assertEquals(name, appCompatId, idInMainClass);
+            assertEquals("android.support.v7.appcompat.R.id." + name
+                    + " != com.android.tests.R.id." + name, appCompatId, idInMainClass);
         }
 
         for (Field field : android.support.constraint.R.id.class.getFields()) {
@@ -82,5 +84,13 @@ public class UnitTest {
             int idInMainClass = (Integer) mainRClass.getField(name).get(null);
             assertEquals(name, constraintId, idInMainClass);
         }
+    }
+
+    @Test
+    public void stylablesArePresent() throws Exception {
+        int[] stylable = com.android.tests.R.styleable.AppCompatTheme;
+        int child = com.android.tests.R.styleable.AppCompatTheme_listPreferredItemPaddingRight;
+        assertTrue(stylable.length > 0);
+        assertTrue(child >= 0);
     }
 }

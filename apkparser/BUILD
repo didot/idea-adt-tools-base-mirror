@@ -1,10 +1,10 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.binary-resources",
+    name = "studio.android.sdktools.binary-resources",
     srcs = ["binary-resources/src/main/java"],
-    iml_files = ["binary-resources/binary-resources.iml"],
-    tags = ["managed"],
+    iml_files = ["binary-resources/android.sdktools.binary-resources.iml"],
     test_resources = ["binary-resources/src/test/resources"],
     test_srcs = ["binary-resources/src/test/java"],
     visibility = ["//visibility:public"],
@@ -14,7 +14,7 @@ iml_module(
         "//tools/idea/.idea/libraries:Guava",
         "//tools/idea/.idea/libraries:truth[test]",
         "//tools/idea/.idea/libraries:JUnit4[test]",
-        "//tools/base/testutils:studio.testutils[module, test]",
+        "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",
     ],
 )

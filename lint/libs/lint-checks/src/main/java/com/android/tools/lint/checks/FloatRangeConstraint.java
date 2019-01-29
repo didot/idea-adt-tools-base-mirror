@@ -39,7 +39,7 @@ class FloatRangeConstraint extends RangeConstraint {
 
     @NonNull
     public static FloatRangeConstraint create(@NonNull UAnnotation annotation) {
-        assert FLOAT_RANGE_ANNOTATION.equals(annotation.getQualifiedName());
+        assert FLOAT_RANGE_ANNOTATION.isEquals(annotation.getQualifiedName());
         double from = getAnnotationDoubleValue(annotation, ATTR_FROM, Double.NEGATIVE_INFINITY);
         double to = getAnnotationDoubleValue(annotation, ATTR_TO, Double.POSITIVE_INFINITY);
         boolean fromInclusive = getAnnotationBooleanValue(annotation, ATTR_FROM_INCLUSIVE, true);
@@ -81,8 +81,8 @@ class FloatRangeConstraint extends RangeConstraint {
     }
 
     public boolean isValid(double value) {
-        return (fromInclusive && value >= from || !fromInclusive && value > from) &&
-                (toInclusive && value <= to || !toInclusive && value < to);
+        return (fromInclusive && value >= from || !fromInclusive && value > from)
+                && (toInclusive && value <= to || !toInclusive && value < to);
     }
 
     @NonNull
@@ -214,13 +214,14 @@ class FloatRangeConstraint extends RangeConstraint {
     public Boolean contains(@NonNull RangeConstraint other) {
         if (other instanceof FloatRangeConstraint) {
             FloatRangeConstraint otherRange = (FloatRangeConstraint) other;
-            return !(otherRange.from < from || otherRange.to > to) && !(!fromInclusive
-                    && otherRange.fromInclusive && otherRange.from == from) && !(!toInclusive
-                    && otherRange.toInclusive && otherRange.to == to);
+            return !(otherRange.from < from || otherRange.to > to)
+                    && !(!fromInclusive && otherRange.fromInclusive && otherRange.from == from)
+                    && !(!toInclusive && otherRange.toInclusive && otherRange.to == to);
         } else if (other instanceof IntRangeConstraint) {
             IntRangeConstraint otherRange = (IntRangeConstraint) other;
-            return !(otherRange.from < from || otherRange.to > to) && !(!fromInclusive
-                    && otherRange.from == from) && !(!toInclusive && otherRange.to == to);
+            return !(otherRange.from < from || otherRange.to > to)
+                    && !(!fromInclusive && otherRange.from == from)
+                    && !(!toInclusive && otherRange.to == to);
         }
         return null;
     }

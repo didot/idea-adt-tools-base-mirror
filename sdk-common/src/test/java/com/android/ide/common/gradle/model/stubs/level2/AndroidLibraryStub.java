@@ -31,7 +31,9 @@ public class AndroidLibraryStub extends BaseStub implements Library {
     @NonNull private final File myFolder;
     @NonNull private final String myManifest;
     @NonNull private final String myJarFile;
+    @NonNull private final String myCompileJarFile;
     @NonNull private final String myResFolder;
+    @Nullable private final File resStaticLibrary;
     @NonNull private final String myAssetsFolder;
     @NonNull private final Collection<String> myLocalJars;
     @NonNull private final String myJniFolder;
@@ -51,7 +53,9 @@ public class AndroidLibraryStub extends BaseStub implements Library {
                 new File("libraryFolder"),
                 "manifest.xml",
                 "file.jar",
+                "api.jar",
                 "res",
+                new File("libraryFolder/res.apk"),
                 "assets",
                 Collections.emptyList(),
                 "jni",
@@ -71,7 +75,9 @@ public class AndroidLibraryStub extends BaseStub implements Library {
             @NonNull File folder,
             @NonNull String manifest,
             @NonNull String jarFile,
+            @NonNull String compileJarFile,
             @NonNull String resFolder,
+            @Nullable File resStaticLibrary,
             @NonNull String assetsFolder,
             @NonNull Collection<String> localJars,
             @NonNull String jniFolder,
@@ -88,7 +94,9 @@ public class AndroidLibraryStub extends BaseStub implements Library {
         myFolder = folder;
         myManifest = manifest;
         myJarFile = jarFile;
+        myCompileJarFile = compileJarFile;
         myResFolder = resFolder;
+        this.resStaticLibrary = resStaticLibrary;
         myAssetsFolder = assetsFolder;
         myLocalJars = localJars;
         myJniFolder = jniFolder;
@@ -140,8 +148,20 @@ public class AndroidLibraryStub extends BaseStub implements Library {
 
     @Override
     @NonNull
+    public String getCompileJarFile() {
+        return myCompileJarFile;
+    }
+
+    @Override
+    @NonNull
     public String getResFolder() {
         return myResFolder;
+    }
+
+    @Nullable
+    @Override
+    public File getResStaticLibrary() {
+        return resStaticLibrary;
     }
 
     @Override
@@ -239,6 +259,7 @@ public class AndroidLibraryStub extends BaseStub implements Library {
                 && Objects.equals(myFolder, that.getFolder())
                 && Objects.equals(myManifest, that.getManifest())
                 && Objects.equals(myJarFile, that.getJarFile())
+                && Objects.equals(myCompileJarFile, that.getCompileJarFile())
                 && Objects.equals(myResFolder, that.getResFolder())
                 && Objects.equals(myAssetsFolder, that.getAssetsFolder())
                 && Objects.equals(myLocalJars, that.getLocalJars())
@@ -265,6 +286,7 @@ public class AndroidLibraryStub extends BaseStub implements Library {
                 myFolder,
                 myManifest,
                 myJarFile,
+                myCompileJarFile,
                 myResFolder,
                 myAssetsFolder,
                 myLocalJars,
@@ -294,6 +316,9 @@ public class AndroidLibraryStub extends BaseStub implements Library {
                 + '\''
                 + ", myJarFile='"
                 + myJarFile
+                + '\''
+                + ", myCompileJarFile='"
+                + myCompileJarFile
                 + '\''
                 + ", myResFolder='"
                 + myResFolder

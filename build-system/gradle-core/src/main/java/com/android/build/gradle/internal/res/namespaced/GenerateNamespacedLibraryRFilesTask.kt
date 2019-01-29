@@ -16,16 +16,17 @@
 
 package com.android.build.gradle.internal.res.namespaced
 
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.builder.symbols.exportToCompiledJava
-import com.android.ide.common.symbols.SymbolIo
+import com.android.ide.common.symbols.SymbolTable
 import com.android.utils.FileUtils
-import com.google.common.base.Preconditions
 import com.google.common.base.Suppliers
 import com.google.common.collect.ImmutableList
-import org.gradle.api.file.FileCollection
+import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -41,53 +42,68 @@ import java.util.function.Supplier
  * Class generating the R.jar and res-ids.txt files for a resource namespace aware library.
  */
 @CacheableTask
-open class GenerateNamespacedLibraryRFilesTask : AndroidBuilderTask() {
+open class GenerateNamespacedLibraryRFilesTask : AndroidVariantTask() {
 
     @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var rDotTxtCollection: FileCollection private set
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    lateinit var partialRFiles: BuildableArtifact
+        private set
 
-    @get:Internal lateinit var packageForRSupplier: Supplier<String> private set
-    @get:Input private val packageForR get() = packageForRSupplier.get()
+    @get:Internal
+    lateinit var packageForRSupplier: Supplier<String>
+        private set
+    @get:Input
+    val packageForR
+        get() = packageForRSupplier.get()
 
-    @get:OutputFile lateinit var rJarFile: File private set
-    @get:OutputFile lateinit var resIdsFile: File private set
+    @get:OutputFile
+    lateinit var rJarFile: File
+        private set
 
     @TaskAction
     fun taskAction() {
-        val rDotTxt = rDotTxtCollection.singleFile
-        Preconditions.checkArgument(rDotTxt.exists(), "R.txt does not exist at path: " + rDotTxt.absolutePath)
+        // Keeping the order is important.
+        val partialRFiles = ImmutableList.builder<File>()
+        this.partialRFiles.forEach { directory ->
+           partialRFiles.addAll(directory.listFiles{ f -> f.isFile }.asIterable())
+        }
 
         FileUtils.deleteIfExists(rJarFile)
-        FileUtils.deleteIfExists(resIdsFile)
 
-        // Read the symbol table from the R.txt file.
-        val resources = SymbolIo.readFromAapt(rDotTxt, packageForR)
+        // Read the symbol tables from the partial R.txt files and merge them into one.
+        val resources = SymbolTable.mergePartialTables(partialRFiles.build(), packageForR)
 
-        // Generate the R.jar file containing compiled R class and its' subclasses.
+        // Generate the R.jar file containing compiled R class and its' inner classes.
         exportToCompiledJava(ImmutableList.of(resources), rJarFile.toPath())
-
-        // Finally, generate the res-ids.txt file containing the package name and the resources list.
-        SymbolIo.writeSymbolTableWithPackage(rDotTxt.toPath(), packageForR, resIdsFile.toPath())
     }
 
-    class ConfigAction(
-            private val scope: VariantScope,
-            private val rDotTxt: FileCollection,
-            private val rJarFile: File,
-            private val resIdsFile: File) : TaskConfigAction<GenerateNamespacedLibraryRFilesTask> {
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<GenerateNamespacedLibraryRFilesTask>(variantScope) {
 
-        override fun getType() = GenerateNamespacedLibraryRFilesTask::class.java
+        override val name: String
+            get() = variantScope.getTaskName("create", "RFiles")
+        override val type: Class<GenerateNamespacedLibraryRFilesTask>
+            get() = GenerateNamespacedLibraryRFilesTask::class.java
 
-        override fun getName() = scope.getTaskName("create", "RFiles")
+        private lateinit var rJarFile: File
 
-        override fun execute(task: GenerateNamespacedLibraryRFilesTask) {
-            task.variantName = scope.fullVariantName
-            task.setAndroidBuilder(scope.globalScope.androidBuilder)
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            rJarFile = variantScope.artifacts
+                .appendArtifact(
+                    InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR,
+                    taskName, "R.jar"
+                )
+        }
 
-            task.rDotTxtCollection = rDotTxt
-            task.packageForRSupplier = Suppliers.memoize(scope.variantConfiguration::getOriginalApplicationId)
+        override fun configure(task: GenerateNamespacedLibraryRFilesTask) {
+            super.configure(task)
+
+            task.partialRFiles = variantScope.artifacts.getFinalArtifactFiles(
+                InternalArtifactType.PARTIAL_R_FILES)
+            task.packageForRSupplier =
+                    Suppliers.memoize(variantScope.variantConfiguration::getOriginalApplicationId)
             task.rJarFile = rJarFile
-            task.resIdsFile = resIdsFile
         }
     }
 }

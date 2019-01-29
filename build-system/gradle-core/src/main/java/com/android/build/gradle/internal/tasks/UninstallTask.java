@@ -17,9 +17,8 @@ package com.android.build.gradle.internal.tasks;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.TaskManager;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.variant.ApkVariantData;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.builder.sdk.SdkInfo;
 import com.android.builder.testing.ConnectedDeviceProvider;
@@ -34,6 +33,7 @@ import org.gradle.api.logging.Logger;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 public class UninstallTask extends AndroidBuilderTask {
 
@@ -70,21 +70,26 @@ public class UninstallTask extends AndroidBuilderTask {
                 getILogger());
 
         deviceProvider.init();
-        final List<? extends DeviceConnector> devices = deviceProvider.getDevices();
 
-        for (DeviceConnector device : devices) {
-            device.uninstallPackage(applicationId, getTimeOutInMs(), getILogger());
-            logger.lifecycle(
-                    "Uninstalling {} (from {}:{}) from device '{}' ({}).",
-                    applicationId, getProject().getName(),
-                    variant.getVariantConfiguration().getFullName(),
-                    device.getName(), device.getSerialNumber());
+        try {
+            final List<? extends DeviceConnector> devices = deviceProvider.getDevices();
+
+            for (DeviceConnector device : devices) {
+                device.uninstallPackage(applicationId, getTimeOutInMs(), getILogger());
+                logger.lifecycle(
+                        "Uninstalling {} (from {}:{}) from device '{}' ({}).",
+                        applicationId,
+                        getProject().getName(),
+                        variant.getVariantConfiguration().getFullName(),
+                        device.getName(),
+                        device.getSerialNumber());
+            }
+
+            int n = devices.size();
+            logger.quiet("Uninstalled {} from {} device{}.", applicationId, n, n == 1 ? "" : "s");
+        } finally {
+            deviceProvider.terminate();
         }
-
-        int n = devices.size();
-        logger.quiet("Uninstalled {} from {} device{}.",
-                applicationId, n, n == 1 ? "" : "s");
-
     }
 
     @InputFile
@@ -109,19 +114,17 @@ public class UninstallTask extends AndroidBuilderTask {
         mTimeOutInMs = timeoutInMs;
     }
 
-    public static class ConfigAction implements TaskConfigAction<UninstallTask> {
+    public static class CreationAction extends VariantTaskCreationAction<UninstallTask> {
 
-        private final VariantScope scope;
-
-        public ConfigAction(VariantScope scope) {
-            this.scope = scope;
+        public CreationAction(VariantScope scope) {
+            super(scope);
         }
 
         @NonNull
         @Override
         public String getName() {
             return StringHelper.appendCapitalized(
-                    "uninstall", scope.getVariantConfiguration().getFullName());
+                    "uninstall", getVariantScope().getVariantConfiguration().getFullName());
         }
 
         @NonNull
@@ -131,25 +134,32 @@ public class UninstallTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull UninstallTask uninstallTask) {
+        public void configure(@NonNull UninstallTask task) {
+            super.configure(task);
+            VariantScope scope = getVariantScope();
 
-            uninstallTask.setDescription(
-                    "Uninstalls the " + scope.getVariantData().getDescription() + ".");
-            uninstallTask.setGroup(TaskManager.INSTALL_GROUP);
-            uninstallTask.setVariant(scope.getVariantData());
-            uninstallTask.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            uninstallTask.setVariantName(scope.getVariantConfiguration().getFullName());
-            uninstallTask.setTimeOutInMs(
+            task.setVariant(scope.getVariantData());
+            task.setDescription("Uninstalls the " + scope.getVariantData().getDescription() + ".");
+            task.setGroup(TaskManager.INSTALL_GROUP);
+            task.setTimeOutInMs(
                     scope.getGlobalScope().getExtension().getAdbOptions().getTimeOutInMs());
 
-            uninstallTask.adbSupplier = TaskInputHelper.memoize(() -> {
-                // SDK is loaded somewhat dynamically, plus we don't want to do all this logic
-                // if the task is not going to run, so use a supplier.
-                final SdkInfo info = scope.getGlobalScope().getSdkHandler().getSdkInfo();
-                return (info == null ? null : info.getAdb());
-            });
+            task.adbSupplier =
+                    TaskInputHelper.memoize(
+                            () -> {
+                                // SDK is loaded somewhat dynamically, plus we don't want to do all this logic
+                                // if the task is not going to run, so use a supplier.
+                                final SdkInfo info =
+                                        scope.getGlobalScope().getSdkHandler().getSdkInfo();
+                                return (info == null ? null : info.getAdb());
+                            });
 
-            ((ApkVariantData) scope.getVariantData()).uninstallTask = uninstallTask;
+        }
+
+        @Override
+        public void handleProvider(@NonNull TaskProvider<? extends UninstallTask> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setUninstallTask(taskProvider);
         }
     }
 }

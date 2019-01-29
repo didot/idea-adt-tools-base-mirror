@@ -19,23 +19,29 @@ package com.android.build.gradle.internal.tasks.databinding
 import android.databinding.tool.BaseDataBinder
 import android.databinding.tool.DataBindingBuilder
 import android.databinding.tool.store.LayoutInfoInput
-import com.android.build.gradle.internal.scope.TaskConfigAction
-import com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType.DATA_BINDING_BASE_CLASS_LOGS_DEPENDENCY_ARTIFACTS
+import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_BASE_CLASS_LOGS_DEPENDENCY_ARTIFACTS
+import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_MERGE
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.BooleanOption
 import com.android.utils.FileUtils
 import org.gradle.api.DefaultTask
-import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.incremental.IncrementalTaskInputs
 import java.io.File
 import java.io.Serializable
 import java.util.ArrayList
 import javax.inject.Inject
+import kotlin.reflect.KFunction
 
 /**
  * Generates base classes from data binding info files.
@@ -48,15 +54,24 @@ import javax.inject.Inject
  * errors to the user if the compilation fails before annotation processor output classes are
  * compiled.
  */
-open class DataBindingGenBaseClassesTask : DefaultTask() {
+open class DataBindingGenBaseClassesTask : AndroidVariantTask() {
     // where xml info files are
-    @get:InputDirectory lateinit var xmlInfoFolder: File
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    lateinit var layoutInfoDirectory: BuildableArtifact
         private set
     // the package name for the module / app
-    @get:Input lateinit var packageName: String
+    lateinit var packageNameSupplier: KFunction<String>
         private set
+    @get:Input val packageName: String
+        get() = packageNameSupplier.call()
     // list of artifacts from dependencies
-    @get:InputFiles lateinit var mergedArtifactsFromDependencies: FileCollection
+    @get:InputFiles lateinit var mergedArtifactsFromDependencies: BuildableArtifact
+        private set
+    // list of v1 artifacts from dependencies
+    @get:Optional
+    @get:InputFiles
+    lateinit var v1Artifacts: BuildableArtifact
         private set
     // where to keep the log of the task
     @get:OutputDirectory lateinit var logOutFolder: File
@@ -71,6 +86,9 @@ open class DataBindingGenBaseClassesTask : DefaultTask() {
         private set
     @get:OutputDirectory lateinit var classInfoBundleDir: File
         private set
+    @get:Input
+    var useAndroidX: Boolean = false
+        private set
 
     @TaskAction
     fun writeBaseClasses(inputs: IncrementalTaskInputs) {
@@ -84,24 +102,48 @@ open class DataBindingGenBaseClassesTask : DefaultTask() {
         } else {
             FileUtils.cleanOutputDir(sourceOutFolder)
             FileUtils.cleanOutputDir(logOutFolder)
+            // check if there are any v2 if so, fail the build.
+            val v2Dependencies = mergedArtifactsFromDependencies
+                .get()
+                .asFileTree
+                .files
+                .filter {
+                    it.name.endsWith(DataBindingBuilder.BINDING_CLASS_LIST_SUFFIX) &&
+                            !BASE_ADAPTERS_ARTIFACTS.any {
+                                    artifact -> it.name.startsWith(artifact)
+                            } // ignore our libs
+                }
+                .map {
+                    it.name.substringBefore(DataBindingBuilder.BINDING_CLASS_LIST_SUFFIX)
+                }
+            if (v2Dependencies.isNotEmpty()) {
+                throw IncompatibleDependencyError(v2Dependencies)
+            }
         }
     }
 
     private fun buildInputArgs(inputs: IncrementalTaskInputs): LayoutInfoInput.Args {
         val outOfDate = ArrayList<File>()
         val removed = ArrayList<File>()
+        val layoutInfoDir = layoutInfoDirectory.get().singleFile
 
         // if dependency added/removed a file, it is handled by the LayoutInfoInput class
         if (inputs.isIncremental) {
             inputs.outOfDate { inputFileDetails ->
-                if (FileUtils.isFileInDirectory(inputFileDetails.file,
-                        xmlInfoFolder) && inputFileDetails.file.name.endsWith(".xml")) {
+                if (FileUtils.isFileInDirectory(
+                        inputFileDetails.file,
+                        layoutInfoDir
+                    ) && inputFileDetails.file.name.endsWith(".xml")
+                ) {
                     outOfDate.add(inputFileDetails.file)
                 }
             }
             inputs.removed { inputFileDetails ->
-                if (FileUtils.isFileInDirectory(inputFileDetails.file,
-                        xmlInfoFolder) && inputFileDetails.file.name.endsWith(".xml")) {
+                if (FileUtils.isFileInDirectory(
+                        inputFileDetails.file,
+                        layoutInfoDir
+                    ) && inputFileDetails.file.name.endsWith(".xml")
+                ) {
                     removed.add(inputFileDetails.file)
                 }
             }
@@ -112,35 +154,60 @@ open class DataBindingGenBaseClassesTask : DefaultTask() {
         return LayoutInfoInput.Args(
                 outOfDate = outOfDate,
                 removed = removed,
-                infoFolder = xmlInfoFolder,
-                dependencyClassesFolder = mergedArtifactsFromDependencies.singleFile,
+                infoFolder = layoutInfoDir,
+                dependencyClassesFolder = mergedArtifactsFromDependencies.single(),
                 logFolder = logOutFolder,
                 incremental = inputs.isIncremental,
                 packageName = packageName,
-                artifactFolder = classInfoBundleDir
+                artifactFolder = classInfoBundleDir,
+                v1ArtifactsFolder = if (v1Artifacts.isEmpty()) null else v1Artifacts.single(),
+                useAndroidX = useAndroidX
         )
     }
 
-    class ConfigAction(val variantScope: VariantScope,
-            private val sourceOutFolder: File,
-            private var logArtifactFolder: File)
-        : TaskConfigAction<DataBindingGenBaseClassesTask> {
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<DataBindingGenBaseClassesTask>(variantScope) {
 
-        override fun getName(): String = variantScope.getTaskName("dataBindingGenBaseClasses")
+        override val name: String
+            get() = variantScope.getTaskName("dataBindingGenBaseClasses")
+        override val type: Class<DataBindingGenBaseClassesTask>
+            get() = DataBindingGenBaseClassesTask::class.java
 
-        override fun getType(): Class<DataBindingGenBaseClassesTask> = DataBindingGenBaseClassesTask::class.java
+        private lateinit var sourceOutFolder: File
+        private lateinit var classInfoBundleDir: File
 
-        override fun execute(task: DataBindingGenBaseClassesTask) {
-            task.xmlInfoFolder = variantScope.layoutInfoOutputForDataBinding
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            val artifacts = variantScope.artifacts
+            sourceOutFolder = artifacts.appendArtifact(
+                InternalArtifactType.DATA_BINDING_BASE_CLASS_SOURCE_OUT,
+                taskName)
+            classInfoBundleDir = artifacts.appendArtifact(
+                InternalArtifactType.DATA_BINDING_BASE_CLASS_LOG_ARTIFACT,
+                taskName)
+        }
+
+        override fun configure(task: DataBindingGenBaseClassesTask) {
+            super.configure(task)
+
+            task.layoutInfoDirectory =
+                    variantScope.artifacts.getFinalArtifactFiles(
+                            DATA_BINDING_LAYOUT_INFO_TYPE_MERGE)
             val variantData = variantScope.variantData
-            task.packageName = variantData.variantConfiguration.originalApplicationId
-            task.mergedArtifactsFromDependencies = variantScope.getOutput(
+            val artifacts = variantScope.artifacts
+            task.packageNameSupplier = variantData.variantConfiguration::getOriginalApplicationId
+            task.mergedArtifactsFromDependencies = artifacts.getFinalArtifactFiles(
                     DATA_BINDING_BASE_CLASS_LOGS_DEPENDENCY_ARTIFACTS)
+            task.v1Artifacts = artifacts.getFinalArtifactFiles(
+                    InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS
+            )
             task.logOutFolder = variantScope.getIncrementalDir(task.name)
             task.generateSources = variantScope.globalScope.projectOptions.get(
                     BooleanOption.ENABLE_DATA_BINDING_V2)
             task.sourceOutFolder = sourceOutFolder
-            task.classInfoBundleDir = logArtifactFolder
+            task.classInfoBundleDir = classInfoBundleDir
+            task.useAndroidX = variantScope.globalScope.projectOptions.get(
+                BooleanOption.USE_ANDROID_X)
         }
     }
 
@@ -150,6 +217,11 @@ open class DataBindingGenBaseClassesTask : DefaultTask() {
             BaseDataBinder(LayoutInfoInput(args))
                     .generateAll(DataBindingBuilder.GradleFileWriter(sourceOutFolder.absolutePath))
         }
+    }
 
+    companion object {
+        private val BASE_ADAPTERS_ARTIFACTS = listOf(
+            "com.android.databinding.library.baseAdapters",
+            "androidx.databinding.library.baseAdapters")
     }
 }

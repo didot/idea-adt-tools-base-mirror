@@ -18,7 +18,10 @@ package com.android.build.api.dsl.options
 
 import org.gradle.api.Incubating
 
-/** DSL object for configuring postProcessing: removing dead code, obfuscating etc.  */
+/** DSL object for configuring postProcessing: removing dead code, obfuscating etc.
+ *
+ * This interface is not currently usable. It is a work in progress.
+ */
 @Incubating
 interface PostProcessingFiles {
 
@@ -46,7 +49,7 @@ interface PostProcessingFiles {
      * ```
      *
      * When you build your project, the plugin creates a copy of the settings file in
-     * `project-root/build/intermediates/proguard-files/`. For even more code shrinking, try the
+     * `project/build/intermediates/proguard-files/`. For even more code shrinking, try the
      * `proguard-android-optimize.txt` file located in the same directory. It includes the same
      * default ProGuard rules, but with other optimizations that perform analysis at the bytecode
      * level—inside and across methods—to reduce your APK size further and help it run faster.

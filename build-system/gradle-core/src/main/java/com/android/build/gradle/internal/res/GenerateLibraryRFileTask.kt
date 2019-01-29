@@ -15,34 +15,38 @@
  */
 package com.android.build.gradle.internal.res
 
+import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH
 import com.android.build.gradle.internal.scope.ExistingBuildElements
-import com.android.build.gradle.internal.scope.TaskConfigAction
-import com.android.build.gradle.internal.scope.TaskOutputHolder
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.variant.TaskContainer
+import com.android.build.gradle.internal.tasks.TaskInputHelper
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.BooleanOption
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.android.builder.symbols.processLibraryMainSymbolTable
 import com.android.ide.common.symbols.IdProvider
-import com.android.ide.common.symbols.ResourceDirectoryParser
 import com.android.ide.common.symbols.SymbolIo
 import com.android.ide.common.symbols.SymbolTable
+import com.android.ide.common.symbols.parseResourceSourceSetDirectory
 import com.google.common.base.Strings
 import com.google.common.collect.Iterables
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskProvider
 import java.io.File
 import java.io.IOException
+import java.util.function.Supplier
 
 @CacheableTask
 open class GenerateLibraryRFileTask : ProcessAndroidResources() {
@@ -68,37 +72,42 @@ open class GenerateLibraryRFileTask : ProcessAndroidResources() {
 
     @Suppress("unused")
     // Needed to trigger rebuild if proguard file is requested (https://issuetracker.google.com/67418335)
-    @get:Input private val hasProguardOutputFile: Boolean
-        get() = proguardOutputFile != null
+    @Input fun hasProguardOutputFile() = proguardOutputFile != null
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NONE) lateinit var dependencies: FileCollection
         private set
 
-    @get:Input lateinit var packageForR: String
-        private set
+    @get:Internal lateinit var packageForRSupplier: Supplier<String> private set
+    @Suppress("MemberVisibilityCanBePrivate")
+    @get:Input val packageForR get() = packageForRSupplier.get()
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NAME_ONLY) lateinit var platformAttrRTxt: FileCollection
         private set
 
-    @get:Input lateinit var applicationId: String
-        private set
+    @get:Internal lateinit var applicationIdSupplier: Supplier<String> private set
+    @get:Input val applicationId get() = applicationIdSupplier.get()
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var inputResourcesDir: FileCollection
+    lateinit var inputResourcesDir: BuildableArtifact
+        private set
+
+    @get:Input
+    var namespacedRClass: Boolean = false
+        private set
 
     @Throws(IOException::class)
     override fun doFullTaskAction() {
         val manifest = Iterables.getOnlyElement(
-                ExistingBuildElements.from(TaskOutputHolder.TaskOutputType.MERGED_MANIFESTS, manifestFiles))
+                ExistingBuildElements.from(InternalArtifactType.MERGED_MANIFESTS, manifestFiles))
                 .outputFile
 
         val androidAttrSymbol = getAndroidAttrSymbols(platformAttrRTxt.singleFile)
 
-        val symbolTable = ResourceDirectoryParser.parseDirectory(
-                inputResourcesDir.singleFile,
+        val symbolTable = parseResourceSourceSetDirectory(
+                inputResourcesDir.single(),
                 IdProvider.sequential(),
                 androidAttrSymbol)
 
@@ -111,11 +120,11 @@ open class GenerateLibraryRFileTask : ProcessAndroidResources() {
                 rClassOutputJar = rClassOutputJar,
                 symbolFileOut = textSymbolOutputFile,
                 proguardOut = proguardOutputFile,
-                mergedResources = inputResourcesDir.singleFile,
+                mergedResources = inputResourcesDir.single(),
                 platformSymbols = androidAttrSymbol,
-                disableMergeInLib = true)
+                namespacedRClass = namespacedRClass)
 
-        SymbolIo.writeSymbolTableWithPackage(
+        SymbolIo.writeSymbolListWithPackageName(
                 textSymbolOutputFile.toPath(),
                 manifest.toPath(),
                 symbolsWithPackageNameOutputFile.toPath())
@@ -123,64 +132,91 @@ open class GenerateLibraryRFileTask : ProcessAndroidResources() {
 
     private fun getAndroidAttrSymbols(androidJar: File) =
             if (androidJar.exists())
-                SymbolIo.read(androidJar, "android")
+                SymbolIo.readFromAapt(androidJar, "android")
             else
                 SymbolTable.builder().tablePackage("android").build()
 
 
 
-    class ConfigAction(
-            private val variantScope: VariantScope,
+    class CreationAction(
+            variantScope: VariantScope,
             private val symbolFile: File,
             private val symbolsWithPackageNameOutputFile: File
-    ) : TaskConfigAction<GenerateLibraryRFileTask> {
+    ) : VariantTaskCreationAction<GenerateLibraryRFileTask>(variantScope) {
 
-        override fun getName() = variantScope.getTaskName("generate", "RFile")
+        override val name: String
+            get() = variantScope.getTaskName("generate", "RFile")
+        override val type: Class<GenerateLibraryRFileTask>
+            get() = GenerateLibraryRFileTask::class.java
 
-        override fun getType() = GenerateLibraryRFileTask::class.java
+        private lateinit var rClassOutputJar: File
+        private lateinit var sourceOutputDirectory: File
 
-        override fun execute(task: GenerateLibraryRFileTask) {
-            variantScope.variantData.addTask(TaskContainer.TaskKind.PROCESS_ANDROID_RESOURCES, task)
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
 
-            task.variantName = variantScope.fullVariantName
+            if (variantScope.globalScope.projectOptions.get(BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION)) {
+                rClassOutputJar = variantScope.artifacts
+                    .appendArtifact(InternalArtifactType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR,
+                        taskName,
+                        "R.jar")
+            } else {
+                sourceOutputDirectory = variantScope.artifacts
+                    .appendArtifact(InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES, taskName)
+            }
 
-            task.platformAttrRTxt = variantScope
-                    .globalScope
-                    .getOutput(TaskOutputHolder.TaskOutputType.PLATFORM_R_TXT)
+            if (generatesProguardOutputFile(variantScope)) {
+                variantScope
+                    .artifacts
+                    .appendArtifact(
+                        InternalArtifactType.AAPT_PROGUARD_FILE,
+                        listOf(variantScope.processAndroidResourcesProguardOutputFile),
+                        taskName)
+            }
 
-            task.applicationId = variantScope.variantData.variantConfiguration.applicationId
+        }
+
+        override fun handleProvider(taskProvider: TaskProvider<out GenerateLibraryRFileTask>) {
+            super.handleProvider(taskProvider)
+            variantScope.taskContainer.processAndroidResTask = taskProvider
+        }
+
+        override fun configure(task: GenerateLibraryRFileTask) {
+            super.configure(task)
+
+            task.platformAttrRTxt = variantScope.globalScope.platformAttrs
+
+            task.applicationIdSupplier = TaskInputHelper.memoize {
+                variantScope.variantData.variantConfiguration.applicationId
+            }
 
             task.dependencies = variantScope.getArtifactFileCollection(
                     RUNTIME_CLASSPATH,
                     ALL,
                     AndroidArtifacts.ArtifactType.SYMBOL_LIST_WITH_PACKAGE_NAME)
             if (variantScope.globalScope.projectOptions.get(BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION)) {
-                val rJar = File(variantScope.getIntermediateDir(TaskOutputHolder.TaskOutputType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR), "R.jar")
-                task.rClassOutputJar = rJar
-                variantScope.addTaskOutput(
-                        TaskOutputHolder.TaskOutputType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR,
-                        rJar,
-                        task.name)
+                task.rClassOutputJar = rClassOutputJar
             } else {
-                val sourceOutputDirectory = variantScope.rClassSourceOutputDir
                 task.sourceOutputDirectory = sourceOutputDirectory
-                variantScope.addTaskOutput(
-                        TaskOutputHolder.TaskOutputType.NOT_NAMESPACED_R_CLASS_SOURCES,
-                        sourceOutputDirectory,
-                        task.name)
             }
             task.textSymbolOutputFile = symbolFile
             task.symbolsWithPackageNameOutputFile = symbolsWithPackageNameOutputFile
 
-            if (variantScope.codeShrinker != null) {
+            if (generatesProguardOutputFile(variantScope)) {
                 task.proguardOutputFile = variantScope.processAndroidResourcesProguardOutputFile
             }
 
-            task.packageForR = Strings.nullToEmpty(variantScope.variantConfiguration.originalApplicationId)
+            task.packageForRSupplier = TaskInputHelper.memoize {
+                Strings.nullToEmpty(variantScope.variantConfiguration.originalApplicationId)
+            }
 
-            task.manifestFiles = variantScope.getOutput(TaskOutputHolder.TaskOutputType.MERGED_MANIFESTS)
+            task.manifestFiles = variantScope.artifacts.getFinalArtifactFiles(
+                InternalArtifactType.MERGED_MANIFESTS)
 
-            task.inputResourcesDir = variantScope.getOutput(TaskOutputHolder.TaskOutputType.PACKAGED_RES)
+            task.inputResourcesDir = variantScope.artifacts.getFinalArtifactFiles(
+                InternalArtifactType.PACKAGED_RES)
+
+            task.namespacedRClass = variantScope.globalScope.projectOptions[BooleanOption.NAMESPACED_R_CLASS]
 
             task.outputScope = variantScope.outputScope
         }

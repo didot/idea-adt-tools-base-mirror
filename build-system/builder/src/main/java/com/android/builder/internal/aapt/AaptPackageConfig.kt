@@ -43,12 +43,12 @@ data class AaptPackageConfig(
         val splits: ImmutableCollection<String>? = null,
         val debuggable: Boolean = false,
         val customPackageForR: String? = null,
-        val pseudoLocalize: Boolean = false,
         val preferredDensity: String? = null,
         val resourceConfigs: ImmutableSet<String> = ImmutableSet.of(),
         val generateProtos: Boolean = false,
         val imports: ImmutableList<File> = ImmutableList.of(),
         val packageId: Int? = null,
+        val allowReservedPackageId: Boolean = false,
         val dependentFeatures: ImmutableCollection<File> = ImmutableList.of(),
         val listResourceFiles: Boolean = false,
         val staticLibrary: Boolean = false,
@@ -75,14 +75,14 @@ data class AaptPackageConfig(
         private var splits: ImmutableCollection<String>? = null
         private var debuggable: Boolean = false
         private var customPackageForR: String? = null
-        private var pseudoLocalize: Boolean = false
         private var preferredDensity: String? = null
-        private var androidTarget: IAndroidTarget? = null
+        private var androidJarPath: String? = null
         private var resourceConfigs: ImmutableSet<String> = ImmutableSet.of()
         private var isGenerateProtos: Boolean = false
         private var variantType: VariantType? = null
         private var imports: ImmutableList<File> = ImmutableList.of()
         private var packageId: Int? = null
+        private var allowReservedPackageId: Boolean = false
         private var dependentFeatures: ImmutableCollection<File> = ImmutableList.of()
         private var listResourceFiles: Boolean = false
         private var staticLibrary: Boolean = false
@@ -98,7 +98,7 @@ data class AaptPackageConfig(
             return AaptPackageConfig(
                     manifestFile = manifestFile!!,
                     options = options!!,
-                    androidJarPath = androidTarget!!.getPath(IAndroidTarget.ANDROID_JAR),
+                    androidJarPath = androidJarPath!!,
                     sourceOutputDir = sourceOutputDir,
                     resourceOutputApk = resourceOutputApk,
                     librarySymbolTableFiles = librarySymbolTableFiles,
@@ -110,13 +110,13 @@ data class AaptPackageConfig(
                     splits = splits,
                     debuggable = debuggable,
                     customPackageForR = customPackageForR,
-                    pseudoLocalize = pseudoLocalize,
                     preferredDensity = preferredDensity,
                     resourceConfigs = resourceConfigs,
                     generateProtos = isGenerateProtos,
                     variantType = variantType!!,
                     imports = imports,
                     packageId = packageId,
+                    allowReservedPackageId = allowReservedPackageId,
                     dependentFeatures = dependentFeatures,
                     listResourceFiles = listResourceFiles,
                     staticLibrary = staticLibrary,
@@ -201,18 +201,18 @@ data class AaptPackageConfig(
             return this
         }
 
-        fun setPseudoLocalize(pseudoLocalize: Boolean): Builder {
-            this.pseudoLocalize = pseudoLocalize
-            return this
-        }
-
         fun setPreferredDensity(preferredDensity: String?): Builder {
             this.preferredDensity = preferredDensity
             return this
         }
 
-        fun setAndroidTarget(androidTarget: IAndroidTarget?): Builder {
-            this.androidTarget = androidTarget
+        fun setAndroidTarget(androidTarget: IAndroidTarget): Builder {
+            this.androidJarPath = androidTarget.getPath(IAndroidTarget.ANDROID_JAR)
+            return this
+        }
+
+        fun setAndroidJarPath(androidJarPath: String): Builder {
+            this.androidJarPath = androidJarPath
             return this
         }
 
@@ -248,6 +248,20 @@ data class AaptPackageConfig(
 
         fun setStaticLibraryDependencies(libraries: ImmutableList<File>): Builder {
             this.staticLibraryDependencies = libraries
+            return this
+        }
+
+        fun setIntermediateDir(intermediateDir: File): Builder {
+            this.intermediateDir = intermediateDir
+            return this
+        }
+
+        /**
+         * Allows the use of a reserved package ID. This should on be used for packages with a
+         * pre-O min-sdk
+         */
+        fun setAllowReservedPackageId(value: Boolean): Builder {
+            this.allowReservedPackageId = value
             return this
         }
     }

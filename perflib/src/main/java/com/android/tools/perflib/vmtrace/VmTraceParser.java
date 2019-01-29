@@ -16,6 +16,7 @@
 
 package com.android.tools.perflib.vmtrace;
 
+import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
 import com.android.ddmlib.ByteBufferUtil;
 import com.google.common.base.Charsets;
@@ -94,7 +95,7 @@ public class VmTraceParser {
         long offset = 0;
         BufferedReader in = null;
         try {
-            in = new BufferedReader(new InputStreamReader(new FileInputStream(f), Charsets.US_ASCII));
+            in = new BufferedReader(new InputStreamReader(new FileInputStream(f), Charsets.UTF_8));
             int mode = PARSE_VERSION;
             String line;
             while (true) {
@@ -103,9 +104,9 @@ public class VmTraceParser {
                     throw new IOException("Key section does not have an *end marker");
                 }
 
-                // Calculate how much we have read from the file so far.  The
-                // extra byte is for the line ending not included by readLine().
-                offset += line.length() + 1;
+                // Calculate how much we have read from the file so far. The extra byte is for the line ending not included by readLine().
+                // We can't use line.length() as unicode characters can be represented by more than 1 byte.
+                offset += line.getBytes(Charsets.UTF_8).length + 1;
 
                 if (line.startsWith("*")) {
                     if (line.equals(HEADER_SECTION_VERSION)) {
@@ -545,12 +546,13 @@ public class VmTraceParser {
          * Reads a given number of bytes from the input stream, converts them to char and returns
          * the resulting string.
          */
+        @NonNull
         private String readString(int length) throws IOException {
-            StringBuilder sb = new StringBuilder();
-            while (length-- > 0) {
-                sb.append((char) mInputStream.readUnsignedByte());
+            byte[] buffer = new byte[length];
+            for (int i = 0; i < length; i++) {
+                buffer[i] = (byte) mInputStream.readUnsignedByte();
             }
-            return sb.toString();
+            return new String(buffer, Charsets.UTF_8);
         }
 
         /**

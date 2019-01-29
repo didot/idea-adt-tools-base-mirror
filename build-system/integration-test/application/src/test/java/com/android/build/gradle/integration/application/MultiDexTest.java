@@ -16,36 +16,39 @@
 
 package com.android.build.gradle.integration.application;
 
-import static com.android.build.gradle.integration.common.fixture.GradleTestProject.SUPPORT_LIB_VERSION;
 import static com.android.build.gradle.integration.common.truth.ApkSubject.assertThat;
 import static com.android.testutils.truth.FileSubject.assertThat;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.android.annotations.NonNull;
-import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTaskExecutor;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject.ApkType;
+import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.ide.common.process.ProcessException;
 import com.android.testutils.apk.Apk;
+import com.android.testutils.apk.Dex;
 import com.android.utils.FileUtils;
 import com.android.utils.StringHelper;
-import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.FileSystem;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
@@ -54,13 +57,15 @@ import org.junit.runners.Parameterized;
 public class MultiDexTest {
 
     enum MainDexListTool {
-        DX,
         D8,
+        R8,
     }
 
     @Rule
     public GradleTestProject project =
             GradleTestProject.builder().fromTestProject("multiDex").withHeap("2048M").create();
+
+    @Rule public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
     @Parameterized.Parameters(name = "mainDexListTool = {0}")
     public static Object[] data() {
@@ -70,56 +75,29 @@ public class MultiDexTest {
     @Parameterized.Parameter public MainDexListTool tool;
 
     @Test
-    public void checkNormalBuild() throws Exception {
-        // D8 main dex list tool has a better understanding which classes should be kept
-        // so this test is overapproximation in D8 case.
-        Assume.assumeTrue(tool == MainDexListTool.DX);
-        checkNormalBuild(true);
-    }
-
-    @Test
     public void checkBuildWithoutKeepRuntimeAnnotatedClasses() throws Exception {
-        checkNormalBuild(false);
-    }
+        TestFileUtils.appendToFile(
+                project.getBuildFile(), "\nandroid.dexOptions.keepRuntimeAnnotatedClasses false");
 
-    @Test
-    public void checkApplicationNameAdded() throws IOException, InterruptedException {
-        // noinspection ResultOfMethodCallIgnored
-        FileUtils.join(project.getTestDir(), "src/ics/AndroidManifest.xml").delete();
-        executor().run("processIcsDebugManifest");
-        assertThat(
-                        FileUtils.join(
-                                project.getTestDir(),
-                                "build/intermediates/manifests/full/ics/debug/AndroidManifest.xml"))
-                .contains("android:name=\"android.support.multidex.MultiDexApplication\"");
-    }
-
-    private void checkNormalBuild(boolean keepRuntimeAnnotatedClasses) throws Exception {
-
-        if (!keepRuntimeAnnotatedClasses) {
-            TestFileUtils.appendToFile(
-                    project.getBuildFile(),
-                    "\nandroid.dexOptions.keepRuntimeAnnotatedClasses false");
-        }
-
-        executor().run("assembleDebug", "assembleAndroidTest");
+        executor()
+                .run("assembleDebug", "makeApkFromBundleForIcsDebug", "assembleAndroidTest");
 
         List<String> mandatoryClasses =
-                Lists.newArrayList("android/support/multidex/MultiDexApplication",
-                        "com/android/tests/basic/MyAnnotation");
-        if (keepRuntimeAnnotatedClasses) {
-            mandatoryClasses.add("com/android/tests/basic/ClassWithRuntimeAnnotation");
-        }
+                Lists.newArrayList("Lcom/android/tests/basic/MyAnnotation;");
 
-        assertMainDexListContains("debug", mandatoryClasses);
+        assertMainDexContains("debug", mandatoryClasses);
+
+        try (Apk bundleBase = getStandaloneBundleApk()) {
+            assertMainDexContains(bundleBase, mandatoryClasses);
+        }
 
         // manually inspect the apk to ensure that the classes.dex that was created is the same
         // one in the apk. This tests that the packaging didn't rename the multiple dex files
         // around when we packaged them.
         List<File> allClassesDex =
                 FileUtils.find(
-                        project.getIntermediateFile("transforms"),
-                        Pattern.compile("(dex|dexMerger)/ics/debug/.*/classes\\.dex"));
+                        project.getIntermediateFile("dex"),
+                        Pattern.compile("icsDebug/mergeDexIcsDebug/out/classes\\.dex"));
         assertThat(allClassesDex).hasSize(1);
         File classesDex = allClassesDex.get(0);
 
@@ -149,20 +127,49 @@ public class MultiDexTest {
     }
 
     @Test
+    public void checkApplicationNameAdded() throws IOException, InterruptedException {
+        // noinspection ResultOfMethodCallIgnored
+        FileUtils.join(project.getTestDir(), "src/ics/AndroidManifest.xml").delete();
+        executor().run("processIcsDebugManifest");
+        assertThat(
+                        FileUtils.join(
+                                project.getTestDir(),
+                                "build/intermediates/merged_manifests/icsDebug/AndroidManifest.xml"))
+                .contains("android:name=\"android.support.multidex.MultiDexApplication\"");
+    }
+
+    private Apk getStandaloneBundleApk() throws IOException {
+        Path extracted = temporaryFolder.newFile("standalone-hdpi.apk").toPath();
+
+        try (FileSystem apks =
+                        FileUtils.createZipFilesystem(
+                                project.getIntermediateFile(
+                                                "apks_from_bundle",
+                                                "icsDebug",
+                                                "makeApkFromBundleForIcsDebug",
+                                                "bundle.apks")
+                                        .toPath());
+                BufferedOutputStream out =
+                        new BufferedOutputStream(Files.newOutputStream(extracted))) {
+            Files.copy(apks.getPath("standalones/standalone-hdpi.apk"), out);
+        }
+        return new Apk(extracted);
+    }
+
+    @Test
     public void checkProguard() throws Exception {
         checkMinifiedBuild("proguard");
     }
 
     @Test
     public void checkShrinker() throws Exception {
-        checkMinifiedBuild("shrinker");
+        checkMinifiedBuild("r8");
     }
 
     public void checkMinifiedBuild(String buildType) throws Exception {
         executor().run(StringHelper.appendCapitalized("assemble", buildType));
 
-        assertMainDexListContains(
-                buildType, ImmutableList.of("android/support/multidex/MultiDexApplication"));
+        assertMainDexContains(buildType, ImmutableList.of());
 
         commonApkChecks(buildType);
 
@@ -173,57 +180,13 @@ public class MultiDexTest {
     }
 
     @Test
-    public void checkAdditionalParameters() throws Exception {
-        Assume.assumeFalse(
-                "D8 main dex list requires incremental dexing that does not "
-                        + "support additional parameters",
-                tool == MainDexListTool.D8);
-        FileUtils.deletePath(
-                FileUtils.join(
-                        project.getTestDir(),
-                        "src",
-                        "main",
-                        "java",
-                        "com",
-                        "android",
-                        "tests",
-                        "basic",
-                        "manymethods"));
-
-        TestFileUtils.appendToFile(
-                project.getBuildFile(),
-                "\nandroid.dexOptions.additionalParameters = ['--minimal-main-dex']\n");
-
-        GradleTaskExecutor executor = executor().withUseDexArchive(false);
-        executor.run("assembleIcsDebug", "assembleIcsDebugAndroidTest");
-
-        assertThat(project.getApk(ApkType.DEBUG, "ics"))
-                .containsClass("Lcom/android/tests/basic/NotUsed;");
-        assertThat(project.getApk(ApkType.DEBUG, "ics"))
-                .doesNotContainMainClass("Lcom/android/tests/basic/NotUsed;");
-
-        // Make sure --minimal-main-dex was not used for the test APK.
-        assertThat(project.getTestApk("ics")).contains("classes.dex");
-        assertThat(project.getTestApk("ics")).doesNotContain("classes2.dex");
-
-        TestFileUtils.appendToFile(
-                project.getBuildFile(),
-                "\nandroid.dexOptions.additionalParameters '--set-max-idx-number=10'\n");
-
-        GradleBuildResult result =
-                executor().expectFailure().withUseDexArchive(false).run("assembleIcsDebug");
-
-        assertThat(result.getStderr()).contains("main dex capacity exceeded");
-    }
-
-    @Test
     public void checkNativeMultidexAndroidTest() throws IOException, InterruptedException {
         TestFileUtils.appendToFile(
                 project.getBuildFile(),
                 "\n"
                         + "dependencies {\n"
                         + "    androidTestCompile 'com.android.support:appcompat-v7:"
-                        + SUPPORT_LIB_VERSION
+                        + TestVersions.SUPPORT_LIB_VERSION
                         + "'\n"
                         + "}");
         executor().run("assembleLollipopDebugAndroidTest");
@@ -243,6 +206,40 @@ public class MultiDexTest {
         assertThat(testApk).containsMainClass("Lcom/android/tests/basic/OtherActivityTest;");
     }
 
+    @Test
+    public void checkLegacyMultiInstrumentationForAndroidTest()
+            throws IOException, InterruptedException, ProcessException {
+        String someClass =
+                "package example;\n"
+                        + "public class SomeClass {\n"
+                        + "  Object o = new OtherClass();\n"
+                        + "}\n"
+                        + "class OtherClass {}\n";
+        Path someClassPath =
+                project.getTestDir()
+                        .toPath()
+                        .resolve("src/androidTest/java/example/SomeClass.java");
+        Files.createDirectories(someClassPath.getParent());
+        Files.write(someClassPath, someClass.getBytes());
+
+        String instrumentation =
+                "package example;\n"
+                        + "public class MyRunner extends android.app.Instrumentation {\n"
+                        + "  public void callApplicationOnCreate(android.app.Application app) {\n"
+                        + "    new SomeClass();\n"
+                        + "  }\n"
+                        + "}\n";
+        Path instrumentationPath =
+                project.getTestDir().toPath().resolve("src/androidTest/java/example/MyRunner.java");
+        Files.createDirectories(instrumentationPath.getParent());
+        Files.write(instrumentationPath, instrumentation.getBytes());
+
+        executor().run("assembleIcsDebugAndroidTest");
+
+        Apk testApk = project.getTestApk("ics");
+        assertThat(testApk).containsMainClass("Lexample/OtherClass;");
+    }
+
     private void commonApkChecks(String buildType) throws Exception {
         assertThat(project.getApk(ApkType.of(buildType, true), "ics"))
                 .containsClass("Landroid/support/multidex/MultiDexApplication;");
@@ -259,44 +256,29 @@ public class MultiDexTest {
         }
     }
 
-    private void assertMainDexListContains(
+    private void assertMainDexContains(
             @NonNull String buildType, @NonNull List<String> mandatoryClasses) throws Exception {
-        File listFile =
-                FileUtils.join(
-                        project.getIntermediatesDir(),
-                        "multi-dex",
-                        "ics",
-                        buildType,
-                        "maindexlist.txt");
+        Apk apk = project.getApk(ApkType.of(buildType, true), "ics");
+        assertMainDexContains(apk, mandatoryClasses);
+    }
 
-        Set<String> lines =
-                Files.readAllLines(listFile.toPath(), Charsets.UTF_8)
+    private static void assertMainDexContains(
+            @NonNull Apk apk, @NonNull List<String> mandatoryClasses) throws IOException {
+        Dex mainDex = apk.getMainDexFile().orElseThrow(AssertionError::new);
+
+        ImmutableSet<String> mainDexClasses = mainDex.getClasses().keySet();
+        assertThat(mainDexClasses).contains("Landroid/support/multidex/MultiDexApplication;");
+
+        Set<String> nonMultidexSupportClasses =
+                mainDexClasses
                         .stream()
-                        .filter(line -> !line.isEmpty())
-                        .map(line -> line.replace(".class", ""))
+                        .filter(c -> !c.startsWith("Landroid/support/multidex"))
                         .collect(Collectors.toSet());
-
-        // MultiDexApplication needs to be there
-        assertThat(lines).containsAllIn(mandatoryClasses);
-
-        // it may contain only classes from the support library
-        // Check that the main dex list only contains:
-        //  - The multidex support libray
-        //  - The mandatory classes
-        //  - The permittedToBeInMainDex classes.
-        Set<String> unwantedExtraClasses =
-                lines.stream()
-                        .filter(line -> !line.startsWith("android/support/multidex"))
-                        .collect(Collectors.toSet());
-        unwantedExtraClasses.removeAll(mandatoryClasses);
-
-        assertThat(unwantedExtraClasses).named("Unwanted classes in main dex").isEmpty();
-
+        assertThat(nonMultidexSupportClasses).containsExactlyElementsIn(mandatoryClasses);
     }
 
     @NonNull
     private GradleTaskExecutor executor() {
-        return project.executor()
-                .with(BooleanOption.ENABLE_D8_MAIN_DEX_LIST, tool == MainDexListTool.D8);
+        return project.executor().with(BooleanOption.ENABLE_R8, tool == MainDexListTool.R8);
     }
 }

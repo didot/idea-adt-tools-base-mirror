@@ -32,7 +32,7 @@ import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Detector;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
-import com.android.tools.lint.detector.api.LintUtils;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.ResourceContext;
@@ -49,35 +49,33 @@ import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 
 /**
- * Ensure that resources in Gradle projects which specify a resource prefix
- * conform to the given name
+ * Ensure that resources in Gradle projects which specify a resource prefix conform to the given
+ * name
  *
- * TODO: What about id's?
+ * <p>TODO: What about id's?
  */
-public class ResourcePrefixDetector extends Detector implements
-        BinaryResourceScanner, XmlScanner {
+public class ResourcePrefixDetector extends Detector implements BinaryResourceScanner, XmlScanner {
     /** The main issue discovered by this detector */
     @SuppressWarnings("unchecked")
-    public static final Issue ISSUE = Issue.create(
-            "ResourceName",
-            "Resource with Wrong Prefix",
-            "In Gradle projects you can specify a resource prefix that all resources " +
-            "in the project must conform to. This makes it easier to ensure that you don't " +
-            "accidentally combine resources from different libraries, since they all end " +
-            "up in the same shared app namespace.",
-
-            Category.CORRECTNESS,
-            8,
-            Severity.FATAL,
-            new Implementation(
-                    ResourcePrefixDetector.class,
-                    EnumSet.of(Scope.RESOURCE_FILE, Scope.BINARY_RESOURCE_FILE),
-                    Scope.RESOURCE_FILE_SCOPE,
-                    Scope.BINARY_RESOURCE_FILE_SCOPE));
+    public static final Issue ISSUE =
+            Issue.create(
+                    "ResourceName",
+                    "Resource with Wrong Prefix",
+                    "In Gradle projects you can specify a resource prefix that all resources "
+                            + "in the project must conform to. This makes it easier to ensure that you don't "
+                            + "accidentally combine resources from different libraries, since they all end "
+                            + "up in the same shared app namespace.",
+                    Category.CORRECTNESS,
+                    8,
+                    Severity.FATAL,
+                    new Implementation(
+                            ResourcePrefixDetector.class,
+                            EnumSet.of(Scope.RESOURCE_FILE, Scope.BINARY_RESOURCE_FILE),
+                            Scope.RESOURCE_FILE_SCOPE,
+                            Scope.BINARY_RESOURCE_FILE_SCOPE));
 
     /** Constructs a new {@link ResourcePrefixDetector} */
-    public ResourcePrefixDetector() {
-    }
+    public ResourcePrefixDetector() {}
 
     private String mPrefix;
     private String mUnderlinePrefix;
@@ -91,15 +89,10 @@ public class ResourcePrefixDetector extends Detector implements
     @Nullable
     private static String computeResourcePrefix(@NonNull Project project) {
         if (project.isGradleProject()) {
-            return LintUtils.computeResourcePrefix(project.getGradleProjectModel());
+            return Lint.computeResourcePrefix(project.getGradleProjectModel());
         }
 
         return null;
-    }
-
-    @Override
-    public void beforeCheckProject(@NonNull Context context) {
-        updatePrefix(context);
     }
 
     private void updatePrefix(@Nullable Context context) {
@@ -120,18 +113,12 @@ public class ResourcePrefixDetector extends Detector implements
     }
 
     @Override
-    public void beforeCheckLibraryProject(@NonNull Context context) {
-        // TODO: Make sure this doesn't wipe out the prefix for the remaining projects
+    public void beforeCheckEachProject(@NonNull Context context) {
         updatePrefix(context);
     }
 
     @Override
-    public void afterCheckProject(@NonNull Context context) {
-        updatePrefix(null);
-    }
-
-    @Override
-    public void afterCheckLibraryProject(@NonNull Context context) {
+    public void afterCheckEachProject(@NonNull Context context) {
         updatePrefix(null);
     }
 
@@ -141,7 +128,7 @@ public class ResourcePrefixDetector extends Detector implements
             XmlContext xmlContext = (XmlContext) context;
             ResourceFolderType folderType = xmlContext.getResourceFolderType();
             if (folderType != null && folderType != ResourceFolderType.VALUES) {
-                String name = LintUtils.getBaseName(context.file.getName());
+                String name = Lint.getBaseName(context.file.getName());
                 if (!libraryPrefixMatches(mUnderlinePrefix, name)) {
                     // Attempt to report the error on the root tag of the associated
                     // document to make suppressing the error with a tools:suppress
@@ -149,12 +136,17 @@ public class ResourcePrefixDetector extends Detector implements
                     if (xmlContext.document != null) {
                         Element root = xmlContext.document.getDocumentElement();
                         if (root != null) {
-                            xmlContext.report(ISSUE, root, xmlContext.getLocation(root),
+                            xmlContext.report(
+                                    ISSUE,
+                                    root,
+                                    xmlContext.getElementLocation(root),
                                     getErrorMessage(name, folderType));
                             return;
                         }
                     }
-                    context.report(ISSUE, Location.create(context.file),
+                    context.report(
+                            ISSUE,
+                            Location.create(context.file),
                             getErrorMessage(name, folderType));
                 }
             }
@@ -163,17 +155,17 @@ public class ResourcePrefixDetector extends Detector implements
 
     private String getErrorMessage(@NonNull String name, @NonNull ResourceFolderType folderType) {
         assert mPrefix != null && !name.startsWith(mPrefix);
-        return String.format("Resource named '`%1$s`' does not start "
+        return String.format(
+                "Resource named '`%1$s`' does not start "
                         + "with the project's resource prefix '`%2$s`'; rename to '`%3$s`' ?",
-                name, mPrefix, LintUtils.computeResourceName(mPrefix, name, folderType));
+                name, mPrefix, Lint.computeResourceName(mPrefix, name, folderType));
     }
 
     // --- Implements XmlScanner ----
 
     @Override
     public void visitElement(@NonNull XmlContext context, @NonNull Element element) {
-        if (mPrefix == null
-                || context.getResourceFolderType() != ResourceFolderType.VALUES) {
+        if (mPrefix == null || context.getResourceFolderType() != ResourceFolderType.VALUES) {
             return;
         }
 
@@ -188,8 +180,8 @@ public class ResourcePrefixDetector extends Detector implements
                 if (!libraryPrefixMatches(mUnderlinePrefix, name)
                         && !libraryPrefixMatches(mCamelPrefix, name)) {
                     String message = getErrorMessage(name, ResourceFolderType.VALUES);
-                    context.report(ISSUE, nameAttribute, context.getLocation(nameAttribute),
-                            message);
+                    context.report(
+                            ISSUE, nameAttribute, context.getLocation(nameAttribute), message);
                 }
             }
         }
@@ -211,8 +203,7 @@ public class ResourcePrefixDetector extends Detector implements
         // If the prefix ends with a "_" it's not required, e.g. prefix "foo_"
         // should accept FooView as a styleable, and shouldn't require
         // foo_View or Foo_View.
-        return prefix.endsWith("_") && name.regionMatches(true, 0, prefix, 0,
-                prefix.length() - 1);
+        return prefix.endsWith("_") && name.regionMatches(true, 0, prefix, 0, prefix.length() - 1);
     }
 
     // ---- Implements BinaryResourceScanner ---
@@ -222,7 +213,7 @@ public class ResourcePrefixDetector extends Detector implements
         if (mUnderlinePrefix != null) {
             ResourceFolderType folderType = context.getResourceFolderType();
             if (folderType != null && folderType != ResourceFolderType.VALUES) {
-                String name = LintUtils.getBaseName(context.file.getName());
+                String name = Lint.getBaseName(context.file.getName());
                 if (!name.startsWith(mUnderlinePrefix)) {
                     // Turns out the Gradle plugin will generate raw resources
                     // for renderscript. We don't want to flag these.

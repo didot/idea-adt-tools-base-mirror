@@ -68,9 +68,10 @@ import kotlin.reflect.jvm.isAccessible
  * bound to a variable). The Kotlin frontend seems to use similar terminology.
  */
 abstract class DispatchReceiverEvaluator(
-        // Call receiver evaluators often compose with and augment each other.
-        // The [delegate] field holds the dispatch receiver evaluator that this one augments.
-        private val delegate: DispatchReceiverEvaluator? = null) {
+    // Call receiver evaluators often compose with and augment each other.
+    // The [delegate] field holds the dispatch receiver evaluator that this one augments.
+    private val delegate: DispatchReceiverEvaluator? = null
+) {
 
     /**
      * Get dispatch receivers for [element].
@@ -78,8 +79,9 @@ abstract class DispatchReceiverEvaluator(
      * recurse back to the topmost evaluator.
      */
     operator fun get(
-            element: UElement,
-            root: DispatchReceiverEvaluator = this): Collection<DispatchReceiver> {
+        element: UElement,
+        root: DispatchReceiverEvaluator = this
+    ): Collection<DispatchReceiver> {
         val ours = getOwn(element, root)
         val theirs = delegate?.get(element, root) ?: emptyList()
         return ours union theirs
@@ -93,84 +95,55 @@ abstract class DispatchReceiverEvaluator(
     }
 
     protected abstract fun getOwn(
-            element: UElement, root: DispatchReceiverEvaluator): Collection<DispatchReceiver>
+        element: UElement,
+        root: DispatchReceiverEvaluator
+    ): Collection<DispatchReceiver>
 
     protected abstract fun getOwnForImplicitThis(): Collection<DispatchReceiver>
 }
 
 /** Represents a potential call handler, such as a class or lambda expression. */
-sealed class DispatchReceiver(open val element: UElement) {
+sealed class DispatchReceiver {
 
-    data class Class(override val element: UClass) : DispatchReceiver(element) {
+    abstract val element: UElement
+
+    data class Class(override val element: UClass) : DispatchReceiver() {
         /**
          * Refines the given method to the overriding method that would appear
          * in the virtual method table of this class.
          */
         fun refineToTarget(method: UMethod) =
-                element.findMethodBySignature(method, /*checkBases*/ true)
-                        ?.navigationElement?.toUElementOfType<UMethod>()
-                        ?.let { CallTarget.Method(it) }
-
-        // TODO(kotlin-uast-cleanup): Remove equals/hashCode once implemented in Kotlin UAST.
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            val o = other as? DispatchReceiver.Class ?: return false
-            return element.psi.navigationElement == o.element.psi.navigationElement
-        }
-
-        override fun hashCode() = element.psi.navigationElement.hashCode()
+            element.javaPsi.findMethodBySignature(method.javaPsi, true)
+                ?.navigationElement?.toUElementOfType<UMethod>()
+                ?.let { CallTarget.Method(it) }
     }
 
-    // In the next version of Kotlin we will be able to declare subclasses of a sealed class
-    // at the top level of the same file, which would help reduce the nesting here.
-    sealed class Functional(override val element: UElement) : DispatchReceiver(element) {
+    sealed class Functional(override val element: UElement) : DispatchReceiver() {
 
         abstract fun toTarget(): CallTarget?
 
         data class Lambda(
-                override val element: ULambdaExpression,
-                val captureContext: ParamContext) : Functional(element) {
+            override val element: ULambdaExpression,
+            val captureContext: ParamContext
+        ) : Functional(element) {
 
             override fun toTarget() = CallTarget.Lambda(element)
-
-            // TODO(kotlin-uast-cleanup): Remove equals/hashCode once implemented in Kotlin UAST.
-            override fun equals(other: Any?): Boolean {
-                if (this === other) return true
-                val o = other as? DispatchReceiver.Functional.Lambda ?: return false
-                return element.psi?.navigationElement == o.element.psi?.navigationElement &&
-                        captureContext == o.captureContext
-            }
-
-            override fun hashCode() =
-                    31 * (element.psi?.navigationElement?.hashCode() ?: 0) +
-                            captureContext.hashCode()
         }
 
         data class Reference(
-                override val element: UCallableReferenceExpression,
-                val receiver: DispatchReceiver.Class?) : Functional(element) {
+            override val element: UCallableReferenceExpression,
+            val receiver: DispatchReceiver.Class?
+        ) : Functional(element) {
 
             override fun toTarget(): CallTarget.Method? {
                 val baseCallee = element.resolve().toUElementOfType<UMethod>()
-                        ?: return null
+                    ?: return null
                 return if (receiver == null) {
                     CallTarget.Method(baseCallee)
                 } else {
                     receiver.refineToTarget(baseCallee)
                 }
             }
-
-            // TODO(kotlin-uast-cleanup): Remove equals/hashCode once implemented in Kotlin UAST.
-            override fun equals(other: Any?): Boolean {
-                if (this === other) return true
-                val o = other as? DispatchReceiver.Functional.Reference ?: return false
-                return element.psi?.navigationElement == o.element.psi?.navigationElement &&
-                        receiver == o.receiver
-            }
-
-            override fun hashCode() =
-                    31 * (element.psi?.navigationElement?.hashCode() ?: 0) +
-                            (receiver?.hashCode() ?: 0)
         }
     }
 }
@@ -181,11 +154,12 @@ private fun ULambdaExpression.getCaptures(): List<UVariable> {
 
     accept(object : AbstractUastVisitor() {
         override fun visitSimpleNameReferenceExpression(
-                node: USimpleNameReferenceExpression): Boolean {
+            node: USimpleNameReferenceExpression
+        ): Boolean {
             val resolved = node.resolve()?.navigationElement.toUElementOfType<UVariable>()
-                    ?: return super.visitSimpleNameReferenceExpression(node)
+                ?: return super.visitSimpleNameReferenceExpression(node)
             val isCaptured = generateSequence<UElement>(resolved) { it.uastParent }
-                    .none { it == this@getCaptures }
+                .none { it == this@getCaptures }
             if (isCaptured) {
                 res.add(resolved)
             }
@@ -198,12 +172,13 @@ private fun ULambdaExpression.getCaptures(): List<UVariable> {
 
 /** Tries to map expressions to receivers without relying on interprocedural context. */
 class SimpleExpressionDispatchReceiverEvaluator(
-        private val cha: ClassHierarchy
+    private val cha: ClassHierarchy
 ) : DispatchReceiverEvaluator() {
 
     override fun getOwn(
-            element: UElement,
-            root: DispatchReceiverEvaluator): Collection<DispatchReceiver> = when {
+        element: UElement,
+        root: DispatchReceiverEvaluator
+    ): Collection<DispatchReceiver> = when {
         element is UArrayAccessExpression -> root[element.receiver] // Unwrap.
         element is UUnaryExpression -> root[element.operand] // Unwrap.
         element is ULambdaExpression -> {
@@ -211,16 +186,16 @@ class SimpleExpressionDispatchReceiverEvaluator(
             // the evidenced dispatch receivers of its captures.
             val captures = element.getCaptures()
             val (capturesWithReceivers, nonEmptyDispatchReceivers) = captures
-                    .map { Pair(it, root[it].toList()) }
-                    .filter { (_, dispatchReceivers) -> dispatchReceivers.isNotEmpty() }
-                    .unzip()
+                .map { Pair(it, root[it].toList()) }
+                .filter { (_, dispatchReceivers) -> dispatchReceivers.isNotEmpty() }
+                .unzip()
             val cartesianProd = Lists.cartesianProduct(nonEmptyDispatchReceivers)
             val paramContexts = cartesianProd
-                    .take(GRAPH_EXPANSION_LIMIT) // Cap combinatorial explosions.
-                    .map { receiverTuple ->
-                        val zipped = capturesWithReceivers.zip(receiverTuple)
-                        ParamContext(zipped, implicitThis = null)
-                    }
+                .take(GRAPH_EXPANSION_LIMIT) // Cap combinatorial explosions.
+                .map { receiverTuple ->
+                    val zipped = capturesWithReceivers.zip(receiverTuple)
+                    ParamContext(zipped, implicitThis = null)
+                }
             paramContexts.map { DispatchReceiver.Functional.Lambda(element, it) }
         }
         element is UCallableReferenceExpression -> {
@@ -239,8 +214,8 @@ class SimpleExpressionDispatchReceiverEvaluator(
         element is UCallExpression && element.kind == UastCallKind.CONSTRUCTOR_CALL -> {
             // Constructor calls always return an exact type.
             val instantiatedClass = (element.returnType as? PsiClassType)
-                    ?.resolve()?.navigationElement.toUElementOfType<UClass>()
-                    ?.let { DispatchReceiver.Class(it) }
+                ?.resolve()?.navigationElement.toUElementOfType<UClass>()
+                ?.let { DispatchReceiver.Class(it) }
             listOfNotNull(instantiatedClass)
         }
         element is UExpression -> {
@@ -249,18 +224,18 @@ class SimpleExpressionDispatchReceiverEvaluator(
             val baseClass = classType?.resolve()?.navigationElement.toUElementOfType<UClass>()
             when {
                 baseClass == null -> emptyList() // Unable to resolve class.
-                LambdaUtil.isFunctionalClass(baseClass.psi) -> {
+                LambdaUtil.isFunctionalClass(baseClass.javaPsi) -> {
                     emptyList() // SAM interfaces often have implicit inheritors (lambdas).
                 }
                 else -> {
                     fun UClass.isInstantiable() =
-                            !isInterface && !hasModifierProperty(PsiModifier.ABSTRACT)
+                        !isInterface && !javaPsi.hasModifierProperty(PsiModifier.ABSTRACT)
 
                     val subtypes = cha.allInheritorsOf(baseClass) + baseClass
                     val uniqueReceiverClass = subtypes
-                            .filter { it.isInstantiable() }
-                            .singleOrNull()
-                            ?.let { DispatchReceiver.Class(it) }
+                        .filter { it.isInstantiable() }
+                        .singleOrNull()
+                        ?.let { DispatchReceiver.Class(it) }
                     listOfNotNull(uniqueReceiverClass)
                 }
             }
@@ -273,14 +248,15 @@ class SimpleExpressionDispatchReceiverEvaluator(
 
 /** Maps variables and methods to dispatch receivers, based only on local context. */
 class IntraproceduralDispatchReceiverEvaluator(
-        simpleExprEval: SimpleExpressionDispatchReceiverEvaluator,
-        private val varMap: Multimap<UVariable, DispatchReceiver>,
-        private val methodMap: Multimap<UMethod, DispatchReceiver>
+    simpleExprEval: SimpleExpressionDispatchReceiverEvaluator,
+    private val varMap: Multimap<UVariable, DispatchReceiver>,
+    private val methodMap: Multimap<UMethod, DispatchReceiver>
 ) : DispatchReceiverEvaluator(simpleExprEval) {
 
     override fun getOwn(
-            element: UElement,
-            root: DispatchReceiverEvaluator): Collection<DispatchReceiver> = when (element) {
+        element: UElement,
+        root: DispatchReceiverEvaluator
+    ): Collection<DispatchReceiver> = when (element) {
         is UVariable -> varMap[element]
         is UMethod -> methodMap[element]
         is USimpleNameReferenceExpression, is UCallExpression -> {
@@ -303,8 +279,9 @@ class IntraproceduralDispatchReceiverVisitor(cha: ClassHierarchy) : AbstractUast
     private val methodMap = HashMultimap.create<UMethod, DispatchReceiver>()
     private val methodsVisited = HashSet<UMethod>()
     val receiverEval =
-            IntraproceduralDispatchReceiverEvaluator(
-                    SimpleExpressionDispatchReceiverEvaluator(cha), varMap, methodMap)
+        IntraproceduralDispatchReceiverEvaluator(
+            SimpleExpressionDispatchReceiverEvaluator(cha), varMap, methodMap
+        )
 
     override fun visitMethod(node: UMethod): Boolean {
         if (methodsVisited.contains(node))
@@ -350,7 +327,8 @@ class IntraproceduralDispatchReceiverVisitor(cha: ClassHierarchy) : AbstractUast
 }
 
 fun UCallExpression.getDispatchReceivers(
-        receiverEval: DispatchReceiverEvaluator): Collection<DispatchReceiver> {
+    receiverEval: DispatchReceiverEvaluator
+): Collection<DispatchReceiver> {
 
     // TODO(kotlin-uast-cleanup)
     // Kotlin variable function calls require some special care.
@@ -362,30 +340,31 @@ fun UCallExpression.getDispatchReceivers(
     // for determining whether this is a function expression invocation rather than
     // a normal method call.
     if (methodName == "invoke" && classReference != null) {
-        val lambda = methodIdentifier?.sourcePsi?.navigationElement.toUElementOfType<ULambdaExpression>()
+        val lambda =
+            methodIdentifier?.sourcePsi?.navigationElement.toUElementOfType<ULambdaExpression>()
         if (lambda != null)
             return receiverEval[lambda]
 
         fun Any.getProperty(name: String) =
-                javaClass.kotlin.memberProperties.find { it.name == name }
-                        ?.apply { isAccessible = true }
-                        ?.get(this)
+            javaClass.kotlin.memberProperties.find { it.name == name }
+                ?.apply { isAccessible = true }
+                ?.get(this)
 
         fun Any.invokeMemberFunction(name: String, vararg args: Any?) =
-                javaClass.kotlin.memberFunctions.find { it.name == name }
-                        ?.apply { isAccessible = true }
-                        ?.call(this, *args)
+            javaClass.kotlin.memberFunctions.find { it.name == name }
+                ?.apply { isAccessible = true }
+                ?.call(this, *args)
 
         val ktDecl = getProperty("resolvedCall")
-                ?.getProperty("variableCall")
-                ?.getProperty("candidateDescriptor")
-                ?.invokeMemberFunction("getSource")
-                ?.getProperty("psi")
+            ?.getProperty("variableCall")
+            ?.getProperty("candidateDescriptor")
+            ?.invokeMemberFunction("getSource")
+            ?.getProperty("psi")
                 as? PsiElement
 
         val uDecl = ktDecl.toUElementOfType<UDeclarationsExpression>()?.declarations?.singleOrNull()
-                ?: ktDecl.toUElement()
-                ?: return emptyList()
+            ?: ktDecl.toUElement()
+            ?: return emptyList()
 
         return receiverEval[uDecl]
     }
@@ -409,7 +388,7 @@ fun UCallExpression.getTarget(dispatchReceiver: DispatchReceiver): CallTarget? {
     val method = resolve().toUElementOfType<UMethod>() ?: return null
     if (method.isStatic)
         return CallTarget.Method(method)
-    fun isFunctionalCall() = method.psi == LambdaUtil.getFunctionalInterfaceMethod(receiverType)
+    fun isFunctionalCall() = method.javaPsi == LambdaUtil.getFunctionalInterfaceMethod(receiverType)
     return when (dispatchReceiver) {
         is DispatchReceiver.Class -> dispatchReceiver.refineToTarget(method)
         is DispatchReceiver.Functional -> {
@@ -421,4 +400,4 @@ fun UCallExpression.getTarget(dispatchReceiver: DispatchReceiver): CallTarget? {
 }
 
 fun UCallExpression.getTargets(receiverEval: DispatchReceiverEvaluator) =
-        getDispatchReceivers(receiverEval).mapNotNull { getTarget(it) }
+    getDispatchReceivers(receiverEval).mapNotNull { getTarget(it) }

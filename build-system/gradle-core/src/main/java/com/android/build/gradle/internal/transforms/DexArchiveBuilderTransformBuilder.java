@@ -41,7 +41,10 @@ public class DexArchiveBuilderTransformBuilder {
     private boolean isDebuggable;
     private VariantScope.Java8LangSupport java8LangSupportType;
     private String projectVariant;
-    private boolean enableIncrementalDesugaring;
+    private Integer numberOfBuckets;
+    private boolean includeFeaturesInScopes;
+    private boolean isInstantRun;
+    private boolean enableDexingArtifactTransform;
 
     @NonNull
     public DexArchiveBuilderTransformBuilder setAndroidJarClasspath(
@@ -119,9 +122,28 @@ public class DexArchiveBuilderTransformBuilder {
     }
 
     @NonNull
-    public DexArchiveBuilderTransformBuilder setEnableIncrementalDesugaring(
-            boolean enableIncrementalDesugaring) {
-        this.enableIncrementalDesugaring = enableIncrementalDesugaring;
+    public DexArchiveBuilderTransformBuilder setNumberOfBuckets(@Nullable Integer numberOfBuckets) {
+        this.numberOfBuckets = numberOfBuckets;
+        return this;
+    }
+
+    @NonNull
+    public DexArchiveBuilderTransformBuilder setIncludeFeaturesInScope(
+            boolean includeFeaturesInScopes) {
+        this.includeFeaturesInScopes = includeFeaturesInScopes;
+        return this;
+    }
+
+    @NonNull
+    public DexArchiveBuilderTransformBuilder setIsInstantRun(boolean isInstantRun) {
+        this.isInstantRun = isInstantRun;
+        return this;
+    }
+
+    @NonNull
+    public DexArchiveBuilderTransformBuilder setEnableDexingArtifactTransform(
+            boolean enableDexingArtifactTransform) {
+        this.enableDexingArtifactTransform = enableDexingArtifactTransform;
         return this;
     }
 
@@ -146,6 +168,9 @@ public class DexArchiveBuilderTransformBuilder {
                 isDebuggable,
                 java8LangSupportType,
                 projectVariant,
-                enableIncrementalDesugaring);
+                numberOfBuckets,
+                includeFeaturesInScopes,
+                isInstantRun,
+                enableDexingArtifactTransform);
     }
 }

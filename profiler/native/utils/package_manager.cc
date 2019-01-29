@@ -11,7 +11,7 @@ using std::string;
 namespace {
 const char *kPackagePrefix = "package:";
 const char *kPM_EXEC = "/system/bin/pm";
-}
+}  // namespace
 
 namespace profiler {
 PackageManager::PackageManager() : BashCommandRunner(kPM_EXEC) {}
@@ -54,9 +54,7 @@ bool PackageManager::GetAppDataPath(const string &package_name, string *path,
   std::string output;
   bool success = pwd.RunAs(parameters, package_name, &output);
   if (!success) {
-    string msg = "Unable to retrieve App Data Path";
-    *error_string = msg;
-    Log::E("%s", msg.c_str());
+    *error_string = "Unable to retrieve App Data Path";
     return false;
   }
 
@@ -64,7 +62,6 @@ bool PackageManager::GetAppDataPath(const string &package_name, string *path,
   output.pop_back();
 
   *path = output;
-  Log::D("GetAddDataPath %s", output.c_str());
   return true;
 }
 }  // namespace profiler

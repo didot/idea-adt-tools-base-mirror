@@ -25,6 +25,9 @@ import java.io.File
 
 /**
  * Options to create task for a variant.
+ * See [BuildArtifactTransformBuilder] for constrained on the configuration actions for those tasks.
+ *
+ * This interface is not currently usable. It is a work in progress.
  */
 @Incubating
 interface BuildArtifactsOptions {
@@ -35,7 +38,7 @@ interface BuildArtifactsOptions {
             artifactType: ArtifactType,
             taskName : String,
             taskType : Class<T>,
-            configurationAction : BuildArtifactTransformBuilder.SimpleConfigurationAction<T>)
+            configurationAction : BuildArtifactTransformBuilder.ConfigurationAction<T>)
 
     fun <T : Task>appendTo(
             artifactType: ArtifactType,
@@ -50,7 +53,7 @@ interface BuildArtifactsOptions {
             artifactType: ArtifactType,
             taskName : String,
             taskType : Class<T>,
-            configurationAction : BuildArtifactTransformBuilder.SimpleConfigurationAction<T>)
+            configurationAction : BuildArtifactTransformBuilder.ConfigurationAction<T>)
 
     fun <T : Task>replace(
             artifactType: ArtifactType,

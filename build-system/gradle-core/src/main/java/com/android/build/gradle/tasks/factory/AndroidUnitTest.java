@@ -20,47 +20,61 @@ import static com.android.build.gradle.internal.publishing.AndroidArtifacts.Arti
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.CLASSES;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
-import static com.android.build.gradle.internal.scope.TaskOutputHolder.AnchorOutputType.ALL_CLASSES;
-import static com.android.builder.core.VariantType.UNIT_TEST;
+import static com.android.build.gradle.internal.scope.AnchorOutputType.ALL_CLASSES;
 
 import com.android.annotations.NonNull;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
-import com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType;
+import com.android.build.api.artifact.BuildableArtifact;
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.VariantAwareTask;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.TestVariantData;
-import com.google.common.base.Preconditions;
+import com.android.build.gradle.options.BooleanOption;
+import com.android.builder.core.VariantType;
 import java.io.File;
 import java.util.Objects;
 import org.gradle.api.file.ConfigurableFileCollection;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.JavaBasePlugin;
 import org.gradle.api.reporting.ConfigurableReport;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.testing.Test;
 import org.gradle.api.tasks.testing.TestTaskReports;
 
-/**
- * Patched version of {@link Test} that we need to use for local unit tests support.
- */
-public class AndroidUnitTest extends Test {
+/** Patched version of {@link Test} that we need to use for local unit tests support. */
+public class AndroidUnitTest extends Test implements VariantAwareTask {
 
     private String sdkPlatformDirPath;
-    private FileCollection mergedManifest;
-    private FileCollection resCollection;
-    private FileCollection assetsCollection;
+    private BuildableArtifact mergedManifest;
+    private BuildableArtifact resCollection;
+    private BuildableArtifact assetsCollection;
+    private String variantName;
+
+    @Internal
+    @NonNull
+    @Override
+    public String getVariantName() {
+        return variantName;
+    }
+
+    @Override
+    public void setVariantName(@NonNull String name) {
+        variantName = name;
+    }
 
     @InputFiles
     @Optional
-    public FileCollection getResCollection() {
+    public BuildableArtifact getResCollection() {
         return resCollection;
     }
 
     @InputFiles
     @Optional
-    public FileCollection getAssetsCollection() {
+    public BuildableArtifact getAssetsCollection() {
         return assetsCollection;
     }
 
@@ -70,25 +84,21 @@ public class AndroidUnitTest extends Test {
     }
 
     @InputFiles
-    public FileCollection getMergedManifest() {
+    public BuildableArtifact getMergedManifest() {
         return mergedManifest;
     }
 
-    /**
-     * Configuration Action for a JavaCompile task.
-     */
-    public static class ConfigAction implements TaskConfigAction<AndroidUnitTest> {
+    /** Configuration Action for a JavaCompile task. */
+    public static class CreationAction extends VariantTaskCreationAction<AndroidUnitTest> {
 
-        private final VariantScope scope;
-
-        public ConfigAction(@NonNull VariantScope scope) {
-            this.scope = Preconditions.checkNotNull(scope);
+        public CreationAction(@NonNull VariantScope scope) {
+            super(scope);
         }
 
         @NonNull
         @Override
         public String getName() {
-            return scope.getTaskName(UNIT_TEST.getPrefix());
+            return getVariantScope().getTaskName(VariantType.UNIT_TEST_PREFIX);
         }
 
         @NonNull
@@ -98,21 +108,24 @@ public class AndroidUnitTest extends Test {
         }
 
         @Override
-        public void execute(@NonNull AndroidUnitTest runTestsTask) {
+        public void configure(@NonNull AndroidUnitTest task) {
+            super.configure(task);
+            VariantScope scope = getVariantScope();
+
             final TestVariantData variantData = (TestVariantData) scope.getVariantData();
             final BaseVariantData testedVariantData =
                     (BaseVariantData) variantData.getTestedVariantData();
 
             // we run by default in headless mode, so the forked JVM doesn't steal focus.
-            runTestsTask.systemProperty("java.awt.headless", "true");
+            task.systemProperty("java.awt.headless", "true");
 
-            runTestsTask.setGroup(JavaBasePlugin.VERIFICATION_GROUP);
-            runTestsTask.setDescription(
+            task.setGroup(JavaBasePlugin.VERIFICATION_GROUP);
+            task.setDescription(
                     "Run unit tests for the "
                             + testedVariantData.getVariantConfiguration().getFullName()
                             + " build.");
 
-            runTestsTask.setTestClassesDirs(scope.getOutput(ALL_CLASSES));
+            task.setTestClassesDirs(scope.getArtifacts().getFinalArtifactFiles(ALL_CLASSES).get());
 
             boolean includeAndroidResources =
                     scope.getGlobalScope()
@@ -121,57 +134,75 @@ public class AndroidUnitTest extends Test {
                             .getUnitTests()
                             .isIncludeAndroidResources();
 
-            runTestsTask.setClasspath(computeClasspath(includeAndroidResources));
-            runTestsTask.sdkPlatformDirPath =
+            task.setClasspath(computeClasspath(includeAndroidResources));
+            task.sdkPlatformDirPath =
                     scope.getGlobalScope().getAndroidBuilder().getTarget().getLocation();
 
             // if android resources are meant to be accessible, then we need to make sure
             // changes to them trigger a new run of the tasks
             VariantScope testedScope = testedVariantData.getScope();
             if (includeAndroidResources) {
-                runTestsTask.assetsCollection = testedScope.getOutput(TaskOutputType.MERGED_ASSETS);
-                runTestsTask.resCollection =
-                        testedScope.getOutput(TaskOutputType.MERGED_NOT_COMPILED_RES);
+                task.assetsCollection =
+                        testedScope
+                                .getArtifacts()
+                                .getFinalArtifactFiles(InternalArtifactType.MERGED_ASSETS);
+                boolean enableBinaryResources =
+                        scope.getGlobalScope()
+                                .getProjectOptions()
+                                .get(BooleanOption.ENABLE_UNIT_TEST_BINARY_RESOURCES);
+                if (enableBinaryResources) {
+                    task.resCollection =
+                            scope.getArtifacts()
+                                    .getFinalArtifactFiles(InternalArtifactType.APK_FOR_LOCAL_TEST);
+                } else {
+                    task.resCollection =
+                            scope.getArtifacts()
+                                    .getFinalArtifactFiles(InternalArtifactType.MERGED_RES);
+                }
             }
-            runTestsTask.mergedManifest = testedScope.getOutput(TaskOutputType.MERGED_MANIFESTS);
+            task.mergedManifest =
+                    testedScope
+                            .getArtifacts()
+                            .getFinalArtifactFiles(InternalArtifactType.MERGED_MANIFESTS);
 
             // Put the variant name in the report path, so that different testing tasks don't
             // overwrite each other's reports. For component model plugin, the report tasks are not
             // yet configured.  We get a hardcoded value matching Gradle's default. This will
             // eventually be replaced with the new Java plugin.
-            TestTaskReports testTaskReports = runTestsTask.getReports();
+            TestTaskReports testTaskReports = task.getReports();
             ConfigurableReport xmlReport = testTaskReports.getJunitXml();
             xmlReport.setDestination(
-                    new File(
-                            scope.getGlobalScope().getTestResultsFolder(),
-                            runTestsTask.getName()));
+                    new File(scope.getGlobalScope().getTestResultsFolder(), task.getName()));
 
             ConfigurableReport htmlReport = testTaskReports.getHtml();
             htmlReport.setDestination(
-                    new File(
-                            scope.getGlobalScope().getTestReportFolder(),
-                            runTestsTask.getName()));
+                    new File(scope.getGlobalScope().getTestReportFolder(), task.getName()));
 
             scope.getGlobalScope()
                     .getExtension()
                     .getTestOptions()
                     .getUnitTests()
-                    .applyConfiguration(runTestsTask);
+                    .applyConfiguration(task);
         }
 
         @NonNull
         private ConfigurableFileCollection computeClasspath(boolean includeAndroidResources) {
+            VariantScope scope = getVariantScope();
+
             ConfigurableFileCollection collection = scope.getGlobalScope().getProject().files();
 
+            BuildArtifactsHolder artifacts = scope.getArtifacts();
             // the test classpath is made up of:
             // - the config file
             if (includeAndroidResources) {
-                collection.from(scope.getOutput(TaskOutputType.UNIT_TEST_CONFIG_DIRECTORY));
+                collection.from(
+                        artifacts.getFinalArtifactFiles(
+                                InternalArtifactType.UNIT_TEST_CONFIG_DIRECTORY));
             }
             // - the test component classes and java_res
-            collection.from(scope.getOutput(ALL_CLASSES));
+            collection.from(artifacts.getFinalArtifactFiles(ALL_CLASSES).get());
             // TODO is this the right thing? this doesn't include the res merging via transform AFAIK
-            collection.from(scope.getOutput(TaskOutputType.JAVA_RES));
+            collection.from(artifacts.getFinalArtifactFiles(InternalArtifactType.JAVA_RES));
 
             // - the runtime dependencies for both CLASSES and JAVA_RES type
             collection.from(
@@ -185,10 +216,15 @@ public class AndroidUnitTest extends Test {
             // The separately compile R class, if applicable.
             VariantScope testedScope =
                     Objects.requireNonNull(scope.getTestedVariantData()).getScope();
-            if (testedScope.hasOutput(TaskOutputType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR)) {
+            if (testedScope
+                    .getArtifacts()
+                    .hasArtifact(InternalArtifactType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR)) {
                 collection.from(
-                        testedScope.getOutput(
-                                TaskOutputType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR));
+                        testedScope
+                                .getArtifacts()
+                                .getFinalArtifactFiles(
+                                        InternalArtifactType
+                                                .COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR));
             }
 
             // Any additional or requested optional libraries
@@ -203,7 +239,7 @@ public class AndroidUnitTest extends Test {
 
             // Mockable JAR is last, to make sure you can shadow the classes with
             // dependencies.
-            collection.from(scope.getGlobalScope().getOutput(TaskOutputType.MOCKABLE_JAR));
+            collection.from(scope.getGlobalScope().getMockableJarArtifact());
             return collection;
         }
     }

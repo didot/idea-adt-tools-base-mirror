@@ -18,13 +18,20 @@ package com.android.build.gradle.internal.api.dsl.options
 
 import com.android.build.api.artifact.BuildArtifactTransformBuilder
 import com.android.build.api.artifact.BuildArtifactType.JAVAC_CLASSES
-import com.android.build.api.artifact.BuildArtifactType.JAVA_COMPILE_CLASSPATH
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.api.artifact.InputArtifactProvider
+import com.android.build.api.artifact.OutputFileProvider
 import com.android.build.api.dsl.options.BuildArtifactsOptions
 import com.android.build.gradle.internal.api.artifact.BuildArtifactTransformBuilderImpl
 import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl
+import com.android.build.gradle.internal.fixtures.FakeDeprecationReporter
 import com.android.build.gradle.internal.fixtures.FakeEvalIssueReporter
-import com.android.build.gradle.internal.scope.BuildArtifactHolder
+import com.android.build.gradle.internal.fixtures.FakeObjectFactory
+import com.android.build.gradle.internal.fixtures.TestClass
+import com.android.build.gradle.internal.variant2.DslScopeImpl
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
+import com.android.build.gradle.internal.scope.DelayedActionsExecutor
+import com.android.build.gradle.internal.scope.VariantBuildArtifactsHolder
 import com.android.testutils.truth.PathSubject.assertThat
 import com.google.common.truth.Truth.assertThat
 import org.gradle.api.DefaultTask
@@ -36,6 +43,7 @@ import org.gradle.testfixtures.ProjectBuilder
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.util.Locale
 import kotlin.test.assertFailsWith
 
 /**
@@ -51,8 +59,10 @@ class BuildArtifactsOptionsImplTest {
     }
 
     private val issueReporter = FakeEvalIssueReporter(throwOnError = true)
+    private val dslScope = DslScopeImpl(issueReporter, FakeDeprecationReporter(), FakeObjectFactory())
     lateinit private var project : Project
-    lateinit private var taskHolder : BuildArtifactHolder
+    lateinit private var taskHolder : BuildArtifactsHolder
+    private val buildArtifactsActions= DelayedActionsExecutor()
     lateinit private var options : BuildArtifactsOptions
     lateinit private var task0 : Task
 
@@ -61,15 +71,14 @@ class BuildArtifactsOptionsImplTest {
         project = ProjectBuilder().build()!!
         BuildableArtifactImpl.disableResolution()
         taskHolder =
-                BuildArtifactHolder(
-                        project,
-                        "debug",
-                        project.file("root"),
-                        "debug",
-                        listOf(JAVAC_CLASSES, JAVA_COMPILE_CLASSPATH),
-                        issueReporter)
-        options = BuildArtifactsOptionsImpl(project, taskHolder, issueReporter)
+                VariantBuildArtifactsHolder(
+                    project,
+                    "debug",
+                    project.file("root"),
+                    dslScope)
+        options = BuildArtifactsOptionsImpl(project, taskHolder, buildArtifactsActions, dslScope)
         task0 = project.tasks.create("task0")
+        taskHolder.appendArtifact(JAVAC_CLASSES, task0, "out")
     }
 
     @Test
@@ -78,21 +87,21 @@ class BuildArtifactsOptionsImplTest {
             inputFiles = input
             outputFile = output
         }
-        taskHolder.createFirstArtifactFiles(JAVAC_CLASSES, "foo", "task0")
         BuildableArtifactImpl.enableResolution()
+        buildArtifactsActions.runAll()
 
         project.tasks.getByName("task1Debug") { t ->
             assertThat(t).isInstanceOf(TestTask::class.java)
             val task = t as TestTask
-            assertThat(task.inputFiles.single()).hasName("foo")
-            assertThat(task.outputFile).hasName(JAVAC_CLASSES.name)
+            assertThat(task.inputFiles.single()).hasName("out")
+            assertThat(task.outputFile).hasName("${JAVAC_CLASSES.name.toLowerCase(Locale.US)}1")
             // TaskDependency.getDependencies accepts null.
             @Suppress("NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
             assertThat(task.inputFiles.buildDependencies.getDependencies(null))
                     .containsExactly(task0)
         }
         assertThat(taskHolder.getArtifactFiles(JAVAC_CLASSES).files.map(File::getName))
-                .containsExactly("foo", JAVAC_CLASSES.name)
+                .containsExactly("${JAVAC_CLASSES.name.toLowerCase(Locale.US)}1", "out")
     }
 
     @Test
@@ -101,29 +110,29 @@ class BuildArtifactsOptionsImplTest {
                 JAVAC_CLASSES,
                 "task1",
                 TestTask::class.java,
-                object : BuildArtifactTransformBuilder.SimpleConfigurationAction<TestTask> {
+                object : BuildArtifactTransformBuilder.ConfigurationAction<TestTask> {
                     override fun accept(
                             task: TestTask,
-                            input: BuildableArtifact,
-                            output: File) {
-                        task.inputFiles = input
-                        task.outputFile = output
+                            input: InputArtifactProvider,
+                            output: OutputFileProvider) {
+                        task.inputFiles = input.artifact
+                        task.outputFile = output.file
                     }
                 })
-        taskHolder.createFirstArtifactFiles(JAVAC_CLASSES, "foo", "task0")
         BuildableArtifactImpl.enableResolution()
+        buildArtifactsActions.runAll()
 
         project.tasks.getByName("task1Debug") { t ->
             assertThat(t).isInstanceOf(TestTask::class.java)
             val task = t as TestTask
-            assertThat(task.inputFiles.single()).hasName("foo")
-            assertThat(task.outputFile).hasName(JAVAC_CLASSES.name)
+            assertThat(task.inputFiles.single()).hasName("out")
+            assertThat(task.outputFile).hasName("${JAVAC_CLASSES.name.toLowerCase(Locale.US)}1")
             @Suppress("NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
             assertThat(task.inputFiles.buildDependencies.getDependencies(null))
                     .containsExactly(task0)
         }
         assertThat(taskHolder.getArtifactFiles(JAVAC_CLASSES).files.map(File::getName))
-                .containsExactly("foo", JAVAC_CLASSES.name)
+                .containsExactly("${JAVAC_CLASSES.name.toLowerCase(Locale.US)}1", "out")
     }
 
     @Test
@@ -132,29 +141,29 @@ class BuildArtifactsOptionsImplTest {
                 JAVAC_CLASSES,
                 "task1",
                 TestTask::class.java,
-                object : BuildArtifactTransformBuilder.SimpleConfigurationAction<TestTask> {
+                object : BuildArtifactTransformBuilder.ConfigurationAction<TestTask> {
                     override fun accept(
                             task: TestTask,
-                            input: BuildableArtifact,
-                            output: File) {
-                        task.inputFiles = input
-                        task.outputFile = output
+                            input: InputArtifactProvider,
+                            output: OutputFileProvider) {
+                        task.inputFiles = input.artifact
+                        task.outputFile = output.file
                     }
                 })
-        taskHolder.createFirstArtifactFiles(JAVAC_CLASSES, "foo", "task0")
         BuildableArtifactImpl.enableResolution()
+        buildArtifactsActions.runAll()
 
         project.tasks.getByName("task1Debug") { t ->
             assertThat(t).isInstanceOf(TestTask::class.java)
             val task = t as TestTask
-            assertThat(task.inputFiles.single()).hasName("foo")
-            assertThat(task.outputFile).hasName(JAVAC_CLASSES.name)
+            assertThat(task.inputFiles.single()).hasName("out")
+            assertThat(task.outputFile).hasName("${JAVAC_CLASSES.name.toLowerCase(Locale.US)}1")
             @Suppress("NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
             assertThat(task.inputFiles.buildDependencies.getDependencies(null))
                     .containsExactly(task0)
         }
         assertThat(taskHolder.getArtifactFiles(JAVAC_CLASSES).files.map(File::getName))
-                .containsExactly(JAVAC_CLASSES.name)
+                .containsExactly("${JAVAC_CLASSES.name.toLowerCase(Locale.US)}1")
     }
 
     @Test

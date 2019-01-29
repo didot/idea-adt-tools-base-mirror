@@ -17,25 +17,22 @@
 package com.android.build.api.dsl.extension
 
 import com.android.build.api.dsl.options.AaptOptions
-import com.android.build.api.dsl.options.CompileOptions
 import com.android.build.api.dsl.options.DexOptions
 import com.android.build.api.dsl.options.LintOptions
 import com.android.builder.model.DataBindingOptions
 import org.gradle.api.Action
 import org.gradle.api.Incubating
 
-/** properties common to the extension and the generated variants */
+/** properties common to the extension and the generated variants.
+ *
+ * This interface is not currently usable. It is a work in progress.
+ */
 @Incubating
 interface VariantOrExtensionProperties {
     fun aaptOptions(action: Action<AaptOptions>)
 
     /** Options for aapt, tool for packaging resources.  */
     val aaptOptions: AaptOptions
-
-    fun compileOptions(action: Action<CompileOptions>)
-
-    /** Compile options.  */
-    val compileOptions: CompileOptions
 
     fun dexOptions(action: Action<DexOptions>)
 

@@ -38,9 +38,9 @@ class ToastDetectorTest : AbstractCheckTest() {
         0 errors, 4 warnings
         """
 
-        //noinspection all // Sample code
         lint().files(
-                java("""
+            java(
+                """
                 package test.pkg;
 
                 import android.app.Activity;
@@ -97,9 +97,9 @@ class ToastDetectorTest : AbstractCheckTest() {
                             public static final int app_name = 0x7f0a0000;
                         }
                     }
-                }""").indented())
-                .run()
-                .expect(expected.trimIndent())
+                }"""
+            ).indented()
+        ).run().expect(expected.trimIndent())
     }
 
     fun testKotlin() {
@@ -120,7 +120,8 @@ class ToastDetectorTest : AbstractCheckTest() {
         """
 
         lint().files(
-                kotlin("""
+            kotlin(
+                """
                 package test.pkg
 
                 import android.annotation.SuppressLint
@@ -178,8 +179,8 @@ class ToastDetectorTest : AbstractCheckTest() {
                             val app_name = 0x7f0a0000
                         }
                     }
-                }""").indented())
-                .run()
-                .expect(expected.trimIndent())
+                }"""
+            ).indented()
+        ).run().expect(expected.trimIndent())
     }
 }

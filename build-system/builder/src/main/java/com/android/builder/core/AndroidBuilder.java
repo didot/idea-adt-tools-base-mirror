@@ -16,8 +16,6 @@
 
 package com.android.builder.core;
 
-import static com.android.SdkConstants.DOT_CLASS;
-import static com.android.SdkConstants.DOT_DEX;
 import static com.android.SdkConstants.DOT_XML;
 import static com.android.SdkConstants.FD_RES_XML;
 import static com.android.builder.core.BuilderConstants.ANDROID_WEAR;
@@ -26,20 +24,21 @@ import static com.android.manifmerger.ManifestMerger2.Invoker;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 
+import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.apkzlib.zfile.ApkCreatorFactory;
-import com.android.apkzlib.zfile.NativeLibrariesPackagingMode;
 import com.android.builder.compiling.DependencyFileProcessor;
+import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.files.IncrementalRelativeFileSets;
 import com.android.builder.files.RelativeFile;
 import com.android.builder.internal.TestManifestGenerator;
 import com.android.builder.internal.aapt.AaptPackageConfig;
 import com.android.builder.internal.aapt.BlockingResourceLinker;
+import com.android.builder.internal.aapt.v2.Aapt2Exception;
+import com.android.builder.internal.aapt.v2.Aapt2InternalException;
 import com.android.builder.internal.compiler.AidlProcessor;
 import com.android.builder.internal.compiler.DirectoryWalker;
-import com.android.builder.internal.compiler.PreDexCache;
 import com.android.builder.internal.compiler.RenderScriptProcessor;
 import com.android.builder.internal.compiler.ShaderProcessor;
 import com.android.builder.internal.packaging.IncrementalPackager;
@@ -49,15 +48,13 @@ import com.android.builder.sdk.SdkInfo;
 import com.android.builder.sdk.TargetInfo;
 import com.android.ide.common.blame.MessageReceiver;
 import com.android.ide.common.internal.WaitableExecutor;
-import com.android.ide.common.process.CachedProcessOutputHandler;
 import com.android.ide.common.process.JavaProcessExecutor;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.process.ProcessExecutor;
 import com.android.ide.common.process.ProcessInfo;
-import com.android.ide.common.process.ProcessInfoBuilder;
 import com.android.ide.common.process.ProcessOutputHandler;
 import com.android.ide.common.process.ProcessResult;
-import com.android.ide.common.res2.FileStatus;
+import com.android.ide.common.resources.FileStatus;
 import com.android.ide.common.signing.CertificateInfo;
 import com.android.ide.common.signing.KeystoreHelper;
 import com.android.ide.common.signing.KeytoolException;
@@ -73,15 +70,15 @@ import com.android.manifmerger.PlaceholderHandler;
 import com.android.repository.Revision;
 import com.android.sdklib.BuildToolInfo;
 import com.android.sdklib.IAndroidTarget;
+import com.android.tools.build.apkzlib.zfile.ApkCreatorFactory;
+import com.android.tools.build.apkzlib.zfile.NativeLibrariesPackagingMode;
 import com.android.utils.FileUtils;
 import com.android.utils.ILogger;
-import com.android.utils.LineCollector;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import java.io.File;
@@ -89,15 +86,11 @@ import java.io.IOException;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.Collection;
-import java.util.EnumSet;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 /**
  * This is the main builder class. It is given all the data to process the build (such as {@link
@@ -114,7 +107,6 @@ import java.util.zip.ZipFile;
  *   <li>{@link #mergeManifestsForTestVariant }
  *   <li>{@link #processResources }
  *   <li>{@link #compileAllAidlFiles }
- *   <li>{@link #getDexByteCodeConverter() }
  * </ol>
  *
  * <p>Java compilation is not handled but the builder provides the boot classpath with {@link
@@ -122,15 +114,26 @@ import java.util.zip.ZipFile;
  */
 public class AndroidBuilder {
 
-    /** Minimal supported version of build tools. */
-    public static final Revision MIN_BUILD_TOOLS_REV = new Revision(27, 0, 3);
+    /**
+     * Minimal supported version of build tools.
+     *
+     * <p>ATTENTION: When changing this value, make sure to update the release notes
+     * (https://developer.android.com/studio/releases/gradle-plugin).
+     */
+    public static final Revision MIN_BUILD_TOOLS_REV =
+            Revision.parseRevision(SdkConstants.CURRENT_BUILD_TOOLS_VERSION);
 
     /**
      * Default version of build tools that will be used if the user does not specify.
      *
-     * <p><strong>Update the DSL documentation on BaseExtension when changing this value.</strong>
+     * <p>ATTENTION: This is usually the same as the minimum build tools version, as documented in
+     * {@code com.android.build.gradle.AndroidConfig#getBuildToolsVersion()} and {@code
+     * com.android.build.api.dsl.extension.BuildProperties#getBuildToolsVersion()}, and in the
+     * release notes (https://developer.android.com/studio/releases/gradle-plugin). If this version
+     * is higher than the minimum version, make sure to update those places to document the new
+     * behavior.
      */
-    public static final Revision DEFAULT_BUILD_TOOLS_REVISION = new Revision(27, 0, 3);
+    public static final Revision DEFAULT_BUILD_TOOLS_REVISION = MIN_BUILD_TOOLS_REV;
 
     /** API level for split APKs. */
     private static final int API_LEVEL_SPLIT_APK = 21;
@@ -159,8 +162,6 @@ public class AndroidBuilder {
     private List<File> mBootClasspathAll;
     @NonNull
     private List<LibraryRequest> mLibraryRequests = ImmutableList.of();
-
-    private DexByteCodeConverter mDexByteCodeConverter = null;
 
     /**
      * Creates an AndroidBuilder.
@@ -199,20 +200,18 @@ public class AndroidBuilder {
      */
     public void setTargetInfo(@NonNull TargetInfo targetInfo) {
         mTargetInfo = targetInfo;
-        mDexByteCodeConverter =
-                new DexByteCodeConverter(
-                        getLogger(), mTargetInfo, mJavaProcessExecutor, mVerboseExec);
 
         if (mTargetInfo.getBuildTools().getRevision().compareTo(MIN_BUILD_TOOLS_REV) < 0) {
             issueReporter.reportError(
                     EvalIssueReporter.Type.BUILD_TOOLS_TOO_LOW,
-                    String.format(
-                            "The SDK Build Tools revision (%1$s) is too low for project '%2$s'. "
-                                    + "Minimum required is %3$s",
-                            mTargetInfo.getBuildTools().getRevision(),
-                            mProjectId,
-                            MIN_BUILD_TOOLS_REV),
-                    MIN_BUILD_TOOLS_REV.toString());
+                    new EvalIssueException(
+                            String.format(
+                                    "The SDK Build Tools revision (%1$s) is too low for project '%2$s'. "
+                                            + "Minimum required is %3$s",
+                                    mTargetInfo.getBuildTools().getRevision(),
+                                    mProjectId,
+                                    MIN_BUILD_TOOLS_REV),
+                            MIN_BUILD_TOOLS_REV.toString()));
         }
     }
 
@@ -370,17 +369,17 @@ public class AndroidBuilder {
     /**
      * Returns the jar file for the renderscript mode.
      *
-     * This may return null if the SDK has not been loaded yet.
+     * <p>This may return null if the SDK has not been loaded yet.
      *
+     * @param useAndroidX whether to use AndroidX dependencies
      * @return the jar file, or null.
-     *
      * @see #setTargetInfo(TargetInfo)
      */
     @Nullable
-    public File getRenderScriptSupportJar() {
+    public File getRenderScriptSupportJar(boolean useAndroidX) {
         if (mTargetInfo != null) {
             return RenderScriptProcessor.getSupportJar(
-                    mTargetInfo.getBuildTools().getLocation().getAbsolutePath());
+                    mTargetInfo.getBuildTools().getLocation().getAbsolutePath(), useAndroidX);
         }
 
         return null;
@@ -456,9 +455,12 @@ public class AndroidBuilder {
             @NonNull String outManifestLocation,
             @Nullable String outAaptSafeManifestLocation,
             @Nullable String outInstantRunManifestLocation,
+            @Nullable String outMetadataFeatureManifestLocation,
+            @Nullable String outBundleManifestLocation,
+            @Nullable String outInstantAppManifestLocation,
             ManifestMerger2.MergeType mergeType,
             Map<String, Object> placeHolders,
-            @NonNull List<Invoker.Feature> optionalFeatures,
+            @NonNull Collection<Invoker.Feature> optionalFeatures,
             @Nullable File reportFile) {
 
         try {
@@ -466,13 +468,10 @@ public class AndroidBuilder {
             Invoker manifestMergerInvoker =
                     ManifestMerger2.newMerger(mainManifest, mLogger, mergeType)
                             .setPlaceHolderValues(placeHolders)
-                            .addFlavorAndBuildTypeManifests(
-                                    manifestOverlays.toArray(new File[manifestOverlays.size()]))
+                            .addFlavorAndBuildTypeManifests(manifestOverlays.toArray(new File[0]))
                             .addManifestProviders(dependencies)
                             .addNavigationFiles(navigationFiles)
-                            .withFeatures(
-                                    optionalFeatures.toArray(
-                                            new Invoker.Feature[optionalFeatures.size()]))
+                            .withFeatures(optionalFeatures.toArray(new Invoker.Feature[0]))
                             .setMergeReportFile(reportFile)
                             .setFeatureName(featureName);
 
@@ -496,10 +495,11 @@ public class AndroidBuilder {
                     mergingReport.log(mLogger);
                     // fall through since these are just warnings.
                 case SUCCESS:
-                    String xmlDocument = mergingReport.getMergedDocument(
-                            MergingReport.MergedManifestKind.MERGED);
-                    String annotatedDocument = mergingReport.getMergedDocument(
-                            MergingReport.MergedManifestKind.BLAME);
+                    String xmlDocument =
+                            mergingReport.getMergedDocument(
+                                    MergingReport.MergedManifestKind.MERGED);
+                    String annotatedDocument =
+                            mergingReport.getMergedDocument(MergingReport.MergedManifestKind.BLAME);
                     if (annotatedDocument != null) {
                         mLogger.verbose(annotatedDocument);
                     }
@@ -507,15 +507,47 @@ public class AndroidBuilder {
                     mLogger.verbose("Merged manifest saved to " + outManifestLocation);
 
                     if (outAaptSafeManifestLocation != null) {
-                        save(mergingReport.getMergedDocument(MergingReport.MergedManifestKind.AAPT_SAFE),
+                        save(
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.AAPT_SAFE),
                                 new File(outAaptSafeManifestLocation));
                     }
 
                     if (outInstantRunManifestLocation != null) {
-                        String instantRunMergedManifest = mergingReport.getMergedDocument(
-                                MergingReport.MergedManifestKind.INSTANT_RUN);
+                        String instantRunMergedManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.INSTANT_RUN);
                         if (instantRunMergedManifest != null) {
                             save(instantRunMergedManifest, new File(outInstantRunManifestLocation));
+                        }
+                    }
+
+                    if (outMetadataFeatureManifestLocation != null) {
+                        // This is the manifest used for merging back to the base. This is created
+                        // by both dynamic-features and normal features.
+                        String featureManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.METADATA_FEATURE);
+                        if (featureManifest != null) {
+                            save(featureManifest, new File(outMetadataFeatureManifestLocation));
+                        }
+                    }
+
+                    if (outBundleManifestLocation != null) {
+                        String bundleMergedManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.BUNDLE);
+                        if (bundleMergedManifest != null) {
+                            save(bundleMergedManifest, new File(outBundleManifestLocation));
+                        }
+                    }
+
+                    if (outInstantAppManifestLocation != null) {
+                        String instantAppManifest =
+                                mergingReport.getMergedDocument(
+                                        MergingReport.MergedManifestKind.INSTANT_APP);
+                        if (instantAppManifest != null) {
+                            save(instantAppManifest, new File(outInstantAppManifestLocation));
                         }
                     }
                     break;
@@ -805,6 +837,8 @@ public class AndroidBuilder {
 
         try {
             aapt.link(aaptConfig, logger);
+        } catch (Aapt2Exception | Aapt2InternalException e) {
+            throw e;
         } catch (Exception e) {
             throw new ProcessException("Failed to execute aapt", e);
         }
@@ -831,7 +865,7 @@ public class AndroidBuilder {
                             aaptConfig.getLibrarySymbolTableFiles());
 
             boolean finalIds = true;
-            if (aaptConfig.getVariantType() == VariantType.LIBRARY) {
+            if (aaptConfig.getVariantType().isAar()) {
                 finalIds = false;
             }
 
@@ -924,120 +958,6 @@ public class AndroidBuilder {
                 .append("</manifest>\n");
 
         Files.write(content, manifestFile, Charsets.UTF_8);
-    }
-
-    /**
-     * Compiles all the aidl files found in the given source folders.
-     *
-     * @param sourceFolders all the source folders to find files to compile
-     * @param sourceOutputDir the output dir in which to generate the source code
-     * @param packagedOutputDir the output dir for the AIDL files that will be packaged in an aar
-     * @param packageWhiteList a list of AIDL FQCNs that are not parcelable that should also be
-     *     packaged in an aar
-     * @param importFolders import folders
-     * @param dependencyFileProcessor the dependencyFileProcessor to record the dependencies of the
-     *     compilation.
-     * @throws IOException failed
-     * @throws InterruptedException failed
-     */
-    public void compileAllAidlFiles(
-            @NonNull Collection<File> sourceFolders,
-            @NonNull File sourceOutputDir,
-            @Nullable File packagedOutputDir,
-            @Nullable Collection<String> packageWhiteList,
-            @NonNull Collection<File> importFolders,
-            @Nullable DependencyFileProcessor dependencyFileProcessor,
-            @NonNull ProcessOutputHandler processOutputHandler)
-            throws IOException, InterruptedException, ProcessException {
-        checkNotNull(sourceFolders, "sourceFolders cannot be null.");
-        checkNotNull(sourceOutputDir, "sourceOutputDir cannot be null.");
-        checkNotNull(importFolders, "importFolders cannot be null.");
-        checkState(mTargetInfo != null,
-                "Cannot call compileAllAidlFiles() before setTargetInfo() is called.");
-
-        IAndroidTarget target = mTargetInfo.getTarget();
-        BuildToolInfo buildToolInfo = mTargetInfo.getBuildTools();
-
-        String aidl = buildToolInfo.getPath(BuildToolInfo.PathId.AIDL);
-        if (aidl == null || !new File(aidl).isFile()) {
-            throw new IllegalStateException("aidl is missing from '" + aidl + "'");
-        }
-
-        List<File> fullImportList = Lists.newArrayListWithCapacity(
-                sourceFolders.size() + importFolders.size());
-        fullImportList.addAll(sourceFolders);
-        fullImportList.addAll(importFolders);
-
-        AidlProcessor processor = new AidlProcessor(
-                aidl,
-                target.getPath(IAndroidTarget.ANDROID_AIDL),
-                fullImportList,
-                sourceOutputDir,
-                packagedOutputDir,
-                packageWhiteList,
-                dependencyFileProcessor != null ?
-                        dependencyFileProcessor : DependencyFileProcessor.NO_OP,
-                mProcessExecutor,
-                processOutputHandler);
-
-        for (File dir : sourceFolders) {
-            DirectoryWalker.builder()
-                    .root(dir.toPath())
-                    .extensions("aidl")
-                    .action(processor)
-                    .build()
-                    .walk();
-        }
-    }
-
-    /**
-     * Compiles the given aidl file.
-     *
-     * @param aidlFile the AIDL file to compile
-     * @param sourceOutputDir the output dir in which to generate the source code
-     * @param importFolders all the import folders, including the source folders.
-     * @param dependencyFileProcessor the dependencyFileProcessor to record the dependencies of the
-     *     compilation.
-     * @throws IOException failed
-     * @throws InterruptedException failed
-     */
-    public void compileAidlFile(
-            @NonNull File sourceFolder,
-            @NonNull File aidlFile,
-            @NonNull File sourceOutputDir,
-            @Nullable File packagedOutputDir,
-            @Nullable Collection<String> packageWhitelist,
-            @NonNull Iterable<File> importFolders,
-            @Nullable DependencyFileProcessor dependencyFileProcessor,
-            @NonNull ProcessOutputHandler processOutputHandler)
-            throws IOException, InterruptedException, ProcessException {
-        checkNotNull(aidlFile, "aidlFile cannot be null.");
-        checkNotNull(sourceOutputDir, "sourceOutputDir cannot be null.");
-        checkNotNull(importFolders, "importFolders cannot be null.");
-        checkState(mTargetInfo != null,
-                "Cannot call compileAidlFile() before setTargetInfo() is called.");
-
-        IAndroidTarget target = mTargetInfo.getTarget();
-        BuildToolInfo buildToolInfo = mTargetInfo.getBuildTools();
-
-        String aidl = buildToolInfo.getPath(BuildToolInfo.PathId.AIDL);
-        if (aidl == null || !new File(aidl).isFile()) {
-            throw new IllegalStateException("aidl is missing");
-        }
-
-        AidlProcessor processor = new AidlProcessor(
-                aidl,
-                target.getPath(IAndroidTarget.ANDROID_AIDL),
-                importFolders,
-                sourceOutputDir,
-                packagedOutputDir,
-                packageWhitelist,
-                dependencyFileProcessor != null ?
-                        dependencyFileProcessor : DependencyFileProcessor.NO_OP,
-                mProcessExecutor,
-                processOutputHandler);
-
-        processor.call(sourceFolder.toPath(), aidlFile.toPath());
     }
 
     /**
@@ -1141,6 +1061,7 @@ public class AndroidBuilder {
      * @param optimLevel the optimization level
      * @param ndkMode whether the renderscript code should be compiled to generate C/C++ bindings
      * @param supportMode support mode flag to generate .so files.
+     * @param useAndroidX whether to use AndroidX dependencies
      * @param abiFilters ABI filters in case of support mode
      * @throws IOException failed
      * @throws InterruptedException failed
@@ -1157,6 +1078,7 @@ public class AndroidBuilder {
             int optimLevel,
             boolean ndkMode,
             boolean supportMode,
+            boolean useAndroidX,
             @Nullable Set<String> abiFilters,
             @NonNull ProcessOutputHandler processOutputHandler)
             throws InterruptedException, ProcessException, IOException {
@@ -1174,213 +1096,24 @@ public class AndroidBuilder {
             throw new IllegalStateException("llvm-rs-cc is missing");
         }
 
-        RenderScriptProcessor processor = new RenderScriptProcessor(
-                sourceFolders,
-                importFolders,
-                sourceOutputDir,
-                resOutputDir,
-                objOutputDir,
-                libOutputDir,
-                buildToolInfo,
-                targetApi,
-                debugBuild,
-                optimLevel,
-                ndkMode,
-                supportMode,
-                abiFilters,
-                mLogger);
+        RenderScriptProcessor processor =
+                new RenderScriptProcessor(
+                        sourceFolders,
+                        importFolders,
+                        sourceOutputDir,
+                        resOutputDir,
+                        objOutputDir,
+                        libOutputDir,
+                        buildToolInfo,
+                        targetApi,
+                        debugBuild,
+                        optimLevel,
+                        ndkMode,
+                        supportMode,
+                        useAndroidX,
+                        abiFilters,
+                        mLogger);
         processor.build(mProcessExecutor, processOutputHandler);
-    }
-
-    @NonNull
-    public DexByteCodeConverter getDexByteCodeConverter() {
-        checkState(
-                mDexByteCodeConverter != null,
-                "Cannot call getDexByteCodeConverter() before setTargetInfo() is called.");
-        return mDexByteCodeConverter;
-    }
-
-    public enum MainDexListOption {
-        DISABLE_ANNOTATION_RESOLUTION_WORKAROUND,
-    }
-
-    public Set<String> createMainDexList(
-            @NonNull File allClassesJarFile,
-            @NonNull File jarOfRoots,
-            @NonNull EnumSet<MainDexListOption> options) throws ProcessException {
-
-        BuildToolInfo buildToolInfo = mTargetInfo.getBuildTools();
-        ProcessInfoBuilder builder = new ProcessInfoBuilder();
-
-        String dx = buildToolInfo.getPath(BuildToolInfo.PathId.DX_JAR);
-        if (dx == null || !new File(dx).isFile()) {
-            throw new IllegalStateException("dx.jar is missing");
-        }
-
-        builder.setClasspath(dx);
-        builder.setMain("com.android.multidex.ClassReferenceListBuilder");
-
-        if (options.contains(MainDexListOption.DISABLE_ANNOTATION_RESOLUTION_WORKAROUND)) {
-            builder.addArgs("--disable-annotation-resolution-workaround");
-        }
-
-        builder.addArgs(jarOfRoots.getAbsolutePath());
-        builder.addArgs(allClassesJarFile.getAbsolutePath());
-
-        CachedProcessOutputHandler processOutputHandler = new CachedProcessOutputHandler();
-
-        mJavaProcessExecutor.execute(builder.createJavaProcess(), processOutputHandler)
-                .rethrowFailure()
-                .assertNormalExitValue();
-
-        LineCollector lineCollector = new LineCollector();
-        processOutputHandler.getProcessOutput().processStandardOutputLines(lineCollector);
-        return ImmutableSet.copyOf(lineCollector.getResult());
-    }
-
-    /**
-     * Converts the bytecode to Dalvik format, using the {@link PreDexCache} layer.
-     *
-     * @param inputFile the input file
-     * @param outFile the output file or folder if multi-dex is enabled
-     * @param multiDex whether multidex is enabled
-     * @param dexOptions dex options
-     * @param processOutputHandler output handler to use
-     * @param minSdkVersion min sdk version passed to dx
-     * @throws IOException failed
-     * @throws InterruptedException failed
-     * @throws ProcessException failed
-     */
-    public void preDexLibrary(
-            @NonNull File inputFile,
-            @NonNull File outFile,
-            boolean multiDex,
-            @NonNull DexOptions dexOptions,
-            @NonNull ProcessOutputHandler processOutputHandler,
-            int minSdkVersion)
-            throws IOException, InterruptedException, ProcessException {
-        checkState(mTargetInfo != null,
-                "Cannot call preDexLibrary() before setTargetInfo() is called.");
-
-        getLogger().verbose("AndroidBuilder::preDexLibrary %1$s", inputFile.getAbsolutePath());
-        if (inputFile.isFile()) {
-            PreDexCache.getCache()
-                    .preDexLibrary(
-                            this,
-                            inputFile,
-                            outFile,
-                            multiDex,
-                            dexOptions,
-                            processOutputHandler,
-                            minSdkVersion);
-        } else {
-            preDexLibraryNoCache(
-                    inputFile, outFile, multiDex, dexOptions, processOutputHandler, minSdkVersion);
-        }
-    }
-
-    /**
-     * Converts the bytecode to Dalvik format, ignoring the {@link PreDexCache} layer.
-     *
-     * @param inputFile the input file
-     * @param outFile the output file or folder if multi-dex is enabled.
-     * @param multiDex whether multidex is enabled.
-     * @param dexOptions the dex options
-     * @param processOutputHandler handles the logging output
-     * @param minSdkVersion min sdk passed to dx
-     * @return the list of generated files.
-     * @throws ProcessException failed
-     */
-    @NonNull
-    public ImmutableList<File> preDexLibraryNoCache(
-            @NonNull File inputFile,
-            @NonNull File outFile,
-            boolean multiDex,
-            @NonNull DexOptions dexOptions,
-            @NonNull ProcessOutputHandler processOutputHandler,
-            int minSdkVersion)
-            throws ProcessException, IOException, InterruptedException {
-        checkNotNull(inputFile, "inputFile cannot be null.");
-        checkNotNull(outFile, "outFile cannot be null.");
-        checkNotNull(dexOptions, "dexOptions cannot be null.");
-        getLogger().verbose("AndroidBuilder::preDexLibraryNoCache %1$s", inputFile.getAbsolutePath());
-
-        try {
-            if (!checkLibraryClassesJar(inputFile)) {
-                return ImmutableList.of();
-            }
-        } catch(IOException e) {
-            throw new RuntimeException("Exception while checking library jar", e);
-        }
-        DexProcessBuilder builder = new DexProcessBuilder(outFile);
-
-        builder.setVerbose(mVerboseExec)
-                .setMultiDex(multiDex)
-                .addInput(inputFile)
-                .setMinSdkVersion(minSdkVersion);
-
-        getDexByteCodeConverter().runDexer(builder, dexOptions, processOutputHandler);
-
-        if (multiDex) {
-            File[] files = outFile.listFiles((file, name) -> name.endsWith(DOT_DEX));
-
-            if (files == null || files.length == 0) {
-                throw new RuntimeException("No dex files created at " + outFile.getAbsolutePath());
-            }
-
-            return ImmutableList.copyOf(files);
-        } else {
-            return ImmutableList.of(outFile);
-        }
-    }
-
-    /**
-     * Returns true if the library (jar or folder) contains class files, false otherwise.
-     */
-    private static boolean checkLibraryClassesJar(@NonNull File input) throws IOException {
-
-        if (!input.exists()) {
-            return false;
-        }
-
-        if (input.isDirectory()) {
-            return checkFolder(input);
-        }
-
-        try (ZipFile zipFile = new ZipFile(input)) {
-            Enumeration<? extends ZipEntry> entries = zipFile.entries();
-            while (entries.hasMoreElements()) {
-                String name = entries.nextElement().getName();
-                if (name.endsWith(DOT_CLASS) || name.endsWith(DOT_DEX)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-    }
-
-    /**
-     * Returns true if this folder or one of its subfolder contains a class file, false otherwise.
-     */
-    private static boolean checkFolder(@NonNull File folder) {
-        File[] subFolders = folder.listFiles();
-        if (subFolders != null) {
-            for (File childFolder : subFolders) {
-                if (childFolder.isFile()) {
-                    String name = childFolder.getName();
-                    if (name.endsWith(DOT_CLASS) || name.endsWith(DOT_DEX)) {
-                        return true;
-                    }
-                }
-                if (childFolder.isDirectory()) {
-                    // if childFolder returns false, continue search otherwise return success.
-                    if (checkFolder(childFolder)) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     /**

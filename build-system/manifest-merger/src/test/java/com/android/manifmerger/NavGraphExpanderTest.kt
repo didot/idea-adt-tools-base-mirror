@@ -18,7 +18,9 @@ package com.android.manifmerger
 
 import com.android.ide.common.blame.SourceFile.UNKNOWN
 import com.android.ide.common.blame.SourceFilePosition
+import com.android.ide.common.blame.SourcePosition
 import com.android.manifmerger.NavGraphExpander.expandNavGraphs
+import com.google.common.collect.ImmutableList
 import com.google.common.truth.Truth.assertThat
 import org.junit.Before
 import org.junit.Test
@@ -42,8 +44,6 @@ class NavGraphExpanderTest {
         Mockito.`when`(mergingReportBuilder.actionRecorder).thenReturn(actionRecorder)
     }
 
-    // TODO add unit test for NavGraphExpander::findDeepLinks
-
     @Test
     fun testExpandNavGraphs() {
 
@@ -54,10 +54,10 @@ class NavGraphExpanderTest {
                     |    xmlns:android="http://schemas.android.com/apk/res/android"
                     |    xmlns:app="http://schemas.android.com/apk/res-auto">
                     |    <include app:graph="@navigation/nav2" />
-                    |    <deeplink app:uri="www.example.com"
+                    |    <deepLink app:uri="www.example.com"
                     |            android:autoVerify="true" />
                     |    <navigation>
-                    |        <deeplink app:uri="http://www.example.com:120/foo/{placeholder}" />
+                    |        <deepLink app:uri="http://www.example.com:120/foo/{placeholder}" />
                     |    </navigation>
                     |</navigation>""".trimMargin()
 
@@ -67,7 +67,7 @@ class NavGraphExpanderTest {
                     |<navigation
                     |    xmlns:android="http://schemas.android.com/apk/res/android"
                     |    xmlns:app="http://schemas.android.com/apk/res-auto">
-                    |    <deeplink app:uri="https://.*.example.com/.*/bar" />
+                    |    <deepLink app:uri="https://.*.example.com/.*/{placeholder}" />
                     |</navigation>""".trimMargin()
 
         val inputManifestString =
@@ -104,7 +104,7 @@ class NavGraphExpanderTest {
                     |                <data android:scheme="http" />
                     |                <data android:host="www.example.com" />
                     |                <data android:port="120" />
-                    |                <data android:pathPrefix="/foo/.*" />
+                    |                <data android:pathPrefix="/foo/" />
                     |            </intent-filter>
                     |            <intent-filter>
                     |                <action android:name="android.intent.action.VIEW" />
@@ -112,7 +112,7 @@ class NavGraphExpanderTest {
                     |                <category android:name="android.intent.category.BROWSABLE" />
                     |                <data android:scheme="https" />
                     |                <data android:host="*.example.com" />
-                    |                <data android:pathPattern="/.*/bar" />
+                    |                <data android:pathPattern="/.*/.*" />
                     |            </intent-filter>
                     |        </activity>
                     |    </application>
@@ -192,7 +192,7 @@ class NavGraphExpanderTest {
                     |    xmlns:android="http://schemas.android.com/apk/res/android"
                     |    xmlns:app="http://schemas.android.com/apk/res-auto">
                     |    <include app:graph="@navigation/nav1" />
-                    |    <deeplink app:uri="www.example.com" />
+                    |    <deepLink app:uri="www.example.com" />
                     |</navigation>""".trimMargin()
 
         val inputManifestString =
@@ -226,6 +226,51 @@ class NavGraphExpanderTest {
     }
 
     @Test
+    fun testFindDeepLinks() {
+
+        val navigationId1 = "nav1"
+        val navigationString1 =
+                """"|<?xml version="1.0" encoding="UTF-8"?>
+                    |<navigation
+                    |    xmlns:android="http://schemas.android.com/apk/res/android"
+                    |    xmlns:app="http://schemas.android.com/apk/res-auto">
+                    |    <include app:graph="@navigation/nav2" />
+                    |    <deepLink app:uri="http://www.example.com" />
+                    |</navigation>""".trimMargin()
+
+        val navigationId2 = "nav2"
+        val navigationString2 =
+                """"|<?xml version="1.0" encoding="UTF-8"?>
+                    |<navigation
+                    |    xmlns:android="http://schemas.android.com/apk/res/android"
+                    |    xmlns:app="http://schemas.android.com/apk/res-auto">
+                    |    <deepLink app:uri="www.example.com/foo/" />
+                    |</navigation>""".trimMargin()
+
+        val loadedNavigationMap: Map<String, NavigationXmlDocument> =
+            mapOf(
+                Pair(navigationId1, NavigationXmlLoader.load(UNKNOWN, navigationString1)),
+                Pair(navigationId2, NavigationXmlLoader.load(UNKNOWN, navigationString2)))
+
+        val deepLinks = NavGraphExpander.findDeepLinks(navigationId1, loadedNavigationMap)
+        assertThat(deepLinks).containsExactly(
+                DeepLink(
+                    ImmutableList.of("http"),
+                    "www.example.com",
+                    -1,
+                    "/",
+                    SourceFilePosition(UNKNOWN, SourcePosition(5, 4, 220, 5, 49, 265)),
+                    false),
+                DeepLink(
+                    ImmutableList.of("http", "https"),
+                    "www.example.com",
+                    -1,
+                    "/foo/",
+                    SourceFilePosition(UNKNOWN, SourcePosition(4, 4, 175, 4, 47, 218)),
+                    false))
+    }
+
+    @Test
     fun testDuplicateDeepLinkNavGraphException() {
 
         val navigationId1 = "nav1"
@@ -235,7 +280,7 @@ class NavGraphExpanderTest {
                     |    xmlns:android="http://schemas.android.com/apk/res/android"
                     |    xmlns:app="http://schemas.android.com/apk/res-auto">
                     |    <include app:graph="@navigation/nav2" />
-                    |    <deeplink app:uri="http://www.example.com" />
+                    |    <deepLink app:uri="http://www.example.com" />
                     |</navigation>""".trimMargin()
 
         val navigationId2 = "nav2"
@@ -244,7 +289,7 @@ class NavGraphExpanderTest {
                     |<navigation
                     |    xmlns:android="http://schemas.android.com/apk/res/android"
                     |    xmlns:app="http://schemas.android.com/apk/res-auto">
-                    |    <deeplink app:uri="www.example.com" />
+                    |    <deepLink app:uri="www.example.com" />
                     |</navigation>""".trimMargin()
 
         val inputManifestString =

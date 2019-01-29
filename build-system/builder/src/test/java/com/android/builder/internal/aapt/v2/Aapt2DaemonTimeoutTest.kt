@@ -16,10 +16,10 @@
 
 package com.android.builder.internal.aapt.v2
 
-import com.android.builder.core.VariantType
+import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.ide.common.res2.CompileResourceRequest
+import com.android.ide.common.resources.CompileResourceRequest
 import com.android.repository.testframework.FakeProgressIndicator
 import com.android.sdklib.IAndroidTarget
 import com.android.sdklib.repository.AndroidSdkHandler
@@ -99,7 +99,8 @@ class Aapt2DaemonTimeoutTest {
                 manifestFile = manifest,
                 resourceOutputApk = outputFile,
                 options = AaptOptions(),
-                variantType = VariantType.DEFAULT)
+                variantType = VariantTypeImpl.BASE_APK
+        )
 
         val daemon = CompileLinkTimeoutAapt2Daemon(name = testName.methodName)
         val exception = assertFailsWith(Aapt2InternalException::class) {

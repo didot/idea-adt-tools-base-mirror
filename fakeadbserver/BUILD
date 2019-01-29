@@ -1,27 +1,29 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
+load("//tools/base/bazel:kotlin.bzl", "kotlin_library", "kotlin_test")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.fakeadbserver",
+    name = "studio.android.sdktools.fakeadbserver",
     srcs = ["src/main/java"],
-    iml_files = ["fakeadbserver.iml"],
-    tags = ["managed"],
+    iml_files = ["android.sdktools.fakeadbserver.iml"],
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     deps = [
-        "//tools/base/common:studio.common[module]",
+        "//tools/base/common:studio.android.sdktools.common[module]",
         "//tools/idea/.idea/libraries:JUnit4[test]",
-        "//tools/base/testutils:studio.testutils[module, test]",
+        "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
         "//tools/idea/.idea/libraries:Guava[test]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",
     ],
 )
 
-maven_java_library(
+kotlin_library(
     name = "tools.fakeadbserver",
-    srcs = glob(["src/main/java/**"]),
+    srcs = ["src/main/java"],
     pom = ":pom",
+    resource_strip_prefix = "tools/base/fakeadbserver",
     visibility = ["//visibility:public"],
     deps = [
         "//tools/base/annotations",

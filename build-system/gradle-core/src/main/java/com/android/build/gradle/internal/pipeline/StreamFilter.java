@@ -31,13 +31,17 @@ public interface StreamFilter {
 
     StreamFilter DEX = (types, scopes) -> types.contains(ExtendedContentType.DEX);
 
-    StreamFilter RESOURCES = (types, scopes) ->
-            types.contains(QualifiedContent.DefaultContentType.RESOURCES)
-                    && !scopes.contains(QualifiedContent.Scope.PROVIDED_ONLY)
-                    && !scopes.contains(QualifiedContent.Scope.TESTED_CODE);
+    StreamFilter DEX_ARCHIVE = (types, scopes) -> types.contains(ExtendedContentType.DEX_ARCHIVE);
 
-    StreamFilter NATIVE_LIBS = (types, scopes) ->
-            types.contains(ExtendedContentType.NATIVE_LIBS)
-                    && !scopes.contains(QualifiedContent.Scope.PROVIDED_ONLY)
-                    && !scopes.contains(QualifiedContent.Scope.TESTED_CODE);
+    StreamFilter RESOURCES =
+            (types, scopes) ->
+                    types.contains(QualifiedContent.DefaultContentType.RESOURCES)
+                            && !scopes.contains(QualifiedContent.Scope.PROVIDED_ONLY)
+                            && !scopes.contains(QualifiedContent.Scope.TESTED_CODE);
+
+    StreamFilter NATIVE_LIBS =
+            (types, scopes) ->
+                    types.contains(ExtendedContentType.NATIVE_LIBS)
+                            && !scopes.contains(QualifiedContent.Scope.PROVIDED_ONLY)
+                            && !scopes.contains(QualifiedContent.Scope.TESTED_CODE);
 }

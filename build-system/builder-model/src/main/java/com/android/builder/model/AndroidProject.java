@@ -23,7 +23,8 @@ import java.util.Collection;
 
 /**
  * Entry point for the model of the Android Projects. This models a single module, whether the
- * module is an app project, a library project, a feature project or an instantApp project.
+ * module is an app project, a library project, a Instant App feature project, an instantApp bundle
+ * project, or a dynamic feature split project.
  */
 public interface AndroidProject {
     //  Injectable properties to use with -P
@@ -91,7 +92,13 @@ public interface AndroidProject {
     String PROPERTY_SIGNING_V1_ENABLED = "android.injected.signing.v1-enabled";
     String PROPERTY_SIGNING_V2_ENABLED = "android.injected.signing.v2-enabled";
 
+    String PROPERTY_DEPLOY_AS_INSTANT_APP = "android.injected.deploy.instant-app";
+
     String PROPERTY_SIGNING_COLDSWAP_MODE = "android.injected.coldswap.mode";
+
+    String PROPERTY_APK_SELECT_CONFIG = "android.inject.apkselect.config";
+
+    String PROPERTY_EXTRACT_INSTANT_APK = "android.inject.bundle.extractinstant";
 
     /** Version code to be used in the built APK. */
     String PROPERTY_VERSION_CODE = "android.injected.version.code";
@@ -115,6 +122,8 @@ public interface AndroidProject {
      * project's path.
      */
     String PROPERTY_APK_LOCATION = "android.injected.apk.location";
+
+    String PROPERTY_SEPARATE_R_CLASS_COMPILATION = "android.enableSeparateRClassCompilation";
 
     String ARTIFACT_MAIN = "_main_";
     String ARTIFACT_ANDROID_TEST = "_android_test_";
@@ -140,8 +149,9 @@ public interface AndroidProject {
     int PROJECT_TYPE_LIBRARY = 1;
     int PROJECT_TYPE_TEST = 2;
     @Deprecated int PROJECT_TYPE_ATOM = 3;
-    int PROJECT_TYPE_INSTANTAPP = 4;
-    int PROJECT_TYPE_FEATURE = 5;
+    int PROJECT_TYPE_INSTANTAPP = 4; // Instant App Bundle
+    int PROJECT_TYPE_FEATURE = 5; // com.android.feature module
+    int PROJECT_TYPE_DYNAMIC_FEATURE = 6; //com.android.dynamic-feature module
 
     /**
      * Returns the model version. This is a string in the format X.Y.Z
@@ -224,6 +234,18 @@ public interface AndroidProject {
      */
     @NonNull
     Collection<Variant> getVariants();
+
+    /**
+     * Returns a list of all the variant names.
+     *
+     * <p>This does not include test variant. Test variants are additional artifacts in their
+     * respective variant info.
+     *
+     * @return a list of all the variant names.
+     * @since 3.2.
+     */
+    @NonNull
+    Collection<String> getVariantNames();
 
     /**
      * Returns a list of all the flavor dimensions, may be empty.
@@ -361,4 +383,14 @@ public interface AndroidProject {
      * @since 2.4
      */
     boolean isBaseSplit();
+
+    /**
+     * Returns the list of dynamic features.
+     *
+     * <p>The values are Gradle path. Only valid for base splits.
+     *
+     * @return
+     */
+    @NonNull
+    Collection<String> getDynamicFeatures();
 }

@@ -63,6 +63,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
     private final int generation;
 
     private final boolean baseSplit;
+    private final Collection<String> dynamicFeatures;
 
     @NonNull
     private final JavaCompileOptions javaCompileOptions;
@@ -85,6 +86,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
     private final Collection<BuildTypeContainer> buildTypes;
     private final Collection<ProductFlavorContainer> productFlavors;
     private final Collection<Variant> variants;
+    private final Collection<String> variantNames;
 
     @NonNull
     private final Collection<String> flavorDimensions;
@@ -96,6 +98,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
             @NonNull Collection<BuildTypeContainer> buildTypes,
             @NonNull Collection<ProductFlavorContainer> productFlavors,
             @NonNull Collection<Variant> variants,
+            @NonNull Collection<String> variantNames,
             @NonNull String compileTarget,
             @NonNull Collection<String> bootClasspath,
             @NonNull Collection<File> frameworkSource,
@@ -112,13 +115,15 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
             int projectType,
             int apiVersion,
             int generation,
-            boolean baseSplit) {
+            boolean baseSplit,
+            @NonNull Collection<String> dynamicFeatures) {
         this.name = name;
         this.defaultConfig = defaultConfig;
         this.flavorDimensions = flavorDimensions;
         this.buildTypes = buildTypes;
         this.productFlavors = productFlavors;
         this.variants = variants;
+        this.variantNames = variantNames;
         this.compileTarget = compileTarget;
         this.bootClasspath = bootClasspath;
         this.frameworkSource = frameworkSource;
@@ -136,6 +141,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
         this.nativeToolchains = nativeToolchains;
         this.buildToolsVersion = buildToolsVersion;
         this.baseSplit = baseSplit;
+        this.dynamicFeatures = ImmutableList.copyOf(dynamicFeatures);
     }
 
     @Override
@@ -177,6 +183,12 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
     @NonNull
     public Collection<Variant> getVariants() {
         return variants;
+    }
+
+    @NonNull
+    @Override
+    public Collection<String> getVariantNames() {
+        return variantNames;
     }
 
     @NonNull
@@ -289,6 +301,12 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
         return baseSplit;
     }
 
+    @NonNull
+    @Override
+    public Collection<String> getDynamicFeatures() {
+        return dynamicFeatures;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -318,9 +336,11 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
                 && Objects.equals(buildTypes, that.buildTypes)
                 && Objects.equals(productFlavors, that.productFlavors)
                 && Objects.equals(variants, that.variants)
+                && Objects.equals(variantNames, that.variantNames)
                 && Objects.equals(defaultConfig, that.defaultConfig)
                 && Objects.equals(flavorDimensions, that.flavorDimensions)
-                && Objects.equals(baseSplit, that.baseSplit);
+                && Objects.equals(baseSplit, that.baseSplit)
+                && Objects.equals(dynamicFeatures, that.dynamicFeatures);
     }
 
     @Override
@@ -346,8 +366,10 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
                 buildTypes,
                 productFlavors,
                 variants,
+                variantNames,
                 defaultConfig,
                 flavorDimensions,
-                baseSplit);
+                baseSplit,
+                dynamicFeatures);
     }
 }

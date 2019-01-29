@@ -18,16 +18,18 @@ package com.android.build.gradle.tasks;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.core.VariantConfiguration;
 import com.android.build.gradle.internal.packaging.IncrementalPackagerBuilder;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.SigningConfigMetadata;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.builder.files.IncrementalRelativeFileSets;
 import com.android.builder.internal.packaging.IncrementalPackager;
-import com.android.builder.model.SigningConfig;
 import com.android.ide.common.build.ApkInfo;
 import com.android.utils.FileUtils;
 import java.io.File;
@@ -35,21 +37,20 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.InputFiles;
-import org.gradle.api.tasks.Nested;
-import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 /** Package each split resources into a specific signed apk file. */
 public class PackageSplitRes extends AndroidBuilderTask {
 
-    private SigningConfig signingConfig;
+    private FileCollection signingConfig;
     private File incrementalDir;
-    public FileCollection processedResources;
+    public BuildableArtifact processedResources;
     public File splitResApkOutputDirectory;
 
     @InputFiles
-    public FileCollection getProcessedResources() {
+    public BuildableArtifact getProcessedResources() {
         return processedResources;
     }
 
@@ -58,17 +59,16 @@ public class PackageSplitRes extends AndroidBuilderTask {
         return splitResApkOutputDirectory;
     }
 
-    @Nested
-    @Optional
-    public SigningConfig getSigningConfig() {
+    @InputFiles
+    public FileCollection getSigningConfig() {
         return signingConfig;
     }
 
     @TaskAction
-    protected void doFullTaskAction() throws IOException {
+    protected void doFullTaskAction() {
 
         ExistingBuildElements.from(
-                        VariantScope.TaskOutputType.DENSITY_OR_LANGUAGE_SPLIT_PROCESSED_RES,
+                        InternalArtifactType.DENSITY_OR_LANGUAGE_SPLIT_PROCESSED_RES,
                         processedResources)
                 .transform(
                         (split, output) -> {
@@ -92,8 +92,11 @@ public class PackageSplitRes extends AndroidBuilderTask {
                             }
 
                             try (IncrementalPackager pkg =
-                                    new IncrementalPackagerBuilder()
-                                            .withSigning(signingConfig)
+                                    new IncrementalPackagerBuilder(
+                                                    IncrementalPackagerBuilder.ApkFormat.FILE)
+                                            .withSigning(
+                                                    SigningConfigMetadata.Companion.load(
+                                                            signingConfig))
                                             .withOutputFile(outFile)
                                             .withProject(PackageSplitRes.this.getProject())
                                             .withIntermediateDir(intDir)
@@ -106,7 +109,7 @@ public class PackageSplitRes extends AndroidBuilderTask {
                             return outFile;
                         })
                 .into(
-                        VariantScope.TaskOutputType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT,
+                        InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT,
                         splitResApkOutputDirectory);
     }
 
@@ -116,22 +119,20 @@ public class PackageSplitRes extends AndroidBuilderTask {
         return apkName + (isSigned ? "" : "-unsigned") + SdkConstants.DOT_ANDROID_PACKAGE;
     }
 
-    // ----- ConfigAction -----
+    // ----- CreationAction -----
 
-    public static class ConfigAction implements TaskConfigAction<PackageSplitRes> {
+    public static class CreationAction extends VariantTaskCreationAction<PackageSplitRes> {
 
-        private VariantScope scope;
-        private File outputDirectory;
+        private File splitResApkOutputDirectory;
 
-        public ConfigAction(VariantScope scope, File outputDirectory) {
-            this.scope = scope;
-            this.outputDirectory = outputDirectory;
+        public CreationAction(VariantScope scope) {
+            super(scope);
         }
 
         @Override
         @NonNull
         public String getName() {
-            return scope.getTaskName("package", "SplitResources");
+            return getVariantScope().getTaskName("package", "SplitResources");
         }
 
         @Override
@@ -141,17 +142,36 @@ public class PackageSplitRes extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull PackageSplitRes packageSplitResourcesTask) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+            splitResApkOutputDirectory =
+                    getVariantScope()
+                            .getArtifacts()
+                            .appendArtifact(
+                                    InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT,
+                                    taskName,
+                                    "out");
+        }
+
+        @Override
+        public void handleProvider(@NonNull TaskProvider<? extends PackageSplitRes> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setPackageSplitResourcesTask(taskProvider);
+        }
+
+        @Override
+        public void configure(@NonNull PackageSplitRes task) {
+            super.configure(task);
+            VariantScope scope = getVariantScope();
+
             BaseVariantData variantData = scope.getVariantData();
             final VariantConfiguration config = variantData.getVariantConfiguration();
 
-            packageSplitResourcesTask.processedResources =
-                    scope.getOutput(VariantScope.TaskOutputType.PROCESSED_RES);
-            packageSplitResourcesTask.signingConfig = config.getSigningConfig();
-            packageSplitResourcesTask.splitResApkOutputDirectory = outputDirectory;
-            packageSplitResourcesTask.incrementalDir = scope.getIncrementalDir(getName());
-            packageSplitResourcesTask.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            packageSplitResourcesTask.setVariantName(config.getFullName());
+            task.processedResources =
+                    scope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.PROCESSED_RES);
+            task.signingConfig = scope.getSigningConfigFileCollection();
+            task.splitResApkOutputDirectory = splitResApkOutputDirectory;
+            task.incrementalDir = scope.getIncrementalDir(getName());
         }
     }
 }

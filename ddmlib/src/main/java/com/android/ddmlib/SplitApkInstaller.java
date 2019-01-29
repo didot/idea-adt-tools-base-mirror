@@ -82,7 +82,7 @@ public class SplitApkInstaller {
             String command = mPrefix + " install-" +
                     (allUploadSucceeded ? "commit " : "abandon ") +
                     sessionId;
-            Device.InstallReceiver receiver = new Device.InstallReceiver();
+            InstallReceiver receiver = new InstallReceiver();
             mDevice.executeShellCommand(command, receiver, timeout, unit);
             String errorMessage = receiver.getErrorMessage();
             if (errorMessage != null) {
@@ -260,7 +260,7 @@ public class SplitApkInstaller {
         }
 
         @Override
-        public void processNewLines(String[] lines) {
+        public void processNewLines(@NonNull String[] lines) {
             for (String line : lines) {
                 Matcher matcher = successPattern.matcher(line);
                 if (matcher.matches()) {
@@ -286,7 +286,7 @@ public class SplitApkInstaller {
         }
 
         @Override
-        public void processNewLines(String[] lines) {
+        public void processNewLines(@NonNull String[] lines) {
             if (!processedFirstLine) {
                 processedFirstLine = true;
                 success = lines[0].startsWith("Success");

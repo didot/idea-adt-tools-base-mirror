@@ -18,8 +18,8 @@ package com.android.build.gradle.integration.application;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
-import com.android.build.gradle.integration.shrinker.ShrinkerTestUtils;
-import org.junit.Before;
+import com.android.build.gradle.internal.scope.CodeShrinker;
+import com.android.build.gradle.options.BooleanOption;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -32,32 +32,28 @@ import org.junit.runners.Parameterized;
 @RunWith(FilterableParameterized.class)
 public class OptionalLibraryWithProguardTest {
 
-    @Parameterized.Parameters(name = "useProguard = {0}")
-    public static Object[][] data() {
-        return new Boolean[][] {{true}, {false}};
+    @Parameterized.Parameters(name = "codeShrinker = {0}")
+    public static CodeShrinker[] data() {
+        return new CodeShrinker[] {CodeShrinker.PROGUARD, CodeShrinker.R8};
     }
 
-    @Parameterized.Parameter(0)
-    public boolean useProguard;
+    @Parameterized.Parameter public CodeShrinker codeShrinker;
 
     @Rule
     public GradleTestProject project =
             GradleTestProject.builder().fromTestProject("optionalLibInLibWithProguard").create();
 
-    @Before
-    public void chooseShrinker() throws Exception {
-        if (!useProguard) {
-            ShrinkerTestUtils.enableShrinker(project.getSubproject("app"), "debug");
-        }
-    }
-
     @Test
     public void testThatProguardCompilesWithOptionalClasses() throws Exception {
-        project.execute("clean", "app:assembleDebug");
+        project.executor()
+                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .run("clean", "app:assembleDebug");
     }
 
     @Test
     public void testUnitTestWithOptionalClasses() throws Exception {
-        project.execute("clean", "mylibrary:test");
+        project.executor()
+                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .run("clean", "mylibrary:test");
     }
 }

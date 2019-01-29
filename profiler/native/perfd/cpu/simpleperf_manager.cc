@@ -34,9 +34,17 @@ using std::string;
 namespace profiler {
 
 SimpleperfManager::~SimpleperfManager() {
+  // This is not necessary thanks to TerminationService. But keep it to be safe.
+  Shutdown();
+}
+
+void SimpleperfManager::Shutdown() {
+  // Intentionally not protected by |start_stop_mutex_| so this function can
+  // proceed without being blocked.
   string error;
   for (auto const &record : profiled_) {
-    StopSimpleperf(record.second, &error);
+    const OnGoingProfiling &ongoing = record.second;
+    StopSimpleperf(ongoing, &error);
   }
 }
 
@@ -44,7 +52,8 @@ bool SimpleperfManager::StartProfiling(const std::string &app_name,
                                        const std::string &abi_arch,
                                        int sampling_interval_us,
                                        std::string *trace_path,
-                                       std::string *error) {
+                                       std::string *error,
+                                       bool is_startup_profiling) {
   std::lock_guard<std::mutex> lock(start_stop_mutex_);
   Trace trace("CPU: StartProfiling simplerperf");
   Log::D("Profiler:Received query to profile %s", app_name.c_str());
@@ -55,24 +64,27 @@ bool SimpleperfManager::StartProfiling(const std::string &app_name,
     return true;
   }
 
-  ProcessManager process_manager;
-  int pid = process_manager.GetPidForBinary(app_name);
-  if (pid < 0) {
-    error->append("\n");
-    error->append("Unable to get process id to profile.");
-    return false;
+  int pid = kStartupProfilingPid;
+  if (!is_startup_profiling) {
+    ProcessManager process_manager;
+    pid = process_manager.GetPidForBinary(app_name);
+    if (pid < 0) {
+      error->append("\n");
+      error->append("Unable to get process id to profile.");
+      return false;
+    }
+    Log::D("%s app has pid:%d", app_name.c_str(), pid);
   }
-  Log::D("%s app has pid:%d", app_name.c_str(), pid);
 
-  if (!simpleperf_.EnableProfiling()) {
+  if (!simpleperf_->EnableProfiling()) {
     error->append("\n");
     error->append("Unable to setprop to enable profiling.");
     return false;
   }
-
   // Build entry to keep track of what is being profiled.
   OnGoingProfiling entry;
   entry.pid = pid;
+  entry.process_name = ProcessManager::GetPackageNameFromAppName(app_name);
   entry.abi_arch = abi_arch;
   entry.output_prefix = GetFileBaseName(app_name);
   entry.trace_path =
@@ -92,9 +104,9 @@ bool SimpleperfManager::StartProfiling(const std::string &app_name,
       break;  // Useless but make the compiler happy.
     }
     case 0: {  // Child Process
-      simpleperf_.Record(
-          pid, ProcessManager::GetPackageNameFromAppName(app_name), abi_arch,
-          entry.raw_trace_path, sampling_interval_us, entry.log_file_path);
+      simpleperf_->Record(pid, entry.process_name, abi_arch,
+                          entry.raw_trace_path, sampling_interval_us,
+                          entry.log_file_path);
       exit(EXIT_FAILURE);
       break;  // Useless break but makes compiler happy.
     }
@@ -113,7 +125,7 @@ string SimpleperfManager::GetFileBaseName(const string &app_name) const {
   trace_filebase << "simpleperf-";
   trace_filebase << app_name;
   trace_filebase << "-";
-  trace_filebase << clock_.GetCurrentTime();
+  trace_filebase << clock_->GetCurrentTime();
   return trace_filebase.str();
 }
 
@@ -153,8 +165,10 @@ bool SimpleperfManager::StopProfiling(const std::string &app_name,
       success = false;
     }
 
-    // Make sure pid is what is expected
-    if (current_pid != ongoing_recording.pid) {
+    // Make sure pid is what is expected. A startup profiling didn't have pid
+    // available when it started, so it is an exception.
+    if (ongoing_recording.pid != kStartupProfilingPid &&
+        ongoing_recording.pid != current_pid) {
       // Looks like the app was restarted. Simpleperf died as a result.
       string msg = "Recorded pid and current app pid do not match: Aborting";
       error->append("\n");
@@ -196,8 +210,8 @@ bool SimpleperfManager::StopSimpleperf(
   // Ask simpleperf to stop profiling this app.
   Log::D("Sending SIGTERM to simpleperf(%d).",
          ongoing_recording.simpleperf_pid);
-  bool kill_simpleperf_result =
-      simpleperf_.KillSimpleperf(ongoing_recording.simpleperf_pid);
+  bool kill_simpleperf_result = simpleperf_->KillSimpleperf(
+      ongoing_recording.simpleperf_pid, ongoing_recording.process_name);
 
   if (!kill_simpleperf_result) {
     string msg = "Failed to send SIGTERM to simpleperf";
@@ -219,7 +233,7 @@ void SimpleperfManager::CleanUp(
 bool SimpleperfManager::ConvertRawToProto(
     const OnGoingProfiling &ongoing_recording, string *error) const {
   string output;
-  bool report_sample_result = simpleperf_.ReportSample(
+  bool report_sample_result = simpleperf_->ReportSample(
       ongoing_recording.raw_trace_path, ongoing_recording.trace_path,
       ongoing_recording.abi_arch, &output);
   if (!report_sample_result) {

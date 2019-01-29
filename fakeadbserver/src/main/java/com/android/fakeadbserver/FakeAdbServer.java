@@ -18,6 +18,8 @@ package com.android.fakeadbserver;
 
 import com.android.annotations.NonNull;
 import com.android.fakeadbserver.devicecommandhandlers.DeviceCommandHandler;
+import com.android.fakeadbserver.devicecommandhandlers.ExecCommandHandler;
+import com.android.fakeadbserver.devicecommandhandlers.SyncCommandHandler;
 import com.android.fakeadbserver.devicecommandhandlers.TrackJdwpCommandHandler;
 import com.android.fakeadbserver.hostcommandhandlers.ForwardCommandHandler;
 import com.android.fakeadbserver.hostcommandhandlers.HostCommandHandler;
@@ -26,9 +28,14 @@ import com.android.fakeadbserver.hostcommandhandlers.KillForwardAllCommandHandle
 import com.android.fakeadbserver.hostcommandhandlers.KillForwardCommandHandler;
 import com.android.fakeadbserver.hostcommandhandlers.ListDevicesCommandHandler;
 import com.android.fakeadbserver.hostcommandhandlers.TrackDevicesCommandHandler;
+import com.android.fakeadbserver.shellcommandhandlers.CmdCommandHandler;
+import com.android.fakeadbserver.shellcommandhandlers.DumpsysCommandHandler;
 import com.android.fakeadbserver.shellcommandhandlers.GetPropCommandHandler;
 import com.android.fakeadbserver.shellcommandhandlers.LogcatCommandHandler;
+import com.android.fakeadbserver.shellcommandhandlers.PackageManagerCommandHandler;
+import com.android.fakeadbserver.shellcommandhandlers.SetPropCommandHandler;
 import com.android.fakeadbserver.shellcommandhandlers.ShellCommandHandler;
+import com.android.fakeadbserver.shellcommandhandlers.WindowManagerCommandHandler;
 import com.android.fakeadbserver.shellcommandhandlers.WriteNoStopCommandHandler;
 import com.android.fakeadbserver.statechangehubs.DeviceStateChangeHub;
 import com.google.common.util.concurrent.Futures;
@@ -112,6 +119,9 @@ public final class FakeAdbServer implements AutoCloseable {
                         () -> {
                             while (mServerKeepAccepting) {
                                 try {
+                                    // Socket can not be closed in finally block, because a separate thread will
+                                    // read from the socket. Closing the socket leads to a race condition.
+                                    //noinspection SocketOpenedButNotSafelyClosed
                                     Socket socket = mServerSocket.accept();
                                     mThreadPoolExecutor.submit(
                                             new ConnectionHandler(
@@ -331,11 +341,20 @@ public final class FakeAdbServer implements AutoCloseable {
                     KillForwardAllCommandHandler.COMMAND, KillForwardAllCommandHandler::new);
 
             setDeviceCommandHandler(TrackJdwpCommandHandler.COMMAND, TrackJdwpCommandHandler::new);
+            setDeviceCommandHandler(ExecCommandHandler.COMMAND, ExecCommandHandler::new);
+            setDeviceCommandHandler(SyncCommandHandler.COMMAND, SyncCommandHandler::new);
 
             setShellCommandHandler(LogcatCommandHandler.COMMAND, LogcatCommandHandler::new);
             setShellCommandHandler(GetPropCommandHandler.COMMAND, GetPropCommandHandler::new);
+            setShellCommandHandler(SetPropCommandHandler.COMMAND, SetPropCommandHandler::new);
             setShellCommandHandler(
                     WriteNoStopCommandHandler.COMMAND, WriteNoStopCommandHandler::new);
+            setShellCommandHandler(
+                    PackageManagerCommandHandler.COMMAND, PackageManagerCommandHandler::new);
+            setShellCommandHandler(
+                    WindowManagerCommandHandler.COMMAND, WindowManagerCommandHandler::new);
+            setShellCommandHandler(CmdCommandHandler.COMMAND, CmdCommandHandler::new);
+            setShellCommandHandler(DumpsysCommandHandler.COMMAND, DumpsysCommandHandler::new);
 
             return this;
         }

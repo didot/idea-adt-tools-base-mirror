@@ -16,10 +16,13 @@
 
 package com.android.build.gradle.internal.tasks;
 
+import static com.android.SdkConstants.FN_LINT_JAR;
+
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.dependency.VariantDependencies;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.utils.FileUtils;
 import com.google.common.collect.Iterables;
 import com.google.common.io.Files;
@@ -28,7 +31,7 @@ import java.io.IOException;
 import java.util.Set;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Classpath;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.TaskAction;
 
@@ -45,7 +48,7 @@ public class PrepareLintJar extends DefaultTask {
     private FileCollection lintChecks;
     private File outputLintJar;
 
-    @InputFiles
+    @Classpath
     public FileCollection getLintChecks() {
         return lintChecks;
     }
@@ -78,14 +81,13 @@ public class PrepareLintJar extends DefaultTask {
         }
     }
 
-    public static class ConfigAction implements TaskConfigAction<PrepareLintJar> {
+    public static class CreationAction extends TaskCreationAction<PrepareLintJar> {
 
         @NonNull private final GlobalScope scope;
-        @NonNull private final File destFile;
+        private File outputLintJar;
 
-        public ConfigAction(@NonNull GlobalScope scope, @NonNull File destFile) {
+        public CreationAction(@NonNull GlobalScope scope) {
             this.scope = scope;
-            this.destFile = destFile;
         }
 
         @NonNull
@@ -101,8 +103,16 @@ public class PrepareLintJar extends DefaultTask {
         }
 
         @Override
-        public void execute(@NonNull PrepareLintJar task) {
-            task.outputLintJar = destFile;
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+            outputLintJar =
+                    scope.getArtifacts()
+                            .appendArtifact(InternalArtifactType.LINT_JAR, taskName, FN_LINT_JAR);
+        }
+
+        @Override
+        public void configure(@NonNull PrepareLintJar task) {
+            task.outputLintJar = outputLintJar;
             task.lintChecks = scope.getLocalCustomLintChecks();
         }
     }

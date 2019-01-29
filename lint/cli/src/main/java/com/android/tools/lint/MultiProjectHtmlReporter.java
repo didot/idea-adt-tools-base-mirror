@@ -33,8 +33,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * "Multiplexing" reporter which allows output to be split up into a separate
- * report for each separate project. It also adds an overview index.
+ * "Multiplexing" reporter which allows output to be split up into a separate report for each
+ * separate project. It also adds an overview index.
  */
 public class MultiProjectHtmlReporter extends Reporter {
     private static final String INDEX_NAME = "index.html";
@@ -42,20 +42,18 @@ public class MultiProjectHtmlReporter extends Reporter {
     protected final LintCliFlags flags;
 
     public MultiProjectHtmlReporter(
-            @NonNull LintCliClient client,
-            @NonNull File dir,
-            @NonNull LintCliFlags flags) {
+            @NonNull LintCliClient client, @NonNull File dir, @NonNull LintCliFlags flags) {
         super(client, new File(dir, INDEX_NAME));
         this.dir = dir;
         this.flags = flags;
     }
 
     @Override
-    public void write(@NonNull Stats stats, List<Warning> allIssues) throws IOException {
+    public void write(@NonNull LintStats stats, List<Warning> allIssues) throws IOException {
         Map<Project, List<Warning>> projectToWarnings = new HashMap<>();
         for (Warning warning : allIssues) {
-            List<Warning> list = projectToWarnings
-                    .computeIfAbsent(warning.project, k -> new ArrayList<>());
+            List<Warning> list =
+                    projectToWarnings.computeIfAbsent(warning.project, k -> new ArrayList<>());
             list.add(warning);
         }
 
@@ -101,7 +99,7 @@ public class MultiProjectHtmlReporter extends Reporter {
             List<Warning> issues = projectToWarnings.get(project);
             int projectErrorCount = 0;
             int projectWarningCount = 0;
-            for (Warning warning: issues) {
+            for (Warning warning : issues) {
                 if (warning.severity.isError()) {
                     projectErrorCount++;
                 } else if (warning.severity == Severity.WARNING) {
@@ -125,8 +123,8 @@ public class MultiProjectHtmlReporter extends Reporter {
             reporter.setStripPrefix(relative);
             reporter.write(stats, issues);
 
-            projects.add(new ProjectEntry(fileName, projectErrorCount, projectWarningCount,
-                    relative));
+            projects.add(
+                    new ProjectEntry(fileName, projectErrorCount, projectWarningCount, relative));
         }
 
         // Sort project list in decreasing order of errors, warnings and names
@@ -136,7 +134,7 @@ public class MultiProjectHtmlReporter extends Reporter {
         reporter.writeProjectList(stats, projects);
 
         if (!client.getFlags().isQuiet()
-                && (stats.errorCount > 0 || stats.warningCount > 0)) {
+                && (stats.getErrorCount() > 0 || stats.getWarningCount() > 0)) {
             File index = new File(dir, INDEX_NAME);
             String url = SdkUtils.fileToUrlString(index.getAbsoluteFile());
             System.out.println(String.format("Wrote overview index to %1$s", url));
@@ -148,7 +146,6 @@ public class MultiProjectHtmlReporter extends Reporter {
         public final int warningCount;
         public final String fileName;
         public final String path;
-
 
         public ProjectEntry(String fileName, int errorCount, int warningCount, String path) {
             this.fileName = fileName;

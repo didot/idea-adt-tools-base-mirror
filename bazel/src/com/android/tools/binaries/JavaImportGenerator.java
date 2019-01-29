@@ -17,6 +17,7 @@
 package com.android.tools.binaries;
 
 import com.android.tools.maven.MavenRepository;
+import com.android.tools.utils.Buildifier;
 import com.android.tools.utils.WorkspaceUtils;
 import com.google.common.collect.ImmutableSet;
 import java.io.FileWriter;
@@ -27,6 +28,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.maven.model.Model;
@@ -80,18 +82,19 @@ public class JavaImportGenerator {
     }
 
     private void processPomFiles() throws IOException, ArtifactDescriptorException {
-        Files.walk(mRepo.getDirectory())
-                .filter(path -> path.toString().endsWith(".pom"))
-                .forEach(
-                        pom -> {
-                            try {
-                                processPomFile(pom, true);
-                            } catch (IOException e) {
-                                throw new UncheckedIOException(e);
-                            }
-                        });
+        try (Stream<Path> stream = Files.walk(mRepo.getDirectory())) {
+            stream.filter(path -> path.toString().endsWith(".pom"))
+                    .forEach(
+                            pom -> {
+                                try {
+                                    processPomFile(pom, true);
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                }
+                            });
 
-        System.out.println();
+            System.out.println();
+        }
     }
 
     /**
@@ -232,5 +235,6 @@ public class JavaImportGenerator {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+        Buildifier.runBuildifier(buildFile);
     }
 }

@@ -40,31 +40,36 @@ class ByteOrderMarkDetector : ResourceXmlDetector(), SourceCodeScanner, GradleSc
     companion object Issues {
 
         /** Detects BOM characters in the middle of files  */
-        @JvmField val BOM = Issue.create(
-                "ByteOrderMark",
-                "Byte order mark inside files",
-                """
-Lint will flag any byte-order-mark (BOM) characters it finds in the middle of a file. Since we \
-expect files to be encoded with UTF-8 (see the EnforceUTF8 issue), the BOM characters are not \
-necessary, and they are not handled correctly by all tools. For example, if you have a BOM as \
-part of a resource name in one particular translation, that name will not be considered identical \
-to the base resource's name and the translation will not be used.""",
-                Category.I18N,
-                8,
-                Severity.ERROR,
-                Implementation(
-                        ByteOrderMarkDetector::class.java,
-                        // Applies to all text files
-                        EnumSet.of(Scope.MANIFEST, Scope.RESOURCE_FILE, Scope.JAVA_FILE, Scope.GRADLE_FILE,
-                                Scope.PROPERTY_FILE, Scope.PROGUARD_FILE),
-                        Scope.RESOURCE_FILE_SCOPE,
-                        Scope.JAVA_FILE_SCOPE,
-                        Scope.MANIFEST_SCOPE,
-                        Scope.JAVA_FILE_SCOPE,
-                        Scope.GRADLE_SCOPE,
-                        Scope.PROPERTY_SCOPE,
-                        Scope.PROGUARD_SCOPE))
-                .addMoreInfo("http://en.wikipedia.org/wiki/Byte_order_mark")
+        @JvmField
+        val BOM = Issue.create(
+            id = "ByteOrderMark",
+            briefDescription = "Byte order mark inside files",
+            explanation = """
+            Lint will flag any byte-order-mark (BOM) characters it finds in the middle of a file. Since we \
+            expect files to be encoded with UTF-8 (see the EnforceUTF8 issue), the BOM characters are not \
+            necessary, and they are not handled correctly by all tools. For example, if you have a BOM as \
+            part of a resource name in one particular translation, that name will not be considered identical \
+            to the base resource's name and the translation will not be used.""",
+            moreInfo = "http://en.wikipedia.org/wiki/Byte_order_mark",
+            category = Category.I18N,
+            priority = 8,
+            severity = Severity.ERROR,
+            implementation = Implementation(
+                ByteOrderMarkDetector::class.java,
+                // Applies to all text files
+                EnumSet.of(
+                    Scope.MANIFEST, Scope.RESOURCE_FILE, Scope.JAVA_FILE, Scope.GRADLE_FILE,
+                    Scope.PROPERTY_FILE, Scope.PROGUARD_FILE
+                ),
+                Scope.RESOURCE_FILE_SCOPE,
+                Scope.JAVA_FILE_SCOPE,
+                Scope.MANIFEST_SCOPE,
+                Scope.JAVA_FILE_SCOPE,
+                Scope.GRADLE_SCOPE,
+                Scope.PROPERTY_SCOPE,
+                Scope.PROGUARD_SCOPE
+            )
+        )
     }
 
     override fun beforeCheckFile(context: Context) {
@@ -107,15 +112,19 @@ to the base resource's name and the translation will not be used.""",
         }
     }
 
+    // XML files: work is done in beforeCheckFile()
     override fun visitDocument(context: XmlContext, document: Document) =
-            // The work is done in beforeCheckFile()
-            Unit
+        Unit
 
+    // Java files: work is done in beforeCheckFile()
     override fun createUastHandler(context: JavaContext): UElementHandler? =
-            // Java files: work is done in beforeCheckFile()
-            null
+        null
 
+    // ProGuard files: work is done in beforeCheckFile()
     override fun run(context: Context) =
-            // ProGuard files: work is done in beforeCheckFile()
-            Unit
+        Unit
+
+    // Gradle: Don't attempt to visit the file
+    override val customVisitor: Boolean
+        get() = true
 }

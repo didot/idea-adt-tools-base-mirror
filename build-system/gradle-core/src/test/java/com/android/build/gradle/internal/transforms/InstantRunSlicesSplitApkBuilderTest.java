@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import com.android.annotations.NonNull;
 import com.android.build.VariantOutput;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.Format;
 import com.android.build.api.transform.QualifiedContent;
 import com.android.build.api.transform.Status;
@@ -29,8 +30,6 @@ import com.android.build.api.transform.TransformException;
 import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.api.transform.TransformOutputProvider;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
-import com.android.build.gradle.internal.dsl.CoreSigningConfig;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
@@ -42,6 +41,7 @@ import com.android.sdklib.BuildToolInfo;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
@@ -68,17 +68,19 @@ public class InstantRunSlicesSplitApkBuilderTest {
     @Mock Project project;
     @Mock InstantRunBuildContext buildContext;
     @Mock AndroidBuilder androidBuilder;
-    @Mock CoreSigningConfig coreSigningConfig;
-    @Mock FileCollection mainResources;
+    @Mock FileCollection coreSigningConfig;
+    @Mock BuildableArtifact mainResources;
+    @Mock BuildableArtifact splitApkResources;
 
     @Mock TargetInfo targetInfo;
     @Mock BuildToolInfo buildTools;
-    @Mock FileCollection apkList;
+    @Mock BuildableArtifact apkList;
 
     @Rule public TemporaryFolder outputDirectory = new TemporaryFolder();
     @Rule public TemporaryFolder supportDirectory = new TemporaryFolder();
     @Rule public TemporaryFolder dexFileFolder = new TemporaryFolder();
     @Rule public TemporaryFolder apkListDirectory = new TemporaryFolder();
+    @Rule public TemporaryFolder apkResources = new TemporaryFolder();
 
     InstantRunSliceSplitApkBuilder instantRunSliceSplitApkBuilder;
     final List<InstantRunSplitApkBuilder.DexFiles> dexFilesList =
@@ -87,11 +89,13 @@ public class InstantRunSlicesSplitApkBuilderTest {
     final ApkInfo apkInfo = ApkInfo.of(VariantOutput.OutputType.MAIN, ImmutableList.of(), 12345);
 
     @Before
-    public void setUpMock() {
+    public void setUpMock() throws IOException {
         MockitoAnnotations.initMocks(this);
         when(androidBuilder.getTargetInfo()).thenReturn(targetInfo);
         when(targetInfo.getBuildTools()).thenReturn(buildTools);
         when(buildTools.getPath(BuildToolInfo.PathId.ZIP_ALIGN)).thenReturn("/path/to/zip-align");
+        when(splitApkResources.getFiles()).thenReturn(ImmutableSet.of(apkResources.getRoot()));
+
     }
 
     @Before
@@ -100,7 +104,13 @@ public class InstantRunSlicesSplitApkBuilderTest {
         File apkListFile = apkListDirectory.newFile("apk-list.json");
         org.apache.commons.io.FileUtils.write(
                 apkListFile, ExistingBuildElements.persistApkList(ImmutableList.of(apkInfo)));
-        when(apkList.getSingleFile()).thenReturn(apkListFile);
+        when(apkList.iterator()).thenReturn(ImmutableList.of(apkListFile).iterator());
+
+        FileUtils.createFile(new File(apkResources.getRoot(), "dex_one/resources_ap"), "resources");
+        FileUtils.createFile(new File(apkResources.getRoot(), "dex_two/resources_ap"), "resources");
+        FileUtils.createFile(
+                new File(apkResources.getRoot(), "dex_three/resources_ap"), "resources");
+
 
         instantRunSliceSplitApkBuilder =
                 new InstantRunSliceSplitApkBuilder(
@@ -108,23 +118,25 @@ public class InstantRunSlicesSplitApkBuilderTest {
                         project,
                         buildContext,
                         androidBuilder,
-                        "com.foo.test",
+                        null,
+                        () -> "com.foo.test",
                         coreSigningConfig,
-                        AaptGeneration.AAPT_V2_DAEMON_MODE,
                         new AaptOptions(null, false, null),
                         outputDirectory.getRoot(),
                         supportDirectory.newFolder("instant-run"),
-                        supportDirectory.newFolder("aapt-temp"),
                         mainResources,
                         mainResources,
                         apkList,
+                        splitApkResources,
                         apkInfo) {
+
                     @Override
-                    @NonNull
-                    protected File generateSplitApk(
-                            @NonNull ApkInfo apkInfo, @NonNull DexFiles dexFiles) {
-                        dexFilesList.add(dexFiles);
-                        return new File("/dev/null");
+                    void generateSplitApk(
+                            String uniqueName,
+                            File resPackageFile,
+                            DexFiles split,
+                            File outputFile) {
+                        dexFilesList.add(split);
                     }
                 };
     }
@@ -315,6 +327,7 @@ public class InstantRunSlicesSplitApkBuilderTest {
                         .setTransformOutputProvider(transformOutputProvider)
                         .setIncremental(true)
                         .build();
+
 
         instantRunSliceSplitApkBuilder.transform(transformInvocation);
         assertThat(

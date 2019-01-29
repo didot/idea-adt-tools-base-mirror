@@ -19,9 +19,12 @@
 #include "perfd/cpu/cpu_cache.h"
 #include "perfd/cpu/cpu_collector.h"
 #include "perfd/cpu/cpu_service.h"
+#include "perfd/cpu/internal_cpu_service.h"
 #include "perfd/cpu/thread_monitor.h"
 #include "perfd/daemon.h"
 #include "perfd/profiler_component.h"
+#include "perfd/termination_service.h"
+#include "proto/agent_service.grpc.pb.h"
 
 namespace profiler {
 
@@ -40,10 +43,15 @@ class CpuProfilerComponent final : public ProfilerComponent {
 
  public:
   // Creates a CPU perfd component and starts sampling right away.
-  explicit CpuProfilerComponent(Daemon::Utilities* utilities)
-      : clock_(utilities->clock()),
-        usage_sampler_(utilities, &cache_),
-        thread_monitor_(utilities, &cache_) {
+  explicit CpuProfilerComponent(Clock* clock, FileCache* file_cache,
+                                const proto::AgentConfig::CpuConfig& cpu_config,
+                                TerminationService* termination_service)
+      : clock_(clock),
+        cache_(kBufferCapacity, clock, file_cache),
+        usage_sampler_(clock, &cache_),
+        thread_monitor_(clock, &cache_),
+        public_service_(clock, &cache_, &usage_sampler_, &thread_monitor_,
+                        cpu_config, termination_service) {
     collector_.Start();
   }
 
@@ -51,17 +59,21 @@ class CpuProfilerComponent final : public ProfilerComponent {
   grpc::Service* GetPublicService() override { return &public_service_; }
 
   // Returns the service that talks to device clients (e.g., the agent).
-  grpc::Service* GetInternalService() override { return nullptr; }
+  grpc::Service* GetInternalService() override { return &internal_service_; }
+
+  int64_t GetEarliestDataTime(int32_t pid) override {
+    return public_service_.GetEarliestDataTime(pid);
+  }
 
  private:
-  const Clock& clock_;
-  CpuCache cache_{kBufferCapacity};
+  Clock* clock_;
+  CpuCache cache_;
   CpuUsageSampler usage_sampler_;
   ThreadMonitor thread_monitor_;
   CpuCollector collector_{kDefaultCollectionIntervalUs, &usage_sampler_,
                           &thread_monitor_};
-  CpuServiceImpl public_service_{clock_, &cache_, &usage_sampler_,
-                                 &thread_monitor_};
+  CpuServiceImpl public_service_;
+  InternalCpuServiceImpl internal_service_{&cache_};
 };
 
 }  // namespace profiler

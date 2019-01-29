@@ -17,7 +17,7 @@
 package com.android.builder.internal.aapt.v2
 
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.ide.common.res2.CompileResourceRequest
+import com.android.ide.common.resources.CompileResourceRequest
 import com.android.utils.ILogger
 import java.util.concurrent.TimeoutException
 import javax.annotation.concurrent.NotThreadSafe
@@ -48,7 +48,7 @@ abstract class Aapt2Daemon(
     private fun checkStarted() {
         when (state) {
             State.NEW -> {
-                logger.info("%1\$s: starting", displayName)
+                logger.verbose("%1\$s: starting", displayName)
                 try {
                     startProcess()
                 } catch (e: TimeoutException) {
@@ -61,7 +61,7 @@ abstract class Aapt2Daemon(
             State.RUNNING -> {
                 // Already ready
             }
-            State.SHUTDOWN -> throw IllegalStateException("$displayName: Cannot restart a shutdown process")
+            State.SHUTDOWN -> error("$displayName: Cannot restart a shutdown process")
         }
     }
 
@@ -79,8 +79,13 @@ abstract class Aapt2Daemon(
         checkStarted()
         try {
             doCompile(request, logger)
+        } catch (e: Aapt2Exception) {
+            // Propagate errors in the users sources directly.
+            throw e
         } catch (e: TimeoutException) {
             handleError("Compile '${request.inputFile}' timed out", e)
+        } catch (e: Exception) {
+            handleError("Unexpected error during compile '${request.inputFile}'", e)
         }
     }
 
@@ -89,15 +94,20 @@ abstract class Aapt2Daemon(
      *
      * This will only be called after [startProcess] is called and before [stopProcess] is called
      */
-    @Throws(TimeoutException::class)
+    @Throws(TimeoutException::class, Aapt2InternalException::class, Aapt2Exception::class)
     protected abstract fun doCompile(request: CompileResourceRequest, logger: ILogger)
 
     override fun link(request: AaptPackageConfig, logger: ILogger) {
         checkStarted()
         try {
             doLink(request, logger)
+        } catch (e: Aapt2Exception) {
+            // Propagate errors in the users sources directly.
+            throw e
         } catch (e: TimeoutException) {
             handleError("Link timed out", e)
+        } catch (e: Exception) {
+            handleError("Unexpected error during link", e)
         }
     }
 
@@ -106,14 +116,14 @@ abstract class Aapt2Daemon(
      *
      * This will only be called after [startProcess] is called and before [stopProcess] is called.
      */
-    @Throws(TimeoutException::class)
+    @Throws(TimeoutException::class, Aapt2InternalException::class, Aapt2Exception::class)
     protected abstract fun doLink(request: AaptPackageConfig, logger: ILogger)
 
     fun shutDown() {
         state = when (state) {
             State.NEW -> State.SHUTDOWN // Never started, nothing to do.
             State.RUNNING -> {
-                logger.info("%1\$s: shutdown", displayName)
+                logger.verbose("%1\$s: shutdown", displayName)
                 try {
                     stopProcess()
                 } catch (e: TimeoutException) {
@@ -121,7 +131,7 @@ abstract class Aapt2Daemon(
                 }
                 State.SHUTDOWN
             }
-            State.SHUTDOWN -> throw IllegalStateException("Cannot call shutdown multiple times")
+            State.SHUTDOWN -> error("Cannot call shutdown multiple times")
         }
     }
 
@@ -137,7 +147,7 @@ abstract class Aapt2Daemon(
     private fun handleError(action: String, exception: Exception): Nothing {
         throw Aapt2InternalException(
                     "$displayName: $action" +
-                            if (state == State.RUNNING) ", attempting to stop daemon.\n" else "\n" +
+                            (if (state == State.RUNNING) ", attempting to stop daemon.\n" else "\n") +
                             "This should not happen under normal circumstances, " +
                             "please file an issue if it does.",
                     exception).apply {

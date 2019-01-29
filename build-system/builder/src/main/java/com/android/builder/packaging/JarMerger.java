@@ -16,6 +16,7 @@
 
 package com.android.builder.packaging;
 
+import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.utils.PathUtils;
@@ -27,18 +28,30 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.Map;
+import java.util.function.Predicate;
+import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /** Jar Merger class. */
 public class JarMerger implements Closeable {
+
+    public static final Predicate<String> CLASSES_ONLY =
+            archivePath -> archivePath.endsWith(SdkConstants.DOT_CLASS);
+    public static final Predicate<String> EXCLUDE_CLASSES =
+            archivePath -> !archivePath.endsWith(SdkConstants.DOT_CLASS);
+
+    public static final String MODULE_PATH = "module-path";
 
     public interface Transformer {
         /**
@@ -64,13 +77,13 @@ public class JarMerger implements Closeable {
 
     @NonNull private final JarOutputStream jarOutputStream;
 
-    @Nullable private final ZipEntryFilter filter;
+    @Nullable private final Predicate<String> filter;
 
     public JarMerger(@NonNull Path jarFile) throws IOException {
         this(jarFile, null);
     }
 
-    public JarMerger(@NonNull Path jarFile, @Nullable ZipEntryFilter filter) throws IOException {
+    public JarMerger(@NonNull Path jarFile, @Nullable Predicate<String> filter) throws IOException {
         this.filter = filter;
         Files.createDirectories(jarFile.getParent());
         jarOutputStream =
@@ -83,7 +96,7 @@ public class JarMerger implements Closeable {
 
     public void addDirectory(
             @NonNull Path directory,
-            @Nullable ZipEntryFilter filterOverride,
+            @Nullable Predicate<String> filterOverride,
             @Nullable Transformer transformer,
             @Nullable Relocator relocator)
             throws IOException {
@@ -92,16 +105,11 @@ public class JarMerger implements Closeable {
                 directory,
                 new SimpleFileVisitor<Path>() {
                     @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
-                            throws IOException {
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         String entryPath =
                                 PathUtils.toSystemIndependentPath(directory.relativize(file));
-                        try {
-                            if (filterOverride != null && !filterOverride.checkEntry(entryPath)) {
-                                return FileVisitResult.CONTINUE;
-                            }
-                        } catch (ZipAbortException e) {
-                            throw new IOException(e);
+                        if (filterOverride != null && !filterOverride.test(entryPath)) {
+                            return FileVisitResult.CONTINUE;
                         }
 
                         if (relocator != null) {
@@ -134,7 +142,7 @@ public class JarMerger implements Closeable {
 
     public void addJar(
             @NonNull Path file,
-            @Nullable ZipEntryFilter filterOverride,
+            @Nullable Predicate<String> filterOverride,
             @Nullable Relocator relocator)
             throws IOException {
         try (ZipInputStream zis =
@@ -150,18 +158,17 @@ public class JarMerger implements Closeable {
 
                 // Filter out files, e.g. META-INF folder, not classes.
                 String name = entry.getName();
-                try {
-                    if (filterOverride != null && !filterOverride.checkEntry(name)) {
-                        continue;
-                    }
-                } catch (ZipAbortException e) {
-                    throw new IOException(e);
+                if (filterOverride != null && !filterOverride.test(name)) {
+                    continue;
                 }
 
                 if (relocator != null) {
                     name = relocator.relocate(name);
                 }
 
+                if (name.contains("../")) {
+                    throw new InvalidPathException(name, "Entry name contains invalid characters");
+                }
                 JarEntry newEntry = new JarEntry(name);
                 newEntry.setMethod(entry.getMethod());
                 if (newEntry.getMethod() == ZipEntry.STORED) {
@@ -184,20 +191,47 @@ public class JarMerger implements Closeable {
         }
     }
 
+    public void addEntry(@NonNull String entryPath, @NonNull InputStream input) throws IOException {
+        try (InputStream is = new BufferedInputStream(input)) {
+            write(new JarEntry(entryPath), is);
+        }
+    }
+
     @Override
     public void close() throws IOException {
         jarOutputStream.close();
     }
 
+    public void setManifestProperties(Map<String, String> properties) throws IOException {
+        Manifest manifest = new Manifest();
+        Attributes global = manifest.getMainAttributes();
+        global.put(Attributes.Name.MANIFEST_VERSION, "1.0.0");
+        properties.forEach(
+                (attributeName, attributeValue) ->
+                        global.put(new Attributes.Name(attributeName), attributeValue));
+        JarEntry manifestEntry = new JarEntry(JarFile.MANIFEST_NAME);
+        setEntryAttributes(manifestEntry);
+        jarOutputStream.putNextEntry(manifestEntry);
+        try {
+            manifest.write(jarOutputStream);
+        } finally {
+            jarOutputStream.closeEntry();
+        }
+    }
+
     private void write(@NonNull JarEntry entry, @NonNull InputStream from) throws IOException {
-        entry.setLastModifiedTime(ZERO_TIME);
-        entry.setLastAccessTime(ZERO_TIME);
-        entry.setCreationTime(ZERO_TIME);
+        setEntryAttributes(entry);
         jarOutputStream.putNextEntry(entry);
         int count;
         while ((count = from.read(buffer)) != -1) {
             jarOutputStream.write(buffer, 0, count);
         }
         jarOutputStream.closeEntry();
+    }
+
+    private void setEntryAttributes(@NonNull JarEntry entry) {
+        entry.setLastModifiedTime(ZERO_TIME);
+        entry.setLastAccessTime(ZERO_TIME);
+        entry.setCreationTime(ZERO_TIME);
     }
 }

@@ -25,8 +25,8 @@ import static org.junit.Assert.fail;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
-import com.android.apkzlib.zip.ZFile;
 import com.android.testutils.apk.Dex;
+import com.android.tools.build.apkzlib.zip.ZFile;
 import com.android.utils.PathUtils;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -156,44 +156,6 @@ public class DexArchiveBuilderTest {
         DexArchiveTestUtil.convertClassesToDexArchive(input, output, dexerTool);
         try (DexArchive dexArchive = DexArchives.fromInput(output)) {
             assertArchiveIsValid(dexArchive, ImmutableList.of("A", "B", "C", "D", "F"));
-        }
-    }
-
-    @Test
-    public void checkRemovingDexEntries() throws Exception {
-        Assume.assumeTrue(outputFormat == DexArchiveFormat.DIR);
-        Collection<String> classesInInput = ImmutableList.of("A", "B", "C");
-        Path input = writeToInput(classesInInput);
-        Path output = createOutput();
-        DexArchiveTestUtil.convertClassesToDexArchive(input, output, dexerTool);
-
-        // remove the file, we close it to make sure it is written to disk
-        try (DexArchive dexArchive = DexArchives.fromInput(output)) {
-            dexArchive.removeFile(PACKAGE + "/B.dex");
-        }
-
-        try (DexArchive dexArchive = DexArchives.fromInput(output)) {
-            assertArchiveIsValid(dexArchive, ImmutableList.of("A", "C"));
-        }
-    }
-
-    @Test
-    public void checkRemovingAllEntries() throws Exception {
-        Assume.assumeTrue(outputFormat == DexArchiveFormat.DIR);
-        Collection<String> classesInInput = ImmutableList.of("A", "B", "C");
-        Path input = writeToInput(classesInInput);
-        Path output = createOutput();
-        DexArchiveTestUtil.convertClassesToDexArchive(input, output, dexerTool);
-
-        // remove the file, we close it to make sure it is written to disk
-        try (DexArchive dexArchive = DexArchives.fromInput(output)) {
-            dexArchive.removeFile(PACKAGE + "/A.dex");
-            dexArchive.removeFile(PACKAGE + "/B.dex");
-            dexArchive.removeFile(PACKAGE + "/C.dex");
-        }
-
-        try (DexArchive dexArchive = DexArchives.fromInput(output)) {
-            assertArchiveIsValid(dexArchive, ImmutableList.of());
         }
     }
 

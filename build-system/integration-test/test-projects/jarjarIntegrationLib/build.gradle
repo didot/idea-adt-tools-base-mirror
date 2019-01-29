@@ -15,6 +15,7 @@ android {
   defaultConfig {
     versionCode 12
     minSdkVersion 16
+    //noinspection ExpiringTargetSdkVersion,ExpiredTargetSdkVersion
     targetSdkVersion 20
   }
 }
@@ -22,5 +23,5 @@ android {
 apply from: "../commonLocalRepo.gradle"
 
 dependencies {
-  api 'com.google.code.gson:gson:2.7'
+  api 'com.google.code.gson:gson:2.8.0'
 }

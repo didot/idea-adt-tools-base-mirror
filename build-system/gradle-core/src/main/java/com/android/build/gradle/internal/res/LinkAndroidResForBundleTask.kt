@@ -16,36 +16,34 @@
 
 package com.android.build.gradle.internal.res
 
-import com.android.build.gradle.internal.LoggerWrapper
-import com.android.build.gradle.internal.aapt.AaptGeneration
-import com.android.build.gradle.internal.aapt.AaptGradleFactory
+import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.dsl.convert
+import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE
+import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_RESOURCE_PKG
+import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH
+import com.android.build.gradle.internal.res.namespaced.registerAaptService
 import com.android.build.gradle.internal.scope.ExistingBuildElements
-import com.android.build.gradle.internal.scope.TaskConfigAction
-import com.android.build.gradle.internal.scope.TaskOutputHolder
-import com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType.MERGED_MANIFESTS
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.TaskInputHelper
+import com.android.build.gradle.internal.tasks.Workers
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
+import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata
 import com.android.build.gradle.options.StringOption
-import com.android.builder.core.AndroidBuilder
-import com.android.builder.core.VariantType
-import com.android.builder.internal.aapt.Aapt
+import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.ide.common.blame.MergingLog
-import com.android.ide.common.blame.MergingLogRewriter
-import com.android.ide.common.blame.ParsingProcessOutputHandler
-import com.android.ide.common.blame.SourceFilePosition
-import com.android.ide.common.blame.parser.ToolOutputParser
-import com.android.ide.common.blame.parser.aapt.Aapt2OutputParser
 import com.android.ide.common.build.ApkInfo
-import com.android.ide.common.process.ProcessException
+import com.android.sdklib.AndroidVersion
 import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
+import com.google.common.collect.ImmutableSet
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
@@ -53,23 +51,24 @@ import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
-import org.gradle.tooling.BuildException
+import org.gradle.workers.WorkerExecutor
 import java.io.File
-import java.util.function.Function
+import java.io.IOException
+import java.util.function.Supplier
+import javax.inject.Inject
 
 /**
  * Task to link app resources into a proto format so that it can be consumed by the bundle tool.
  */
 @CacheableTask
-open class LinkAndroidResForBundleTask : AndroidBuilderTask() {
+open class LinkAndroidResForBundleTask
+@Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
 
-    private var aaptGeneration: AaptGeneration? = null
+    private val workers = Workers.getWorker(workerExecutor)
 
     @get:Input
     var debuggable: Boolean = false
         private set
-
-    private var pseudoLocalesEnabled: Boolean = false
 
     private lateinit var aaptOptions: com.android.build.gradle.internal.dsl.AaptOptions
 
@@ -81,14 +80,32 @@ open class LinkAndroidResForBundleTask : AndroidBuilderTask() {
     lateinit var bundledResFile: File
         private set
 
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    lateinit var featureResourcePackages: FileCollection
+        private set
+
+    private var resOffsetSupplier: Supplier<Int>? = null
+
+    @Suppress("MemberVisibilityCanBePrivate")
     @get:Input
     @get:Optional
-    var versionName: String? = null
+    val resOffset: Int?
+        get() = resOffsetSupplier?.get()
+
+    @get:Internal lateinit var versionNameSupplier: Supplier<String?>
         private set
 
     @get:Input
-    var versionCode: Int = 0
+    @get:Optional
+    val versionName
+        get() = versionNameSupplier.get()
+
+    @get:Internal lateinit var versionCodeSupplier: Supplier<Int?>
         private set
+
+    @get:Input val versionCode
+        get() = versionCodeSupplier.get()
 
     @get:OutputDirectory
     lateinit var incrementalFolder: File
@@ -98,95 +115,82 @@ open class LinkAndroidResForBundleTask : AndroidBuilderTask() {
     lateinit var mainSplit: ApkInfo
         private set
 
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    var aapt2FromMaven: FileCollection? = null
+        private set
+
     @TaskAction
     fun taskAction() {
 
-        val manifestFile = ExistingBuildElements.from(MERGED_MANIFESTS, manifestFiles)
+        val manifestFile = ExistingBuildElements.from(InternalArtifactType.BUNDLE_MANIFEST, manifestFiles)
                 .element(mainSplit)
                 ?.outputFile
                 ?: throw RuntimeException("Cannot find merged manifest file")
 
         FileUtils.mkdirs(bundledResFile.parentFile)
 
-        try {
-
-            // If the new resources flag is enabled and if we are dealing with a library process
-            // resources through the new parsers
-            run {
-                val config = AaptPackageConfig(
-                        androidJarPath = builder.target.getPath(IAndroidTarget.ANDROID_JAR),
-                        generateProtos = true,
-                        manifestFile = manifestFile,
-                        options = aaptOptions.convert(),
-                        resourceOutputApk = bundledResFile,
-                        variantType = VariantType.DEFAULT,
-                        debuggable = debuggable,
-                        pseudoLocalize = getPseudoLocalesEnabled(),
-                        resourceDirs = ImmutableList.of(checkNotNull(getInputResourcesDir()).singleFile))
-
-                makeAapt().use { aapt ->
-                    AndroidBuilder.processResources(aapt, config, LoggerWrapper(logger))
-                }
-
-                if (logger.isInfoEnabled) {
-                    logger.info("Aapt output file {}", bundledResFile.absolutePath)
-                }
+        val featurePackagesBuilder = ImmutableList.builder<File>()
+        for (featurePackage in featureResourcePackages) {
+            val buildElements =
+                ExistingBuildElements.from(InternalArtifactType.PROCESSED_RES, featurePackage)
+            if (buildElements.size() != 1) {
+                throw IOException("Found more than one PROCESSED_RES output at $featurePackage")
             }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            logger.error(e.message, e)
-            throw BuildException(e.message, e)
-        } catch (e: ProcessException) {
-            logger.error(e.message, e)
-            throw BuildException(e.message, e)
+
+            featurePackagesBuilder.add(buildElements.iterator().next().outputFile)
         }
-    }
 
-    /**
-     * Create an instance of AAPT. Whenever calling this method make sure the close() method is
-     * called on the instance once the work is done.
-     */
-    private fun makeAapt(): Aapt {
-        val builder = builder
-        val mergingLog = MergingLog(mergeBlameLogFolder!!)
+        val config = AaptPackageConfig(
+                androidJarPath = builder.target.getPath(IAndroidTarget.ANDROID_JAR),
+                generateProtos = true,
+                manifestFile = manifestFile,
+                options = aaptOptions.convert(),
+                resourceOutputApk = bundledResFile,
+                variantType = VariantTypeImpl.BASE_APK,
+                debuggable = debuggable,
+                packageId =  resOffset,
+                allowReservedPackageId = minSdkVersion < AndroidVersion.VersionCodes.O,
+                dependentFeatures = featurePackagesBuilder.build(),
+                resourceDirs = ImmutableList.of(checkNotNull(getInputResourcesDir()).single()),
+                resourceConfigs = ImmutableSet.copyOf(resConfig))
+        if (logger.isInfoEnabled) {
+            logger.info("Aapt output file {}", bundledResFile.absolutePath)
+        }
 
-        val processOutputHandler = ParsingProcessOutputHandler(
-                ToolOutputParser(Aapt2OutputParser(), iLogger),
-                MergingLogRewriter(
-                        Function<SourceFilePosition, SourceFilePosition> { mergingLog.find(it) },
-                        builder.messageReceiver))
-
-        return AaptGradleFactory.make(
-                aaptGeneration!!,
-                builder,
-                processOutputHandler,
-                true,
-                FileUtils.mkdirs(File(incrementalFolder, "aapt-temp")),
-                aaptOptions.cruncherProcesses)
+        val aapt2ServiceKey = registerAaptService(
+            aapt2FromMaven = aapt2FromMaven,
+            buildToolInfo = null,
+            logger = builder.logger
+        )
+        //TODO: message rewriting.
+        workers.use {
+            it.submit(Aapt2ProcessResourcesRunnable::class.java,
+                Aapt2ProcessResourcesRunnable.Params(aapt2ServiceKey, config))
+        }
     }
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var manifestFiles: FileCollection
+    lateinit var manifestFiles: BuildableArtifact
         private set
 
-    private var inputResourcesDir: FileCollection? = null
+    private var inputResourcesDir: BuildableArtifact? = null
 
     @InputFiles
     @Optional
     @PathSensitive(PathSensitivity.RELATIVE)
-    fun getInputResourcesDir(): FileCollection? {
+    fun getInputResourcesDir(): BuildableArtifact? {
         return inputResourcesDir
     }
+
+    @get:Input
+    lateinit var resConfig: Collection<String> private set
 
     @Input
     fun getBuildToolsVersion(): String {
         return buildTools.revision.toString()
-    }
-
-    @Input
-    fun getPseudoLocalesEnabled(): Boolean {
-        return pseudoLocalesEnabled
     }
 
     @Nested
@@ -194,50 +198,78 @@ open class LinkAndroidResForBundleTask : AndroidBuilderTask() {
         return aaptOptions
     }
 
-    class ConfigAction(
-            private val variantScope: VariantScope,
-            private val bundledResFile: File)
-        : TaskConfigAction<LinkAndroidResForBundleTask> {
+    @get:Input
+    var minSdkVersion: Int = 1
+        private set
 
-        override fun getName(): String {
-            return variantScope.getTaskName("bundle", "Resources")
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<LinkAndroidResForBundleTask>(variantScope) {
+
+        override val name: String
+            get() = variantScope.getTaskName("bundle", "Resources")
+        override val type: Class<LinkAndroidResForBundleTask>
+            get() = LinkAndroidResForBundleTask::class.java
+
+        private lateinit var bundledResFile: File
+
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            bundledResFile = variantScope.artifacts
+                .appendArtifact(InternalArtifactType.LINKED_RES_FOR_BUNDLE,
+                    taskName,
+                    "bundled-res.ap_")
         }
 
-        override fun getType(): Class<LinkAndroidResForBundleTask> {
-            return LinkAndroidResForBundleTask::class.java
-        }
+        override fun configure(task: LinkAndroidResForBundleTask) {
+            super.configure(task)
 
-        override fun execute(processResources: LinkAndroidResForBundleTask) {
             val variantData = variantScope.variantData
 
             val projectOptions = variantScope.globalScope.projectOptions
 
             val config = variantData.variantConfiguration
 
-            processResources.setAndroidBuilder(variantScope.globalScope.androidBuilder)
-            processResources.variantName = config.fullName
-            processResources.bundledResFile = bundledResFile
-            processResources.aaptGeneration = AaptGeneration.fromProjectOptions(projectOptions)
+            task.bundledResFile = bundledResFile
 
-            processResources.incrementalFolder = variantScope.getIncrementalDir(name)
+            task.incrementalFolder = variantScope.getIncrementalDir(name)
 
-            processResources.versionCode = config.versionCode
-            processResources.versionName = config.versionName
+            task.versionCodeSupplier = TaskInputHelper.memoize {
+                config.versionCode
+            }
+            task.versionNameSupplier = TaskInputHelper.memoize {
+                config.versionName
+            }
 
-            processResources.mainSplit = variantData.outputScope.mainSplit
+            task.mainSplit = variantData.outputScope.mainSplit
 
-            processResources.manifestFiles = variantScope.getOutput(MERGED_MANIFESTS)
+            task.manifestFiles = variantScope.artifacts.getFinalArtifactFiles(
+                InternalArtifactType.BUNDLE_MANIFEST)
 
-            processResources.inputResourcesDir = variantScope.getOutput(TaskOutputHolder.TaskOutputType.MERGED_RES)
+            task.inputResourcesDir =
+                    variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_RES)
 
-            processResources.debuggable = config.buildType.isDebuggable
-            processResources.aaptOptions = variantScope.globalScope.extension.aaptOptions
-            processResources.pseudoLocalesEnabled = config.buildType.isPseudoLocalesEnabled
+            task.featureResourcePackages = variantScope.getArtifactFileCollection(
+                COMPILE_CLASSPATH, MODULE, FEATURE_RESOURCE_PKG)
 
-            processResources.buildTargetDensity = projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
+            if (variantScope.type.isFeatureSplit) {
+                // get the res offset supplier
+                task.resOffsetSupplier =
+                        FeatureSetMetadata.getInstance().getResOffsetSupplierForTask(
+                            variantScope, task)
+            }
 
-            processResources.mergeBlameLogFolder = variantScope.resourceBlameLogDir
+            task.debuggable = config.buildType.isDebuggable
+            task.aaptOptions = variantScope.globalScope.extension.aaptOptions
+
+            task.buildTargetDensity =
+                    projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
+
+            task.mergeBlameLogFolder = variantScope.resourceBlameLogDir
+            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+            task.minSdkVersion = variantScope.minSdkVersion.apiLevel
+
+            task.resConfig =
+                    variantScope.variantConfiguration.mergedFlavor.resourceConfigurations
         }
     }
-
 }

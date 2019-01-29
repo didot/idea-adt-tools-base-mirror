@@ -56,11 +56,12 @@ public class FeatureSplitDeclarationWriterTaskTest {
     @Test
     public void testTask() throws IOException {
         task.uniqueIdentifier = "unique_split";
+        task.originalApplicationIdSupplier = () -> null;
         task.fullTaskAction();
         File[] files = outputDirectory.listFiles();
         assertThat(files).hasLength(1);
 
         FeatureSplitDeclaration loadedDecl = FeatureSplitDeclaration.load(files[0]);
-        assertThat("unique_split").isEqualTo(loadedDecl.getUniqueIdentifier());
+        assertThat("unique_split").isEqualTo(loadedDecl.getModulePath());
     }
 }

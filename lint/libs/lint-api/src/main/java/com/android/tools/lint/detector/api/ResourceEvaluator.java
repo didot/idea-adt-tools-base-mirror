@@ -24,14 +24,16 @@ import static com.android.SdkConstants.CLASS_V4_FRAGMENT;
 import static com.android.SdkConstants.CLS_TYPED_ARRAY;
 import static com.android.SdkConstants.R_CLASS;
 import static com.android.SdkConstants.SUPPORT_ANNOTATIONS_PREFIX;
-import static com.android.tools.lint.detector.api.LintUtils.getMethodName;
+import static com.android.tools.lint.detector.api.Lint.getMethodName;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
 import com.android.resources.ResourceUrl;
+import com.android.support.AndroidxName;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.ResourceReference;
+import com.google.common.collect.ImmutableMap;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiConditionalExpression;
@@ -63,52 +65,128 @@ import org.jetbrains.uast.UastUtils;
 public class ResourceEvaluator {
 
     /**
-     * Marker ResourceType used to signify that an expression is of type {@code @ColorInt},
-     * which isn't actually a ResourceType but one we want to specifically compare with.
-     * We're using {@link ResourceType#PUBLIC} because that one won't appear in the R
-     * class (and ResourceType is an enum we can't just create new constants for.)
+     * Marker ResourceType used to signify that an expression is of type {@code @ColorInt}, which
+     * isn't actually a ResourceType but one we want to specifically compare with. We're using
+     * {@link ResourceType#PUBLIC} because that one won't appear in the R class (and ResourceType is
+     * an enum we can't just create new constants for.)
      */
     public static final ResourceType COLOR_INT_MARKER_TYPE = ResourceType.PUBLIC;
     /**
-     * Marker ResourceType used to signify that an expression is of type {@code @Px},
-     * which isn't actually a ResourceType but one we want to specifically compare with.
-     * We're using {@link ResourceType#DECLARE_STYLEABLE} because that one doesn't
-     * have a corresponding {@code *Res} constant (and ResourceType is an enum we can't
-     * just create new constants for.)
+     * Marker ResourceType used to signify that an expression is of type {@code @Px}, which isn't
+     * actually a ResourceType but one we want to specifically compare with. We're using {@link
+     * ResourceType#SAMPLE_DATA} because that one doesn't have a corresponding {@code *Res} constant
+     * (and ResourceType is an enum we can't just create new constants for.)
      */
-    public static final ResourceType DIMENSION_MARKER_TYPE = ResourceType.DECLARE_STYLEABLE;
+    public static final ResourceType DIMENSION_MARKER_TYPE = ResourceType.SAMPLE_DATA;
 
-    public static final String COLOR_INT_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "ColorInt";
-    public static final String PX_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "Px";
-    public static final String DIMENSION_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "Dimension";
+    public static final AndroidxName COLOR_INT_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "ColorInt");
+    public static final AndroidxName PX_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "Px");
+    public static final AndroidxName DIMENSION_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "Dimension");
     public static final String RES_SUFFIX = "Res";
 
-    public static final String ANIMATOR_RES_ANNOTATION = "android.support.annotation.AnimatorRes";
-    public static final String ANIM_RES_ANNOTATION = "android.support.annotation.AnimRes";
-    public static final String ANY_RES_ANNOTATION = "android.support.annotation.AnyRes";
-    public static final String ARRAY_RES_ANNOTATION = "android.support.annotation.ArrayRes";
-    public static final String ATTR_RES_ANNOTATION = "android.support.annotation.AttrRes";
-    public static final String BOOL_RES_ANNOTATION = "android.support.annotation.BoolRes";
-    public static final String COLOR_RES_ANNOTATION = "android.support.annotation.ColorRes";
-    public static final String DIMEN_RES_ANNOTATION = "android.support.annotation.DimenRes";
-    public static final String DRAWABLE_RES_ANNOTATION = "android.support.annotation.DrawableRes";
-    public static final String FONT_RES_ANNOTATION = "android.support.annotation.FontRes";
-    public static final String FRACTION_RES_ANNOTATION = "android.support.annotation.FractionRes";
-    public static final String ID_RES_ANNOTATION = "android.support.annotation.IdRes";
-    public static final String INTEGER_RES_ANNOTATION = "android.support.annotation.IntegerRes";
-    public static final String INTERPOLATOR_RES_ANNOTATION = "android.support.annotation.InterpolatorRes";
-    public static final String LAYOUT_RES_ANNOTATION = "android.support.annotation.LayoutRes";
-    public static final String MENU_RES_ANNOTATION = "android.support.annotation.MenuRes";
-    public static final String PLURALS_RES_ANNOTATION = "android.support.annotation.PluralsRes";
-    public static final String RAW_RES_ANNOTATION = "android.support.annotation.RawRes";
-    public static final String STRING_RES_ANNOTATION = "android.support.annotation.StringRes";
-    public static final String STYLEABLE_RES_ANNOTATION = "android.support.annotation.StyleableRes";
-    public static final String STYLE_RES_ANNOTATION = "android.support.annotation.StyleRes";
-    public static final String TRANSITION_RES_ANNOTATION = "android.support.annotation.TransitionRes";
-    public static final String XML_RES_ANNOTATION = "android.support.annotation.XmlRes";
-    public static final String NAVIGATION_RES_ANNOTATION = "android.support.annotation.NavigationRes";
+    public static final AndroidxName ANIMATOR_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "AnimatorRes");
+    public static final AndroidxName ANIM_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "AnimRes");
+    public static final AndroidxName ANY_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "AnyRes");
+    public static final AndroidxName ARRAY_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "ArrayRes");
+    public static final AndroidxName BOOL_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "BoolRes");
+    public static final AndroidxName COLOR_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "ColorRes");
+    public static final AndroidxName ATTR_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "AttrRes");
+    public static final AndroidxName DIMEN_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "DimenRes");
+    public static final AndroidxName DRAWABLE_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "DrawableRes");
+    public static final AndroidxName FONT_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "FontRes");
+    public static final AndroidxName FRACTION_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "FractionRes");
+    public static final AndroidxName ID_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "IdRes");
+    public static final AndroidxName INTEGER_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "IntegerRes");
+    public static final AndroidxName INTERPOLATOR_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "InterpolatorRes");
+    public static final AndroidxName LAYOUT_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "LayoutRes");
+    public static final AndroidxName MENU_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "MenuRes");
+    public static final AndroidxName PLURALS_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "PluralsRes");
+    public static final AndroidxName RAW_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "RawRes");
+    public static final AndroidxName STRING_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "StringRes");
+    public static final AndroidxName STYLEABLE_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "StyleableRes");
+    public static final AndroidxName STYLE_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "StyleRes");
+    public static final AndroidxName TRANSITION_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "TransitionRes");
+    public static final AndroidxName XML_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "XmlRes");
 
     private final JavaEvaluator evaluator;
+    public static final AndroidxName NAVIGATION_RES_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "NavigationRes");
+
+    private static final ImmutableMap<String, ResourceType> TYPE_FROM_ANNOTATION_SIGNATURE =
+            ImmutableMap.<String, ResourceType>builder()
+                    .put(ANIMATOR_RES_ANNOTATION.oldName(), ResourceType.ANIMATOR)
+                    .put(ANIMATOR_RES_ANNOTATION.newName(), ResourceType.ANIMATOR)
+                    .put(ANIM_RES_ANNOTATION.oldName(), ResourceType.ANIM)
+                    .put(ANIM_RES_ANNOTATION.newName(), ResourceType.ANIM)
+                    .put(ARRAY_RES_ANNOTATION.oldName(), ResourceType.ARRAY)
+                    .put(ARRAY_RES_ANNOTATION.newName(), ResourceType.ARRAY)
+                    .put(ATTR_RES_ANNOTATION.oldName(), ResourceType.ATTR)
+                    .put(ATTR_RES_ANNOTATION.newName(), ResourceType.ATTR)
+                    .put(BOOL_RES_ANNOTATION.oldName(), ResourceType.BOOL)
+                    .put(BOOL_RES_ANNOTATION.newName(), ResourceType.BOOL)
+                    .put(COLOR_RES_ANNOTATION.oldName(), ResourceType.COLOR)
+                    .put(COLOR_RES_ANNOTATION.newName(), ResourceType.COLOR)
+                    .put(DIMEN_RES_ANNOTATION.oldName(), ResourceType.DIMEN)
+                    .put(DIMEN_RES_ANNOTATION.newName(), ResourceType.DIMEN)
+                    .put(DRAWABLE_RES_ANNOTATION.oldName(), ResourceType.DRAWABLE)
+                    .put(DRAWABLE_RES_ANNOTATION.newName(), ResourceType.DRAWABLE)
+                    .put(FONT_RES_ANNOTATION.oldName(), ResourceType.FONT)
+                    .put(FONT_RES_ANNOTATION.newName(), ResourceType.FONT)
+                    .put(FRACTION_RES_ANNOTATION.oldName(), ResourceType.FRACTION)
+                    .put(FRACTION_RES_ANNOTATION.newName(), ResourceType.FRACTION)
+                    .put(ID_RES_ANNOTATION.oldName(), ResourceType.ID)
+                    .put(ID_RES_ANNOTATION.newName(), ResourceType.ID)
+                    .put(INTEGER_RES_ANNOTATION.oldName(), ResourceType.INTEGER)
+                    .put(INTEGER_RES_ANNOTATION.newName(), ResourceType.INTEGER)
+                    .put(INTERPOLATOR_RES_ANNOTATION.oldName(), ResourceType.INTERPOLATOR)
+                    .put(INTERPOLATOR_RES_ANNOTATION.newName(), ResourceType.INTERPOLATOR)
+                    .put(LAYOUT_RES_ANNOTATION.oldName(), ResourceType.LAYOUT)
+                    .put(LAYOUT_RES_ANNOTATION.newName(), ResourceType.LAYOUT)
+                    .put(MENU_RES_ANNOTATION.oldName(), ResourceType.MENU)
+                    .put(MENU_RES_ANNOTATION.newName(), ResourceType.MENU)
+                    .put(NAVIGATION_RES_ANNOTATION.oldName(), ResourceType.NAVIGATION)
+                    .put(NAVIGATION_RES_ANNOTATION.newName(), ResourceType.NAVIGATION)
+                    .put(PLURALS_RES_ANNOTATION.oldName(), ResourceType.PLURALS)
+                    .put(PLURALS_RES_ANNOTATION.newName(), ResourceType.PLURALS)
+                    .put(RAW_RES_ANNOTATION.oldName(), ResourceType.RAW)
+                    .put(RAW_RES_ANNOTATION.newName(), ResourceType.RAW)
+                    .put(STRING_RES_ANNOTATION.oldName(), ResourceType.STRING)
+                    .put(STRING_RES_ANNOTATION.newName(), ResourceType.STRING)
+                    .put(STYLEABLE_RES_ANNOTATION.oldName(), ResourceType.STYLEABLE)
+                    .put(STYLEABLE_RES_ANNOTATION.newName(), ResourceType.STYLEABLE)
+                    .put(STYLE_RES_ANNOTATION.oldName(), ResourceType.STYLE)
+                    .put(STYLE_RES_ANNOTATION.newName(), ResourceType.STYLE)
+                    .put(TRANSITION_RES_ANNOTATION.oldName(), ResourceType.TRANSITION)
+                    .put(TRANSITION_RES_ANNOTATION.newName(), ResourceType.TRANSITION)
+                    .put(XML_RES_ANNOTATION.oldName(), ResourceType.XML)
+                    .put(XML_RES_ANNOTATION.newName(), ResourceType.XML)
+                    .build();
 
     private boolean allowDereference = true;
 
@@ -122,10 +200,9 @@ public class ResourceEvaluator {
     }
 
     /**
-     * Whether we allow dereferencing resources when computing constants;
-     * e.g. if we ask for the resource for {@code x} when the code is
-     * {@code x = getString(R.string.name)}, if {@code allowDereference} is
-     * true we'll return R.string.name, otherwise we'll return null.
+     * Whether we allow dereferencing resources when computing constants; e.g. if we ask for the
+     * resource for {@code x} when the code is {@code x = getString(R.string.name)}, if {@code
+     * allowDereference} is true we'll return R.string.name, otherwise we'll return null.
      *
      * @return this for constructor chaining
      */
@@ -135,8 +212,8 @@ public class ResourceEvaluator {
     }
 
     /**
-     * Evaluates the given node and returns the resource reference (type and name) it
-     * points to, if any
+     * Evaluates the given node and returns the resource reference (type and name) it points to, if
+     * any
      *
      * @param evaluator the evaluator to use to look up annotations
      * @param element the node to compute the constant value for
@@ -144,14 +221,13 @@ public class ResourceEvaluator {
      */
     @Nullable
     public static ResourceUrl getResource(
-            @Nullable JavaEvaluator evaluator,
-            @NonNull PsiElement element) {
+            @Nullable JavaEvaluator evaluator, @NonNull PsiElement element) {
         return new ResourceEvaluator(evaluator).getResource(element);
     }
 
     /**
-     * Evaluates the given node and returns the resource reference (type and name) it
-     * points to, if any
+     * Evaluates the given node and returns the resource reference (type and name) it points to, if
+     * any
      *
      * @param evaluator the evaluator to use to look up annotations
      * @param element the node to compute the constant value for
@@ -159,14 +235,12 @@ public class ResourceEvaluator {
      */
     @Nullable
     public static ResourceUrl getResource(
-            @NonNull JavaEvaluator evaluator,
-            @NonNull UElement element) {
+            @NonNull JavaEvaluator evaluator, @NonNull UElement element) {
         return new ResourceEvaluator(evaluator).getResource(element);
     }
 
     /**
-     * Evaluates the given node and returns the resource types implied by the given element,
-     * if any.
+     * Evaluates the given node and returns the resource types implied by the given element, if any.
      *
      * @param evaluator the evaluator to use to look up annotations
      * @param element the node to compute the constant value for
@@ -174,14 +248,12 @@ public class ResourceEvaluator {
      */
     @Nullable
     public static EnumSet<ResourceType> getResourceTypes(
-            @Nullable JavaEvaluator evaluator,
-            @NonNull PsiElement element) {
+            @Nullable JavaEvaluator evaluator, @NonNull PsiElement element) {
         return new ResourceEvaluator(evaluator).getResourceTypes(element);
     }
 
     /**
-     * Evaluates the given node and returns the resource types implied by the given element,
-     * if any.
+     * Evaluates the given node and returns the resource types implied by the given element, if any.
      *
      * @param evaluator the evaluator to use to look up annotations
      * @param element the node to compute the constant value for
@@ -189,14 +261,13 @@ public class ResourceEvaluator {
      */
     @Nullable
     public static EnumSet<ResourceType> getResourceTypes(
-            @Nullable JavaEvaluator evaluator,
-            @NonNull UElement element) {
+            @Nullable JavaEvaluator evaluator, @NonNull UElement element) {
         return new ResourceEvaluator(evaluator).getResourceTypes(element);
     }
 
     /**
-     * Evaluates the given node and returns the resource reference (type and name) it
-     * points to, if any
+     * Evaluates the given node and returns the resource reference (type and name) it points to, if
+     * any
      *
      * @param element the node to compute the constant value for
      * @return the corresponding constant value - a String, an Integer, a Float, and so on
@@ -228,7 +299,7 @@ public class ResourceEvaluator {
                 if ((CLASS_RESOURCES.equals(qualifiedName)
                                 || CLASS_CONTEXT.equals(qualifiedName)
                                 || CLASS_FRAGMENT.equals(qualifiedName)
-                                || CLASS_V4_FRAGMENT.equals(qualifiedName)
+                                || CLASS_V4_FRAGMENT.isEquals(qualifiedName)
                                 || CLS_TYPED_ARRAY.equals(qualifiedName))
                         && name != null
                         && name.startsWith("get")) {
@@ -270,8 +341,8 @@ public class ResourceEvaluator {
     }
 
     /**
-     * Evaluates the given node and returns the resource reference (type and name) it
-     * points to, if any
+     * Evaluates the given node and returns the resource reference (type and name) it points to, if
+     * any
      *
      * @param element the node to compute the constant value for
      * @return the corresponding constant value - a String, an Integer, a Float, and so on
@@ -290,7 +361,8 @@ public class ResourceEvaluator {
                 return getResource(expression.getElseExpression());
             }
         } else if (element instanceof PsiParenthesizedExpression) {
-            PsiParenthesizedExpression parenthesizedExpression = (PsiParenthesizedExpression) element;
+            PsiParenthesizedExpression parenthesizedExpression =
+                    (PsiParenthesizedExpression) element;
             return getResource(parenthesizedExpression.getExpression());
         } else if (element instanceof PsiMethodCallExpression && allowDereference) {
             PsiMethodCallExpression call = (PsiMethodCallExpression) element;
@@ -300,10 +372,10 @@ public class ResourceEvaluator {
                 String qualifiedName = method.getContainingClass().getQualifiedName();
                 String name = expression.getReferenceName();
                 if ((CLASS_RESOURCES.equals(qualifiedName)
-                        || CLASS_CONTEXT.equals(qualifiedName)
-                        || CLASS_FRAGMENT.equals(qualifiedName)
-                        || CLASS_V4_FRAGMENT.equals(qualifiedName)
-                        || CLS_TYPED_ARRAY.equals(qualifiedName))
+                                || CLASS_CONTEXT.equals(qualifiedName)
+                                || CLASS_FRAGMENT.equals(qualifiedName)
+                                || CLASS_V4_FRAGMENT.isEquals(qualifiedName)
+                                || CLS_TYPED_ARRAY.equals(qualifiedName))
                         && name != null
                         && name.startsWith("get")) {
                     PsiExpression[] args = call.getArgumentList().getExpressions();
@@ -341,8 +413,7 @@ public class ResourceEvaluator {
     }
 
     /**
-     * Evaluates the given node and returns the resource types applicable to the
-     * node, if any.
+     * Evaluates the given node and returns the resource types applicable to the node, if any.
      *
      * @param element the element to compute the types for
      * @return the corresponding resource types
@@ -360,10 +431,8 @@ public class ResourceEvaluator {
             } else if (known == Boolean.FALSE && expression.getElseExpression() != null) {
                 return getResourceTypes(expression.getElseExpression());
             } else {
-                EnumSet<ResourceType> left = getResourceTypes(
-                        expression.getThenExpression());
-                EnumSet<ResourceType> right = getResourceTypes(
-                        expression.getElseExpression());
+                EnumSet<ResourceType> left = getResourceTypes(expression.getThenExpression());
+                EnumSet<ResourceType> right = getResourceTypes(expression.getElseExpression());
                 if (left == null) {
                     return right;
                 } else if (right == null) {
@@ -407,8 +476,8 @@ public class ResourceEvaluator {
             PsiElement resolved = ((UReferenceExpression) element).resolve();
 
             if (resolved instanceof PsiModifierListOwner) {
-                EnumSet<ResourceType> types = getTypesFromAnnotations(
-                        (PsiModifierListOwner) resolved);
+                EnumSet<ResourceType> types =
+                        getTypesFromAnnotations((PsiModifierListOwner) resolved);
                 if (types != null && !types.isEmpty()) {
                     return types;
                 }
@@ -416,8 +485,7 @@ public class ResourceEvaluator {
 
             if (resolved instanceof PsiVariable) {
                 PsiVariable variable = (PsiVariable) resolved;
-                UElement lastAssignment =
-                        UastLintUtils.findLastAssignment(variable, element);
+                UElement lastAssignment = UastLintUtils.findLastAssignment(variable, element);
 
                 if (lastAssignment != null) {
                     return getResourceTypes(lastAssignment);
@@ -431,8 +499,7 @@ public class ResourceEvaluator {
     }
 
     /**
-     * Evaluates the given node and returns the resource types applicable to the
-     * node, if any.
+     * Evaluates the given node and returns the resource types applicable to the node, if any.
      *
      * @param element the element to compute the types for
      * @return the corresponding resource types
@@ -450,10 +517,8 @@ public class ResourceEvaluator {
             } else if (known == Boolean.FALSE && expression.getElseExpression() != null) {
                 return getResourceTypes(expression.getElseExpression());
             } else {
-                EnumSet<ResourceType> left = getResourceTypes(
-                        expression.getThenExpression());
-                EnumSet<ResourceType> right = getResourceTypes(
-                        expression.getElseExpression());
+                EnumSet<ResourceType> left = getResourceTypes(expression.getThenExpression());
+                EnumSet<ResourceType> right = getResourceTypes(expression.getElseExpression());
                 if (left == null) {
                     return right;
                 } else if (right == null) {
@@ -465,7 +530,8 @@ public class ResourceEvaluator {
                 }
             }
         } else if (element instanceof PsiParenthesizedExpression) {
-            PsiParenthesizedExpression parenthesizedExpression = (PsiParenthesizedExpression) element;
+            PsiParenthesizedExpression parenthesizedExpression =
+                    (PsiParenthesizedExpression) element;
             return getResourceTypes(parenthesizedExpression.getExpression());
         } else if (element instanceof PsiMethodCallExpression) {
             PsiMethodCallExpression call = (PsiMethodCallExpression) element;
@@ -483,8 +549,8 @@ public class ResourceEvaluator {
             }
             PsiElement resolved = ((PsiReference) element).resolve();
             if (resolved instanceof PsiModifierListOwner) {
-                EnumSet<ResourceType> types = getTypesFromAnnotations(
-                        (PsiModifierListOwner) resolved);
+                EnumSet<ResourceType> types =
+                        getTypesFromAnnotations((PsiModifierListOwner) resolved);
                 if (types != null && !types.isEmpty()) {
                     return types;
                 }
@@ -501,7 +567,7 @@ public class ResourceEvaluator {
                 }
                 return null;
             } else if (resolved instanceof PsiParameter) {
-                return getTypesFromAnnotations((PsiParameter)resolved);
+                return getTypesFromAnnotations((PsiParameter) resolved);
             } else if (resolved instanceof PsiLocalVariable) {
                 PsiLocalVariable variable = (PsiLocalVariable) resolved;
                 PsiExpression last = ConstantEvaluator.findLastAssignment(element, variable);
@@ -532,22 +598,20 @@ public class ResourceEvaluator {
             if (signature == null) {
                 continue;
             }
-            switch (signature) {
-                case COLOR_INT_ANNOTATION:
-                    return EnumSet.of(COLOR_INT_MARKER_TYPE);
-                case PX_ANNOTATION:
-                case DIMENSION_ANNOTATION:
-                    return EnumSet.of(DIMENSION_MARKER_TYPE);
-                case ANY_RES_ANNOTATION:
-                    return getAnyRes();
-                default: {
-                    ResourceType type = getTypeFromAnnotationSignature(signature);
-                    if (type != null) {
-                        if (resources == null) {
-                            resources = EnumSet.of(type);
-                        } else {
-                            resources.add(type);
-                        }
+            if (COLOR_INT_ANNOTATION.isEquals(signature)) {
+                return EnumSet.of(COLOR_INT_MARKER_TYPE);
+            } else if (PX_ANNOTATION.isEquals(signature)
+                    || DIMENSION_ANNOTATION.isEquals(signature)) {
+                return EnumSet.of(DIMENSION_MARKER_TYPE);
+            } else if (ANY_RES_ANNOTATION.isEquals(signature)) {
+                return getAnyRes();
+            } else {
+                ResourceType type = getTypeFromAnnotationSignature(signature);
+                if (type != null) {
+                    if (resources == null) {
+                        resources = EnumSet.of(type);
+                    } else {
+                        resources.add(type);
                     }
                 }
             }
@@ -565,22 +629,20 @@ public class ResourceEvaluator {
             if (signature == null) {
                 continue;
             }
-            switch (signature) {
-                case COLOR_INT_ANNOTATION:
-                    return EnumSet.of(COLOR_INT_MARKER_TYPE);
-                case PX_ANNOTATION:
-                case DIMENSION_ANNOTATION:
-                    return EnumSet.of(DIMENSION_MARKER_TYPE);
-                case ANY_RES_ANNOTATION:
-                    return getAnyRes();
-                default: {
-                    ResourceType type = getTypeFromAnnotationSignature(signature);
-                    if (type != null) {
-                        if (resources == null) {
-                            resources = EnumSet.of(type);
-                        } else {
-                            resources.add(type);
-                        }
+            if (COLOR_INT_ANNOTATION.isEquals(signature)) {
+                return EnumSet.of(COLOR_INT_MARKER_TYPE);
+            } else if (PX_ANNOTATION.isEquals(signature)
+                    || DIMENSION_ANNOTATION.isEquals(signature)) {
+                return EnumSet.of(DIMENSION_MARKER_TYPE);
+            } else if (ANY_RES_ANNOTATION.isEquals(signature)) {
+                return getAnyRes();
+            } else {
+                ResourceType type = getTypeFromAnnotationSignature(signature);
+                if (type != null) {
+                    if (resources == null) {
+                        resources = EnumSet.of(type);
+                    } else {
+                        resources.add(type);
                     }
                 }
             }
@@ -591,56 +653,7 @@ public class ResourceEvaluator {
 
     @Nullable
     public static ResourceType getTypeFromAnnotationSignature(@NonNull String signature) {
-        switch (signature) {
-            case ANIMATOR_RES_ANNOTATION:
-                return ResourceType.ANIMATOR;
-            case ANIM_RES_ANNOTATION:
-                return ResourceType.ANIM;
-            case ARRAY_RES_ANNOTATION:
-                return ResourceType.ARRAY;
-            case ATTR_RES_ANNOTATION:
-                return ResourceType.ATTR;
-            case BOOL_RES_ANNOTATION:
-                return ResourceType.BOOL;
-            case COLOR_RES_ANNOTATION:
-                return ResourceType.COLOR;
-            case DIMEN_RES_ANNOTATION:
-                return ResourceType.DIMEN;
-            case DRAWABLE_RES_ANNOTATION:
-                return ResourceType.DRAWABLE;
-            case FONT_RES_ANNOTATION:
-                return ResourceType.FONT;
-            case FRACTION_RES_ANNOTATION:
-                return ResourceType.FRACTION;
-            case ID_RES_ANNOTATION:
-                return ResourceType.ID;
-            case INTEGER_RES_ANNOTATION:
-                return ResourceType.INTEGER;
-            case INTERPOLATOR_RES_ANNOTATION:
-                return ResourceType.INTERPOLATOR;
-            case LAYOUT_RES_ANNOTATION:
-                return ResourceType.LAYOUT;
-            case MENU_RES_ANNOTATION:
-                return ResourceType.MENU;
-            case NAVIGATION_RES_ANNOTATION:
-                return ResourceType.NAVIGATION;
-            case PLURALS_RES_ANNOTATION:
-                return ResourceType.PLURALS;
-            case RAW_RES_ANNOTATION:
-                return ResourceType.RAW;
-            case STRING_RES_ANNOTATION:
-                return ResourceType.STRING;
-            case STYLEABLE_RES_ANNOTATION:
-                return ResourceType.STYLEABLE;
-            case STYLE_RES_ANNOTATION:
-                return ResourceType.STYLE;
-            case TRANSITION_RES_ANNOTATION:
-                return ResourceType.TRANSITION;
-            case XML_RES_ANNOTATION:
-                return ResourceType.XML;
-        }
-
-        return null;
+        return TYPE_FROM_ANNOTATION_SIGNATURE.get(signature);
     }
 
     /** Returns a resource URL based on the field reference in the code */
@@ -652,19 +665,20 @@ public class ResourceEvaluator {
             if (expression.getQualifier() instanceof PsiReferenceExpression) {
                 PsiReferenceExpression select = (PsiReferenceExpression) expression.getQualifier();
                 if (select.getQualifier() instanceof PsiReferenceExpression) {
-                    PsiReferenceExpression reference = (PsiReferenceExpression) select
-                            .getQualifier();
+                    PsiReferenceExpression reference =
+                            (PsiReferenceExpression) select.getQualifier();
                     if (R_CLASS.equals(reference.getReferenceName())) {
                         String typeName = select.getReferenceName();
                         String name = expression.getReferenceName();
 
-                        ResourceType type = ResourceType.getEnum(typeName);
+                        ResourceType type = ResourceType.fromClassName(typeName);
                         if (type != null && name != null) {
                             boolean isFramework =
                                     reference.getQualifier() instanceof PsiReferenceExpression
-                                            && ANDROID_PKG
-                                            .equals(((PsiReferenceExpression) reference.
-                                                    getQualifier()).getReferenceName());
+                                            && ANDROID_PKG.equals(
+                                                    ((PsiReferenceExpression)
+                                                                    reference.getQualifier())
+                                                            .getReferenceName());
 
                             return ResourceUrl.create(type, name, isFramework);
                         }
@@ -678,11 +692,12 @@ public class ResourceEvaluator {
                 PsiClass rClass = typeClass.getContainingClass();
                 if (rClass != null && R_CLASS.equals(rClass.getName())) {
                     String name = field.getName();
-                    ResourceType type = ResourceType.getEnum(typeClass.getName());
+                    ResourceType type = ResourceType.fromClassName(typeClass.getName());
                     if (type != null && name != null) {
                         String qualifiedName = rClass.getQualifiedName();
-                        boolean isFramework = qualifiedName != null
-                                && qualifiedName.startsWith(ANDROID_PKG_PREFIX);
+                        boolean isFramework =
+                                qualifiedName != null
+                                        && qualifiedName.startsWith(ANDROID_PKG_PREFIX);
                         return ResourceUrl.create(type, name, isFramework);
                     }
                 }

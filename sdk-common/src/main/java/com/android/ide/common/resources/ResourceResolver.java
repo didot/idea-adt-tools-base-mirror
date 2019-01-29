@@ -13,29 +13,61 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.ide.common.resources;
 
-import static com.android.SdkConstants.*;
+import static com.android.SdkConstants.AAPT_PREFIX;
+import static com.android.SdkConstants.NEW_ID_PREFIX;
+import static com.android.SdkConstants.PREFIX_THEME_REF;
+import static com.google.common.base.Preconditions.checkArgument;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.ide.common.rendering.api.*;
+import com.android.annotations.VisibleForTesting;
+import com.android.ide.common.rendering.api.ArrayResourceValue;
+import com.android.ide.common.rendering.api.LayoutLog;
+import com.android.ide.common.rendering.api.RenderResources;
+import com.android.ide.common.rendering.api.ResourceNamespace;
+import com.android.ide.common.rendering.api.ResourceReference;
+import com.android.ide.common.rendering.api.ResourceValue;
+import com.android.ide.common.rendering.api.ResourceValueImpl;
+import com.android.ide.common.rendering.api.SampleDataResourceValue;
+import com.android.ide.common.rendering.api.StyleItemResourceValue;
+import com.android.ide.common.rendering.api.StyleResourceValue;
+import com.android.ide.common.rendering.api.StyleResourceValueImpl;
 import com.android.ide.common.resources.sampledata.SampleDataManager;
 import com.android.resources.ResourceType;
 import com.android.resources.ResourceUrl;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
-import java.util.*;
+import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * <b>NOTE:</b> LayoutLib tests depend on this class.
+ */
 public class ResourceResolver extends RenderResources {
+    /**
+     * Number of indirections we'll follow for resource resolution before assuming there is a cyclic
+     * dependency error in the input.
+     */
+    public static final int MAX_RESOURCE_INDIRECTION = 50;
+
     public static final String THEME_NAME = "Theme";
     public static final String THEME_NAME_DOT = "Theme.";
-    public static final String XLIFF_NAMESPACE_PREFIX = "urn:oasis:names:tc:xliff:document:";
-    public static final String XLIFF_G_TAG = "g";
-    public static final String ATTR_EXAMPLE = "example";
 
     /**
      * Constant passed to {@link #setDeviceDefaults(String)} to indicate the DeviceDefault styles
@@ -43,61 +75,75 @@ public class ResourceResolver extends RenderResources {
      */
     public static final String LEGACY_THEME = "";
 
-    public static final Pattern DEVICE_DEFAULT_PATTERN = Pattern
-            .compile("(\\p{Alpha}+)?\\.?DeviceDefault\\.?(.+)?");
+    public static final Pattern DEVICE_DEFAULT_PATTERN =
+            Pattern.compile("(\\p{Alpha}+)?\\.?DeviceDefault\\.?(.+)?");
 
-    /**
-     * Number of indirections we'll follow for resource resolution before assuming there
-     * is a cyclic dependency error in the input
-     */
-    public static final int MAX_RESOURCE_INDIRECTION = 50;
-
-    private final Map<ResourceType, ResourceValueMap> mProjectResources;
-    private final Map<ResourceType, ResourceValueMap> mFrameworkResources;
+    private final Map<ResourceNamespace, Map<ResourceType, ResourceValueMap>> mResources;
     private final Map<StyleResourceValue, StyleResourceValue> mStyleInheritanceMap =
-        new HashMap<StyleResourceValue, StyleResourceValue>();
-    private StyleResourceValue mDefaultTheme;
-    // The resources should be searched in all the themes in the list in order.
-    private final List<StyleResourceValue> mThemes;
-    @NonNull private ResourceIdProvider mFrameworkIdProvider = new FrameworkResourceIdProvider();
-    @NonNull private ResourceIdProvider mLibrariesIdProvider = new ResourceIdProvider();
+            new HashMap<>();
+    private final Multimap<StyleResourceValue, StyleResourceValue> mReverseStyleInheritanceMap =
+            HashMultimap.create();
+
+    @Nullable private final StyleResourceValue mDefaultTheme;
+
+    /** The resources should be searched in all the themes in the list in order. */
+    @NonNull private final List<StyleResourceValue> mThemes;
+
+    @NonNull private Predicate<ResourceReference> mProjectIdChecker = res -> false;
     private LayoutLog mLogger;
-    private final String mThemeName;
-    private boolean mIsProjectTheme;
 
     /** Contains the default parent for DeviceDefault styles (e.g. for API 18, "Holo") */
-    private String mDeviceDefaultParent = null;
+    private String mDeviceDefaultParent;
 
     private ResourceResolver(
-            Map<ResourceType, ResourceValueMap> projectResources,
-            Map<ResourceType, ResourceValueMap> frameworkResources,
-            String themeName, boolean isProjectTheme) {
-        mProjectResources = projectResources;
-        mFrameworkResources = frameworkResources;
-        mThemeName = themeName;
-        mIsProjectTheme = isProjectTheme;
-        mThemes = new LinkedList<StyleResourceValue>();
+            @NonNull Map<ResourceNamespace, Map<ResourceType, ResourceValueMap>> resources,
+            @Nullable StyleResourceValue theme) {
+        mResources = resources;
+        mDefaultTheme = theme;
+        mThemes = new LinkedList<>();
     }
 
     /**
      * Creates a new {@link ResourceResolver} object.
      *
-     * @param projectResources the project resources.
-     * @param frameworkResources the framework resources.
-     * @param themeName the name of the current theme.
-     * @param isProjectTheme Is this a project theme?
+     * @param resources all resources.
+     * @param themeReference reference to the theme to be used.
      * @return a new {@link ResourceResolver}
      */
+    @NonNull
     public static ResourceResolver create(
-            Map<ResourceType, ResourceValueMap> projectResources,
-            Map<ResourceType, ResourceValueMap> frameworkResources,
-            String themeName, boolean isProjectTheme) {
-
-        ResourceResolver resolver = new ResourceResolver(projectResources, frameworkResources,
-                themeName, isProjectTheme);
-        resolver.computeStyleMaps();
-
+            @NonNull Map<ResourceNamespace, Map<ResourceType, ResourceValueMap>> resources,
+            @Nullable ResourceReference themeReference) {
+        StyleResourceValue theme = null;
+        if (themeReference != null) {
+            assert themeReference.getResourceType() == ResourceType.STYLE;
+            theme = findTheme(themeReference, resources);
+        }
+        ResourceResolver resolver = new ResourceResolver(resources, theme);
+        resolver.preProcessStyles();
         return resolver;
+    }
+
+    @Nullable
+    private static StyleResourceValue findTheme(
+            @NonNull ResourceReference themeReference,
+            @NonNull Map<ResourceNamespace, Map<ResourceType, ResourceValueMap>> resources) {
+        Map<ResourceType, ResourceValueMap> namespaceMap =
+                resources.get(themeReference.getNamespace());
+        if (namespaceMap == null) {
+            return null;
+        }
+
+        ResourceValueMap stylesMap = namespaceMap.get(ResourceType.STYLE);
+        if (stylesMap == null) {
+            return null;
+        }
+
+        ResourceValue resourceValue = stylesMap.get(themeReference.getName());
+
+        return resourceValue instanceof StyleResourceValue
+                ? (StyleResourceValue) resourceValue
+                : null;
     }
 
     /**
@@ -111,17 +157,63 @@ public class ResourceResolver extends RenderResources {
             return null;
         }
 
-        ResourceResolver resolver = new ResourceResolver(
-          original.mProjectResources, original.mFrameworkResources,
-          original.mThemeName, original.mIsProjectTheme);
-        resolver.mFrameworkIdProvider = original.mFrameworkIdProvider;
-        resolver.mLibrariesIdProvider = original.mLibrariesIdProvider;
+        ResourceResolver resolver =
+                new ResourceResolver(original.mResources, original.mDefaultTheme);
+        resolver.mProjectIdChecker = original.mProjectIdChecker;
         resolver.mLogger = original.mLogger;
-        resolver.mDefaultTheme = original.mDefaultTheme;
         resolver.mStyleInheritanceMap.putAll(original.mStyleInheritanceMap);
+        resolver.mReverseStyleInheritanceMap.putAll(original.mReverseStyleInheritanceMap);
         resolver.mThemes.addAll(original.mThemes);
 
         return resolver;
+    }
+
+    /**
+     * Creates a new {@link ResourceResolver} which contains only the given {@link ResourceValue}
+     * objects, indexed by namespace, type and name. There can be no duplicate (namespace, type,
+     * name) tuples in the input.
+     *
+     * <p>This method is meant for testing, where other components need to set up a simple {@link
+     * ResourceResolver} with known contents.
+     */
+    @VisibleForTesting
+    @NonNull
+    public static ResourceResolver withValues(@NonNull ResourceValue... values) {
+        return withValues(Arrays.asList(values), null);
+    }
+
+    /**
+     * Creates a new {@link ResourceResolver} which contains only the given {@link ResourceValue}
+     * objects, indexed by namespace, type and name. There can be no duplicate (namespace, type,
+     * name) tuples in the input.
+     *
+     * <p>This method is meant for testing, where other components need to set up a simple {@link
+     * ResourceResolver} with known contents.
+     */
+    @VisibleForTesting
+    @NonNull
+    public static ResourceResolver withValues(
+            @NonNull Iterable<ResourceValue> values, @Nullable ResourceReference themeReference) {
+        Map<ResourceNamespace, Map<ResourceType, ResourceValueMap>> resources = new HashMap<>();
+        for (ResourceValue value : values) {
+            Map<ResourceType, ResourceValueMap> byType =
+                    resources.computeIfAbsent(
+                            value.getNamespace(), ns -> new EnumMap<>(ResourceType.class));
+            ResourceValueMap resourceValueMap =
+                    byType.computeIfAbsent(value.getResourceType(), t -> ResourceValueMap.create());
+            checkArgument(
+                    !resourceValueMap.containsKey(value.getName()), "Duplicate resource: " + value);
+            resourceValueMap.put(value);
+        }
+
+        return create(resources, themeReference);
+    }
+
+    @Nullable
+    private ResourceValueMap getResourceValueMap(
+            @NonNull ResourceNamespace namespace, @NonNull ResourceType type) {
+        Map<ResourceType, ResourceValueMap> row = mResources.get(namespace);
+        return row != null ? row.get(type) : null;
     }
 
     /**
@@ -132,17 +224,24 @@ public class ResourceResolver extends RenderResources {
      */
     public void setDeviceDefaults(@NonNull String deviceDefaultParent) {
         if (deviceDefaultParent.equals(mDeviceDefaultParent)) {
-            // No need to patch again with the same parent
+            // No need to patch again with the same parent.
             return;
         }
 
         mDeviceDefaultParent = deviceDefaultParent;
         // The joiner will ignore nulls so if the caller specified an empty name, we replace it with
-        // a null so it gets ignored
+        // a null so it gets ignored.
         String parentName = Strings.emptyToNull(deviceDefaultParent);
 
-        // The regexp gets the prefix and suffix if they exist (without the dots)
-        for (ResourceValue value : mFrameworkResources.get(ResourceType.STYLE).values()) {
+        // TODO(namespaces): why only framework styles?
+        ResourceValueMap frameworkStyles =
+                getResourceValueMap(ResourceNamespace.ANDROID, ResourceType.STYLE);
+        if (frameworkStyles == null) {
+            return;
+        }
+
+        for (ResourceValue value : frameworkStyles.values()) {
+            // The regexp gets the prefix and suffix if they exist (without the dots).
             Matcher matcher = DEVICE_DEFAULT_PATTERN.matcher(value.getName());
             if (!matcher.matches()) {
                 continue;
@@ -157,57 +256,52 @@ public class ResourceResolver extends RenderResources {
 
     /**
      * Updates the parent of a given framework style. This method is used to patch DeviceDefault
-     * styles when using a CompatibilityTarget
+     * styles when using a CompatibilityTarget.
      */
     private void patchFrameworkStyleParent(String childStyleName, String parentName) {
-        ResourceValueMap map = mFrameworkResources.get(ResourceType.STYLE);
+        // TODO(namespaces): why only framework styles?
+        ResourceValueMap map = getResourceValueMap(ResourceNamespace.ANDROID, ResourceType.STYLE);
         if (map != null) {
             StyleResourceValue from = (StyleResourceValue)map.get(childStyleName);
             StyleResourceValue to = (StyleResourceValue)map.get(parentName);
 
             if (from != null && to != null) {
-                StyleResourceValue newStyle =
-                        new StyleResourceValue(
-                                from.getResourceUrl(), parentName, from.getLibraryName());
-                newStyle.replaceWith(from);
+                StyleResourceValueImpl newStyle = StyleResourceValueImpl.copyOf(from);
                 mStyleInheritanceMap.put(newStyle, to);
+                mReverseStyleInheritanceMap.clear();
             }
         }
     }
 
     // ---- Methods to help dealing with older LayoutLibs.
 
-    public String getThemeName() {
-        return mThemeName;
+    @Nullable
+    public StyleResourceValue getTheme() {
+        return mDefaultTheme;
     }
 
-    public boolean isProjectTheme() {
-        return mIsProjectTheme;
-    }
-
+    @Deprecated // TODO(namespaces)
     public Map<ResourceType, ResourceValueMap> getProjectResources() {
-        return mProjectResources;
+        return mResources.get(ResourceNamespace.RES_AUTO);
     }
 
+    @Deprecated // TODO(namespaces)
     public Map<ResourceType, ResourceValueMap> getFrameworkResources() {
-        return mFrameworkResources;
+        return mResources.get(ResourceNamespace.ANDROID);
     }
 
-    public void setLibrariesIdProvider(@NonNull ResourceIdProvider provider) {
-        mLibrariesIdProvider = provider;
+    /**
+     * Provides a mechanism to check if a given resource of type {@link ResourceType#ID} is defined
+     * in the project.
+     *
+     * <p>TODO(namespaces): stop relying on R.txt and remove this.
+     */
+    public void setProjectIdChecker(@NonNull Predicate<ResourceReference> predicate) {
+        mProjectIdChecker = predicate;
     }
 
     // ---- RenderResources Methods
 
-    @Override
-    public void setFrameworkResourceIdProvider(@NonNull ResourceIdProvider provider) {
-        mFrameworkIdProvider = provider;
-    }
-
-    @Override
-    public void setFrameworkResourceIdProvider(@NonNull FrameworkResourceIdProvider provider) {
-        setFrameworkResourceIdProvider((ResourceIdProvider) provider);
-    }
 
     @Override
     public void setLogger(LayoutLog logger) {
@@ -220,7 +314,7 @@ public class ResourceResolver extends RenderResources {
     }
 
     @Override
-    public void applyStyle(StyleResourceValue theme, boolean useAsPrimary) {
+    public void applyStyle(@Nullable StyleResourceValue theme, boolean useAsPrimary) {
         if (theme == null) {
             return;
         }
@@ -234,226 +328,266 @@ public class ResourceResolver extends RenderResources {
     @Override
     public void clearStyles() {
         mThemes.clear();
-        mThemes.add(mDefaultTheme);
+        if (mDefaultTheme != null) {
+            mThemes.add(mDefaultTheme);
+        }
     }
 
     @Override
+    @NonNull
     public List<StyleResourceValue> getAllThemes() {
         return mThemes;
     }
 
-    @Override
-    public StyleResourceValue getTheme(String name, boolean frameworkTheme) {
-        ResourceValue theme;
-
-        if (frameworkTheme) {
-            ResourceValueMap frameworkStyleMap = mFrameworkResources.get(
-                    ResourceType.STYLE);
-            theme = frameworkStyleMap != null ? frameworkStyleMap.get(name) : null;
-        } else {
-            ResourceValueMap projectStyleMap = mProjectResources.get(ResourceType.STYLE);
-            theme = projectStyleMap != null ? projectStyleMap.get(name) : null;
+    /**
+     * Returns whether a theme is a child of at least one of the specified parents.
+     *
+     * @param childTheme the child theme
+     * @param parentThemes the parent themes
+     * @return true if the child theme is indeed a child theme of one of the parent themes.
+     * @throws RuntimeException if no parent themes are specified
+     */
+    public boolean themeIsChildOfAny(
+            @NonNull StyleResourceValue childTheme, @NonNull StyleResourceValue... parentThemes) {
+        if (parentThemes.length == 0) {
+            throw new RuntimeException("At least 1 parent must be specified.");
         }
-
-        if (theme instanceof StyleResourceValue) {
-            return (StyleResourceValue) theme;
-        }
-
-        return null;
-    }
-
-    @Override
-    public boolean themeIsParentOf(StyleResourceValue parentTheme, StyleResourceValue childTheme) {
+        Set<StyleResourceValue> parents = ImmutableSet.copyOf(parentThemes);
+        StyleResourceValue theme = childTheme;
         do {
-            childTheme = mStyleInheritanceMap.get(childTheme);
-            if (childTheme == null) {
+            theme = mStyleInheritanceMap.get(theme);
+            if (theme == null) {
                 return false;
-            } else if (childTheme == parentTheme) {
+            } else if (parents.contains(theme)) {
                 return true;
             }
         } while (true);
     }
 
     @Override
-    public ResourceValue getFrameworkResource(ResourceType resourceType, String resourceName) {
-        return getResource(resourceType, resourceName, mFrameworkResources);
-    }
+    @Nullable
+    public StyleItemResourceValue findItemInStyle(
+            @NonNull StyleResourceValue style, @NonNull ResourceReference attr) {
+        for (int depth = 0; depth < MAX_RESOURCE_INDIRECTION; depth++) {
+            StyleItemResourceValue item = style.getItem(attr);
 
-    @Override
-    public ResourceValue getProjectResource(ResourceType resourceType, String resourceName) {
-        return getResource(resourceType, resourceName, mProjectResources);
-    }
+            if (item != null) {
+                return item;
+            }
 
-    @SuppressWarnings("deprecation") // Required to support older layoutlib clients
-    @Override
-    @Deprecated
-    public ItemResourceValue findItemInStyle(StyleResourceValue style, String attrName) {
-        // this method is deprecated because it doesn't know about the namespace of the
-        // attribute so we search for the project namespace first and then in the
-        // android namespace if needed.
-        ItemResourceValue item = findItemInStyle(style, attrName, false);
-        if (item == null) {
-            item = findItemInStyle(style, attrName, true);
+            // If we didn't find it, we look in the parent style (if applicable).
+            style = mStyleInheritanceMap.get(style);
+            if (style == null) {
+                return null;
+            }
         }
 
-        return item;
+        if (mLogger != null) {
+            mLogger.error(
+                    LayoutLog.TAG_BROKEN,
+                    String.format(
+                            "Cyclic style parent definitions: %1$s",
+                            computeCyclicStyleChain(style)),
+                    null,
+                    null,
+                    null);
+        }
+
+        return null;
     }
 
-    @Override
-    public ItemResourceValue findItemInStyle(StyleResourceValue style, String itemName,
-            boolean isFrameworkAttr) {
-        return findItemInStyle(style, itemName, isFrameworkAttr, 0);
-    }
+    @NonNull
+    private String computeCyclicStyleChain(@NonNull StyleResourceValue style) {
+        StringBuilder result = new StringBuilder(100);
+        Set<StyleResourceValue> seen = new HashSet<>();
+        for (int depth = 0; depth < MAX_RESOURCE_INDIRECTION + 1; depth++) {
+            if (depth >= MAX_RESOURCE_INDIRECTION) {
+                result.append("...");
+                break;
+            }
 
-    private ItemResourceValue findItemInStyle(StyleResourceValue style, String itemName,
-                                              boolean isFrameworkAttr, int depth) {
-        ItemResourceValue item = style.getItem(itemName, isFrameworkAttr);
+            result.append('"');
+            result.append(style.getResourceUrl().getQualifiedName());
+            result.append('"');
 
-        // if we didn't find it, we look in the parent style (if applicable)
-        //noinspection VariableNotUsedInsideIf
-        if (item == null) {
+            if (!seen.add(style)) {
+                break;
+            }
+
             StyleResourceValue parentStyle = mStyleInheritanceMap.get(style);
-            if (parentStyle != null) {
-                if (depth >= MAX_RESOURCE_INDIRECTION) {
-                    if (mLogger != null) {
-                        mLogger.error(
-                                LayoutLog.TAG_BROKEN,
-                                String.format(
-                                        "Cyclic style parent definitions: %1$s",
-                                        computeCyclicStyleChain(style)),
-                                null);
-                    }
-
-                    return null;
-                }
-
-                return findItemInStyle(parentStyle, itemName, isFrameworkAttr, depth + 1);
+            if (parentStyle == null) {
+                break;
             }
-        }
 
-        return item;
-    }
-
-    private String computeCyclicStyleChain(StyleResourceValue style) {
-        StringBuilder sb = new StringBuilder(100);
-        appendStyleParents(style, new HashSet<StyleResourceValue>(), 0, sb);
-        return sb.toString();
-    }
-
-    private void appendStyleParents(StyleResourceValue style, Set<StyleResourceValue> seen,
-            int depth, StringBuilder sb) {
-        if (depth >= MAX_RESOURCE_INDIRECTION) {
-            sb.append("...");
-            return;
-        }
-
-        boolean haveSeen = seen.contains(style);
-        seen.add(style);
-
-        sb.append('"');
-        if (style.isFramework()) {
-            sb.append(PREFIX_ANDROID);
-        }
-        sb.append(style.getName());
-        sb.append('"');
-
-        if (haveSeen) {
-            return;
-        }
-
-        StyleResourceValue parentStyle = mStyleInheritanceMap.get(style);
-        if (parentStyle != null) {
-            if (style.getParentStyle() != null) {
-                sb.append(" specifies parent ");
+            if (style.getParentStyleName() != null) {
+                result.append(" specifies parent ");
             } else {
-                sb.append(" implies parent ");
+                result.append(" implies parent ");
             }
 
-            appendStyleParents(parentStyle, seen, depth + 1, sb);
+            style = parentStyle;
         }
+
+        return result.toString();
     }
 
     @Override
-    public ResourceValue findResValue(String reference, boolean forceFrameworkOnly) {
-        if (reference == null) {
-            return null;
+    @Nullable
+    public ResourceValue getUnresolvedResource(@NonNull ResourceReference reference) {
+        if (reference.getResourceType() == ResourceType.SAMPLE_DATA) {
+            return findSampleDataValue(reference);
+        }
+        if (reference.getResourceType() == ResourceType.AAPT) {
+            return buildAaptResourceValue(reference);
+        }
+        ResourceValueMap resourceValueMap =
+                getResourceValueMap(reference.getNamespace(), reference.getResourceType());
+        if (resourceValueMap != null) {
+            return resourceValueMap.get(reference.getName());
         }
 
-        ResourceUrl resource = ResourceUrl.parse(reference);
-        if (resource == null || !resource.hasValidName()) {
+        return null;
+    }
+
+    @Override
+    @Nullable
+    public ResourceValue dereference(@NonNull ResourceValue value) {
+        ResourceReference reference = value.getReference();
+
+        if (reference == null
+                || !ResourceUrl.isValidName(reference.getName(), reference.getResourceType())) {
             // Looks like the value didn't reference anything. Return null.
             return null;
         }
 
-        if (resource.theme) {
-            // no theme? no need to go further!
+        // It was successfully parsed as a ResourceUrl, so it cannot be null.
+        assert value.getValue() != null;
+
+        if (value.getValue().startsWith(PREFIX_THEME_REF)) {
+            // No theme? No need to go further!
             if (mDefaultTheme == null) {
                 return null;
             }
 
-            if (resource.type != ResourceType.ATTR) {
+            if (reference.getResourceType() != ResourceType.ATTR) {
                 // At this time, no support for ?type/name where type is not "attr"
                 return null;
             }
 
             // Now look for the item in the theme, starting with the current one.
-            return findItemInTheme(resource.name, forceFrameworkOnly || resource.framework);
+            return findItemInTheme(reference);
         } else {
-            return findResValue(resource, forceFrameworkOnly);
+            if (reference.getResourceType() == ResourceType.AAPT) {
+                // Aapt resources are synthetic references that need to be handled specially.
+                return buildAaptResourceValue(reference);
+            } else if (reference.getResourceType() == ResourceType.SAMPLE_DATA) {
+                // Sample data resources are only available within the tools namespace
+                return findSampleDataValue(reference);
+            }
+
+            ResourceValue result = getUnresolvedResource(reference);
+            if (result != null) {
+                return result;
+            }
+
+            if (value.getValue().startsWith(NEW_ID_PREFIX)) {
+                return null;
+            }
+
+            if (reference.getResourceType() == ResourceType.ID) {
+                // If it was not found and the type is an id, it is possible that the ID was
+                // generated dynamically (by the '@+' syntax) when compiling the framework
+                // resources or in a library, in which case it was not in the repositories.
+                // See FileResourceRepository#myAarDeclaredIds.
+                //
+                // TODO(namespaces): In the past we asked Bridge for the numeric id of the resource
+                // in question, which always returned a non-null ID (potentially generating a new
+                // one). In effect we assumed {@link ResourceType#ID} resources in the framework
+                // namespace always exist. The repo for framework resources needs to know which ids
+                // exist and which don't, so we can get rid of this.
+                boolean idExists =
+                        ResourceNamespace.ANDROID.equals(reference.getNamespace())
+                                || mProjectIdChecker.test(reference);
+
+                if (idExists) {
+                    // TODO(namespaces): Cache these?
+                    return new ResourceValueImpl(reference, null);
+                }
+            }
+
+            // Didn't find the resource anywhere.
+            if (mLogger != null) {
+                mLogger.warning(
+                        LayoutLog.TAG_RESOURCES_RESOLVE,
+                        "Couldn't resolve resource " + reference.getResourceUrl(),
+                        null,
+                        reference);
+            }
+
+            return null;
         }
     }
 
+    /**
+     * If the given resource value contains a reference, resolves that reference to the actual
+     * value.
+     *
+     * @param resValue the resource value to resolve
+     * @return the resolved resource value, or null if {@code resValue} is null
+     */
     @Override
-    public ResourceValue resolveResValue(ResourceValue resValue) {
-        return resolveResValue(resValue, 0);
-    }
-
-    private ResourceValue resolveResValue(ResourceValue resValue, int depth) {
+    @Nullable
+    public ResourceValue resolveResValue(@Nullable ResourceValue resValue) {
         if (resValue == null) {
             return null;
         }
 
-        String value = resValue.getValue();
-        if (value == null || resValue instanceof ArrayResourceValue) {
-            // If there's no value or this an array resource (eg. <string-array>), return.
-            return resValue;
-        }
-
-        // else attempt to find another ResourceValue referenced by this one.
-        ResourceValue resolvedResValue = findResValue(value, resValue.isFramework());
-
-        // if the value did not reference anything, then we simply return the input value
-        if (resolvedResValue == null) {
-            return resValue;
-        }
-
-        // detect potential loop due to mishandled namespace in attributes
-        if (resValue == resolvedResValue || depth >= MAX_RESOURCE_INDIRECTION) {
-            if (mLogger != null) {
-                mLogger.error(
-                        LayoutLog.TAG_BROKEN,
-                        String.format(
-                                "Potential stack overflow trying to resolve '%s': cyclic resource definitions? Render may not be accurate.",
-                                value),
-                        null);
+        boolean referenceToItself = false;
+        for (int depth = 0; depth < MAX_RESOURCE_INDIRECTION; depth++) {
+            String value = resValue.getValue();
+            if (value == null || resValue instanceof ArrayResourceValue) {
+                // If there's no value or this an array resource (e.g. <string-array>), return.
+                return resValue;
             }
-            return resValue;
+
+            // Else attempt to find another ResourceValue referenced by this one.
+            ResourceValue resolvedResValue = dereference(resValue);
+
+            // If the value did not reference anything, then return the input value.
+            if (resolvedResValue == null) {
+                return resValue;
+            }
+
+            if (resolvedResValue.equals(resValue)) {
+                referenceToItself = true;
+                break; // Resource value referring to itself.
+            }
+            // Continue resolution with the new value.
+            resValue = resolvedResValue;
         }
 
-        // otherwise, we attempt to resolve this new value as well
-        return resolveResValue(resolvedResValue, depth + 1);
+        if (mLogger != null) {
+            String msg = referenceToItself
+                    ? "Infinite cycle trying to resolve '%s': Render may not be accurate."
+                    : "Potential infinite cycle trying to resolve '%s': Render may not be accurate.";
+            mLogger.error(
+                    LayoutLog.TAG_BROKEN,
+                    String.format(msg, resValue.getValue()),
+                    null,
+                    null,
+                    null);
+        }
+        return resValue;
     }
 
     // ---- Private helper methods.
 
     private SampleDataManager mSampleDataManager = new SampleDataManager();
 
-    private ResourceValue findSampleDataValue(@NonNull ResourceUrl url) {
-        // TODO: Remove this once repositories have namespace support
-        // Resource repositories do not support namespaces yet. Because of this
-        // we currently hack the namespace support as part of the item name.
-        String name = (url.namespace == null ? "" : url.namespace + ":") + url.name;
-        return Optional.ofNullable(mProjectResources.get(ResourceType.SAMPLE_DATA))
+    private ResourceValue findSampleDataValue(@NonNull ResourceReference value) {
+        String name = value.getName();
+        return Optional.ofNullable(
+                        getResourceValueMap(value.getNamespace(), value.getResourceType()))
                 .map(t -> t.get(SampleDataManager.getResourceNameFromSampleReference(name)))
                 .filter(SampleDataResourceValue.class::isInstance)
                 .map(SampleDataResourceValue.class::cast)
@@ -461,180 +595,74 @@ public class ResourceResolver extends RenderResources {
                 .map(content -> mSampleDataManager.getSampleDataLine(name, content))
                 .map(
                         lineContent ->
-                                new ResourceValue(
-                                        ResourceUrl.create(
-                                                url.namespace, ResourceType.SAMPLE_DATA, name),
+                                new ResourceValueImpl(
+                                        value.getNamespace(),
+                                        ResourceType.SAMPLE_DATA,
+                                        name,
                                         lineContent))
                 .orElse(null);
     }
 
-    /**
-     * Searches for, and returns a {@link ResourceValue} by its parsed reference.
-     *
-     * @param url the parsed resource
-     * @param forceFramework if <code>true</code>, the method does not search in the project
-     *     resources
-     */
-    private ResourceValue findResValue(ResourceUrl url, boolean forceFramework) {
-        if (url.type == ResourceType.AAPT) {
-            // Aapt resources are synthetic references that do not need to be resolved.
-            return null;
-        } else if (url.type == ResourceType.SAMPLE_DATA) {
-            // Sample data resources are only available within the tools namespace
-            return findSampleDataValue(url);
+    /** Computes style information, like the inheritance relation. */
+    private void preProcessStyles() {
+        if (mDefaultTheme == null) {
+            return;
         }
 
-        // map of ResourceValue for the given type
-        ResourceValueMap typeMap;
-        ResourceType resType = url.type;
-        String resName = url.name;
-        boolean isFramework = forceFramework || url.framework;
-        typeMap = !isFramework ? mProjectResources.get(resType) : mFrameworkResources.get(resType);
-        if (typeMap != null) {
-            ResourceValue item = typeMap.get(resName);
-            if (item != null) {
-                return item;
-            }
-        }
-
-        if (!url.create) {
-            if (resType == ResourceType.ID) {
-                // if it was not found and the type is an id, it is possible that the ID was
-                // generated dynamically when compiling the framework resources or in a library.
-                // Look for it in the R map.
-                boolean idExists =
-                        isFramework
-                                ? mFrameworkIdProvider.getId(resType, resName) != null
-                                : mLibrariesIdProvider.getId(resType, resName) != null;
-
-                if (idExists) {
-                    return new ResourceValue(isFramework ? url.withFramework(true) : url, null);
-                }
-            }
-
-            // didn't find the resource anywhere.
-            if (mLogger != null) {
-                mLogger.warning(
-                        LayoutLog.TAG_RESOURCES_RESOLVE,
-                        "Couldn't resolve resource @"
-                                + (isFramework ? "android:" : "")
-                                + resType
-                                + "/"
-                                + resName,
-                        null,
-                        url.withFramework(isFramework));
-            }
-        }
-
-        return null;
-    }
-
-    private ResourceValue getResource(ResourceType resourceType, String resourceName,
-            Map<ResourceType, ResourceValueMap> resourceRepository) {
-        ResourceValueMap typeMap = resourceRepository.get(resourceType);
-        if (typeMap != null) {
-            ResourceValue item = typeMap.get(resourceName);
-            if (item != null) {
-                item = resolveResValue(item);
-                return item;
-            }
-        }
-
-        // didn't find the resource anywhere.
-        return null;
-    }
-
-    /**
-     * Compute style information from the given list of style for the project and framework.
-     */
-    private void computeStyleMaps() {
-        ResourceValueMap projectStyleMap = mProjectResources.get(ResourceType.STYLE);
-        ResourceValueMap frameworkStyleMap = mFrameworkResources.get(ResourceType.STYLE);
-
-        // first, get the theme
-        ResourceValue theme = null;
-
-        // project theme names have been prepended with a *
-        if (mIsProjectTheme) {
-            if (projectStyleMap != null) {
-                theme = projectStyleMap.get(mThemeName);
-            }
-        } else {
-            if (frameworkStyleMap != null) {
-                theme = frameworkStyleMap.get(mThemeName);
-            }
-        }
-
-        if (theme instanceof StyleResourceValue) {
-            // compute the inheritance map for both the project and framework styles
-            computeStyleInheritance(projectStyleMap.values(), projectStyleMap,
-                    frameworkStyleMap);
-
-            // Compute the style inheritance for the framework styles/themes.
-            // Since, for those, the style parent values do not contain 'android:'
-            // we want to force looking in the framework style only to avoid using
-            // similarly named styles from the project.
-            // To do this, we pass null in lieu of the project style map.
-            if (frameworkStyleMap != null) {
-                computeStyleInheritance(frameworkStyleMap.values(), null /*inProjectStyleMap */,
-                        frameworkStyleMap);
-            }
-
-            mDefaultTheme = (StyleResourceValue) theme;
-            mThemes.clear();
-            mThemes.add(mDefaultTheme);
-        }
-    }
-
-    /**
-     * Compute the parent style for all the styles in a given list.
-     * @param styles the styles for which we compute the parent.
-     * @param inProjectStyleMap the map of project styles.
-     * @param inFrameworkStyleMap the map of framework styles.
-     */
-    private void computeStyleInheritance(Collection<ResourceValue> styles,
-            ResourceValueMap inProjectStyleMap,
-            ResourceValueMap inFrameworkStyleMap) {
         // This method will recalculate the inheritance map so any modifications done by
         // setDeviceDefault will be lost. Set mDeviceDefaultParent to null so when setDeviceDefault
         // is called again, it knows that it needs to modify the inheritance map again.
         mDeviceDefaultParent = null;
-        for (ResourceValue value : styles) {
-            if (value instanceof StyleResourceValue) {
-                StyleResourceValue style = (StyleResourceValue)value;
 
-                String parentName = getParentName(style);
+        for (Map<ResourceType, ResourceValueMap> mapForNamespace : mResources.values()) {
+            ResourceValueMap styles = mapForNamespace.get(ResourceType.STYLE);
+            if (styles == null) {
+                continue;
+            }
 
-                if (parentName != null) {
-                    StyleResourceValue parentStyle = getStyle(parentName, inProjectStyleMap,
-                            inFrameworkStyleMap);
+            for (ResourceValue value : styles.values()) {
+                if (!(value instanceof StyleResourceValue)) {
+                    continue;
+                }
 
-                    if (parentStyle != null) {
-                        mStyleInheritanceMap.put(style, parentStyle);
+                StyleResourceValue style = (StyleResourceValue) value;
+                ResourceReference parent = style.getParentStyle();
+
+                if (parent != null) {
+                    ResourceValue parentStyle = getUnresolvedResource(parent);
+                    if (parentStyle instanceof StyleResourceValue) {
+                        mStyleInheritanceMap.put(style, (StyleResourceValue) parentStyle);
+                        continue; // Don't log below.
                     }
+                }
+
+                if (mLogger != null) {
+                    mLogger.error(
+                            LayoutLog.TAG_RESOURCES_RESOLVE,
+                            String.format(
+                                    "Unable to resolve parent style name: %s",
+                                    style.getParentStyleName()),
+                            null,
+                            null,
+                            null);
                 }
             }
         }
+
+        clearStyles();
     }
 
-    /**
-     * Computes the name of the parent style, or <code>null</code> if the style is a root style.
-     * You probably want to use {@code ResolutionUtils,getParentQualifiedName(StyleResourceValue)}
-     * instead
-     */
-    @Nullable
-    public static String getParentName(StyleResourceValue style) {
-        String parentName = style.getParentStyle();
-        if (parentName != null) {
-            return parentName;
+    private void computeReverseStyleInheritance() {
+        for (Map.Entry<StyleResourceValue, StyleResourceValue> entry :
+                mStyleInheritanceMap.entrySet()) {
+            mReverseStyleInheritanceMap.put(entry.getValue(), entry.getKey());
         }
+    }
 
-        String styleName = style.getName();
-        int index = styleName.lastIndexOf('.');
-        if (index != -1) {
-            return styleName.substring(0, index);
-        }
-        return null;
+    private static ResourceValue buildAaptResourceValue(@NonNull ResourceReference reference) {
+        assert reference.getResourceType() == ResourceType.AAPT;
+        return new ResourceValueImpl(
+                reference, reference.getName().substring(AAPT_PREFIX.length()));
     }
 
     @Override
@@ -643,186 +671,91 @@ public class ResourceResolver extends RenderResources {
         return mStyleInheritanceMap.get(style);
     }
 
+    @NonNull
+    public Collection<StyleResourceValue> getChildren(@NonNull StyleResourceValue style) {
+        if (mReverseStyleInheritanceMap.isEmpty()) {
+            computeReverseStyleInheritance();
+        }
+        return mReverseStyleInheritanceMap.get(style);
+    }
+
+    public boolean styleExtends(
+            @NonNull StyleResourceValue child, @NonNull StyleResourceValue ancestor) {
+        StyleResourceValue current = child;
+        while (current != null) {
+            if (current.equals(ancestor)) {
+                return true;
+            }
+
+            current = getParent(current);
+        }
+
+        return false;
+    }
+
     @Override
     @Nullable
-    public StyleResourceValue getStyle(@NonNull String styleName, boolean isFramework) {
-        ResourceValue res;
-        ResourceValueMap styleMap;
-
-        // First check if we can find the style directly.
-        if (isFramework) {
-            styleMap = mFrameworkResources.get(ResourceType.STYLE);
-        } else {
-            styleMap = mProjectResources.get(ResourceType.STYLE);
-        }
-        res = getStyleFromMap(styleMap, styleName);
-
-        // If the obtained resource is not StyleResourceValue, return null.
-        return res instanceof StyleResourceValue ? (StyleResourceValue) res : null;
-    }
-
-    /**
-     * Search for the style in the given map and log an error if the obtained resource is not
-     * {@link StyleResourceValue}.
-     *
-     * @return The {@link ResourceValue} found in the map.
-     */
-    @Nullable
-    private ResourceValue getStyleFromMap(@NonNull ResourceValueMap styleMap,
-            @NonNull String styleName) {
-        ResourceValue res;
-        res = styleMap.get(styleName);
-        if (res != null) {
-            if (!(res instanceof StyleResourceValue) && mLogger != null) {
-                mLogger.error(
-                        null,
-                        String.format(
-                                "Style %1$s is not of type STYLE (instead %2$s)",
-                                styleName, res.getResourceType().toString()),
-                        null);
-            }
-        }
-        return res;
-    }
-
-    /**
-     * Searches for and returns the {@link StyleResourceValue} from a given name.
-     * <p>The format of the name can be:
-     * <ul>
-     * <li>[android:]&lt;name&gt;</li>
-     * <li>[android:]style/&lt;name&gt;</li>
-     * <li>@[android:]style/&lt;name&gt;</li>
-     * </ul>
-     * @param parentName the name of the style.
-     * @param inProjectStyleMap the project style map. Can be <code>null</code>
-     * @param inFrameworkStyleMap the framework style map.
-     * @return The matching {@link StyleResourceValue} object or <code>null</code> if not found.
-     */
-    private StyleResourceValue getStyle(String parentName,
-            ResourceValueMap inProjectStyleMap,
-            ResourceValueMap inFrameworkStyleMap) {
-        boolean frameworkOnly = false;
-
-        String name = parentName;
-
-        // remove the useless @ if it's there
-        if (name.startsWith(PREFIX_RESOURCE_REF)) {
-            name = name.substring(PREFIX_RESOURCE_REF.length());
-        }
-
-        // check for framework identifier.
-        if (name.startsWith(PREFIX_ANDROID)) {
-            frameworkOnly = true;
-            name = name.substring(PREFIX_ANDROID.length());
-        }
-
-        // at this point we could have the format <type>/<name>. we want only the name as long as
-        // the type is style.
-        if (name.startsWith(REFERENCE_STYLE)) {
-            name = name.substring(REFERENCE_STYLE.length());
-        } else if (name.indexOf('/') != -1) {
+    public StyleResourceValue getStyle(@NonNull ResourceReference styleReference) {
+        ResourceValue style = getUnresolvedResource(styleReference);
+        if (style == null) {
             return null;
         }
 
-        ResourceValue parent = null;
-
-        // if allowed, search in the project resources.
-        if (!frameworkOnly && inProjectStyleMap != null) {
-            parent = inProjectStyleMap.get(name);
-        }
-
-        // if not found, then look in the framework resources.
-        if (parent == null) {
-            if (inFrameworkStyleMap == null) {
-                return null;
-            }
-            parent = inFrameworkStyleMap.get(name);
-        }
-
-        // make sure the result is the proper class type and return it.
-        if (parent instanceof StyleResourceValue) {
-            return (StyleResourceValue) parent;
+        if (style instanceof StyleResourceValue) {
+            return (StyleResourceValue) style;
         }
 
         if (mLogger != null) {
             mLogger.error(
-                    LayoutLog.TAG_RESOURCES_RESOLVE,
-                    String.format("Unable to resolve parent style name: %s", parentName),
-                    null);
+                    null,
+                    String.format(
+                            "Style %1$s is not of type STYLE (instead %2$s)",
+                            styleReference, style.getResourceType().toString()),
+                    null,
+                    null,
+                    styleReference);
         }
 
         return null;
     }
 
-    /** Returns true if the given {@link ResourceValue} represents a theme */
+    /** Checks if the given {@link ResourceValue} represents a theme. */
     public boolean isTheme(
-            @NonNull ResourceValue value,
-            @Nullable Map<ResourceValue, Boolean> cache) {
-        return isTheme(value, cache, 0);
-    }
-
-    private boolean isTheme(
-            @NonNull ResourceValue value,
-            @Nullable Map<ResourceValue, Boolean> cache,
-            int depth) {
+            @NonNull ResourceValue value, @Nullable Map<ResourceValue, Boolean> cache) {
         if (cache != null) {
             Boolean known = cache.get(value);
             if (known != null) {
                 return known;
             }
         }
+
         if (value instanceof StyleResourceValue) {
-            StyleResourceValue srv = (StyleResourceValue) value;
-            String name = srv.getName();
-            if (srv.isFramework() && (name.equals(THEME_NAME) || name.startsWith(THEME_NAME_DOT))) {
-                if (cache != null) {
-                    cache.put(value, true);
-                }
-                return true;
-            }
-
-            StyleResourceValue parentStyle = mStyleInheritanceMap.get(srv);
-            if (parentStyle != null) {
-                if (depth >= MAX_RESOURCE_INDIRECTION) {
-                    if (mLogger != null) {
-                        mLogger.error(
-                                LayoutLog.TAG_BROKEN,
-                                String.format(
-                                        "Cyclic style parent definitions: %1$s",
-                                        computeCyclicStyleChain(srv)),
-                                null);
+            StyleResourceValue styleValue = (StyleResourceValue) value;
+            for (int depth = 0; depth < MAX_RESOURCE_INDIRECTION; depth++) {
+                String name = styleValue.getName();
+                if (styleValue.getNamespace() == ResourceNamespace.ANDROID
+                        && (name.equals(THEME_NAME) || name.startsWith(THEME_NAME_DOT))) {
+                    if (cache != null) {
+                        cache.put(value, true);
                     }
+                    return true;
+                }
 
+                styleValue = mStyleInheritanceMap.get(styleValue);
+                if (styleValue == null) {
                     return false;
                 }
-
-                boolean result = isTheme(parentStyle, cache, depth + 1);
-                if (cache != null) {
-                    cache.put(value, result);
-                }
-                return result;
             }
-        }
 
-        return false;
-    }
-
-    /**
-     * Returns true if the given {@code themeStyle} extends the theme given by
-     * {@code parentStyle}
-     */
-    public boolean themeExtends(@NonNull String parentStyle, @NonNull String themeStyle) {
-        ResourceValue parentValue = findResValue(parentStyle,
-                parentStyle.startsWith(ANDROID_STYLE_RESOURCE_PREFIX));
-        if (parentValue instanceof StyleResourceValue) {
-            ResourceValue themeValue = findResValue(themeStyle,
-                    themeStyle.startsWith(ANDROID_STYLE_RESOURCE_PREFIX));
-            if (themeValue == parentValue) {
-                return true;
-            }
-            if (themeValue instanceof StyleResourceValue) {
-                return themeIsParentOf((StyleResourceValue) parentValue,
-                        (StyleResourceValue) themeValue);
+            if (mLogger != null) {
+                mLogger.error(
+                        LayoutLog.TAG_BROKEN,
+                        String.format(
+                                "Cyclic style parent definitions: %1$s",
+                                computeCyclicStyleChain(styleValue)),
+                        null,
+                        null,
+                        null);
             }
         }
 
@@ -838,11 +771,9 @@ public class ResourceResolver extends RenderResources {
      * @return a new {@link ResourceResolver}
      */
     public ResourceResolver createRecorder(List<ResourceValue> lookupChain) {
-        ResourceResolver resolver = new RecordingResourceResolver(
-                lookupChain, mProjectResources, mFrameworkResources, mThemeName, mIsProjectTheme);
-        resolver.mFrameworkIdProvider = mFrameworkIdProvider;
+        ResourceResolver resolver =
+                new RecordingResourceResolver(lookupChain, mResources, mDefaultTheme);
         resolver.mLogger = mLogger;
-        resolver.mDefaultTheme = mDefaultTheme;
         resolver.mStyleInheritanceMap.putAll(mStyleInheritanceMap);
         resolver.mThemes.addAll(mThemes);
         return resolver;
@@ -853,10 +784,9 @@ public class ResourceResolver extends RenderResources {
 
         private RecordingResourceResolver(
                 @NonNull List<ResourceValue> lookupChain,
-                @NonNull Map<ResourceType, ResourceValueMap> projectResources,
-                @NonNull Map<ResourceType, ResourceValueMap> frameworkResources,
-                @NonNull String themeName, boolean isProjectTheme) {
-            super(projectResources, frameworkResources, themeName, isProjectTheme);
+                @NonNull Map<ResourceNamespace, Map<ResourceType, ResourceValueMap>> resources,
+                @Nullable StyleResourceValue theme) {
+            super(resources, theme);
             mLookupChain = lookupChain;
         }
 
@@ -869,19 +799,15 @@ public class ResourceResolver extends RenderResources {
             return super.resolveResValue(resValue);
         }
 
+        @Nullable
         @Override
-        public ResourceValue findResValue(String reference, boolean forceFrameworkOnly) {
-            if (!mLookupChain.isEmpty() && reference != null && reference.startsWith(PREFIX_RESOURCE_REF)) {
-                ResourceValue prev = mLookupChain.get(mLookupChain.size() - 1);
-                if (!reference.equals(prev.getValue())) {
-                    ResourceValue next =
-                            new ResourceValue(prev.getResourceUrl(), null, prev.getLibraryName());
-                    next.setValue(reference);
-                    mLookupChain.add(next);
-                }
+        public ResourceValue dereference(@NonNull ResourceValue value) {
+            if (!mLookupChain.isEmpty()
+                    && !mLookupChain.get(mLookupChain.size() - 1).equals(value)) {
+                mLookupChain.add(value);
             }
 
-            ResourceValue resValue = super.findResValue(reference, forceFrameworkOnly);
+            ResourceValue resValue = super.dereference(value);
 
             if (resValue != null) {
                 mLookupChain.add(resValue);
@@ -891,9 +817,9 @@ public class ResourceResolver extends RenderResources {
         }
 
         @Override
-        public ItemResourceValue findItemInStyle(StyleResourceValue style, String itemName,
-                boolean isFrameworkAttr) {
-            ItemResourceValue value = super.findItemInStyle(style, itemName, isFrameworkAttr);
+        public StyleItemResourceValue findItemInStyle(
+                @NonNull StyleResourceValue style, @NonNull ResourceReference attr) {
+            StyleItemResourceValue value = super.findItemInStyle(style, attr);
             if (value != null) {
                 mLookupChain.add(value);
             }
@@ -901,12 +827,81 @@ public class ResourceResolver extends RenderResources {
         }
 
         @Override
-        public ResourceValue findItemInTheme(String attrName, boolean isFrameworkAttr) {
-            ResourceValue value = super.findItemInTheme(attrName, isFrameworkAttr);
+        public ResourceValue findItemInTheme(@NonNull ResourceReference attr) {
+            ResourceValue value = super.findItemInTheme(attr);
             if (value != null) {
                 mLookupChain.add(value);
             }
             return value;
         }
+    }
+
+    /** @deprecated Use {@link #getDefaultTheme()} or {@link #getAllThemes()} */
+    @Deprecated
+    public StyleResourceValue getCurrentTheme() {
+        // Default theme is same as the current theme was on older versions of the API.
+        // With the introduction of applyStyle() "current" theme makes little sense.
+        // Hence, simply return defaultTheme.
+        return getDefaultTheme();
+    }
+
+    /** @deprecated Use {@link #getStyle(ResourceReference)} */
+    @Deprecated
+    public StyleResourceValue getTheme(String name, boolean frameworkTheme) {
+        return getStyle(
+                new ResourceReference(
+                        ResourceNamespace.fromBoolean(frameworkTheme), ResourceType.STYLE, name));
+    }
+
+    /** @deprecated Use {@link #getResolvedResource(ResourceReference)} */
+    @Deprecated
+    public ResourceValue getFrameworkResource(ResourceType resourceType, String resourceName) {
+        return getResolvedResource(
+                new ResourceReference(ResourceNamespace.ANDROID, resourceType, resourceName));
+    }
+
+    /** @deprecated Use {@link #getResolvedResource(ResourceReference)} */
+    @Deprecated
+    public ResourceValue getProjectResource(ResourceType resourceType, String resourceName) {
+        return getResolvedResource(
+                new ResourceReference(ResourceNamespace.RES_AUTO, resourceType, resourceName));
+    }
+
+    /** @deprecated Use {@link #findItemInTheme(ResourceReference)}. */
+    @Deprecated
+    @Nullable
+    public final ResourceValue findItemInTheme(String attrName, boolean isFrameworkAttr) {
+        return findItemInTheme(
+                new ResourceReference(
+                        ResourceNamespace.fromBoolean(isFrameworkAttr),
+                        ResourceType.ATTR,
+                        attrName));
+    }
+
+    /** @deprecated Use {@link #findItemInStyle(StyleResourceValue, ResourceReference)}. */
+    @Deprecated
+    @Nullable
+    public final ResourceValue findItemInStyle(
+            StyleResourceValue style, String attrName, boolean isFrameworkAttr) {
+        return findItemInStyle(
+                style,
+                new ResourceReference(
+                        ResourceNamespace.fromBoolean(isFrameworkAttr),
+                        ResourceType.ATTR,
+                        attrName));
+    }
+
+    /**
+     * Returns the style matching the given name. The name should not contain any namespace prefix.
+     *
+     * @param styleName Name of the style. For example, "Widget.ListView.DropDown".
+     * @return the {link StyleResourceValue} for the style, or null if not found.
+     * @deprecated Use {@link #getStyle(ResourceReference)}
+     */
+    @Deprecated
+    public final StyleResourceValue getStyle(String styleName, boolean isFramework) {
+        return getStyle(
+                new ResourceReference(
+                        ResourceNamespace.fromBoolean(isFramework), ResourceType.STYLE, styleName));
     }
 }

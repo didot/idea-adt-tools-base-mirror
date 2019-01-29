@@ -13,46 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.ide.common.rendering.api;
 
 import com.android.annotations.NonNull;
-import com.android.annotations.Nullable;
-import com.android.resources.ResourceType;
-import com.android.resources.ResourceUrl;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
 
 /**
- * Represents an android array resource with a name and a list of children {@link ResourceValue}
+ * Represents an Android array resource with a name and a list of children {@link ResourceValue}
  * items, one for array element.
  */
-public class ArrayResourceValue extends ResourceValue implements Iterable<String> {
-
-    private final List<String> mItems = new ArrayList<>();
-
-    public ArrayResourceValue(@NonNull ResourceUrl url, @Nullable String libraryName) {
-        super(url, null, libraryName);
-        assert url.type == ResourceType.ARRAY;
-    }
-
-
+public interface ArrayResourceValue extends ResourceValue, Iterable<String> {
     /**
-     * Adds an element into the array
-     */
-    public void addElement(String value) {
-        mItems.add(value);
-    }
-
-    /**
-     * Returns the number of elements in this array
+     * Returns the number of elements in this array.
      *
      * @return the element count
      */
-    public int getElementCount() {
-        return mItems.size();
-    }
+    int getElementCount();
 
     /**
      * Returns the array element value at the given index position.
@@ -60,40 +35,6 @@ public class ArrayResourceValue extends ResourceValue implements Iterable<String
      * @param index index, which must be in the range [0..getElementCount()].
      * @return the corresponding element
      */
-    public String getElement(int index) {
-        return mItems.get(index);
-    }
-
-    /**
-     * Returns an iterator over the resource values
-     */
-    @Override
-    public Iterator<String> iterator() {
-        return mItems.iterator();
-    }
-
-    /**
-     * Returns the index of the element to pick by default if a client
-     * of layoutlib asks for the {@link #getValue()} rather than the more
-     * specific {@linkplain ArrayResourceValue} iteration methods
-     */
-    protected int getDefaultIndex() {
-        return 0;
-    }
-
-    @Override
-    public String getValue() {
-        // Clients should normally not call this method on ArrayResourceValues; they should
-        // pick the specific array element they want. However, for compatibility with older
-        // layout libs, return the first array element's value instead.
-
-        //noinspection VariableNotUsedInsideIf
-        if (mValue == null) {
-            if (!mItems.isEmpty()) {
-                return mItems.get(getDefaultIndex());
-            }
-        }
-
-        return mValue;
-    }
+    @NonNull
+    String getElement(int index);
 }

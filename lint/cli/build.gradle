@@ -9,11 +9,14 @@ version = rootProject.ext.baseVersion
 
 dependencies {
     compile project(':base:lint-checks')
-    compile project(':base:lint-kotlin')
     compile libs.guava
     compile project(':base:uast')
     compile project(':base:kotlin-compiler')
     compile project(':base:manifest-merger')
+    compile project(':analytics-library:shared')
+    compile project(':analytics-library:protos')
+    compile project(':analytics-library:tracker')
+
     compile libs.kotlin_reflect
     compile libs.kotlin_stdlib
 }

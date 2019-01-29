@@ -18,14 +18,14 @@ package com.android.build.gradle.tasks;
 
 import static com.android.SdkConstants.CURRENT_PLATFORM;
 import static com.android.SdkConstants.PLATFORM_WINDOWS;
+import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
 
 import com.android.annotations.NonNull;
-import com.android.annotations.Nullable;
 import com.android.build.gradle.external.gnumake.NativeBuildConfigValueBuilder;
 import com.android.build.gradle.internal.core.Abi;
+import com.android.build.gradle.internal.cxx.configure.JsonGenerationVariantConfiguration;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValue;
 import com.android.build.gradle.internal.cxx.json.PlainFileGsonTypeAdaptor;
-import com.android.build.gradle.internal.ndk.NdkHandler;
 import com.android.builder.core.AndroidBuilder;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.process.ProcessInfoBuilder;
@@ -40,10 +40,8 @@ import com.google.wireless.android.sdk.stats.GradleNativeAndroidModule;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import org.gradle.api.GradleException;
 
 /**
  * ndk-build JSON generation logic. This is separated from the corresponding ndk-build task so that
@@ -53,45 +51,28 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
     @NonNull private final File projectDir;
 
     NdkBuildExternalNativeJsonGenerator(
-            @NonNull NdkHandler ndkHandler,
-            int minSdkVersion,
-            @NonNull String variantName,
-            @NonNull Collection<Abi> abis,
+            @NonNull JsonGenerationVariantConfiguration config,
             @NonNull AndroidBuilder androidBuilder,
             @NonNull File projectDir,
-            @NonNull File sdkFolder,
-            @NonNull File ndkFolder,
-            @NonNull File soFolder,
-            @NonNull File objFolder,
-            @NonNull File jsonFolder,
-            @NonNull File makeFile,
-            boolean debuggable,
-            @Nullable List<String> buildArguments,
-            @Nullable List<String> cFlags,
-            @Nullable List<String> cppFlags,
-            @NonNull List<File> nativeBuildConfigurationsJsons,
             @NonNull GradleBuildVariant.Builder stats) {
-        super(
-                ndkHandler,
-                minSdkVersion,
-                variantName,
-                abis,
-                androidBuilder,
-                sdkFolder,
-                ndkFolder,
-                soFolder,
-                new File(objFolder, "local"), // ndk-build create libraries in a "local" subfolder.
-                jsonFolder,
-                makeFile,
-                debuggable,
-                buildArguments,
-                cFlags,
-                cppFlags,
-                nativeBuildConfigurationsJsons,
-                stats);
+        super(config, androidBuilder, stats);
         this.projectDir = projectDir;
         this.stats.setNativeBuildSystemType(
                 GradleNativeAndroidModule.NativeBuildSystemType.NDK_BUILD);
+
+        // Do some basic sync time checks.
+        if (getMakefile().isDirectory()) {
+            recordConfigurationError(
+                    String.format(
+                            "Gradle project ndkBuild.path %s is a folder. "
+                                    + "Only files (like Android.mk) are allowed.",
+                            getMakefile()));
+        } else if (!getMakefile().exists()) {
+            recordConfigurationError(
+                    String.format(
+                            "Gradle project ndkBuild.path is %s but that file doesn't exist",
+                            getMakefile()));
+        }
     }
 
     @Override
@@ -103,7 +84,7 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
         File applicationMk = new File(getMakeFile().getParent(), "Application.mk");
 
         // Write the captured ndk-build output to a file for diagnostic purposes.
-        diagnostic("parse and convert ndk-build output to build configuration JSON");
+        diagnosticForAbi(abi, "parse and convert ndk-build output to build configuration JSON");
 
         // Tasks, including the Exec task used to execute ndk-build, will execute in the same folder
         // as the module build.gradle. However, parsing of ndk-build output doesn't necessarily
@@ -118,7 +99,7 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
         //   project/app/build.gradle
         //
         // Then, right now, the current folder is 'project/' but ndk-build -n was executed in
-        // 'project/app/'. For this reason, any relative paths in the ndk-build -n ouput will be
+        // 'project/app/'. For this reason, any relative paths in the ndk-build -n output will be
         // relative to 'project/app/' but a direct call now to getAbsolutePath() would produce a
         // path relative to 'project/' which is wrong.
         //
@@ -142,12 +123,13 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
                                                 applicationMk,
                                                 true /* removeJobsFlag */)
                                         + " clean",
-                                variantName,
+                                config.variantName,
                                 buildOutput)
                         .build();
 
         if (applicationMk.exists()) {
-            diagnostic("found application make file %s", applicationMk.getAbsolutePath());
+            diagnosticForAbi(
+                    abi, "found application make file %s", applicationMk.getAbsolutePath());
             Preconditions.checkNotNull(buildConfig.buildFiles);
             buildConfig.buildFiles.add(applicationMk);
         }
@@ -171,7 +153,6 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
     @Override
     ProcessInfoBuilder getProcessBuilder(@NonNull String abi, int abiPlatformVersion,
             @NonNull File outputJson) {
-        checkConfiguration();
         // Discover Application.mk if one exists next to Android.mk
         // If there is an Application.mk file next to Android.mk then pick it up.
         File applicationMk = new File(getMakeFile().getParent(), "Application.mk");
@@ -190,12 +171,16 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
 
     @NonNull
     @Override
-    String executeProcess(@NonNull String abi, int abiPlatformVersion, @NonNull File outputJsonDir)
+    String executeProcess(@NonNull String abi, int abiPlatformVersion, @NonNull File outputJsonFile)
             throws ProcessException, IOException {
-        return ExternalNativeBuildTaskUtils.executeBuildProcessAndLogError(
-                androidBuilder,
-                getProcessBuilder(abi, abiPlatformVersion, outputJsonDir),
-                false /* logStdioToInfo */);
+        return createProcessOutputJunction(
+                        outputJsonFile.getParentFile(),
+                        "android_gradle_generate_ndk_build_json_" + abi,
+                        getProcessBuilder(abi, abiPlatformVersion, outputJsonFile),
+                        androidBuilder,
+                        "")
+                .logStderrToInfo()
+                .executeAndReturnStdoutString();
     }
 
     @NonNull
@@ -239,17 +224,6 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
             return new File(getMakefile(), "Android.mk");
         }
         return getMakefile();
-    }
-
-    /**
-     * Check whether the configuration looks good enough to generate JSON files and expect that the
-     * result will be valid.
-     */
-    private void checkConfiguration() {
-        List<String> configurationErrors = getConfigurationErrors();
-        if (!configurationErrors.isEmpty()) {
-            throw new GradleException(Joiner.on("\n").join(configurationErrors));
-        }
     }
 
     /** Get the base list of arguments for invoking ndk-build. */
@@ -353,27 +327,5 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
                 + " "
                 + Joiner.on(" ")
                         .join(getBaseArgs(abi, abiPlatformVersion, applicationMk, removeJobsFlag));
-    }
-
-    /**
-     * Construct list of errors that can be known at configuration time.
-     */
-    @NonNull
-    private List<String> getConfigurationErrors() {
-        List<String> messages = Lists.newArrayList();
-        if (getMakefile().isDirectory()) {
-            messages.add(
-                    String.format(
-                            "Gradle project ndkBuild.path %s is a folder. "
-                                    + "Only files (like Android.mk) are allowed.",
-                            getMakefile()));
-        } else if (!getMakefile().exists()) {
-            messages.add(
-                    String.format("Gradle project ndkBuild.path is %s but that file doesn't exist",
-                            getMakefile()));
-        }
-
-        messages.addAll(getBaseConfigurationErrors());
-        return messages;
     }
 }

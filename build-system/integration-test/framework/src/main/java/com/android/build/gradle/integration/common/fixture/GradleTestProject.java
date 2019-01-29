@@ -18,7 +18,6 @@ package com.android.build.gradle.integration.common.fixture;
 
 import static com.android.testutils.truth.PathSubject.assertThat;
 import static com.google.common.base.Preconditions.checkNotNull;
-import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 import com.android.SdkConstants;
@@ -26,8 +25,9 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.BasePlugin;
 import com.android.build.gradle.integration.BazelIntegrationTestsSuite;
+import com.android.build.gradle.integration.common.utils.TestFileUtils;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.builder.core.AndroidBuilder;
-import com.android.builder.core.BuilderConstants;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.Version;
 import com.android.io.StreamException;
@@ -41,6 +41,7 @@ import com.android.testutils.apk.Apk;
 import com.android.testutils.apk.Zip;
 import com.android.utils.FileUtils;
 import com.android.utils.Pair;
+import com.android.utils.StringHelper;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -49,6 +50,7 @@ import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.hash.Hashing;
 import com.google.common.io.Files;
@@ -71,7 +73,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.gradle.internal.impldep.org.codehaus.plexus.util.StringUtils;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
@@ -96,24 +97,16 @@ public final class GradleTestProject implements TestRule {
 
 
     public static final String DEFAULT_COMPILE_SDK_VERSION;
-    public static final int LATEST_NDK_PLATFORM_VERSION = 21;
-    /** Latest published Google APIs version. Update this once new version is out. */
-    public static final int LATEST_GOOGLE_APIS_VERSION = 24;
 
     public static final String DEFAULT_BUILD_TOOL_VERSION;
-    public static final String REMOTE_TEST_PROVIDER = System.getenv().get("REMOTE_TEST_PROVIDER");
-
-    public static final String DEVICE_PROVIDER_NAME =
-            REMOTE_TEST_PROVIDER != null ? REMOTE_TEST_PROVIDER : BuilderConstants.CONNECTED;
+    public static final boolean APPLY_DEVICEPOOL_PLUGIN =
+            Boolean.parseBoolean(System.getenv().getOrDefault("APPLY_DEVICEPOOL_PLUGIN", "false"));
 
     public static final boolean USE_LATEST_NIGHTLY_GRADLE_VERSION =
             Boolean.parseBoolean(System.getenv().getOrDefault("USE_GRADLE_NIGHTLY", "false"));
     public static final String GRADLE_TEST_VERSION;
 
     public static final String ANDROID_GRADLE_PLUGIN_VERSION;
-
-    @Nullable public static final File ANDROID_HOME;
-    @Nullable public static final File ANDROID_NDK_HOME;
 
     public static final String DEVICE_TEST_TASK = "deviceCheck";
 
@@ -133,13 +126,14 @@ public final class GradleTestProject implements TestRule {
 
     static {
         try {
-            if (BuildSystem.get() == BuildSystem.IDEA) {
+            if (System.getenv("TEST_TMPDIR") != null) {
+                BUILD_DIR = new File(System.getenv("TEST_TMPDIR"));
+            } else if (BuildSystem.get() == BuildSystem.IDEA) {
                 BUILD_DIR = new File(TestUtils.getWorkspaceRoot(), "out/gradle-integration-tests");
             } else {
-                String buildDirPath = System.getenv("TEST_TMPDIR");
-                assertNotNull("$TEST_TMPDIR is not set", buildDirPath);
-                BUILD_DIR = new File(buildDirPath);
+                throw new IllegalStateException("unable to determine location for BUILD_DIR");
             }
+
             OUT_DIR = new File(BUILD_DIR, "tests");
             ANDROID_SDK_HOME = new File(BUILD_DIR, "ANDROID_SDK_HOME");
 
@@ -174,44 +168,12 @@ public final class GradleTestProject implements TestRule {
                     MoreObjects.firstNonNull(
                             envCustomCompileSdk,
                             Integer.toString(SdkVersionInfo.HIGHEST_KNOWN_STABLE_API));
-
-            String envCustomAndroidHome =
-                    Strings.emptyToNull(System.getenv().get("CUSTOM_ANDROID_HOME"));
-            if (envCustomAndroidHome != null) {
-                ANDROID_HOME = new File(envCustomAndroidHome);
-                assertThat(ANDROID_HOME).named("$CUSTOM_ANDROID_HOME").isDirectory();
-            } else {
-                File androidHome;
-                try {
-                    androidHome = TestUtils.getSdk();
-                } catch (IllegalArgumentException e) {
-                    androidHome = null;
-                }
-                ANDROID_HOME = androidHome;
-            }
-
-            String envCustomAndroidNdkHome =
-                    Strings.emptyToNull(System.getenv().get("CUSTOM_ANDROID_NDK_HOME"));
-            if (envCustomAndroidNdkHome != null) {
-                ANDROID_NDK_HOME = new File(envCustomAndroidNdkHome);
-                assertThat(ANDROID_NDK_HOME).named("$CUSTOM_ANDROID_NDK_HOME").isDirectory();
-            } else {
-                ANDROID_NDK_HOME =
-                        TestUtils.runningFromBazel()
-                                ? BazelIntegrationTestsSuite.NDK_IN_TMP.toFile()
-                                : new File(ANDROID_HOME, SdkConstants.FD_NDK);
-            }
         } catch (Throwable t) {
             // Print something to stdout, to give us a chance to debug initialization problems.
             System.out.println(Throwables.getStackTraceAsString(t));
             throw Throwables.propagate(t);
         }
     }
-
-    public static final String PLAY_SERVICES_VERSION = "9.6.1";
-    public static final String SUPPORT_LIB_VERSION = "25.3.1";
-    public static final String TEST_SUPPORT_LIB_VERSION = "0.5";
-    public static final int SUPPORT_LIB_MIN_SDK = 14;
 
     private static final String COMMON_HEADER = "commonHeader.gradle";
     private static final String COMMON_LOCAL_REPO = "commonLocalRepo.gradle";
@@ -223,9 +185,9 @@ public final class GradleTestProject implements TestRule {
     private final boolean withDeviceProvider;
     private final boolean withSdk;
     private final boolean withAndroidGradlePlugin;
+    private final boolean withKotlinGradlePlugin;
     @NonNull private final List<String> withIncludedBuilds;
     @Nullable private File testDir;
-    private File sourceDir;
     private File buildFile;
     private File localProp;
     private final boolean withoutNdk;
@@ -241,16 +203,27 @@ public final class GradleTestProject implements TestRule {
 
     private final String targetGradleVersion;
 
+    @NonNull private final String compileSdkVersion;
     @Nullable private final String buildToolsVersion;
 
     @Nullable private final Path profileDirectory;
 
     @Nullable private String heapSize;
+    @Nullable private final List<Path> repoDirectories;
+
+    @NonNull private final File androidHome;
+    @NonNull private final File androidNdkHome;
+    @NonNull private final File gradleDistributionDirectory;
+    @Nullable private final File gradleBuildCacheDirectory;
+    @NonNull private final String kotlinVersion;
 
     private GradleBuildResult lastBuildResult;
     private ProjectConnection projectConnection;
     private final GradleTestProject rootProject;
     private final List<ProjectConnection> openConnections;
+
+    /** Whether or not to output the log of the last build result when a test fails. */
+    private boolean outputLogOnFailure;
 
     GradleTestProject(
             @Nullable String name,
@@ -260,6 +233,7 @@ public final class GradleTestProject implements TestRule {
             boolean withDependencyChecker,
             @NonNull Collection<String> gradleProperties,
             @Nullable String heapSize,
+            @Nullable String compileSdkVersion,
             @Nullable String buildToolsVersion,
             @Nullable Path profileDirectory,
             @NonNull String cmakeVersion,
@@ -267,13 +241,22 @@ public final class GradleTestProject implements TestRule {
             boolean withDeviceProvider,
             boolean withSdk,
             boolean withAndroidGradlePlugin,
+            boolean withKotlinGradlePlugin,
             @NonNull List<String> withIncludedBuilds,
-            @Nullable File testDir) {
+            @Nullable File testDir,
+            @Nullable List<Path> repoDirectories,
+            @NonNull File androidHome,
+            @NonNull File androidNdkHome,
+            @NonNull File gradleDistributionDirectory,
+            @Nullable File gradleBuildCacheDirectory,
+            @NonNull String kotlinVersion,
+            boolean outputLogOnFailure) {
         this.withDeviceProvider = withDeviceProvider;
         this.withSdk = withSdk;
         this.withAndroidGradlePlugin = withAndroidGradlePlugin;
+        this.withKotlinGradlePlugin = withKotlinGradlePlugin;
         this.withIncludedBuilds = withIncludedBuilds;
-        this.buildFile = sourceDir = null;
+        this.buildFile = null;
         this.name = (name == null) ? DEFAULT_TEST_PROJECT_NAME : name;
         this.targetGradleVersion = targetGradleVersion;
         this.testProject = testProject;
@@ -282,43 +265,60 @@ public final class GradleTestProject implements TestRule {
         this.heapSize = heapSize;
         this.gradleProperties = gradleProperties;
         this.buildToolsVersion = buildToolsVersion;
+        this.compileSdkVersion =
+                compileSdkVersion != null ? compileSdkVersion : DEFAULT_COMPILE_SDK_VERSION;
         this.openConnections = Lists.newArrayList();
         this.rootProject = this;
         this.profileDirectory = profileDirectory;
         this.cmakeVersion = cmakeVersion;
         this.withCmakeDirInLocalProp = withCmake;
         this.testDir = testDir;
+        this.repoDirectories = repoDirectories;
+        this.androidHome = androidHome;
+        this.androidNdkHome = androidNdkHome;
+        this.gradleDistributionDirectory = gradleDistributionDirectory;
+        this.gradleBuildCacheDirectory = gradleBuildCacheDirectory;
+        this.kotlinVersion = kotlinVersion;
+        this.outputLogOnFailure = outputLogOnFailure;
     }
 
     /**
      * Create a GradleTestProject representing a subProject of another GradleTestProject.
      *
-     * @param subProject name of the subProject.
+     * @param subProject name of the subProject, or the subProject's gradle project path
      * @param rootProject root GradleTestProject.
      */
     private GradleTestProject(@NonNull String subProject, @NonNull GradleTestProject rootProject) {
-        name = subProject;
+        name = subProject.substring(subProject.lastIndexOf(':') + 1);
 
-        testDir = new File(rootProject.getTestDir(), subProject);
+        testDir = new File(rootProject.getTestDir(), subProject.replace(":", "/"));
         assertTrue("No subproject dir at " + getTestDir().toString(), getTestDir().isDirectory());
 
         buildFile = new File(getTestDir(), "build.gradle");
-        sourceDir = new File(getTestDir(), "src");
         withoutNdk = rootProject.withoutNdk;
         withDependencyChecker = rootProject.withDependencyChecker;
         gradleProperties = ImmutableList.of();
         testProject = null;
         targetGradleVersion = rootProject.targetGradleVersion;
         openConnections = null;
-        buildToolsVersion = null;
+        this.compileSdkVersion = rootProject.compileSdkVersion;
+        this.buildToolsVersion = rootProject.buildToolsVersion;
         this.rootProject = rootProject;
         this.profileDirectory = rootProject.profileDirectory;
         this.cmakeVersion = rootProject.cmakeVersion;
         this.withDeviceProvider = rootProject.withDeviceProvider;
         this.withSdk = rootProject.withSdk;
         this.withAndroidGradlePlugin = rootProject.withAndroidGradlePlugin;
+        this.withKotlinGradlePlugin = rootProject.withKotlinGradlePlugin;
         this.withCmakeDirInLocalProp = rootProject.withCmakeDirInLocalProp;
         this.withIncludedBuilds = ImmutableList.of();
+        this.repoDirectories = rootProject.repoDirectories;
+        this.androidHome = rootProject.androidHome;
+        this.androidNdkHome = rootProject.androidNdkHome;
+        this.gradleDistributionDirectory = rootProject.gradleDistributionDirectory;
+        this.gradleBuildCacheDirectory = rootProject.gradleBuildCacheDirectory;
+        this.kotlinVersion = rootProject.kotlinVersion;
+        this.outputLogOnFailure = rootProject.outputLogOnFailure;
     }
 
     private static Path getGradleUserHome(File buildDir) {
@@ -338,6 +338,11 @@ public final class GradleTestProject implements TestRule {
 
     public static GradleTestProjectBuilder builder() {
         return new GradleTestProjectBuilder();
+    }
+
+    @NonNull
+    public String getKotlinVersion() {
+        return kotlinVersion;
     }
 
     /** Crawls the tools/external/gradle dir, and gets the latest gradle binary. */
@@ -373,25 +378,6 @@ public final class GradleTestProject implements TestRule {
             return null;
         } else {
             return highestRevision.getFirst() + highestRevision.getSecond();
-        }
-    }
-
-    /**
-     * Recursively delete directory or file.
-     *
-     * @param root directory to delete
-     */
-    private static void deleteRecursive(File root) {
-        if (root.exists()) {
-            if (root.isDirectory()) {
-                File files[] = root.listFiles();
-                if (files != null) {
-                    for (File file : files) {
-                        deleteRecursive(file);
-                    }
-                }
-            }
-            assertTrue("Failed to delete " + root.getAbsolutePath(), root.delete());
         }
     }
 
@@ -431,11 +417,13 @@ public final class GradleTestProject implements TestRule {
                         }
                     }
                     openConnections.forEach(ProjectConnection::close);
-                    if (testFailed && lastBuildResult != null) {
+                    if (outputLogOnFailure && testFailed && lastBuildResult != null) {
                         System.err.println("==============================================");
                         System.err.println("= Test " + description + " failed. Last build:");
                         System.err.println("==============================================");
                         System.err.println("=================== Stderr ===================");
+                        // All output produced during build execution is written to the standard
+                        // output file handle since Gradle 4.7. This should be empty.
                         System.err.print(lastBuildResult.getStderr());
                         System.err.println("=================== Stdout ===================");
                         System.err.print(lastBuildResult.getStdout());
@@ -509,20 +497,16 @@ public final class GradleTestProject implements TestRule {
         }
 
         buildFile = new File(testDir, "build.gradle");
-        sourceDir = new File(testDir, "src");
 
-        if (testDir.exists()) {
-            deleteRecursive(testDir);
-        }
+        FileUtils.deleteRecursivelyIfExists(testDir);
         FileUtils.mkdirs(testDir);
-        FileUtils.mkdirs(sourceDir);
 
         Files.write(
                 generateVersions(),
                 new File(testDir.getParent(), COMMON_VERSIONS),
                 StandardCharsets.UTF_8);
         Files.write(
-                generateLocalRepoScript(),
+                generateProjectRepoScript(),
                 new File(testDir.getParent(), COMMON_LOCAL_REPO),
                 StandardCharsets.UTF_8);
         Files.write(
@@ -541,90 +525,92 @@ public final class GradleTestProject implements TestRule {
             Files.write(getGradleBuildscript(), buildFile, Charsets.UTF_8);
         }
 
+        createSettingsFile();
+
         localProp = createLocalProp();
         createGradleProp();
+    }
+
+    @NonNull
+    public List<Path> getRepoDirectories() {
+        if (repoDirectories != null) {
+            return repoDirectories;
+        } else {
+            return getLocalRepositories();
+        }
+    }
+
+    public Map<BooleanOption, Boolean> getBooleanOptions() {
+        ImmutableMap.Builder<BooleanOption, Boolean> builder = ImmutableMap.builder();
+        builder.put(
+                BooleanOption.DISALLOW_DEPENDENCY_RESOLUTION_AT_CONFIGURATION,
+                withDependencyChecker);
+        builder.put(BooleanOption.ENABLE_SDK_DOWNLOAD, false); // Not enabled in tests
+        return builder.build();
+    }
+
+    @NonNull
+    public String generateProjectRepoScript() {
+        return generateRepoScript(getRepoDirectories());
     }
 
     @NonNull
     private String generateCommonHeader() {
         String result =
                 String.format(
-                        "ext {\n"
+                        "\n"
+                                + "ext {\n"
                                 + "    buildToolsVersion = '%1$s'\n"
                                 + "    latestCompileSdk = %2$s\n"
                                 + "    kotlinVersion = '%4$s'\n"
-                                + "\n"
-                                + "    plugins.withId('com.android.application') {\n"
-                                + "        apply plugin: 'devicepool'\n"
-                                + "    }\n"
-                                + "    plugins.withId('com.android.library') {\n"
-                                + "        apply plugin: 'devicepool'\n"
-                                + "    }\n"
-                                + "    plugins.withId('com.android.model.application') {\n"
-                                + "        apply plugin: 'devicepool'\n"
-                                + "    }\n"
-                                + "    plugins.withId('com.android.model.library') {\n"
-                                + "        apply plugin: 'devicepool'\n"
-                                + "    }\n"
                                 + "}\n"
                                 + "allprojects {\n"
                                 + "    "
-                                + generateLocalRepoScript()
+                                + generateProjectRepoScript()
                                 + "\n"
                                 + "}\n"
                                 + "",
                         DEFAULT_BUILD_TOOL_VERSION,
-                        DEFAULT_COMPILE_SDK_VERSION,
+                        compileSdkVersion,
                         false,
-                        TestUtils.getKotlinVersionForTests());
+                        kotlinVersion);
 
-        if (withDependencyChecker) {
-            result =
-                    result
-                            + "// Check to ensure dependencies are not resolved during configuration.\n"
-                            + "//\n"
-                            + "// If it is intentional, create GradleTestProject without dependency checker"
-                            + "// {@see GradleTestProjectBuilder#withDependencyChecker} or remove the"
-                            + "// checker with:\n"
-                            + "//     gradle.removeListener(rootProject.ext.dependencyResolutionChecker)\n"
-                            + "//\n"
-                            + "// Tips: If you need to trace down where the Configuration is resolved, it \n"
-                            + "// may be helpful to call setCanBeResolved(false) on the Configuration of \n"
-                            + "// interest to get a stacktrace.\n"
-                            + "Boolean isTaskGraphReady = false\n"
-                            + "gradle.taskGraph.whenReady { isTaskGraphReady = true }\n"
-                            + "\n"
-                            + "ext.dependencyResolutionChecker = new DependencyResolutionListener() {\n"
-                            + "    @Override\n"
-                            + "    void beforeResolve(ResolvableDependencies resolvableDependencies) {\n"
-                            + "        if (!isTaskGraphReady\n"
-                            + "                && !resolvableDependencies.getName().equals('classpath')\n"
-                            // classpath is resolved to find the plugin.
-                            + "                && project.findProperty(\""
-                            + AndroidProject.PROPERTY_BUILD_MODEL_ONLY
-                            + "\")?.toBoolean() != true) {\n"
-                            + "            throw new RuntimeException(\n"
-                            + "                    \"Dependency '$resolvableDependencies.name' was resolved during configuration\")\n"
-                            + "        }\n"
+        if (APPLY_DEVICEPOOL_PLUGIN) {
+            result +=
+                    "\n"
+                            + "allprojects { proj ->\n"
+                            + "    proj.plugins.withId('com.android.application') {\n"
+                            + "        proj.apply plugin: 'devicepool'\n"
                             + "    }\n"
-                            + "\n"
-                            + "    @Override\n"
-                            + "    void afterResolve(ResolvableDependencies resolvableDependencies) {}\n"
-                            + "}\n"
-                            + "\n"
-                            + "gradle.addListener(dependencyResolutionChecker)\n";
+                            + "    proj.plugins.withId('com.android.library') {\n"
+                            + "        proj.apply plugin: 'devicepool'\n"
+                            + "    }\n"
+                            + "    proj.plugins.withId('com.android.model.application') {\n"
+                            + "        proj.apply plugin: 'devicepool'\n"
+                            + "    }\n"
+                            + "    proj.plugins.withId('com.android.model.library') {\n"
+                            + "        proj.apply plugin: 'devicepool'\n"
+                            + "    }\n"
+                            + "}\n";
         }
+
         return result;
     }
 
     @NonNull
-    private static String generateLocalRepoScript() {
+    private static String generateRepoScript() {
+        return generateRepoScript(getLocalRepositories());
+    }
+
+    @NonNull
+    private static String generateRepoScript(List<Path> repositories) {
         StringBuilder script = new StringBuilder();
         script.append("repositories {\n");
-        for (Path repo : getLocalRepositories()) {
+        for (Path repo : repositories) {
             script.append(mavenSnippet(repo));
         }
         script.append("}\n");
+
         return script.toString();
     }
 
@@ -638,101 +624,26 @@ public final class GradleTestProject implements TestRule {
         return BuildSystem.get().getLocalRepositories();
     }
 
-    private enum BuildSystem {
-        GRADLE {
-            @NonNull
-            @Override
-            List<Path> getLocalRepositories() {
-                String customRepo = System.getenv(ENV_CUSTOM_REPO);
-                // TODO: support USE_EXTERNAL_REPO
-                ImmutableList.Builder<Path> repos = ImmutableList.builder();
-                for (String path : Splitter.on(File.pathSeparatorChar).split(customRepo)) {
-                    repos.add(Paths.get(path));
-                }
-                return repos.build();
-            }
-        },
-        BAZEL {
-            @NonNull
-            @Override
-            List<Path> getLocalRepositories() {
-                return BazelIntegrationTestsSuite.MAVEN_REPOS;
-            }
-        },
-        IDEA {
-            @NonNull
-            @Override
-            List<Path> getLocalRepositories() {
-                return ImmutableList.of(
-                        TestUtils.getWorkspaceFile("prebuilts/tools/common/m2/repository")
-                                .toPath());
-                // The classes build by idea and jars are added separately.
-            }
-
-            @Override
-            String getCommonBuildScriptContent(
-                    boolean withAndroidGradlePlugin, boolean withDeviceProvider)
-                    throws IOException {
-                StringBuilder buildScript =
-                        new StringBuilder(
-                                "\n"
-                                        + "def commonScriptFolder = buildscript.sourceFile.parent\n"
-                                        + "apply from: \"$commonScriptFolder/commonVersions.gradle\", to: rootProject.ext\n"
-                                        + "\n"
-                                        + "project.buildscript { buildscript ->\n"
-                                        + "    apply from: \"$commonScriptFolder/commonLocalRepo.gradle\", to:buildscript\n"
-                                        + "    dependencies {"
-                                        + "        classpath files(");
-
-                for (URL url :
-                        ((URLClassLoader) GradleTestProject.class.getClassLoader()).getURLs()) {
-                    buildScript.append("                '").append(url.getFile()).append("',\n");
-                }
-                buildScript.append("        )\n" + "    }\n" + "}");
-                return buildScript.toString();
-            }
-        },
-        ;
-
-        @NonNull
-        abstract List<Path> getLocalRepositories();
-
-        String getCommonBuildScriptContent(
-                boolean withAndroidGradlePlugin, boolean withDeviceProvider) throws IOException {
-            StringBuilder stringBuilder =
-                    new StringBuilder(
-                            "def commonScriptFolder = buildscript.sourceFile.parent\n"
-                                    + "apply from: \"$commonScriptFolder/commonVersions.gradle\", to: rootProject.ext\n"
-                                    + "\n"
-                                    + "project.buildscript { buildscript ->\n"
-                                    + "    apply from: \"$commonScriptFolder/commonLocalRepo.gradle\", to:buildscript\n"
-                                    + "    dependencies {\n");
-            if (withAndroidGradlePlugin) {
-                stringBuilder.append(
-                        "        classpath \"com.android.tools.build:gradle:$rootProject.buildVersion\"\n");
-            }
-            if (withDeviceProvider) {
-                stringBuilder.append(
-                        "        classpath 'com.android.tools.internal.build.test:devicepool:0.1'\n");
-            }
-            stringBuilder.append("    }\n" + "}");
-            return stringBuilder.toString();
+    /**
+     * Returns the prebuilts CMake folder for the requested version of CMake. Note: This function
+     * returns a path within the Android SDK which is expected to be used in cmake.dir.
+     */
+    @NonNull
+    public static File getCmakeVersionFolder(@NonNull String cmakeVersion) {
+        File cmakeVersionFolderInSdk =
+                new File(TestUtils.getSdk(), String.format("cmake/%s", cmakeVersion));
+        if (!cmakeVersionFolderInSdk.isDirectory()) {
+            throw new RuntimeException(
+                    String.format("Could not find CMake in %s", cmakeVersionFolderInSdk));
         }
 
-        static BuildSystem get() {
-            if (TestUtils.runningFromBazel()) {
-                return BAZEL;
-            } else if (System.getenv(ENV_CUSTOM_REPO) != null) {
-                return GRADLE;
-            } else {
-                return IDEA;
-            }
-        }
+        return cmakeVersionFolderInSdk;
     }
 
-    public String generateCommonBuildScript() throws IOException {
+    public String generateCommonBuildScript() {
         return BuildSystem.get()
-                .getCommonBuildScriptContent(withAndroidGradlePlugin, withDeviceProvider);
+                .getCommonBuildScriptContent(
+                        withAndroidGradlePlugin, withKotlinGradlePlugin, withDeviceProvider);
     }
 
     @NonNull
@@ -748,18 +659,19 @@ public final class GradleTestProject implements TestRule {
                         + "constraintLayoutVersion = '%s'%n",
                 Version.ANDROID_GRADLE_PLUGIN_VERSION,
                 Version.ANDROID_TOOLS_BASE_VERSION,
-                SUPPORT_LIB_VERSION,
-                TEST_SUPPORT_LIB_VERSION,
-                PLAY_SERVICES_VERSION,
-                SUPPORT_LIB_MIN_SDK,
+                TestVersions.SUPPORT_LIB_VERSION,
+                TestVersions.TEST_SUPPORT_LIB_VERSION,
+                TestVersions.PLAY_SERVICES_VERSION,
+                TestVersions.SUPPORT_LIB_MIN_SDK,
                 SdkConstants.LATEST_CONSTRAINT_LAYOUT_VERSION);
     }
 
-    /** Create a GradleTestProject representing a subproject. */
+    /**
+     * Create a GradleTestProject representing a subproject.
+     *
+     * @param name name of the subProject, or the subProject's gradle project path
+     */
     public GradleTestProject getSubproject(String name) {
-        if (name.startsWith(":")) {
-            name = name.substring(1);
-        }
         return new GradleTestProject(name, rootProject);
     }
 
@@ -778,7 +690,12 @@ public final class GradleTestProject implements TestRule {
 
     /** Return the path to the default Java main source dir. */
     public File getMainSrcDir() {
-        return FileUtils.join(getTestDir(), "src", "main", "java");
+        return getMainSrcDir("java");
+    }
+
+    /** Return the path to the default Java main source dir. */
+    public File getMainSrcDir(@NonNull String language) {
+        return FileUtils.join(getTestDir(), "src", "main", language);
     }
 
     /** Return the build.gradle of the test project. */
@@ -805,6 +722,10 @@ public final class GradleTestProject implements TestRule {
         }
         buildFile = new File(getTestDir(), buildFileName);
         assertThat(buildFile).exists();
+    }
+
+    public File getBuildDir() {
+        return FileUtils.join(getTestDir(), "build");
     }
 
     /** Return the output directory from Android plugins. */
@@ -1000,6 +921,17 @@ public final class GradleTestProject implements TestRule {
     }
 
     /**
+     * Return the bundle universal output apk File from the application plugin for the given
+     * dimension.
+     *
+     * <p>Expected dimensions orders are: - product flavors -
+     */
+    @NonNull
+    public Apk getBundleUniversalApk(@NonNull ApkType apk) throws IOException {
+        return getOutputApk("universal_apk", null, apk, ImmutableList.of(), "universal");
+    }
+
+    /**
      * Return the output full split apk File from the application plugin for the given dimension.
      *
      * <p>Expected dimensions orders are: - product flavors -
@@ -1007,19 +939,29 @@ public final class GradleTestProject implements TestRule {
     @NonNull
     public Apk getApk(@Nullable String filterName, ApkType apkType, String... dimensions)
             throws IOException {
+        return getOutputApk("apk", filterName, apkType, ImmutableList.copyOf(dimensions), null);
+    }
+
+    @NonNull
+    private Apk getOutputApk(
+            @NonNull String pathPrefix,
+            @Nullable String filterName,
+            @NonNull ApkType apkType,
+            @NonNull ImmutableList<String> dimensions,
+            @Nullable String suffix)
+            throws IOException {
         return _getApk(
                 getOutputFile(
-                        "apk"
+                        pathPrefix
                                 + (apkType.getTestName() != null
                                         ? File.separatorChar + apkType.getTestName()
                                         : "")
                                 + File.separatorChar
-                                + mangleDimensions(dimensions)
+                                + StringHelper.combineAsCamelCase(dimensions)
                                 + File.separatorChar
                                 + apkType.getBuildType()
                                 + File.separatorChar
-                                + mangleApkName(
-                                        apkType, filterName, ImmutableList.copyOf(dimensions))
+                                + mangleApkName(apkType, filterName, dimensions, suffix)
                                 + (apkType.isSigned()
                                         ? SdkConstants.DOT_ANDROID_PACKAGE
                                         : "-unsigned" + SdkConstants.DOT_ANDROID_PACKAGE)));
@@ -1068,19 +1010,22 @@ public final class GradleTestProject implements TestRule {
                                 + File.separatorChar
                                 + "feature"
                                 + File.separatorChar
-                                + mangleDimensions(dimensions)
+                                + StringHelper.combineAsCamelCase(ImmutableList.copyOf(dimensions))
                                 + File.separatorChar
                                 + apkType.getBuildType()
                                 + File.separatorChar
                                 + mangleApkName(
-                                        apkType, filterName, ImmutableList.copyOf(dimensions))
+                                        apkType, filterName, ImmutableList.copyOf(dimensions), null)
                                 + (apkType.isSigned()
                                         ? SdkConstants.DOT_ANDROID_PACKAGE
                                         : "-unsigned" + SdkConstants.DOT_ANDROID_PACKAGE)));
     }
 
     private String mangleApkName(
-            @NonNull ApkType apkType, @Nullable String filterName, List<String> dimensions) {
+            @NonNull ApkType apkType,
+            @Nullable String filterName,
+            List<String> dimensions,
+            @Nullable String suffix) {
         List<String> dimensionList = Lists.newArrayListWithExpectedSize(1 + dimensions.size());
         dimensionList.add(getName());
         dimensionList.addAll(dimensions);
@@ -1093,20 +1038,10 @@ public final class GradleTestProject implements TestRule {
         if (!Strings.isNullOrEmpty(apkType.getTestName())) {
             dimensionList.add(apkType.getTestName());
         }
+        if (suffix != null) {
+            dimensionList.add(suffix);
+        }
         return Joiner.on("-").join(dimensionList);
-    }
-
-    private static String mangleDimensions(String... dimensions) {
-        StringBuilder sb = new StringBuilder();
-        Arrays.stream(dimensions)
-                .forEach(
-                        dimension -> {
-                            sb.append(
-                                    sb.length() == 0
-                                            ? dimension
-                                            : StringUtils.capitalise(dimension));
-                        });
-        return sb.toString();
     }
 
     @NonNull
@@ -1145,7 +1080,7 @@ public final class GradleTestProject implements TestRule {
         return new Zip(
                 getOutputFile(
                         "apk",
-                        mangleDimensions(dimensions),
+                        StringHelper.combineAsCamelCase(ImmutableList.copyOf(dimensions)),
                         Joiner.on("-").join(dimensionList) + SdkConstants.DOT_ZIP));
     }
 
@@ -1159,17 +1094,20 @@ public final class GradleTestProject implements TestRule {
 
     /** Fluent method to run a build. */
     public GradleTaskExecutor executor() {
-        return new GradleTaskExecutor(this, getProjectConnection(), false);
-    }
-
-    public GradleTaskExecutor nonRetryingExecutor() {
-        return new GradleTaskExecutor(this, getProjectConnection(), true);
+        return applyOptions(new GradleTaskExecutor(this, getProjectConnection()));
     }
 
     /** Fluent method to get the model. */
     @NonNull
     public ModelBuilder model() {
-        return new ModelBuilder(this, getProjectConnection());
+        return applyOptions(new ModelBuilder(this, getProjectConnection()));
+    }
+
+    private <T extends BaseGradleExecutor<T>> T applyOptions(T executor) {
+        Map<BooleanOption, Boolean> booleanOptions = getBooleanOptions();
+        booleanOptions.forEach(executor::with);
+        booleanOptions.keySet().forEach(executor::suppressOptionWarning);
+        return executor;
     }
 
     /**
@@ -1322,9 +1260,8 @@ public final class GradleTestProject implements TestRule {
         // to start and reuse the daemon.
         ((DefaultGradleConnector) connector).daemonMaxIdleTime(10, TimeUnit.SECONDS);
 
-        File distributionDirectory = TestUtils.getWorkspaceFile("tools/external/gradle");
         String distributionName = String.format("gradle-%s-bin.zip", targetGradleVersion);
-        File distributionZip = new File(distributionDirectory, distributionName);
+        File distributionZip = new File(gradleDistributionDirectory, distributionName);
         assertThat(distributionZip).isFile();
 
         projectConnection =
@@ -1359,11 +1296,11 @@ public final class GradleTestProject implements TestRule {
         if (withSdk) {
             localProp.setProperty(
                     ProjectProperties.PROPERTY_SDK,
-                    Objects.requireNonNull(ANDROID_HOME).getAbsolutePath());
+                    Objects.requireNonNull(getAndroidHome()).getAbsolutePath());
         }
         if (!withoutNdk) {
             localProp.setProperty(
-                    ProjectProperties.PROPERTY_NDK, ANDROID_NDK_HOME.getAbsolutePath());
+                    ProjectProperties.PROPERTY_NDK, getAndroidNdkHome().getAbsolutePath());
         }
 
         if (withCmakeDirInLocalProp && cmakeVersion != null && !cmakeVersion.isEmpty()) {
@@ -1376,22 +1313,128 @@ public final class GradleTestProject implements TestRule {
         return (File) localProp.getFile();
     }
 
-    /**
-     * Returns the prebuilts CMake folder for the requested version of CMake. Note: This returns the
-     * temporary CMake folder found within prebuilts/cmake/OS, ideally, CMake would reside
-     * withinMinimum supported Gradle version the prebuilts/studio/sdk/OS/cmake/, until we make the
-     * move, this is considered a hack/temp solution, hence this function is not in TestUtils.
-     */
-    @NonNull
-    public static File getCmakeVersionFolder(@NonNull String cmakeVersion) {
-        OsType osType = OsType.getHostOs();
-        File cmakeVersionFolder =
-                new File(
-                        TestUtils.getWorkspaceRoot(),
-                        String.format(
-                                "prebuilts/tools/common/cmake/%s/%s",
-                                osType.getFolderName(), cmakeVersion));
-        return cmakeVersionFolder;
+    private enum BuildSystem {
+        GRADLE {
+            @NonNull
+            @Override
+            List<Path> getLocalRepositories() {
+                String customRepo = System.getenv(ENV_CUSTOM_REPO);
+                // TODO: support USE_EXTERNAL_REPO
+                ImmutableList.Builder<Path> repos = ImmutableList.builder();
+                for (String path : Splitter.on(File.pathSeparatorChar).split(customRepo)) {
+                    repos.add(Paths.get(path));
+                }
+                return repos.build();
+            }
+        },
+        BAZEL {
+            @NonNull
+            @Override
+            List<Path> getLocalRepositories() {
+                return BazelIntegrationTestsSuite.MAVEN_REPOS;
+            }
+        },
+        IDEA {
+            @NonNull
+            @Override
+            List<Path> getLocalRepositories() {
+                return ImmutableList.of(
+                        TestUtils.getWorkspaceFile("prebuilts/tools/common/m2/repository")
+                                .toPath());
+                // The classes build by idea and jars are added separately.
+            }
+
+            @Override
+            String getCommonBuildScriptContent(
+                    boolean withAndroidGradlePlugin,
+                    boolean withKotlinGradlePlugin,
+                    boolean withDeviceProvider) {
+                StringBuilder buildScript =
+                        new StringBuilder(
+                                "\n"
+                                        + "def commonScriptFolder = buildscript.sourceFile.parent\n"
+                                        + "apply from: \"$commonScriptFolder/commonVersions.gradle\", to: rootProject.ext\n"
+                                        + "\n"
+                                        + "project.buildscript { buildscript ->\n"
+                                        + "    apply from: \"$commonScriptFolder/commonLocalRepo.gradle\", to:buildscript\n"
+                                        + "    dependencies {"
+                                        + "        classpath files(");
+
+                for (URL url :
+                        ((URLClassLoader) GradleTestProject.class.getClassLoader()).getURLs()) {
+                    buildScript.append("                '").append(url.getFile()).append("',\n");
+                }
+                buildScript.append("        )\n" + "    }\n" + "}");
+                return buildScript.toString();
+            }
+        },
+        ;
+
+        static BuildSystem get() {
+            if (TestUtils.runningFromBazel()) {
+                return BAZEL;
+            } else if (System.getenv(ENV_CUSTOM_REPO) != null) {
+                return GRADLE;
+            } else {
+                return IDEA;
+            }
+        }
+
+        @NonNull
+        abstract List<Path> getLocalRepositories();
+
+        String getCommonBuildScriptContent(
+                boolean withAndroidGradlePlugin,
+                boolean withKotlinGradlePlugin,
+                boolean withDeviceProvider) {
+            StringBuilder script = new StringBuilder();
+            script.append("def commonScriptFolder = buildscript.sourceFile.parent\n");
+            script.append(
+                    "apply from: \"$commonScriptFolder/commonVersions.gradle\", to: rootProject.ext\n\n");
+            script.append("project.buildscript { buildscript ->\n");
+            script.append(
+                    "    apply from: \"$commonScriptFolder/commonLocalRepo.gradle\", to:buildscript\n");
+            if (withKotlinGradlePlugin) {
+                // To get the Kotlin version
+                script.append("    apply from: '../commonHeader.gradle'\n");
+            }
+
+            script.append("    dependencies {\n");
+            if (withAndroidGradlePlugin) {
+                script.append(
+                        "        classpath \"com.android.tools.build:gradle:$rootProject.buildVersion\"\n");
+            }
+            if (withKotlinGradlePlugin) {
+                script.append(
+                        "        classpath \"org.jetbrains.kotlin:kotlin-gradle-plugin:$rootProject.kotlinVersion\"\n");
+            }
+            if (withDeviceProvider) {
+                script.append(
+                        "        classpath 'com.android.tools.internal.build.test:devicepool:0.1'\n");
+            }
+            script.append("    }\n");
+
+            script.append("}");
+            return script.toString();
+        }
+    }
+
+    private void createSettingsFile() throws IOException {
+        if (gradleBuildCacheDirectory != null) {
+            File absoluteFile =
+                    gradleBuildCacheDirectory.isAbsolute()
+                            ? gradleBuildCacheDirectory
+                            : new File(testDir, gradleBuildCacheDirectory.getPath());
+            TestFileUtils.appendToFile(
+                    getSettingsFile(),
+                    "buildCache {\n"
+                            + "    local(DirectoryBuildCache) {\n"
+                            + "        directory = \""
+                            + absoluteFile.getPath()
+                            + "\"\n"
+                            + "    }\n"
+                            + "}");
+        }
     }
 
     private void createGradleProp() throws IOException {
@@ -1399,7 +1442,7 @@ public final class GradleTestProject implements TestRule {
             return;
         }
         Files.write(
-                Joiner.on('\n').join(gradleProperties),
+                Joiner.on(System.lineSeparator()).join(gradleProperties),
                 getGradlePropertiesFile(),
                 Charset.defaultCharset());
     }
@@ -1429,7 +1472,12 @@ public final class GradleTestProject implements TestRule {
     }
 
     @NonNull
-    public static File getAndroidHome() {
-        return ANDROID_HOME;
+    public File getAndroidHome() {
+        return androidHome;
+    }
+
+    @NonNull
+    public File getAndroidNdkHome() {
+        return androidNdkHome;
     }
 }

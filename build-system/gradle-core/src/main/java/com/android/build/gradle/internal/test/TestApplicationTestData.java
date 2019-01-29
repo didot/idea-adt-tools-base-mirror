@@ -19,13 +19,12 @@ package com.android.build.gradle.internal.test;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.VariantOutput;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
-import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.builder.model.SourceProvider;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.builder.testing.TestData;
 import com.android.builder.testing.api.DeviceConfigProvider;
 import com.android.ide.common.build.SplitOutputMatcher;
@@ -38,21 +37,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import org.gradle.api.file.FileCollection;
 
 /** Implementation of {@link TestData} for separate test modules. */
 public class TestApplicationTestData extends AbstractTestDataImpl {
 
-    private final String testApplicationId;
+    private final Supplier<String> testApplicationId;
     private final Map<String, String> testedProperties;
     private final GradleVariantConfiguration variantConfiguration;
 
     public TestApplicationTestData(
             GradleVariantConfiguration variantConfiguration,
-            String testApplicationId,
-            @NonNull FileCollection testApkDir,
-            @NonNull FileCollection testedApksDir) {
+            Supplier<String> testApplicationId,
+            @NonNull BuildableArtifact testApkDir,
+            @NonNull BuildableArtifact testedApksDir) {
         super(variantConfiguration, testApkDir, testedApksDir);
         this.variantConfiguration = variantConfiguration;
         this.testedProperties = new HashMap<>();
@@ -63,8 +62,7 @@ public class TestApplicationTestData extends AbstractTestDataImpl {
     public void loadFromMetadataFile(File metadataFile) {
         BuildElements testedManifests =
                 ExistingBuildElements.from(
-                        TaskOutputHolder.TaskOutputType.MERGED_MANIFESTS,
-                        metadataFile.getParentFile());
+                        InternalArtifactType.MERGED_MANIFESTS, metadataFile.getParentFile());
         // all published manifests have the same package so first one will do.
         Optional<BuildOutput> splitOutput = testedManifests.stream().findFirst();
 
@@ -79,7 +77,7 @@ public class TestApplicationTestData extends AbstractTestDataImpl {
     @NonNull
     @Override
     public String getApplicationId() {
-        return testApplicationId;
+        return testApplicationId.get();
     }
 
     @Nullable
@@ -105,7 +103,7 @@ public class TestApplicationTestData extends AbstractTestDataImpl {
         ImmutableList.Builder<File> selectedApks = ImmutableList.builder();
         // retrieve all the published files.
         BuildElements testedApkFiles =
-                ExistingBuildElements.from(VariantScope.TaskOutputType.APK, testedApksDir);
+                ExistingBuildElements.from(InternalArtifactType.APK, testedApksDir);
 
         // if we have more than one, that means pure splits are in the equation.
         if (testedApkFiles.size() > 1 && splitSelectExe != null) {
@@ -130,19 +128,6 @@ public class TestApplicationTestData extends AbstractTestDataImpl {
                             .collect(Collectors.toList()));
         }
         return selectedApks.build();
-    }
-
-    @NonNull
-    @Override
-    public List<File> getTestDirectories() {
-        // For now we check if there are any test sources. We could inspect the test classes and
-        // apply JUnit logic to see if there's something to run, but that would not catch the case
-        // where user makes a typo in a test name or forgets to inherit from a JUnit class
-        ImmutableList.Builder<File> javaDirectories = ImmutableList.builder();
-        for (SourceProvider sourceProvider : variantConfiguration.getSortedSourceProviders()) {
-            javaDirectories.addAll(sourceProvider.getJavaDirectories());
-        }
-        return javaDirectories.build();
     }
 
     @NonNull

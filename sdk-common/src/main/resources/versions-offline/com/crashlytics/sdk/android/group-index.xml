@@ -1,9 +1,9 @@
-<?xml version='1.0' encoding='UTF-8'?>
+<?xml version="1.0" encoding="UTF-8"?>
 <com.crashlytics.sdk.android>
-  <answers versions="1.4.1"/>
-  <beta versions="1.2.7"/>
-  <crashlytics-core versions="2.5.0"/>
-  <crashlytics versions="2.8.0"/>
-  <crashlytics-ndk versions="2.0.1"/>
+  <answers versions="1.4.3"/>
+  <beta versions="1.2.10"/>
+  <crashlytics-core versions="2.6.4"/>
+  <crashlytics versions="2.9.5"/>
+  <crashlytics-ndk versions="2.0.5"/>
 </com.crashlytics.sdk.android>
 

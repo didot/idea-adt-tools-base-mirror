@@ -28,6 +28,7 @@ import com.android.utils.CharSequences
 import com.android.utils.CharSequences.indexOf
 import com.google.common.annotations.Beta
 import com.intellij.psi.PsiElement
+import org.jetbrains.uast.UAnnotated
 import org.jetbrains.uast.UElement
 import org.w3c.dom.Node
 import java.io.File
@@ -42,36 +43,33 @@ import java.util.EnumSet
  * to adjust your code for the next tools release.**
  */
 @Beta
-open class Context
-/**
- * Construct a new [Context]
- */
-(
-        /** The driver running through the checks  */
-        val driver: LintDriver,
-        /** The project containing the file being checked  */
-        val project: Project,
-        /**
-         * The "main" project. For normal projects, this is the same as [.project],
-         * but for library projects, it's the root project that includes (possibly indirectly)
-         * the various library projects and their library projects.
-         *
-         * Note that this is a property on the [Context], not the
-         * [Project], since a library project can be included from multiple
-         * different top level projects, so there isn't **one** main project,
-         * just one per main project being analyzed with its library projects.
-         */
-        main: Project?,
-        /**
-         * The file being checked. Note that this may not always be to a concrete
-         * file. For example, in the [Detector.beforeCheckProject]
-         * method, the context file is the directory of the project.
-         */
-        @JvmField
-        val file: File,
+open class Context(
+    /** The driver running through the checks  */
+    val driver: LintDriver,
+    /** The project containing the file being checked  */
+    val project: Project,
+    /**
+     * The "main" project. For normal projects, this is the same as [.project],
+     * but for library projects, it's the root project that includes (possibly indirectly)
+     * the various library projects and their library projects.
+     *
+     * Note that this is a property on the [Context], not the
+     * [Project], since a library project can be included from multiple
+     * different top level projects, so there isn't **one** main project,
+     * just one per main project being analyzed with its library projects.
+     */
+    main: Project?,
+    /**
+     * The file being checked. Note that this may not always be to a concrete
+     * file. For example, in the [Detector.beforeCheckProject]
+     * method, the context file is the directory of the project.
+     */
+    @JvmField
+    val file: File,
 
-        /** The contents of the file  */
-        private var contents: CharSequence? = null) {
+    /** The contents of the file  */
+    private var contents: CharSequence? = null
+) {
 
     /** The current configuration controlling which checks are enabled etc  */
     val configuration: Configuration
@@ -96,7 +94,7 @@ open class Context
      *
      * @return the main project, never null
      */
-     val mainProject: Project = main ?: project
+    val mainProject: Project = main ?: project
 
     /**
      * The lint client requesting the lint check
@@ -143,20 +141,21 @@ open class Context
     /**
      * Reports an issue. Convenience wrapper around [LintClient.report]
      *
-     * @param issue        the issue to report
+     * @param issue the issue to report
      *
-     * @param location     the location of the issue
+     * @param location the location of the issue
      *
-     * @param message      the message for this warning
+     * @param message the message for this warning
      *
      * @param quickfixData parameterized data for IDE quickfixes
      */
     @JvmOverloads
     open fun report(
-            issue: Issue,
-            location: Location,
-            message: String,
-            quickfixData: LintFix? = null) {
+        issue: Issue,
+        location: Location,
+        message: String,
+        quickfixData: LintFix? = null
+    ) {
         // See if we actually have an associated source for this location, and if so
         // check to see if the warning might be suppressed.
         val source = location.source
@@ -190,11 +189,15 @@ open class Context
             if (element != null && this is JavaContext) {
                 val javaContext = this
                 if (element.containingFile == javaContext.psiFile) {
-                    javaContext.report(issue, element, location, message, quickfixData)
+                    javaContext.report(issue, source, location, message, quickfixData)
                     return
                 }
             }
-            if (driver.isSuppressed(null, issue, element)) {
+            if (element is UAnnotated) {
+                if (driver.isSuppressed(null, issue, element as UAnnotated)) {
+                    return
+                }
+            } else if (driver.isSuppressed(null, issue, element)) {
                 return
             }
         }
@@ -202,23 +205,27 @@ open class Context
         doReport(issue, location, message, quickfixData)
     }
 
-    @Deprecated("Here for temporary compatibility; the new typed quickfix data parameter" +
-            " should be used instead", ReplaceWith("report(issue, location, message)"))
+    @Deprecated(
+        "Here for temporary compatibility; the new typed quickfix data parameter" +
+                " should be used instead", ReplaceWith("report(issue, location, message)")
+    )
     fun report(
-            issue: Issue,
-            location: Location,
-            message: String,
-            quickfixData: Any?) = report(issue, location, message)
+        issue: Issue,
+        location: Location,
+        message: String,
+        quickfixData: Any?
+    ) = report(issue, location, message)
 
     // Method not callable outside of the lint infrastructure: perform the actual reporting.
     // This is a separate method instead of just having Context#report() do this work,
     // since Context#report() will possibly redirect to the XmlContext or JavaContext reporting
     // mechanisms if it discovers that it's been called on the wrong node.
     protected fun doReport(
-            issue: Issue,
-            location: Location,
-            message: String,
-            quickfixData: LintFix?) {
+        issue: Issue,
+        location: Location,
+        message: String,
+        quickfixData: LintFix?
+    ) {
 
         @Suppress("SENSELESS_COMPARISON")
         if (location == null) {
@@ -255,8 +262,10 @@ open class Context
             return
         }
 
-        driver.client.report(this, issue, severity, location, message, TextFormat.RAW,
-                quickfixData)
+        driver.client.report(
+            this, issue, severity, location, message, TextFormat.RAW,
+            quickfixData
+        )
     }
 
     /**
@@ -269,9 +278,10 @@ open class Context
      * @param args any arguments for the format string
      */
     fun log(
-            exception: Throwable?,
-            format: String?,
-            vararg args: Any) = driver.client.log(exception, format, *args)
+        exception: Throwable?,
+        format: String?,
+        vararg args: Any
+    ) = driver.client.log(exception, format, *args)
 
     /**
      * Returns the current phase number. The first pass is numbered 1. Only one pass
@@ -299,7 +309,7 @@ open class Context
      *       You can pall null to indicate "all".
      */
     fun requestRepeat(detector: Detector, scope: EnumSet<Scope>?) =
-            driver.requestRepeat(detector, scope)
+        driver.requestRepeat(detector, scope)
 
     /** Returns the comment marker used in Studio to suppress statements for language, if any  */
     protected open val suppressCommentPrefix: String?
@@ -357,14 +367,19 @@ open class Context
         val index = findPrefixOnPreviousLine(contents, lineStart, prefix)
         if (index != -1 && index + prefix.length < lineStart) {
             val line = contents.subSequence(index + prefix.length, lineStart).toString()
-            return line.contains(issue.id) || line.contains(SUPPRESS_ALL) && line.trim { it <= ' ' }.startsWith(SUPPRESS_ALL)
+            return line.contains(issue.id) || line.contains(SUPPRESS_ALL) && line.trim { it <= ' ' }.startsWith(
+                SUPPRESS_ALL
+            )
         }
 
         return false
     }
 
-    private fun findPrefixOnPreviousLine(contents: CharSequence, lineStart: Int,
-                                         prefix: String): Int {
+    private fun findPrefixOnPreviousLine(
+        contents: CharSequence,
+        lineStart: Int,
+        prefix: String
+    ): Int {
         // Search backwards on the previous line until you find the prefix start (also look
         // back on previous lines if the previous line(s) contain just whitespace
         val first = prefix[0]
@@ -380,8 +395,11 @@ open class Context
                 seenNonWhitespace = true
             }
 
-            if (c == first && CharSequences.regionMatches(contents, offset, prefix, 0,
-                    prefix.length)) {
+            if (c == first && CharSequences.regionMatches(
+                    contents, offset, prefix, 0,
+                    prefix.length
+                )
+            ) {
                 return offset
             }
             offset--

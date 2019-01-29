@@ -19,10 +19,15 @@ package com.android.build.gradle.tasks
 import com.android.build.api.artifact.BuildArtifactType.JAVAC_CLASSES
 import com.android.build.api.artifact.BuildArtifactType.JAVA_COMPILE_CLASSPATH
 import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl
+import com.android.build.gradle.internal.fixtures.FakeDeprecationReporter
 import com.android.build.gradle.internal.fixtures.FakeEvalIssueReporter
-import com.android.build.gradle.internal.scope.BuildArtifactHolder
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
+import com.android.build.gradle.internal.fixtures.FakeObjectFactory
+import com.android.build.gradle.internal.scope.VariantBuildArtifactsHolder
+import com.android.build.gradle.internal.variant2.DslScopeImpl
 import com.google.common.truth.Truth.assertThat
 import org.gradle.api.Project
+import org.gradle.api.Task
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.Before
 import org.junit.Rule
@@ -37,32 +42,39 @@ class BuildArtifactReportTaskTest {
     @get:Rule
     val temporaryFolder = TemporaryFolder()
     private lateinit var project : Project
-    private val issueReporter = FakeEvalIssueReporter(throwOnError = true)
-    private val artifactTypes = listOf(JAVAC_CLASSES, JAVA_COMPILE_CLASSPATH)
-    private lateinit var artifactHolder : BuildArtifactHolder
-
+    private lateinit var artifactsHolder: BuildArtifactsHolder
+    private val dslScope = DslScopeImpl(
+            FakeEvalIssueReporter(throwOnError = true),
+            FakeDeprecationReporter(),
+            FakeObjectFactory())
+    private lateinit var task0: Task
+    private lateinit var task1: Task
     @Before
     fun setUp() {
         project = ProjectBuilder.builder().withProjectDir(temporaryFolder.newFolder()).build()
-        artifactHolder =
-                BuildArtifactHolder(
-                project,
-                "debug",
-                project.file("root"),
-                "debug",
-                artifactTypes,
-                issueReporter)
-        project.tasks.create("task0")
-        project.tasks.create("task1")
-        artifactHolder.createFirstArtifactFiles(JAVAC_CLASSES, "javac_classes", "task0")
-        artifactHolder.createFirstArtifactFiles(JAVA_COMPILE_CLASSPATH, "java_compile_classpath", "task1")
+        artifactsHolder =
+                VariantBuildArtifactsHolder(
+                    project,
+                    "debug",
+                    project.file("root"),
+                    dslScope)
+        task0 = project.tasks.create("task0")
+        task1 = project.tasks.create("task1")
+        artifactsHolder.createDirectory(JAVAC_CLASSES,
+            BuildArtifactsHolder.OperationType.INITIAL,
+            task0.name,
+            "javac_classes")
+        artifactsHolder.createDirectory(JAVA_COMPILE_CLASSPATH,
+            BuildArtifactsHolder.OperationType.INITIAL,
+            task1.name,
+            "java_compile_classpath")
         BuildableArtifactImpl.enableResolution()
     }
 
     @Test
     fun report() {
         val task = project.tasks.create("report", BuildArtifactReportTask::class.java)
-        task.init(artifactHolder, artifactTypes)
+        task.init(artifactsHolder::createReport)
         task.report()
     }
 
@@ -70,13 +82,17 @@ class BuildArtifactReportTaskTest {
     fun reportToFile() {
         val task = project.tasks.create("report", BuildArtifactReportTask::class.java)
         val outputFile = project.file("report.txt")
-        task.init(artifactHolder, artifactTypes, outputFile)
+        task.init(artifactsHolder::createReport, outputFile)
 
-        artifactHolder.replaceArtifact(JAVAC_CLASSES, listOf("classes"), "task1")
+        artifactsHolder.createBuildableArtifact(
+            JAVAC_CLASSES,
+            BuildArtifactsHolder.OperationType.TRANSFORM,
+            project.files("classes").files,
+            task1.name)
 
         task.report()
 
-        val report = BuildArtifactReportTask.parseReport(outputFile)
+        val report = BuildArtifactsHolder.parseReport(outputFile)
         val javacArtifacts = report[JAVAC_CLASSES] ?: throw NullPointerException()
         assertThat(javacArtifacts).hasSize(2)
         assertThat(javacArtifacts[0].files.map(File::getName)).containsExactly("javac_classes")

@@ -17,7 +17,6 @@
 package com.android.build.gradle.integration.application;
 
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
-import static com.android.testutils.truth.PathSubject.assertThat;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject.ApkType;
@@ -74,14 +73,6 @@ public class VariantApiPropertiesTest {
         TestFileUtils.appendToFile(
                 project.getBuildFile(),
                 "android {\n"
-                        + "    buildTypes {\n"
-                        + "        debug {\n"
-                        + "            javaCompileOptions.annotationProcessorOptions {\n"
-                        + "                className 'Foo'\n"
-                        + "                argument 'value', 'debugArg'\n"
-                        + "            }\n"
-                        + "        }\n"
-                        + "    }\n"
                         + "    flavorDimensions 'dimension'\n"
                         + "    productFlavors {\n"
                         + "        flavor1 {\n"

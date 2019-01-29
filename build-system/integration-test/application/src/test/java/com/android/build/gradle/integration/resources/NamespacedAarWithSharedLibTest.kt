@@ -17,23 +17,24 @@
 package com.android.build.gradle.integration.resources
 
 import com.android.SdkConstants
-import com.android.apkzlib.zip.ZFile
-import com.android.apkzlib.zip.ZFileOptions
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.fixture.app.MinimalSubProject
 import com.android.build.gradle.integration.common.fixture.app.MultiModuleTestProject
 import com.android.build.gradle.integration.common.truth.TruthHelper.assertThatApk
 import com.android.build.gradle.integration.common.utils.AssumeUtil
 import com.android.build.gradle.options.BooleanOption
-import com.android.builder.core.VariantType
+import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.builder.internal.aapt.v2.QueueableAapt2
-import com.android.ide.common.process.LoggedProcessOutputHandler
+import com.android.builder.internal.aapt.v2.Aapt2Daemon
+import com.android.builder.internal.aapt.v2.Aapt2DaemonImpl
+import com.android.builder.internal.aapt.v2.Aapt2DaemonTimeouts
 import com.android.repository.testframework.FakeProgressIndicator
 import com.android.sdklib.IAndroidTarget
 import com.android.sdklib.repository.AndroidSdkHandler
 import com.android.testutils.TestUtils
+import com.android.tools.build.apkzlib.zip.ZFile
+import com.android.tools.build.apkzlib.zip.ZFileOptions
 import com.android.utils.StdLogger
 import com.google.common.collect.ImmutableList
 import org.junit.Before
@@ -52,14 +53,8 @@ import java.nio.file.Files
  */
 class NamespacedAarWithSharedLibTest {
 
-    /**
-     * This test depends on AAPT2 features that are not released yet.
-     * There is a version of the build tools checked in from the build server,
-     * with the version in package.xml set to the build number it was taken from.
-     */
     private val buildScriptContent = """
         android.aaptOptions.namespaced = true
-        android.buildToolsVersion = '4509860'
     """
     private val publishedLib = MinimalSubProject.lib("com.example.publishedLib")
             .appendToBuild(buildScriptContent)
@@ -138,7 +133,7 @@ class NamespacedAarWithSharedLibTest {
                             |""".trimMargin()
 
     @get:Rule val project = GradleTestProject.builder().fromTestApp(testApp).create()
-    @Suppress("MemberVisibilityCanPrivate") @get:Rule val tempFolder = TemporaryFolder()
+    @Suppress("MemberVisibilityCanBePrivate") @get:Rule val tempFolder = TemporaryFolder()
 
     @Test
     fun checkBuildsAsBundledStaticLib() {
@@ -164,7 +159,6 @@ class NamespacedAarWithSharedLibTest {
 
         val progress = FakeProgressIndicator()
         val sdk = AndroidSdkHandler.getInstance(TestUtils.getSdk())
-        val buildToolInfo = sdk.getLatestBuildTool(progress, false)!!
         val androidTarget =
                 sdk.getAndroidTargetManager(progress)
                         .getTargetFromHashString(GradleTestProject.getCompileSdkHash(), progress)!!
@@ -189,13 +183,20 @@ class NamespacedAarWithSharedLibTest {
                     manifestFile = manifest,
                     options = AaptOptions(),
                     androidJarPath = androidTarget.getPath(IAndroidTarget.ANDROID_JAR),
-                    variantType = VariantType.DEFAULT)
-            QueueableAapt2(
-                    LoggedProcessOutputHandler(StdLogger(StdLogger.Level.INFO)),
-                    buildToolInfo,
-                    StdLogger(StdLogger.Level.VERBOSE),
-                    0)
-                    .use { it.link(config, StdLogger(StdLogger.Level.INFO)) }
+                    variantType = VariantTypeImpl.BASE_APK
+            )
+            val daemon: Aapt2Daemon = Aapt2DaemonImpl(
+                "buildStaticLibAsApk",
+                TestUtils.getAapt2(),
+                Aapt2DaemonTimeouts(),
+                StdLogger(StdLogger.Level.VERBOSE)
+            )
+            try {
+                daemon.link(config, StdLogger(StdLogger.Level.INFO))
+            } finally {
+                daemon.shutDown()
+
+            }
 
             // TODO: signing, make usable for running.
 //            val sharedLib = File(unsignedSharedLib.parentFile, "shared.apk")

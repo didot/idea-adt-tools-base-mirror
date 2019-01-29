@@ -23,7 +23,9 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * Represents an Android dependency that is bundled and will be unbundled.
+ * Represents some of an {@link AndroidLibrary}.
+ *
+ * <p>The separation from AndroidLibrary is a historical artifact.
  */
 public interface AndroidBundle extends Library {
 
@@ -41,8 +43,12 @@ public interface AndroidBundle extends Library {
     File getBundle();
 
     /**
-     * Returns the location of the unzipped bundle folder.
+     * Returns the location of the unzipped AAR folder.
+     *
+     * @deprecated Users of this model are strongly encouraged to migrate to using the methods for
+     *     the individual artifacts within the AAR instead.
      */
+    @Deprecated
     @NonNull
     File getFolder();
 
@@ -67,21 +73,41 @@ public interface AndroidBundle extends Library {
     File getManifest();
 
     /**
-     * Returns the location of the jar file to use for either packaging or compiling depending on
-     * the bundle type.
+     * Returns the location of the jar file to use for packaging.
      *
      * @return a File for the jar file. The file may not point to an existing file.
+     * @see #getCompileJarFile()
      */
     @NonNull
     File getJarFile();
 
     /**
-     * Returns the location of the res folder.
+     * Returns the location of the jar file to use for compiling.
+     *
+     * @return a File for the jar file. The file may not point to an existing file.
+     * @see #getJarFile()
+     */
+    @NonNull
+    File getCompileJarFile();
+
+    /**
+     * Returns the location of the non-namespaced res folder.
      *
      * @return a File for the res folder. The file may not point to an existing folder.
      */
     @NonNull
     File getResFolder();
+
+    /**
+     * Returns the location of the namespaced resources static library (res.apk).
+     *
+     * <p>TODO(b/109854607): When rewriting dependencies, this should be populated with the
+     * rewritten artifact, which will not be in the exploded AAR directory.
+     *
+     * @return the static library apk. Null if the library is not namespaced.
+     */
+    @Nullable
+    File getResStaticLibrary();
 
     /**
      * Returns the location of the assets folder.

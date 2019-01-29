@@ -182,6 +182,16 @@ public class RemoteAndroidTestRunner implements IRemoteAndroidTestRunner  {
     }
 
     @Override
+    public void setCoverageReportLocation(String reportPath) {
+        addInstrumentationArg("coverageFile", reportPath);
+    }
+
+    @Override
+    public CoverageOutput getCoverageOutputType() {
+        return CoverageOutput.FILE;
+    }
+
+    @Override
     public void setEnforceTimeStamp(boolean timestamp) {
         mEnforceTimeStamp = timestamp;
     }
@@ -263,7 +273,7 @@ public class RemoteAndroidTestRunner implements IRemoteAndroidTestRunner  {
         Log.i(LOG_TAG, String.format("Running %1$s on %2$s", runCaseCommandStr,
                 mRemoteDevice.getName()));
         String runName = mRunName == null ? mPackageName : mRunName;
-        mParser = new InstrumentationResultParser(runName, listeners);
+        mParser = createParser(runName, listeners);
         mParser.setEnforceTimeStamp(mEnforceTimeStamp);
 
         try {
@@ -302,6 +312,20 @@ public class RemoteAndroidTestRunner implements IRemoteAndroidTestRunner  {
             mParser.handleTestRunFailed(e.toString());
             throw e;
         }
+    }
+
+    /**
+     * Create the {@link InstrumentationResultParser} that will be used to parse the instrumentation
+     * output.
+     *
+     * @param runName The name of the run to use.
+     * @param listeners The listeners where to report the results.
+     * @return An instance of {@link InstrumentationResultParser}.
+     */
+    @NonNull
+    public InstrumentationResultParser createParser(
+            @NonNull String runName, @NonNull Collection<ITestRunListener> listeners) {
+        return new InstrumentationResultParser(runName, listeners);
     }
 
     @NonNull

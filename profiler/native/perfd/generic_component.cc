@@ -22,32 +22,29 @@
 
 namespace profiler {
 
-GenericComponent::GenericComponent(Daemon::Utilities* utilities,
-                                   SessionsManager* sessions)
-    : generic_public_service_(utilities, sessions, &heartbeat_timestamp_map_),
-      agent_service_(utilities->clock(), &heartbeat_timestamp_map_),
-      clock_(utilities->clock()) {
+GenericComponent::GenericComponent(Daemon* daemon, SessionsManager* sessions)
+    : daemon_(daemon), generic_public_service_(daemon), agent_service_(daemon) {
   status_thread_ = std::thread(&GenericComponent::RunAgentStatusThread, this);
 }
 
 void GenericComponent::RunAgentStatusThread() {
   SetThreadName("AgentStatus");
   while (true) {
-    int64_t current_time = clock_.GetCurrentTime();
-    for (auto map : heartbeat_timestamp_map_) {
+    int64_t current_time = daemon_->clock()->GetCurrentTime();
+    for (auto map : daemon_->heartbeat_timestamp_map()) {
       proto::AgentStatusResponse::Status status =
           kHeartbeatThresholdNs > (current_time - map.second)
               ? proto::AgentStatusResponse::ATTACHED
               : proto::AgentStatusResponse::DETACHED;
-      auto got = heartbeat_status_map_.find(map.first);
-      if (got == heartbeat_status_map_.end() || got->second != status) {
+      auto got = daemon_->agent_status_map().find(map.first);
+      if (got == daemon_->agent_status_map().end() || got->second != status) {
         for (auto callback : agent_status_changed_callbacks_) {
           callback(map.first, status);
         }
       }
-      heartbeat_status_map_[map.first] = status;
+      daemon_->agent_status_map()[map.first] = status;
     }
     usleep(Clock::ns_to_us(kHeartbeatThresholdNs));
   }
 }
-}
+}  // namespace profiler

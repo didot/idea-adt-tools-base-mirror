@@ -16,10 +16,10 @@
 
 package com.activity.network;
 
-import android.app.Activity;
 import android.tools.SimpleWebServer;
 import android.tools.SimpleWebServer.QueryParam;
 import android.tools.SimpleWebServer.RequestHandler;
+import com.activity.PerfdTestActivity;
 import com.activity.network.NetworkUtils.ServerTest;
 import com.squareup.okhttp.Call;
 import com.squareup.okhttp.Interceptor;
@@ -33,7 +33,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.List;
 
-public final class OkHttpActivity extends Activity {
+public final class OkHttpActivity extends PerfdTestActivity {
 
     public OkHttpActivity() {
         super("OkHttp3 Activity");
@@ -45,7 +45,6 @@ public final class OkHttpActivity extends Activity {
         OKHTTP2_GET("OKHTTP2GET"),
         OKHTTP2_POST("OKHTTP2POST"),
         OKHTTP2_AND_OKHTTP3_GET("OKHTTP2ANDOKHTTP3GET"),
-        NULL_THREAD_CLASS_LOADER("NULLTHREADCLASSLOADER"),
         OKHTTP2_ERROR("OKHTTP2ERROR"),
         OKHTTP3_ERROR("OKHTTP3ERROR");
 
@@ -162,45 +161,6 @@ public final class OkHttpActivity extends Activity {
                             okhttp3.Response response = client.newCall(request).execute();
                             InputStream inputStream = response.body().byteStream();
 
-                            NetworkUtils.printAndCloseResponse(inputStream);
-                        }
-                    }
-                });
-    }
-
-    public void runOkHttp2AndOkHttp3WithThreadClassLoaderIsNull() throws Exception {
-        NetworkUtils.runWithServer(
-                HANDLER,
-                new ServerTest() {
-                    @Override
-                    public void runWith(SimpleWebServer server) throws Exception {
-                        String url =
-                                NetworkUtils.getUrl(
-                                        server.getPort(),
-                                        "method",
-                                        Method.NULL_THREAD_CLASS_LOADER.myMethodName);
-
-                        // Older versions of our instrumentation relied on a valid context class loader,
-                        // but the newer versions should not be affected by this being null.
-                        Thread.currentThread().setContextClassLoader(null);
-
-                        // OkHttp2
-                        {
-                            OkHttpClient client = new OkHttpClient();
-                            Request request = new Request.Builder().url(url).build();
-                            Response response = client.newCall(request).execute();
-                            InputStream inputStream = response.body().byteStream();
-
-                            NetworkUtils.printAndCloseResponse(inputStream);
-                        }
-
-                        // OkHttp3
-                        {
-                            okhttp3.OkHttpClient client = new okhttp3.OkHttpClient();
-                            okhttp3.Request request =
-                                    new okhttp3.Request.Builder().url(url).build();
-                            okhttp3.Response response = client.newCall(request).execute();
-                            InputStream inputStream = response.body().byteStream();
                             NetworkUtils.printAndCloseResponse(inputStream);
                         }
                     }

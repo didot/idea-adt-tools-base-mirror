@@ -25,27 +25,14 @@ import com.android.annotations.VisibleForTesting;
 import com.android.build.gradle.external.cmake.CmakeUtils;
 import com.android.build.gradle.internal.SdkHandler;
 import com.android.build.gradle.internal.model.CoreExternalNativeBuild;
-import com.android.build.gradle.options.BooleanOption;
-import com.android.build.gradle.options.ProjectOptions;
-import com.android.builder.core.AndroidBuilder;
-import com.android.ide.common.process.BuildCommandException;
-import com.android.ide.common.process.ProcessException;
-import com.android.ide.common.process.ProcessInfoBuilder;
-import com.android.ide.common.process.ProcessOutput;
-import com.android.ide.common.process.ProcessOutputHandler;
 import com.android.repository.Revision;
 import com.android.repository.api.ConsoleProgressIndicator;
 import com.android.repository.api.LocalPackage;
 import com.android.repository.api.ProgressIndicator;
 import com.android.sdklib.repository.AndroidSdkHandler;
-import com.android.utils.ILogger;
-import com.google.common.base.Charsets;
 import com.google.common.collect.Lists;
-import com.google.common.io.FileBackedOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.UnsupportedEncodingException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,9 +45,8 @@ import java.util.Map;
  * Shared utility methods for dealing with external native build tasks.
  */
 public class ExternalNativeBuildTaskUtils {
-    // Forked CMake version is the one we get when we execute "cmake --version" commond.
+    // Forked CMake version is the one we get when we execute "cmake --version" command.
     public static final String CUSTOM_FORK_CMAKE_VERSION = "3.6.0-rc2";
-
 
     /**
      * File 'derived' is consider to depend on the contents of file 'source' this function return
@@ -71,7 +57,7 @@ public class ExternalNativeBuildTaskUtils {
      * @param source -- original file (must exist)
      * @param derived -- derived file
      * @return true if derived is more recent than original
-     * @throws IOException if there was a problem reading the timestampe of one of the files
+     * @throws IOException if there was a problem reading the timestamp of one of the files
      */
     public static boolean fileIsUpToDate(@NonNull File source, @NonNull File derived)
             throws IOException {
@@ -129,14 +115,6 @@ public class ExternalNativeBuildTaskUtils {
             outputs.add(getOutputJson(jsonFolder, abi));
         }
         return outputs;
-    }
-
-    /** Return true if we should regenerate out-of-date JSON files. */
-    public static boolean shouldRegenerateOutOfDateJsons(@NonNull ProjectOptions options) {
-        return options.get(BooleanOption.IDE_BUILD_MODEL_ONLY)
-                || options.get(BooleanOption.IDE_BUILD_MODEL_ONLY_ADVANCED)
-                || options.get(BooleanOption.IDE_INVOKED_FROM_IDE)
-                || options.get(BooleanOption.IDE_REFRESH_EXTERNAL_NATIVE_MODEL);
     }
 
     public static boolean isExternalNativeBuildEnabled(@NonNull CoreExternalNativeBuild config) {
@@ -211,38 +189,6 @@ public class ExternalNativeBuildTaskUtils {
         }
 
         return map;
-    }
-
-    /**
-     * Execute an external process and log the result in the case of a process exceptions. Returns
-     * the info part of the log so that it can be parsed by ndk-build parser;
-     *
-     * @throws BuildCommandException when the build failed.
-     */
-    @NonNull
-    public static String executeBuildProcessAndLogError(
-            @NonNull AndroidBuilder androidBuilder,
-            @NonNull ProcessInfoBuilder process,
-            boolean logStdioToInfo)
-            throws BuildCommandException, IOException {
-        ProgressiveLoggingProcessOutputHandler handler =
-                new ProgressiveLoggingProcessOutputHandler(androidBuilder.getLogger(),
-                        logStdioToInfo);
-        try {
-            // Log the command to execute but only in verbose (ie --info)
-            androidBuilder.getLogger().verbose(process.toString());
-            androidBuilder.executeProcess(process.createProcess(), handler)
-                    .rethrowFailure().assertNormalExitValue();
-
-            return handler.getStandardOutputString();
-        } catch (ProcessException e) {
-            // Also, add process output to the process exception so that it can be analyzed by
-            // caller. Use combined stderr stdout instead of just stdout because compiler errors
-            // go to stdout.
-            String combinedMessage = String.format("%s\n%s", e.getMessage(),
-                    handler.getCombinedOutputString());
-            throw new BuildCommandException(combinedMessage);
-        }
     }
 
     /**
@@ -399,7 +345,7 @@ public class ExternalNativeBuildTaskUtils {
             return cmakePackage.getLocation();
         }
         // If CMake package is not found, we install it and try to find it.
-        sdkHandler.installCMake();
+        sdkHandler.installCMake("3.6.4111459");
         cmakePackage =
                 sdk.getLatestLocalPackageForPrefix(SdkConstants.FD_CMAKE, null, true, progress);
         if (cmakePackage != null) {
@@ -436,128 +382,5 @@ public class ExternalNativeBuildTaskUtils {
         }
     }
 
-    /**
-     * A process output handler that receives STDOUT and STDERR progressively (as it is happening)
-     * and logs the output line-by-line to Gradle. This class also collected precise byte-for-byte
-     * output.
-     */
-    private static class ProgressiveLoggingProcessOutputHandler implements ProcessOutputHandler {
-        @NonNull
-        private final ILogger logger;
-        @NonNull private final FileBackedOutputStream standardOutput;
-        @NonNull private final FileBackedOutputStream combinedOutput;
-        @NonNull
-        private final ProgressiveLoggingProcessOutput loggingProcessOutput;
-        private final boolean logStdioToInfo;
 
-        public ProgressiveLoggingProcessOutputHandler(
-                @NonNull ILogger logger, boolean logStdioToInfo) {
-            this.logger = logger;
-            this.logStdioToInfo = logStdioToInfo;
-            standardOutput = new FileBackedOutputStream(2048);
-            combinedOutput = new FileBackedOutputStream(2048);
-            loggingProcessOutput = new ProgressiveLoggingProcessOutput();
-        }
-
-        @NonNull
-        String getStandardOutputString() throws IOException {
-            return standardOutput.asByteSource().asCharSource(Charsets.UTF_8).read();
-        }
-
-        @NonNull
-        String getCombinedOutputString() throws IOException {
-            return combinedOutput.asByteSource().asCharSource(Charsets.UTF_8).read();
-        }
-
-        @NonNull
-        @Override
-        public ProcessOutput createOutput() {
-            return loggingProcessOutput;
-        }
-
-        @Override
-        public void handleOutput(@NonNull ProcessOutput processOutput) throws ProcessException {
-            // Nothing to do here because the process output is handled as it comes in.
-        }
-
-        private class ProgressiveLoggingProcessOutput implements ProcessOutput {
-            @NonNull
-            private final ProgressiveLoggingOutputStream outputStream;
-            @NonNull
-            private final ProgressiveLoggingOutputStream errorStream;
-
-            ProgressiveLoggingProcessOutput() {
-                outputStream = new ProgressiveLoggingOutputStream(logStdioToInfo, standardOutput);
-                errorStream = new ProgressiveLoggingOutputStream(true /* logToInfo */, null);
-            }
-
-            @NonNull
-            @Override
-            public ProgressiveLoggingOutputStream getStandardOutput() {
-                return outputStream;
-            }
-
-            @NonNull
-            @Override
-            public ProgressiveLoggingOutputStream getErrorOutput() {
-                return errorStream;
-            }
-
-            @Override
-            public void close() throws IOException {}
-
-            private class ProgressiveLoggingOutputStream extends OutputStream {
-                private static final int INITIAL_BUFFER_SIZE = 256;
-                private final boolean logToInfo;
-                private final FileBackedOutputStream individualOutput;
-                @NonNull
-                byte[] buffer = new byte[INITIAL_BUFFER_SIZE];
-                int nextByteIndex = 0;
-
-                ProgressiveLoggingOutputStream(
-                        boolean logToInfo, FileBackedOutputStream individualOutput) {
-                    this.logToInfo = logToInfo;
-                    this.individualOutput = individualOutput;
-                }
-
-                @Override
-                public void write(int b) throws IOException {
-                    combinedOutput.write(b);
-                    if (individualOutput != null) {
-                        individualOutput.write(b);
-                    }
-                    // Check for /r and /n respectively
-                    if (b == 0x0A || b == 0x0D) {
-                        printBuffer();
-                    } else {
-                        writeBuffer(b);
-                    }
-                }
-
-                private void writeBuffer(int b) {
-                    if (nextByteIndex == buffer.length) {
-                        buffer = Arrays.copyOf(buffer, buffer.length * 2);
-                    }
-                    buffer[nextByteIndex] = (byte) b;
-                    nextByteIndex++;
-                }
-
-                private void printBuffer() throws UnsupportedEncodingException {
-                    if (nextByteIndex == 0) {
-                        return;
-                    }
-                    if (logToInfo) {
-                        String line = new String(buffer, 0, nextByteIndex, "UTF-8");
-                        logger.info(line);
-                    }
-                    nextByteIndex = 0;
-                }
-
-                @Override
-                public void close() throws IOException {
-                    printBuffer();
-                }
-            }
-        }
-    }
 }

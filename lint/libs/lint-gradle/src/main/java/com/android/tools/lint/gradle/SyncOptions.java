@@ -18,6 +18,8 @@ package com.android.tools.lint.gradle;
 
 import static com.android.SdkConstants.DOT_XML;
 import static com.android.builder.core.BuilderConstants.FD_REPORTS;
+import static com.android.tools.lint.Reporter.STDERR;
+import static com.android.tools.lint.Reporter.STDOUT;
 import static java.io.File.separator;
 
 import com.android.annotations.NonNull;
@@ -27,6 +29,7 @@ import com.android.tools.lint.LintCliClient;
 import com.android.tools.lint.LintCliFlags;
 import com.android.tools.lint.Reporter;
 import com.android.tools.lint.checks.BuiltinIssueRegistry;
+import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.Severity;
 import com.google.common.base.Strings;
@@ -45,8 +48,6 @@ import org.gradle.api.Project;
 
 // TODO: Move into LintCliFlags?
 public class SyncOptions {
-    public static final String STDOUT = "stdout";
-    public static final String STDERR = "stderr";
 
     public static void syncTo(
             @NonNull LintOptions options,
@@ -56,12 +57,46 @@ public class SyncOptions {
             @Nullable Project project,
             @Nullable File reportsDir,
             boolean report) {
-        flags.getSuppressedIds().addAll(options.getDisable());
-        flags.getEnabledIds().addAll(options.getEnable());
+
+        Set<String> disabled = options.getDisable();
+        if (!disabled.isEmpty()) {
+            for (String id : disabled) {
+                Category category = Category.getCategory(id);
+                if (category != null) {
+                    // Disabling a whole category
+                    flags.addDisabledCategory(category);
+                } else {
+                    flags.getSuppressedIds().add(id);
+                }
+            }
+        }
+
+        Set<String> enabled = options.getEnable();
+        if (!enabled.isEmpty()) {
+            for (String id : enabled) {
+                Category category = Category.getCategory(id);
+                if (category != null) {
+                    // Enabling a whole category
+                    flags.addEnabledCategory(category);
+                } else {
+                    flags.getEnabledIds().add(id);
+                }
+            }
+        }
+
         Set<String> check = options.getCheck();
         if (check != null && !check.isEmpty()) {
-            flags.setExactCheckedIds(check);
+            for (String id : check) {
+                Category category = Category.getCategory(id);
+                if (category != null) {
+                    // Checking a whole category
+                    flags.addExactCategory(category);
+                } else {
+                    flags.addExactId(id);
+                }
+            }
         }
+
         flags.setSetExitCode(options.isAbortOnError());
         flags.setFullPath(options.isAbsolutePaths());
         flags.setShowSourceLines(!options.isNoLines());
@@ -70,13 +105,13 @@ public class SyncOptions {
         flags.setIgnoreWarnings(options.isIgnoreWarnings());
         flags.setWarningsAsErrors(options.isWarningsAsErrors());
         flags.setCheckTestSources(options.isCheckTestSources());
+        flags.setIgnoreTestSources(options.isIgnoreTestSources());
         flags.setCheckGeneratedSources(options.isCheckGeneratedSources());
         flags.setCheckDependencies(options.isCheckDependencies());
         flags.setShowEverything(options.isShowAll());
         flags.setDefaultConfiguration(options.getLintConfig());
         flags.setExplainIssues(options.isExplainIssues());
         flags.setBaselineFile(options.getBaselineFile());
-
         Map<String, Integer> severityOverrides = options.getSeverityOverrides();
         if (severityOverrides != null) {
             Map<String, Severity> map = new HashMap<>();
@@ -85,9 +120,21 @@ public class SyncOptions {
                 String id = entry.getKey();
                 Integer severityInt = entry.getValue();
                 Issue issue = registry.getIssue(id);
-                Severity severity = issue != null ?
-                        getSeverity(issue, severityInt) : Severity.WARNING;
-                map.put(id, severity);
+                Severity severity =
+                        issue != null ? getSeverity(issue, severityInt) : Severity.WARNING;
+
+                Category category = Category.getCategory(id);
+                if (category != null) {
+                    for (Issue current : registry.getIssues()) {
+                        Category currentCategory = current.getCategory();
+                        if (currentCategory == category
+                                || currentCategory.getParent() == category) {
+                            map.put(current.getId(), severity);
+                        }
+                    }
+                } else {
+                    map.put(id, severity);
+                }
             }
             flags.setSeverityOverrides(map);
         } else {
@@ -99,8 +146,10 @@ public class SyncOptions {
                 File output = options.getTextOutput();
                 if (output == null) {
                     output = new File(flags.isFatalOnly() ? STDERR : STDOUT);
-                } else if (!output.isAbsolute() && !isStdOut(output) && !isStdErr(output) &&
-                        project != null) {
+                } else if (!output.isAbsolute()
+                        && !isStdOut(output)
+                        && !isStdErr(output)
+                        && project != null) {
                     output = project.file(output.getPath());
                 }
                 output = validateOutputFile(output);
@@ -126,14 +175,15 @@ public class SyncOptions {
                     }
                     closeWriter = true;
                 }
-                flags.getReporters().add(Reporter.createTextReporter(client, flags, file, writer,
-                        closeWriter));
+                flags.getReporters()
+                        .add(Reporter.createTextReporter(client, flags, file, writer, closeWriter));
             }
             if (options.getHtmlReport()) {
                 File output = options.getHtmlOutput();
                 if (output == null || flags.isFatalOnly()) {
-                    output = createOutputPath(project, variantName, ".html", reportsDir,
-                            flags.isFatalOnly());
+                    output =
+                            createOutputPath(
+                                    project, variantName, ".html", reportsDir, flags.isFatalOnly());
                 } else if (!output.isAbsolute() && project != null) {
                     output = project.file(output.getPath());
                 }
@@ -147,14 +197,18 @@ public class SyncOptions {
             if (options.getXmlReport()) {
                 File output = options.getXmlOutput();
                 if (output == null || flags.isFatalOnly()) {
-                    output = createOutputPath(project, variantName, DOT_XML, reportsDir,
-                            flags.isFatalOnly());
+                    output =
+                            createOutputPath(
+                                    project, variantName, DOT_XML, reportsDir, flags.isFatalOnly());
                 } else if (!output.isAbsolute() && project != null) {
                     output = project.file(output.getPath());
                 }
                 output = validateOutputFile(output);
                 try {
-                    flags.getReporters().add(Reporter.createXmlReporter(client, output, false));
+                    flags.getReporters()
+                            .add(
+                                    Reporter.createXmlReporter(
+                                            client, output, false, flags.isIncludeXmlFixes()));
                 } catch (IOException e) {
                     throw new org.gradle.api.GradleException("XML invalid argument.", e);
                 }

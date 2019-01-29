@@ -22,7 +22,6 @@
 #include <unordered_set>
 
 #include "perfd/cpu/cpu_cache.h"
-#include "perfd/daemon.h"
 #include "proto/cpu.grpc.pb.h"
 #include "proto/cpu.pb.h"
 #include "utils/clock.h"
@@ -38,8 +37,8 @@ namespace profiler {
 class ThreadMonitor {
  public:
   // Creates a thread monitor that detects and saves activities to |cpu_cache|.
-  ThreadMonitor(Daemon::Utilities* utilities, CpuCache* cpu_cache)
-      : clock_(utilities->clock()), cache_(*cpu_cache) {}
+  ThreadMonitor(Clock* clock, CpuCache* cpu_cache)
+      : clock_(clock), cache_(*cpu_cache) {}
 
   // Starts collecting thread activity for process with ID of |pid|. Does
   // nothing if the process has been monitored.
@@ -121,7 +120,7 @@ class ThreadMonitor {
   std::unordered_set<int32_t> pids_{};
   std::mutex pids_mutex_;
   // Clock that timestamps thread activities.
-  const Clock& clock_;
+  Clock* clock_;
   // Cache where collected data will be saved.
   CpuCache& cache_;
   // Last known thread states of all process being monitored.

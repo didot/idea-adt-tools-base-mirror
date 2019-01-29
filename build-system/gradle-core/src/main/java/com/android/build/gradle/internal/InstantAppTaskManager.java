@@ -22,19 +22,20 @@ import com.android.build.api.transform.QualifiedContent;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.InstantAppProvisionTask;
 import com.android.build.gradle.internal.tasks.InstantAppSideLoadTask;
+import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
+import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.tasks.BundleInstantApp;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.profile.Recorder;
-import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan;
 import java.io.File;
 import java.util.Collection;
 import java.util.Set;
 import org.gradle.api.Project;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
 /** TaskManager for creating tasks in an Android InstantApp project. */
@@ -44,20 +45,20 @@ public class InstantAppTaskManager extends TaskManager {
             @NonNull GlobalScope globalScope,
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
             @NonNull SdkHandler sdkHandler,
+            @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder threadRecorder) {
         super(
                 globalScope,
                 project,
                 projectOptions,
-                androidBuilder,
                 dataBindingBuilder,
                 extension,
                 sdkHandler,
+                variantFactory,
                 toolingRegistry,
                 threadRecorder);
     }
@@ -65,34 +66,23 @@ public class InstantAppTaskManager extends TaskManager {
     @Override
     public void createTasksForVariantScope(@NonNull final VariantScope variantScope) {
         // Create the bundling task.
-        recorder.record(
-                GradleBuildProfileSpan.ExecutionType.INSTANTAPP_TASK_MANAGER_CREATE_PACKAGING_TASK,
-                project.getPath(),
-                variantScope.getFullVariantName(),
-                () -> {
-                    File bundleDir = variantScope.getApkLocation();
-                    BundleInstantApp bundleTask =
-                            taskFactory.create(
-                                    new BundleInstantApp.ConfigAction(variantScope, bundleDir));
-                    variantScope.getAssembleTask().dependsOn(bundleTask);
+        File bundleDir = variantScope.getApkLocation();
+        TaskProvider<BundleInstantApp> bundleTask =
+                taskFactory.register(new BundleInstantApp.CreationAction(variantScope, bundleDir));
 
-                    variantScope.addTaskOutput(
-                            TaskOutputHolder.TaskOutputType.INSTANTAPP_BUNDLE,
-                            bundleDir,
-                            bundleTask.getName());
+        TaskFactoryUtils.dependsOn(variantScope.getTaskContainer().getAssembleTask(), bundleTask);
 
-                    taskFactory.create(new InstantAppSideLoadTask.ConfigAction(variantScope));
-                });
+        taskFactory.register(new InstantAppSideLoadTask.CreationAction(variantScope));
 
         // FIXME: Stop creating a dummy task just to make the IDE sync shut up.
-        taskFactory.create(variantScope.getTaskName("dummy"));
+        taskFactory.register(variantScope.getTaskName("dummy"));
     }
 
     @Override
     public void createTasksBeforeEvaluate() {
         super.createTasksBeforeEvaluate();
 
-        taskFactory.create(new InstantAppProvisionTask.ConfigAction(globalScope));
+        taskFactory.register(new InstantAppProvisionTask.CreationAction(globalScope));
     }
 
     @NonNull

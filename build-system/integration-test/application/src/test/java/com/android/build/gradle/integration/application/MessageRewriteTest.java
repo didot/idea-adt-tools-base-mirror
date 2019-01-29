@@ -46,10 +46,8 @@ public class MessageRewriteTest {
                                     .with(BooleanOption.IDE_INVOKED_FROM_IDE, true)
                                     .expectFailure()
                                     .run("assembleF1Debug");
-                    assertThat(result.getStderr())
-                            .contains(
-                                    FileUtils.join("src", "main", "res", "layout", "main.xml")
-                                            .replace("\\", "\\\\"));
+                    assertThat(result.getStdout())
+                            .contains(FileUtils.join("src", "main", "res", "layout", "main.xml"));
                 });
 
         project.execute("assembleDebug");

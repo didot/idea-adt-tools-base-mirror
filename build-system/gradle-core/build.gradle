@@ -1,15 +1,25 @@
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+
 apply plugin: 'java'
 apply plugin: 'kotlin'
 apply plugin: 'jacoco-tools-base'
 apply plugin: 'clone-artifacts'
-apply plugin: 'antlr'
-
-//apply plugin: 'java-gradle-plugin'
+apply plugin: 'license-report'
 
 configurations {
     provided
     includeInJar
 }
+
+licenseReport {
+    whiteList = ['org.jetbrains.trove4j:trove4j:20160824']
+}
+
+// Set the version of the plugin in the manifest. This is used by 3rd party plugin (like Kotlin)
+jar.manifest.attributes("Plugin-Version": version)
+jar.manifest.attributes("Inception-Date": DateTimeFormatter.ISO_LOCAL_DATE.format(LocalDate.now()));
+
 
 // Incremental update test support
 File classesDir = new File(project.buildDir, "classes/incremental-test")
@@ -31,6 +41,8 @@ sourceSets {
 
 dependencies {
     compile project(':base:builder')
+    compile project(':analytics-library:shared')
+    compile project(':analytics-library:crash')
     compile project(':base:lint-gradle-api')
     compile project(':base:gradle-api')
     compile project(':dataBinding:compilerCommon')
@@ -43,6 +55,9 @@ dependencies {
     compile libs.asm_util
     compile libs.jopt
     compile libs.proguard
+    compile libs.bundle_tool
+    compile libs.jetifier_core
+    compile libs.jetifier_processor
 
     compileOnly libs.jacoco_core
     compileOnly libs.jacoco_report
@@ -56,8 +71,6 @@ dependencies {
 
     // Package the instant-run-server.jar, nothing else.
     includeInJar project(path: ':base:instant-run:instant-run-server', configuration: 'archives')
-
-    antlr libs.antlr3
 
     testCompile gradleApi()
     testCompile libs.junit
@@ -93,11 +106,11 @@ jar {
 }
 
 group = 'com.android.tools.build'
-archivesBaseName = 'gradle-core'
+archivesBaseName = 'gradle'
 version = rootProject.ext.buildVersion
 
-project.ext.pomName = 'Core Library for Android Gradle Plug-in'
-project.ext.pomDesc = 'Core library to build Android Gradle plugin.'
+project.ext.pomName = 'Gradle Plug-in for Android'
+project.ext.pomDesc = 'Gradle plug-in to build Android applications.'
 
 apply from: "$rootDir/buildSrc/base/publish.gradle"
 apply from: "$rootDir/buildSrc/base/bintray.gradle"
@@ -166,6 +179,11 @@ tasks.jar {
 }
 tasks.sourcesJar {
     from({zipTree(configurations.sourcesSubsumedProvided.singleFile)})
+}
+tasks.processResources {
+    from(rootProject.file("../prebuilts/tools/common/aapt/aapt2_version.properties")) {
+        into "com/android/build/gradle/internal/res/"
+    }
 }
 javadoc {
     classpath += configurations.subsumedProvided

@@ -11,12 +11,13 @@ android {
     defaultConfig {
         buildConfigField "String", "FOO", "\"foo\""
         multiDexEnabled = true
+        versionCode = '1'
     }
 
     flavorDimensions 'foo'
     productFlavors {
         ics {
-            minSdkVersion 14
+            minSdkVersion rootProject.supportLibMinSdk
         }
         lollipop {
             minSdkVersion 21
@@ -33,7 +34,7 @@ android {
             minifyEnabled true
             proguardFile file('proguard-android.txt')
         }
-        shrinker {
+        r8 {
             initWith proguard
             useProguard false
         }

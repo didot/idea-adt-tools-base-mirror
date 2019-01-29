@@ -24,8 +24,9 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-import com.android.resources.ResourceAccessibility;
 import com.android.resources.ResourceType;
+import com.android.resources.ResourceVisibility;
+import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -101,15 +102,15 @@ public class SymbolTableTest {
         SymbolTable m1 =
                 SymbolTable.builder()
                         .tablePackage("muu")
-                        .add(createSymbol("attr", "b", "int[]", "d1"))
+                        .add(createSymbol("attr", "b", "int", "d1"))
                         .add(createSymbol("string", "b2", "int", "d2"))
                         .build();
 
         SymbolTable m2 =
                 SymbolTable.builder()
                         .tablePackage("moo")
-                        .add(createSymbol("attr", "b", "int[]", "d3"))
-                        .add(createSymbol("string", "b2", "int[]", "d4"))
+                        .add(createSymbol("attr", "b", "int", "d3"))
+                        .add(createSymbol("string", "b2", "int", "d4"))
                         .add(createSymbol("color", "b5", "int", "d5"))
                         .build();
 
@@ -132,14 +133,14 @@ public class SymbolTableTest {
                 SymbolTable.builder()
                         .tablePackage("bar")
                         .add(createSymbol("attr", "b", "int", "d"))
-                        .add(createSymbol("string", "f", "int[]", "h"))
+                        .add(createSymbol("string", "f", "int", "h"))
                         .build();
 
         SymbolTable f =
                 SymbolTable.builder()
                         .tablePackage("bleh")
-                        .add(createSymbol("integer", "j", "int[]", "l"))
-                        .add(createSymbol("attr", "b", "int[]", "n"))
+                        .add(createSymbol("integer", "j", "int", "l"))
+                        .add(createSymbol("attr", "b", "int", "n"))
                         .build();
 
         SymbolTable r = t.filter(f);
@@ -148,6 +149,43 @@ public class SymbolTableTest {
                 SymbolTable.builder()
                         .tablePackage("bar")
                         .add(createSymbol("attr", "b", "int", "d"))
+                        .build();
+
+        assertEquals(expected, r);
+    }
+
+    @Test
+    public void tableFilterWithAarTable() {
+        SymbolTable t =
+                SymbolTable.builder()
+                        .tablePackage("bar")
+                        .add(
+                                createSymbol(
+                                        "styleable",
+                                        "Foo.Bar",
+                                        "int[]",
+                                        "{0}",
+                                        ImmutableList.of("child")))
+                        .build();
+
+        SymbolTable f =
+                SymbolTable.builder()
+                        .tablePackage("fromAAR")
+                        .add(createSymbol("styleable", "Foo_Bar", "int[]", "{}"))
+                        .build();
+
+        SymbolTable r = t.filter(f);
+
+        SymbolTable expected =
+                SymbolTable.builder()
+                        .tablePackage("bar")
+                        .add(
+                                createSymbol(
+                                        "styleable",
+                                        "Foo.Bar",
+                                        "int[]",
+                                        "{0}",
+                                        ImmutableList.of("child")))
                         .build();
 
         assertEquals(expected, r);
@@ -180,7 +218,8 @@ public class SymbolTableTest {
         } catch (IllegalArgumentException e) {
             assertThat(e)
                     .hasMessage(
-                            "Package 'com.example.int' from AndroidManifest.xml is not a valid Java package name as 'int' is a Java keyword.");
+                            "Package 'com.example.int' from AndroidManifest.xml is not a valid"
+                                    + " Java package name as 'int' is a Java keyword.");
         }
     }
 
@@ -192,7 +231,9 @@ public class SymbolTableTest {
         } catch (IllegalArgumentException e) {
             assertThat(e)
                     .hasMessage(
-                            "Package 'com.example.my-package' from AndroidManifest.xml is not a valid Java package name as 'my-package' is not a valid Java identifier.");
+                            "Package 'com.example.my-package' from AndroidManifest.xml is not a"
+                                    + " valid Java package name as 'my-package' is not a valid"
+                                    + " Java identifier.");
         }
     }
 
@@ -201,57 +242,93 @@ public class SymbolTableTest {
         SymbolTable table =
                 SymbolTable.builder()
                         .add(
-                                Symbol.createSymbol(
-                                        ResourceAccessibility.PUBLIC,
-                                        ResourceType.DRAWABLE,
-                                        "img",
-                                        SymbolJavaType.INT,
-                                        "0",
-                                        Symbol.NO_CHILDREN))
+                                new Symbol.NormalSymbol(
+                                        ResourceType.DRAWABLE, "img", 0, ResourceVisibility.PUBLIC))
                         .add(
-                                Symbol.createSymbol(
-                                        ResourceAccessibility.DEFAULT,
+                                new Symbol.NormalSymbol(
                                         ResourceType.ID,
                                         "bar",
-                                        SymbolJavaType.INT,
-                                        "0",
-                                        Symbol.NO_CHILDREN))
+                                        0,
+                                        ResourceVisibility.PRIVATE_XML_ONLY))
                         .add(
-                                Symbol.createSymbol(
-                                        ResourceAccessibility.PRIVATE,
-                                        ResourceType.STRING,
-                                        "beep",
-                                        SymbolJavaType.INT,
-                                        "0",
-                                        Symbol.NO_CHILDREN))
+                                new Symbol.NormalSymbol(
+                                        ResourceType.STRING, "beep", 0, ResourceVisibility.PRIVATE))
                         .add(
-                                Symbol.createSymbol(
-                                        ResourceAccessibility.DEFAULT,
+                                new Symbol.NormalSymbol(
                                         ResourceType.STRING,
                                         "foo",
-                                        SymbolJavaType.INT,
-                                        "0",
-                                        Symbol.NO_CHILDREN))
+                                        0,
+                                        ResourceVisibility.PRIVATE_XML_ONLY))
                         .add(
-                                Symbol.createSymbol(
-                                        ResourceAccessibility.PUBLIC,
-                                        ResourceType.TRANSITION,
-                                        "t",
-                                        SymbolJavaType.INT,
-                                        "0",
-                                        Symbol.NO_CHILDREN))
+                                new Symbol.NormalSymbol(
+                                        ResourceType.TRANSITION, "t", 0, ResourceVisibility.PUBLIC))
                         .add(
-                                Symbol.createSymbol(
-                                        ResourceAccessibility.PUBLIC,
-                                        ResourceType.XML,
-                                        "xml",
-                                        SymbolJavaType.INT,
-                                        "0",
-                                        Symbol.NO_CHILDREN))
+                                new Symbol.NormalSymbol(
+                                        ResourceType.XML, "xml", 0, ResourceVisibility.PUBLIC))
                         .build();
 
-        assertThat(table.getSymbolByAccessibility(ResourceAccessibility.DEFAULT)).hasSize(2);
-        assertThat(table.getSymbolByAccessibility(ResourceAccessibility.PRIVATE)).hasSize(1);
-        assertThat(table.getSymbolByAccessibility(ResourceAccessibility.PUBLIC)).hasSize(3);
+        assertThat(table.getSymbolByVisibility(ResourceVisibility.PRIVATE_XML_ONLY)).hasSize(2);
+        assertThat(table.getSymbolByVisibility(ResourceVisibility.PRIVATE)).hasSize(1);
+        assertThat(table.getSymbolByVisibility(ResourceVisibility.PUBLIC)).hasSize(3);
+    }
+
+    @Test
+    public void testContainsSymbols() {
+        SymbolTable table =
+                SymbolTable.builder()
+                        .add(createSymbol("string", "s1", "int", "0"))
+                        .add(createSymbol("integer", "s1", "int", "0"))
+                        .add(
+                                createSymbol(
+                                        "styleable",
+                                        "s1",
+                                        "int[]",
+                                        "{ 0, 0, 0, 0}",
+                                        ImmutableList.of(
+                                                "android_name",
+                                                "android_type",
+                                                "name",
+                                                "description")))
+                        .add(
+                                createSymbol(
+                                        "styleable",
+                                        "s1_s2",
+                                        "int[]",
+                                        "{ 0, 0}",
+                                        ImmutableList.of("android_name", "type")))
+                        .add(
+                                createSymbol(
+                                        "styleable",
+                                        "s3",
+                                        "int[]",
+                                        "{ 0, 0}",
+                                        ImmutableList.of("android:color", "android:image")))
+                        .build();
+
+        // Basic checks first.
+        assertThat(table.containsSymbol(ResourceType.STRING, "s1")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.INTEGER, "s1")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.ID, "s1")).isFalse();
+
+        // Check various combination of styleables' names.
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_android_name")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_android_type")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_android_description"))
+                .isFalse();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_name")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_type")).isFalse();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_description")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_")).isFalse();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_android")).isFalse();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_s2")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_s2_name")).isFalse();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_s2_android_name")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s2_android_name")).isFalse();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_s2_type")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s1_s2_description")).isFalse();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s3_android_color")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s3_android:color")).isTrue();
+        assertThat(table.containsSymbol(ResourceType.STYLEABLE, "s3_android_name")).isFalse();
     }
 }

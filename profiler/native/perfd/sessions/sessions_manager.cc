@@ -16,8 +16,8 @@
 #include "sessions_manager.h"
 
 #include <algorithm>
-
-#include "perfd/sessions/session_utils.h"
+#include "perfd/daemon.h"
+#include "proto/profiler.pb.h"
 
 namespace profiler {
 
@@ -25,122 +25,70 @@ using std::list;
 using std::lock_guard;
 using std::mutex;
 using std::vector;
-using proto::Session;
 
-bool SessionsManager::BeginSession(int64_t device_id, int32_t pid,
-                                   Session* session) {
-  lock_guard<mutex> lock(sessions_mutex_);
-  auto it =
-      std::find_if(sessions_.begin(), sessions_.end(), [&](const Session& s) {
-        return s.device_id() == device_id && s.pid() == pid &&
-               SessionUtils::IsActive(s);
-      });
+void SessionsManager::BeginSession(int64_t device_id,
+                                   const proto::BeginSession& data) {
+  int64_t now = daemon_->clock()->GetCurrentTime();
+  int32_t pid = data.pid();
+  for (const auto& component : daemon_->GetComponents()) {
+    now = std::min(now, component->GetEarliestDataTime(pid));
+  }
 
-  bool new_session = false;
-  if (it == sessions_.end()) {
-    sessions_.push_front(
-        SessionUtils::CreateSession(device_id, pid, clock_.GetCurrentTime()));
-    new_session = true;
+  if (!sessions_.empty()) {
+    DoEndSession(sessions_.back().get(), now);
+  }
+
+  std::unique_ptr<Session> session(new Session(device_id, pid, now));
+  proto::Event event;
+  event.set_event_id(session->info.session_id());
+  event.set_session_id(session->info.session_id());
+  event.set_timestamp(now);
+  event.set_kind(proto::Event::SESSION);
+  event.set_type(proto::Event::SESSION_STARTED);
+  proto::SessionStarted* session_started = event.mutable_session_started();
+  session_started->set_pid(pid);
+  session_started->set_start_timestamp_epoch_ms(data.request_time_epoch_ms());
+  session_started->set_session_name(data.session_name());
+  session_started->set_jvmti_enabled(data.jvmti_config().attach_agent());
+  session_started->set_live_allocation_enabled(
+      data.jvmti_config().live_allocation_enabled());
+  session_started->set_type(proto::SessionStarted::FULL);
+  daemon_->buffer()->Add(event);
+
+  sessions_.push_back(std::move(session));
+}
+
+profiler::Session* SessionsManager::GetLastSession() {
+  if (sessions_.size()) {
+    return sessions_.back().get();
   } else {
-    // If a matching session was already running, move it to the front of the
-    // list (since it now should be the most recent), unless it's already in
-    // the front.
-    if (it != sessions_.begin()) {
-      sessions_.splice(sessions_.begin(), sessions_, it, std::next(it));
+    return nullptr;
+  }
+}
+
+void SessionsManager::EndSession(int64_t session_id) {
+  auto now = daemon_->clock()->GetCurrentTime();
+  if (sessions_.size() > 0) {
+    if (sessions_.back()->info.session_id() == session_id) {
+      DoEndSession(sessions_.back().get(), now);
     }
   }
-
-  session->CopyFrom(sessions_.front());
-  return new_session;
-}
-
-bool SessionsManager::EndSession(int64_t session_id, Session* session) {
-  lock_guard<mutex> lock(sessions_mutex_);
-  auto it = GetSessionIter({[session_id](const Session& s) {
-    return s.session_id() == session_id;
-  }});
-  if (it != sessions_.end()) {
-    DoEndSession(&(*it));
-    session->CopyFrom(*it);
-    return true;
-  } else {
-    return false;
-  }
-}
-
-bool SessionsManager::GetSession(int64_t session_id, Session* session) const {
-  lock_guard<mutex> lock(sessions_mutex_);
-  auto it = GetSessionIter({[session_id](const Session& s) {
-    return s.session_id() == session_id;
-  }});
-  if (it != sessions_.end()) {
-    session->CopyFrom(*it);
-    return true;
-  } else {
-    return false;
-  }
-}
-
-bool SessionsManager::GetActiveSessionByPid(int32_t pid,
-                                            Session* session) const {
-  lock_guard<mutex> lock(sessions_mutex_);
-  auto it = GetSessionIter({[pid](const Session& s) {
-    return s.pid() == pid && SessionUtils::IsActive(s);
-  }});
-  if (it != sessions_.end()) {
-    session->CopyFrom(*it);
-    return true;
-  } else {
-    return false;
-  }
-}
-
-std::vector<Session> SessionsManager::GetSessions(int64_t start_timestamp,
-                                                  int64_t end_timestamp) const {
-  lock_guard<mutex> lock(sessions_mutex_);
-  vector<Session> sessions_range;
-  for (const auto& session : sessions_) {
-    if (end_timestamp < session.start_timestamp() ||
-        start_timestamp > session.end_timestamp()) {
-      continue;
-    }
-    sessions_range.push_back(session);
-  }
-  return sessions_range;
-}
-
-void SessionsManager::DeleteSession(int64_t session_id) {
-  lock_guard<mutex> lock(sessions_mutex_);
-  auto it = GetSessionIter({[session_id](const Session& s) {
-    return s.session_id() == session_id;
-  }});
-  if (it != sessions_.end()) {
-    DoEndSession(&(*it));
-    sessions_.erase(it);
-  }
-}
-
-// This method assumes |sessions_| has already been locked
-list<Session>::iterator SessionsManager::GetSessionIter(
-    const std::function<bool(const Session& s)>& match_func) {
-  return std::find_if(sessions_.begin(), sessions_.end(), match_func);
-}
-
-// This method assumes |sessions_| has already been locked
-list<Session>::const_iterator SessionsManager::GetSessionIter(
-    const std::function<bool(const Session& s)>& match_func) const {
-  return std::find_if(sessions_.begin(), sessions_.end(), match_func);
 }
 
 // This method assumes |sessions_| has already been locked and that
 // |session_index| is valid.
-void SessionsManager::DoEndSession(Session* session) {
-  if (!SessionUtils::IsActive(*session)) {
-    return;
-  }
-
-  session->set_end_timestamp(clock_.GetCurrentTime());
+void SessionsManager::DoEndSession(profiler::Session* session, int64_t time) {
   // TODO(b/67508650): Stop all profilers!
+  if (session->End(time)) {
+    proto::Event event;
+    event.set_timestamp(time);
+    event.set_event_id(session->info.session_id());
+    event.set_session_id(session->info.session_id());
+    event.set_kind(proto::Event::SESSION);
+    event.set_type(proto::Event::SESSION_ENDED);
+    event.mutable_session_ended();
+    daemon_->buffer()->Add(event);
+  }
 }
 
 }  // namespace profiler

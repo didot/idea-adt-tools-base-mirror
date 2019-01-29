@@ -37,7 +37,6 @@ import org.mockito.Mockito
 import org.mockito.MockitoAnnotations
 import java.io.File
 import java.nio.file.Path
-import java.util.concurrent.ForkJoinPool
 
 open class ExternalLibsMergerTransformTest {
 
@@ -52,7 +51,7 @@ open class ExternalLibsMergerTransformTest {
     @Captor
     private lateinit var outputDirCaptor : ArgumentCaptor<File>
     @Captor
-    private lateinit var outputListCaptor : ArgumentCaptor<MutableIterable<Path>>
+    private lateinit var outputListCaptor : ArgumentCaptor<MutableIterator<Path>>
 
     @Before
     fun setUp() = MockitoAnnotations.initMocks(this)
@@ -136,25 +135,33 @@ open class ExternalLibsMergerTransformTest {
                 Mockito.any(),
                 Mockito.any(),
                 Mockito.isNull(),
-                Mockito.eq(ForkJoinPool.commonPool()),
+                Mockito.any(),
                 Mockito.eq(DexMergerTool.D8),
                 Mockito.eq(21),
                 Mockito.eq(true))).thenReturn(callable)
 
         transform.transform(transformInvocation)
 
-        Mockito.verify(factory).create(Mockito.any(),
-                Mockito.eq(DexingType.MONO_DEX),
-                processOutputCaptor.capture(),
-                outputDirCaptor.capture(),
-                outputListCaptor.capture(),
-                Mockito.isNull(),
-                Mockito.eq(ForkJoinPool.commonPool()),
-                Mockito.eq(DexMergerTool.D8),
-                Mockito.eq(21),
-                Mockito.eq(true))
+        Mockito.verify(factory).create(
+            Mockito.any(),
+            Mockito.eq(DexingType.MONO_DEX),
+            processOutputCaptor.capture(),
+            outputDirCaptor.capture(),
+            outputListCaptor.capture(),
+            Mockito.isNull(),
+            Mockito.any(),
+            Mockito.eq(DexMergerTool.D8),
+            Mockito.eq(21),
+            Mockito.eq(true)
+        )
 
-        return outputListCaptor.allValues.flatten()
+        val inputs = mutableListOf<Path>()
+        outputListCaptor.allValues.forEach {
+            while (it.hasNext()) {
+                inputs.add(it.next())
+            }
+        }
+        return inputs
     }
 
     private fun createJarInput(numberOfJars : Int) : ImmutableList<TransformInput> {

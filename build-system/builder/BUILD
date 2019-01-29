@@ -21,7 +21,6 @@ kotlin_library(
     name = "builder",
     srcs = ["src/main/java"],
     bundled_deps = [
-        "//tools/apkzlib",
         "//tools/base/build-system/profile",
         "//tools/dx/dalvik/dx",
         "//prebuilts/r8:d8-master",
@@ -35,6 +34,7 @@ kotlin_library(
         "//tools/analytics-library/protos/src/main/proto",
         "//tools/analytics-library/shared:tools.analytics-shared",
         "//tools/analytics-library/tracker:tools.analytics-tracker",
+        "//tools/apkzlib",
         "//tools/base/annotations",
         "//tools/base/build-system:tools.apksig",
         "//tools/base/build-system:tools.manifest-merger",
@@ -42,8 +42,6 @@ kotlin_library(
         "//tools/base/build-system/builder-test-api:tools.builder-test-api",
         "//tools/base/common:tools.common",
         "//tools/base/ddmlib:tools.ddmlib",
-        "//tools/base/jack/jack-api",
-        "//tools/base/jack/jill-api",
         "//tools/base/layoutlib-api:tools.layoutlib-api",
         "//tools/base/repository:tools.repository",
         "//tools/base/sdk-common:tools.sdk-common",
@@ -59,7 +57,7 @@ kotlin_library(
         "//tools/base/third_party:net.sf.jopt-simple_jopt-simple",
         "//tools/base/third_party:org.bouncycastle_bcpkix-jdk15on",
         "//tools/base/third_party:org.bouncycastle_bcprov-jdk15on",
-        "//tools/base/third_party:org.jetbrains.kotlin_kotlin-stdlib-jre8",
+        "//tools/base/third_party:org.jetbrains.kotlin_kotlin-stdlib-jdk8",
         "//tools/base/third_party:org.ow2.asm_asm",
         "//tools/base/third_party:org.ow2.asm_asm-commons",
         "//tools/base/third_party:org.ow2.asm_asm-tree",
@@ -78,20 +76,21 @@ kotlin_test(
     name = "tests",
     srcs = ["src/test/java"],
     data = [
-        "//prebuilts/studio/sdk:build-tools/future",
         "//prebuilts/studio/sdk:build-tools/latest",
         "//prebuilts/studio/sdk:platforms/latest",
+        "//tools/base/build-system/aapt2:aapt2_for_tests",
     ],
+    friends = [":builder"],
     jvm_flags = ["-Dtest.suite.jar=tests.jar"],
     resources = glob(["src/test/resources/**"]),
-    test_class = "com.android.testutils.JarTestSuite",
-    runtime_deps = [
-        # Need to put this on the classpath before TestRunner_deploy.jar which contains
-        # old JUnit classes. See https://github.com/bazelbuild/bazel/issues/2146.
-        "//tools/base/third_party:junit_junit",
+    tags = [
+        "no_test_windows",  # b/77288863
+        "slow",
     ],
+    test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":builder",
+        "//tools/apkzlib",
         "//tools/base/annotations",
         "//tools/base/build-system:tools.manifest-merger",
         "//tools/base/build-system/builder-model",
@@ -108,7 +107,7 @@ kotlin_test(
         "//tools/base/third_party:junit_junit",
         "//tools/base/third_party:nl.jqno.equalsverifier_equalsverifier",
         "//tools/base/third_party:org.bouncycastle_bcpkix-jdk15on",
-        "//tools/base/third_party:org.jetbrains.kotlin_kotlin-stdlib-jre8",
+        "//tools/base/third_party:org.jetbrains.kotlin_kotlin-stdlib-jdk8",
         "//tools/base/third_party:org.jetbrains.kotlin_kotlin-test",
         "//tools/base/third_party:org.mockito_mockito-core",
         "//tools/base/third_party:org.ow2.asm_asm",

@@ -20,20 +20,15 @@ import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask;
 import com.android.builder.core.VariantType;
 import com.android.builder.profile.Recorder;
 import com.android.utils.StringHelper;
-import com.google.common.collect.Lists;
-import java.util.List;
 
 /**
  * Data about a variant that produce a test APK
  */
 public class TestVariantData extends ApkVariantData {
 
-    public DeviceProviderInstrumentTestTask connectedTestTask;
-    public final List<DeviceProviderInstrumentTestTask> providerTestTaskList = Lists.newArrayList();
     @NonNull
     private final TestedVariantData testedVariantData;
 
@@ -60,15 +55,11 @@ public class TestVariantData extends ApkVariantData {
     @NonNull
     public String getDescription() {
         String prefix;
-        switch (getType()) {
-            case ANDROID_TEST:
-                prefix = "android (on device) tests";
-                break;
-            case UNIT_TEST:
-                prefix = "unit tests";
-                break;
-            default:
-                throw new IllegalStateException("Unknown test variant type.");
+        VariantType variantType = getType();
+        if (variantType.isApk()) {
+            prefix = "android (on device) tests";
+        } else {
+            prefix = "unit tests";
         }
 
         final GradleVariantConfiguration config = getVariantConfiguration();
@@ -94,7 +85,7 @@ public class TestVariantData extends ApkVariantData {
     @NonNull
     @Override
     public String getTaskName(@NonNull String prefix, @NonNull String suffix) {
-        if (testedVariantData.getVariantConfiguration().getType() == VariantType.FEATURE) {
+        if (testedVariantData.getVariantConfiguration().getType().isHybrid()) {
             return StringHelper.appendCapitalized(
                     prefix,
                     getVariantConfiguration().getFullName(),

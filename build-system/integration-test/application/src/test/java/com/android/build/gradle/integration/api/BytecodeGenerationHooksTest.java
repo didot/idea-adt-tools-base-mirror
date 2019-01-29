@@ -113,7 +113,8 @@ public class BytecodeGenerationHooksTest {
         assertThat(apk).contains("META-INF/test.kotlin_module");
 
         // also verify that the app's jar used by test compilation contains the kotlin module files
-        File classesJar = appProject.getIntermediateFile("classes-jar", "debug", "classes.jar");
+        File classesJar =
+                appProject.getIntermediateFile("app_classes/debug/bundleDebugClasses/classes.jar");
         assertThat(classesJar).isFile();
         try (Zip classesZip = new Zip(classesJar)) {
             assertThat(classesZip).contains("META-INF/app.kotlin_module");
@@ -124,7 +125,7 @@ public class BytecodeGenerationHooksTest {
                     result,
                     "BytecodeGeneratingTask(:app:generateBytecodeFordebugAndroidTest): ",
                     true,
-                    "app/build/intermediates/classes-jar/debug/classes.jar",
+                    "app/build/intermediates/app_classes/debug/bundleDebugClasses/classes.jar",
                     "library/build/intermediates/intermediate-jars/debug/classes.jar",
                     "jar/build/libs/jar.jar");
         }
@@ -140,7 +141,7 @@ public class BytecodeGenerationHooksTest {
                 result,
                 "BytecodeGeneratingTask(:app:generateBytecodeFordebugUnitTest): ",
                 false,
-                "app/build/intermediates/classes/debug",
+                "app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes",
                 "app/build/generated/preJavacbytecode/debug",
                 "app/build/generated/postJavacBytecode/debug",
                 "library/build/intermediates/intermediate-jars/debug/classes.jar",
@@ -186,7 +187,7 @@ public class BytecodeGenerationHooksTest {
                 result,
                 "BytecodeGeneratingTask(:test:generateBytecodeFordebug): ",
                 true,
-                "app/build/intermediates/classes-jar/debug/classes.jar",
+                "app/build/intermediates/app_classes/debug/bundleDebugClasses/classes.jar",
                 "jar/build/libs/jar.jar",
                 "library/build/intermediates/intermediate-jars/debug/classes.jar");
     }
@@ -224,7 +225,7 @@ public class BytecodeGenerationHooksTest {
                 result, "SourceFoldersApi(:baseFeature:debug): ", "baseFeature/src/custom/java");
     }
 
-    private static void checkDependencies(
+    private void checkDependencies(
             GradleBuildResult result, String prefix, boolean exactly, String... dependencies) {
         List<String> lines = result.getStdoutAsLines();
 
@@ -251,7 +252,7 @@ public class BytecodeGenerationHooksTest {
         }
     }
 
-    private static void checkSourceFolders(
+    private void checkSourceFolders(
             GradleBuildResult result, String prefix, String... dependencies) {
         List<String> lines = result.getStdoutAsLines();
 

@@ -18,10 +18,10 @@ package com.android.build.gradle.tasks
 
 import com.android.SdkConstants
 import com.android.build.gradle.internal.scope.ExistingBuildElements
-import com.android.build.gradle.internal.scope.TaskConfigAction
-import com.android.build.gradle.internal.scope.TaskOutputHolder
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.ide.common.build.ApkData
 import com.android.utils.FileUtils
 import org.gradle.api.tasks.Input
@@ -31,15 +31,19 @@ import java.io.File
 
 /**
  * Task to persist the {@see OutputScope#apkdatas} which allows downstream tasks to depend
- * on the {@see TaskOutputType#APK_LIST} rather than on various complicated data structures.
+ * on the {@see InternalArtifactType#APK_LIST} rather than on various complicated data structures.
  * This also allow to record the choices made during configuration time about what APKs will be
- * produced and which ones are enabled. 
+ * produced and which ones are enabled.
  */
 open class MainApkListPersistence : AndroidVariantTask() {
 
-    @get:OutputFile lateinit var outputFile: File
+    @get:OutputFile
+    lateinit var outputFile: File
+        private set
 
-    @get:Input lateinit var apkData :  Collection<ApkData>
+    @get:Input
+    lateinit var apkData : Collection<ApkData>
+        private set
 
     @TaskAction
     fun fullTaskAction() {
@@ -49,25 +53,31 @@ open class MainApkListPersistence : AndroidVariantTask() {
         FileUtils.createFile(outputFile, apkDataList)
     }
 
-    class ConfigAction(
-            val scope: VariantScope) :
-            TaskConfigAction<MainApkListPersistence> {
-        override fun getName() = scope.getTaskName("mainApkListPersistence")
+    class CreationAction(
+        variantScope: VariantScope
+    ) :
+        VariantTaskCreationAction<MainApkListPersistence>(variantScope) {
 
-        override fun getType() = MainApkListPersistence::class.java
+        override val name: String
+            get() = variantScope.getTaskName("mainApkListPersistence")
+        override val type: Class<MainApkListPersistence>
+            get() = MainApkListPersistence::class.java
 
-        override fun execute(task: MainApkListPersistence) {
+        private lateinit var outputFile: File
 
-            task.variantName = scope.fullVariantName
-            task.apkData = scope.outputScope.apkDatas
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            outputFile = variantScope.artifacts.appendArtifact(
+                InternalArtifactType.APK_LIST,
+                taskName,
+                SdkConstants.FN_APK_LIST)
+        }
 
-            task.outputFile = File(
-                    File(scope.splitSupportDirectory, "apk-list"),
-                    SdkConstants.FN_APK_LIST)
-            scope.addTaskOutput(TaskOutputHolder.TaskOutputType.APK_LIST,
-                    task.outputFile,
-                    name)
+        override fun configure(task: MainApkListPersistence) {
+            super.configure(task)
 
+            task.apkData = variantScope.outputScope.apkDatas
+            task.outputFile = outputFile
         }
     }
 }

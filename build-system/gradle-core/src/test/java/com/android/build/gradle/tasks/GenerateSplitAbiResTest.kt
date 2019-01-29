@@ -23,17 +23,20 @@ import com.android.build.gradle.internal.dsl.AaptOptions
 import com.android.build.gradle.internal.dsl.CoreBuildType
 import com.android.build.gradle.internal.dsl.Splits
 import com.android.build.gradle.internal.ide.FilterDataImpl
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.GlobalScope
+import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.MutableTaskContainer
 import com.android.build.gradle.internal.scope.OutputFactory
 import com.android.build.gradle.internal.scope.OutputScope
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata
 import com.android.build.gradle.internal.variant.FeatureVariantData
 import com.android.build.gradle.options.ProjectOptions
 import com.android.builder.core.AndroidBuilder
-import com.android.builder.core.VariantType
+import com.android.builder.core.VariantTypeImpl
 import com.android.testutils.truth.FileSubject.assertThat
 import com.google.common.collect.ImmutableList
-import com.google.common.collect.ImmutableMap
 import com.google.common.collect.ImmutableSet
 import com.google.common.io.Files
 import com.google.common.truth.Truth.assertThat
@@ -44,9 +47,11 @@ import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.mockito.ArgumentMatchers
 import org.mockito.Mock
 import org.mockito.Mockito.`when`
 import org.mockito.MockitoAnnotations
+import java.util.function.Supplier
 
 /**
  * Tests for the [GenerateSplitAbiRes] class
@@ -54,27 +59,29 @@ import org.mockito.MockitoAnnotations
 class GenerateSplitAbiResTest {
 
     @get:Rule val temporaryFolder = TemporaryFolder()
-    @Mock lateinit internal var mockedGlobalScope: GlobalScope
-    @Mock lateinit internal var mockedVariantScope: VariantScope
-    @Mock lateinit internal var mockedOutputScope: OutputScope
-    @Mock lateinit internal var mockedAndroidBuilder: AndroidBuilder
-    @Mock lateinit internal var mockedVariantConfiguration: GradleVariantConfiguration
-    @Mock lateinit internal var mockedAndroidConfig: AndroidConfig
-    @Mock lateinit internal var mockedSplits: Splits
-    @Mock lateinit internal var mockedBuildType: CoreBuildType
-    @Mock lateinit internal var mockedVariantData: FeatureVariantData
-    @Mock lateinit internal var mockedAaptOptions: AaptOptions
-    @Mock lateinit internal var mockedOutputFactory: OutputFactory
+    @Mock private lateinit var mockedGlobalScope: GlobalScope
+    @Mock private lateinit var mockedVariantScope: VariantScope
+    @Mock private lateinit var mockedArtifacts: BuildArtifactsHolder
+    @Mock private lateinit var mockedOutputScope: OutputScope
+    @Mock private lateinit var mockedAndroidBuilder: AndroidBuilder
+    @Mock private lateinit var mockedVariantConfiguration: GradleVariantConfiguration
+    @Mock private lateinit var mockedAndroidConfig: AndroidConfig
+    @Mock private lateinit var mockedSplits: Splits
+    @Mock private lateinit var mockedBuildType: CoreBuildType
+    @Mock private lateinit var mockedVariantData: FeatureVariantData
+    @Mock private lateinit var mockedAaptOptions: AaptOptions
+    @Mock private lateinit var mockedOutputFactory: OutputFactory
+    @Mock private lateinit var provider: FeatureSetMetadata.SupplierProvider
+    @Mock private lateinit var projectOptionsMock: ProjectOptions
 
-    internal var localProjectOptions = ProjectOptions(ImmutableMap.of<String, Any>())
-    internal val apkData = OutputFactory.ConfigurationSplitApkData(
+    private val apkData = OutputFactory.ConfigurationSplitApkData(
             "x86",
             "app",
             "app",
             "dirName",
             "app.apk",
             ImmutableList.of(FilterDataImpl(VariantOutput.FilterType.ABI, "x86")))
-    private var project: Project? = null
+    private lateinit var project: Project
 
     @Before
     fun setUp() {
@@ -85,9 +92,10 @@ class GenerateSplitAbiResTest {
 
         with(mockedGlobalScope) {
             `when`(androidBuilder).thenReturn(mockedAndroidBuilder)
-            `when`(projectOptions).thenReturn(localProjectOptions)
             `when`(extension).thenReturn(mockedAndroidConfig)
-            `when`(projectBaseName).thenReturn("featureA")
+//            `when`(projectBaseName).thenReturn("featureA")
+            `when`(project).thenReturn(this@GenerateSplitAbiResTest.project)
+            `when`(projectOptions).thenReturn(projectOptionsMock)
         }
 
         with(mockedVariantScope) {
@@ -95,7 +103,11 @@ class GenerateSplitAbiResTest {
             `when`(variantData).thenReturn(mockedVariantData)
             `when`(variantConfiguration).thenReturn(mockedVariantConfiguration)
             `when`(outputScope).thenReturn(mockedOutputScope)
+            `when`(taskContainer).thenReturn(MutableTaskContainer())
+            `when`(fullVariantName).thenReturn("theVariantName")
         }
+
+        mockedVariantScope.taskContainer.preBuildTask = project.tasks.register("preBuildTask")
 
         with(mockedAndroidConfig) {
             `when`(aaptOptions).thenReturn(mockedAaptOptions)
@@ -109,19 +121,22 @@ class GenerateSplitAbiResTest {
 
         with(mockedVariantData) {
             `when`(outputFactory).thenReturn(mockedOutputFactory)
-            `when`(featureName).thenReturn("featureA")
         }
 
         `when`(mockedSplits.abiFilters).thenReturn(ImmutableSet.of("arm", "x86"))
         `when`(mockedBuildType.isDebuggable).thenReturn(true)
+
+        `when`(provider.getFeatureNameSupplierForTask(
+                ArgumentMatchers.any(), ArgumentMatchers.any()))
+            .thenReturn(Supplier { "featureA" } )
     }
 
     @Test
     fun testBaseFeatureConfiguration() {
 
         with(initTask {
-            `when`(mockedVariantConfiguration.type).thenReturn(VariantType.FEATURE)
-            `when`(mockedVariantScope.isBaseFeature).thenReturn(true)
+            `when`(mockedVariantConfiguration.type).thenReturn(VariantTypeImpl.BASE_FEATURE)
+            `when`(mockedVariantScope.type).thenReturn(VariantTypeImpl.BASE_FEATURE)
         }) {
             assertThat(applicationId).isEqualTo("com.example.app")
             assertThat(featureName).isNull()
@@ -132,8 +147,8 @@ class GenerateSplitAbiResTest {
     fun testNonBaseFeatureConfiguration() {
 
         with (initTask {
-            `when`(mockedVariantConfiguration.type).thenReturn(VariantType.FEATURE)
-            `when`(mockedVariantScope.isBaseFeature).thenReturn(false)
+            `when`(mockedVariantConfiguration.type).thenReturn(VariantTypeImpl.FEATURE)
+            `when`(mockedVariantScope.type).thenReturn(VariantTypeImpl.FEATURE)
         }) {
             assertThat(applicationId).isEqualTo("com.example.app")
             assertThat(featureName).isEqualTo("featureA")
@@ -144,8 +159,8 @@ class GenerateSplitAbiResTest {
     fun testNonFeatureConfiguration() {
 
         with(initTask {
-            `when`(mockedVariantConfiguration.type).thenReturn(VariantType.LIBRARY)
-            `when`(mockedVariantScope.isBaseFeature).thenReturn(false)
+            `when`(mockedVariantConfiguration.type).thenReturn(VariantTypeImpl.LIBRARY)
+            `when`(mockedVariantScope.type).thenReturn(VariantTypeImpl.LIBRARY)
         }) {
             assertThat(applicationId).isEqualTo("com.example.app")
             assertThat(featureName).isNull()
@@ -187,8 +202,8 @@ class GenerateSplitAbiResTest {
     fun testBaseFeatureExecution() {
 
         val generatedSplitManifest = initTask {
-            `when`(mockedVariantConfiguration.type).thenReturn(VariantType.FEATURE)
-            `when`(mockedVariantScope.isBaseFeature).thenReturn(true)
+            `when`(mockedVariantConfiguration.type).thenReturn(VariantTypeImpl.BASE_FEATURE)
+            `when`(mockedVariantScope.type).thenReturn(VariantTypeImpl.BASE_FEATURE)
         }.generateSplitManifest("x86", apkData)
 
         assertThat(generatedSplitManifest).exists()
@@ -199,29 +214,41 @@ class GenerateSplitAbiResTest {
     fun testNonBaseFeatureExecution() {
 
         val generatedSplitManifest = initTask {
-            `when`(mockedVariantConfiguration.type).thenReturn(VariantType.FEATURE)
-            `when`(mockedVariantScope.isBaseFeature).thenReturn(false)
+            `when`(mockedVariantConfiguration.type).thenReturn(VariantTypeImpl.FEATURE)
+            `when`(mockedVariantScope.type).thenReturn(VariantTypeImpl.FEATURE)
         }.generateSplitManifest("x86", apkData)
 
         assertThat(generatedSplitManifest).exists()
         assertThat(generatedSplitManifest).contains("configForSplit=\"featureA\"")
     }
 
-    private fun initTask(initializationLambda : (GenerateSplitAbiRes.ConfigAction) -> Unit = {}) : GenerateSplitAbiRes {
-        val configAction = GenerateSplitAbiRes.ConfigAction(mockedVariantScope, temporaryFolder.newFolder())
+    private fun initTask(initializationLambda : (GenerateSplitAbiRes.CreationAction) -> Unit = {}) : GenerateSplitAbiRes {
+        val configAction = GenerateSplitAbiRes.CreationAction(
+            mockedVariantScope,
+            provider
+        )
 
         initCommonFields()
         initializationLambda(configAction)
 
         val task = project!!.tasks.create("test", GenerateSplitAbiRes::class.java)
-        configAction.execute(task)
+
+        `when`(mockedArtifacts.appendArtifact(
+            InternalArtifactType.ABI_PROCESSED_SPLIT_RES, task.name, "out"))
+            .thenReturn(temporaryFolder.newFolder())
+
+        configAction.preConfigure(task.name)
+        configAction.configure(task)
+
         return task
     }
 
     private fun initCommonFields() {
-        `when`(mockedVariantScope.isBaseFeature).thenReturn(false)
+        `when`(mockedVariantScope.type).thenReturn(VariantTypeImpl.LIBRARY)
+        `when`(mockedVariantScope.artifacts).thenReturn(mockedArtifacts)
+
         with(mockedVariantConfiguration) {
-            `when`(type).thenReturn(VariantType.LIBRARY)
+            `when`(type).thenReturn(VariantTypeImpl.LIBRARY)
             `when`(fullName).thenReturn("debug")
             `when`(versionCode).thenReturn(1)
             `when`<String>(versionName).thenReturn("versionName")

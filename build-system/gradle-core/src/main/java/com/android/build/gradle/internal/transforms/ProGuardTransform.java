@@ -40,10 +40,12 @@ import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.tasks.SimpleWorkQueue;
 import com.android.builder.tasks.Job;
 import com.android.builder.tasks.JobContext;
+import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.io.Files;
 import com.google.common.util.concurrent.SettableFuture;
 import java.io.File;
 import java.io.IOException;
@@ -52,10 +54,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import org.gradle.api.UncheckedIOException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import proguard.ClassPath;
+import proguard.ParseException;
 
 /**
  * ProGuard support as a transform
@@ -68,7 +72,6 @@ public class ProGuardTransform extends BaseProguardAction {
     private final File proguardOut;
 
     private final File printMapping;
-    private final File dump;
     private final File printSeeds;
     private final File printUsage;
     private final ImmutableList<File> secondaryFileOutputs;
@@ -88,10 +91,9 @@ public class ProGuardTransform extends BaseProguardAction {
                 variantScope.getVariantConfiguration().getDirName()));
 
         printMapping = new File(proguardOut, "mapping.txt");
-        dump = new File(proguardOut, "dump.txt");
         printSeeds = new File(proguardOut, "seeds.txt");
         printUsage = new File(proguardOut, "usage.txt");
-        secondaryFileOutputs = ImmutableList.of(printMapping, dump, printSeeds, printUsage);
+        secondaryFileOutputs = ImmutableList.of(printMapping, printSeeds, printUsage);
     }
 
     @Nullable
@@ -165,27 +167,38 @@ public class ProGuardTransform extends BaseProguardAction {
     public void transform(@NonNull final TransformInvocation invocation) throws TransformException {
         // only run one minification at a time (across projects)
         SettableFuture<TransformOutputProvider> resultFuture = SettableFuture.create();
-        final Job<Void> job = new Job<>(getName(),
-                new com.android.builder.tasks.Task<Void>() {
-                    @Override
-                    public void run(@NonNull Job<Void> job,
-                            @NonNull JobContext<Void> context) throws IOException {
-                        doMinification(
-                                invocation.getInputs(),
-                                invocation.getReferencedInputs(),
-                                invocation.getOutputProvider());
-                    }
+        final Job<Void> job =
+                new Job<>(
+                        getName(),
+                        new com.android.builder.tasks.Task<Void>() {
+                            @Override
+                            public void run(
+                                    @NonNull Job<Void> job, @NonNull JobContext<Void> context)
+                                    throws IOException {
+                                doMinification(
+                                        invocation.getInputs(),
+                                        invocation.getReferencedInputs(),
+                                        invocation.getOutputProvider());
 
-                    @Override
-                    public void finished() {
-                        resultFuture.set(invocation.getOutputProvider());
-                    }
+                                // make sure the mapping file is always created. Since the file is always published as
+                                // an artifact, it's important that it is always present even if empty so that it
+                                // can be published to a repo.
+                                if (!printMapping.isFile()) {
+                                    Files.asCharSink(printMapping, Charsets.UTF_8).write("");
+                                }
+                            }
 
-                    @Override
-                    public void error(Throwable e) {
-                        resultFuture.setException(e);
-                    }
-                }, resultFuture);
+                            @Override
+                            public void finished() {
+                                resultFuture.set(invocation.getOutputProvider());
+                            }
+
+                            @Override
+                            public void error(Throwable e) {
+                                resultFuture.setException(e);
+                            }
+                        },
+                        resultFuture);
         try {
             SimpleWorkQueue.push(job);
 
@@ -198,6 +211,16 @@ public class ProGuardTransform extends BaseProguardAction {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
+        }
+    }
+
+    private void applyRuleFile(
+            @NonNull String jarName, @NonNull String ruleFileName, @NonNull String rules) {
+        try {
+            applyConfigurationText(rules, jarName + File.separator + ruleFileName);
+        } catch (IOException | ParseException ex) {
+            throw new UncheckedIOException(
+                    "Failed to apply proguard rules for '" + ruleFileName + "' in '" + jarName, ex);
         }
     }
 
@@ -228,9 +251,8 @@ public class ProGuardTransform extends BaseProguardAction {
             addInputsToConfiguration(referencedInputs, true);
 
             // libraryJars: the runtime jars, with all optional libraries.
-            for (File runtimeJar : globalScope.getAndroidBuilder().getBootClasspath(true)) {
-                libraryJar(runtimeJar);
-            }
+            variantScope.getBootClasspath().forEach(this::libraryJar);
+            globalScope.getAndroidBuilder().getBootClasspath(true).forEach(this::libraryJar);
 
             // --- Out files ---
             outJar(outFile);
@@ -245,7 +267,6 @@ public class ProGuardTransform extends BaseProguardAction {
             }
 
             configuration.printMapping = printMapping;
-            configuration.dump = dump;
             configuration.printSeeds = printSeeds;
             configuration.printUsage = printUsage;
 

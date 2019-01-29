@@ -9,15 +9,20 @@ version = rootProject.ext.baseVersion
 dependencies {
     compile project(':base:lint')
     compile project(':base:intellij-core')
+    compile project(':base:kotlin-compiler')
     compile project(':base:uast')
     compile project(':base:layoutlib-api')
     compile project(':base:testutils')
     compile libs.junit
+    compile libs.groovy
     compile libs.mockito_core
 
+    testCompile project(':analytics-library:shared')
+    testCompile project(':analytics-library:protos')
+    testCompile project(':analytics-library:tracker')
+    testCompile project(':analytics-library:testing')
     testCompile project(':base:apkparser:binary-resources')
     testCompile project(':base:apkparser:apkanalyzer')
-    testCompile libs.groovy
     testCompile libs.truth
 }
 

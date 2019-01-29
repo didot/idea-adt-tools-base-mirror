@@ -17,6 +17,7 @@ dependencies {
     compile project(':analytics-library:shared')
     compile project(':analytics-library:tracker')
     compile project(':apksig')
+    compile project(':apkzlib')
 
     compile libs.kotlin_stdlib
     compile libs.javawriter
@@ -96,14 +97,6 @@ dependencies {
         transitive = false
     }
 
-    provided(project(':apkzlib')) {
-        transitive = false
-    }
-
-    sourcesProvided(project(path:':apkzlib', configuration:'sourcesOnly')) {
-        transitive = false
-    }
-
     provided(project(':dx')) {
         transitive = false
     }
@@ -144,4 +137,10 @@ tasks.sourcesJar {
 }
 javadoc {
     classpath += configurations.provided
+}
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
 }

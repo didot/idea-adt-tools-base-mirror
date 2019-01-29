@@ -15,15 +15,17 @@
  */
 
 #include <cstring>
+#include "gflags/gflags.h"
 #include "perfd/connector.h"
 #include "perfd/cpu/cpu_profiler_component.h"
 #include "perfd/daemon.h"
+#include "perfd/energy/energy_profiler_component.h"
 #include "perfd/event/event_profiler_component.h"
 #include "perfd/generic_component.h"
 #include "perfd/graphics/graphics_profiler_component.h"
-#include "perfd/io/io_profiler_component.h"
 #include "perfd/memory/memory_profiler_component.h"
 #include "perfd/network/network_profiler_component.h"
+#include "perfd/termination_service.h"
 #include "utils/config.h"
 #include "utils/current_process.h"
 #include "utils/device_info.h"
@@ -32,85 +34,78 @@
 #include "utils/socket_utils.h"
 #include "utils/trace.h"
 
-// TODO: Move the flag to the agent config to be set by Studio.
-const bool is_io_profiling_enabled = false;
-const char* const kProfilerTest = "-profiler_test";
+DEFINE_bool(experimental_pipeline, false, "Use unified pipeline");
+DEFINE_bool(profiler_test, false, "Run profiler test");
+DEFINE_string(config_file, profiler::kConfigFileDefaultPath,
+              "Path to agent config file");
+DEFINE_string(connect, "", "Communicate with an agent");
 
 int main(int argc, char** argv) {
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+
   // If directed by command line argument, establish a communication channel
   // with the agent which is running a Unix socket server and send the arguments
   // over.  When this argument is used, the program is usually invoked by from
   // GenericComponent's ProfilerServiceImpl::AttachAgent().
-  const char* config_path = profiler::kConfigFileDefaultPath;
-  bool is_testing_profiler = false;
-  for (int i = 1; i < argc; i++) {
-    if (i + 1 < argc &&
-        strncmp(argv[i], profiler::kConnectCmdLineArg,
-                strlen(profiler::kConnectCmdLineArg)) == 0) {
-      if (profiler::ConnectAndSendDataToPerfa(argv[i], argv[i + 1])) {
-        return 0;
-      } else {
-        return -1;
-      }
-      // Note that in this case we should not initialize various profiler
-      // components as the following code does. They create threads but the
-      // associated thread objects might be destructed before the threads exit,
-      // causing 'terminate called without an active exception' error.
-    } else if (strncmp(argv[i], profiler::kConfigFileArg,
-                       strlen(profiler::kConfigFileArg)) == 0) {
-      char* tokenized_word = strtok(argv[i], "=");
-      if (tokenized_word != nullptr &&
-          ((tokenized_word = strtok(nullptr, "=")) != nullptr)) {
-        config_path = tokenized_word;
-      }
-    } else if (strncmp(argv[i], kProfilerTest, strlen(kProfilerTest)) == 0) {
-      is_testing_profiler = true;
+  if (!FLAGS_connect.empty()) {
+    if (profiler::ConnectAndSendDataToPerfa(FLAGS_connect)) {
+      return 0;
+    } else {
+      return -1;
     }
+    // Note that in this case we should not initialize various profiler
+    // components as the following code does. They create threads but the
+    // associated thread objects might be destructed before the threads exit,
+    // causing 'terminate called without an active exception' error.
   }
 
   profiler::Trace::Init();
-  profiler::Daemon daemon(config_path, is_testing_profiler
-                                           ? getenv("TEST_TMPDIR")
-                                           : profiler::CurrentProcess::dir());
 
-  profiler::GenericComponent generic_component{&daemon.utilities(),
-                                               &daemon.sessions()};
+  profiler::SteadyClock clock;
+  profiler::Config config(FLAGS_config_file);
+  profiler::EventBuffer buffer;
+  profiler::FileCache file_cache(FLAGS_profiler_test
+                                     ? getenv("TEST_TMPDIR")
+                                     : profiler::CurrentProcess::dir());
+  auto* termination_service = profiler::TerminationService::Instance();
+  profiler::Daemon daemon(&clock, &config, &file_cache, &buffer);
+  auto agent_config = daemon.config()->GetAgentConfig();
+
+  profiler::GenericComponent generic_component(&daemon, daemon.sessions());
   daemon.RegisterComponent(&generic_component);
 
-  profiler::CpuProfilerComponent cpu_component{&daemon.utilities()};
+  profiler::CpuProfilerComponent cpu_component(
+      &clock, &file_cache, agent_config.cpu_config(), termination_service);
   daemon.RegisterComponent(&cpu_component);
 
-  profiler::MemoryProfilerComponent memory_component{daemon.sessions(),
-                                                     &daemon.utilities()};
+  profiler::MemoryProfilerComponent memory_component(&clock, &file_cache);
   daemon.RegisterComponent(&memory_component);
 
-  profiler::EventProfilerComponent event_component{daemon.utilities()};
+  profiler::EventProfilerComponent event_component(&clock);
   daemon.RegisterComponent(&event_component);
   generic_component.AddAgentStatusChangedCallback(std::bind(
       &profiler::EventProfilerComponent::AgentStatusChangedCallback,
       &event_component, std::placeholders::_1, std::placeholders::_2));
 
-  profiler::NetworkProfilerComponent network_component{&daemon.utilities()};
+  profiler::NetworkProfilerComponent network_component(&clock, &file_cache);
   daemon.RegisterComponent(&network_component);
 
-  profiler::IoProfilerComponent io_component;
-  if (is_io_profiling_enabled) {
-    daemon.RegisterComponent(&io_component);
+  profiler::EnergyProfilerComponent energy_component(&file_cache);
+  if (agent_config.energy_profiler_enabled()) {
+    daemon.RegisterComponent(&energy_component);
   }
 
-  profiler::GraphicsProfilerComponent graphics_component{&daemon.utilities()};
+  profiler::GraphicsProfilerComponent graphics_component(&clock);
   daemon.RegisterComponent(&graphics_component);
 
-  auto agent_config = daemon.utilities().config().GetAgentConfig();
   if (profiler::DeviceInfo::feature_level() >= 26 &&
-      // TODO: remove the check on argument after agent uses only JVMTI to
-      // instrument bytecode on O+ devices.
-      agent_config.use_jvmti()) {
+      agent_config.socket_type() == profiler::proto::ABSTRACT_SOCKET) {
     // For O and newer devices, use a Unix abstract socket.
     // Since we are building a gRPC server, we need a special prefix to inform
     // gRPC that this is a Unix socket name.
     std::string grpc_target{profiler::kGrpcUnixSocketAddrPrefix};
     grpc_target.append(agent_config.service_socket_name());
+
     daemon.RunServer(grpc_target);
   } else {
     // For legacy devices (Nougat or older), use an internet address.

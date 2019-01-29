@@ -19,7 +19,9 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <algorithm>
+#include <cassert>
 #include <string>
+#include <unordered_map>
 
 #include "agent/agent.h"
 #include "jvmti_helper.h"
@@ -28,9 +30,30 @@
 #include "utils/config.h"
 #include "utils/log.h"
 
-#include "instrumentation.h"
-#include "reader.h"
-#include "writer.h"
+#include "slicer/reader.h"
+#include "slicer/writer.h"
+
+#include "transform/android_activitythread_transform.h"
+#include "transform/android_alarmmanager_listenerwrapper_transform.h"
+#include "transform/android_alarmmanager_transform.h"
+#include "transform/android_debug_transform.h"
+#include "transform/android_fragment_transform.h"
+#include "transform/android_instrumentation_transform.h"
+#include "transform/android_intentservice_transform.h"
+#include "transform/android_jobschedulerimpl_transform.h"
+#include "transform/android_jobservice_transform.h"
+#include "transform/android_jobserviceengine_jobhandler_transform.h"
+#include "transform/android_locationmanager_listenertransport_transform.h"
+#include "transform/android_locationmanager_transform.h"
+#include "transform/android_pendingintent_transform.h"
+#include "transform/android_powermanager_transform.h"
+#include "transform/android_powermanager_wakelock_transform.h"
+#include "transform/androidx_fragment_transform.h"
+#include "transform/gms_fusedlocationproviderclient_transform.h"
+#include "transform/java_url_transform.h"
+#include "transform/okhttp3_okhttpclient_transform.h"
+#include "transform/okhttp_okhttpclient_transform.h"
+#include "transform/transform.h"
 
 using profiler::Agent;
 using profiler::Log;
@@ -54,8 +77,11 @@ class JvmtiAllocator : public dex::Writer::Allocator {
   jvmtiEnv* jvmti_env_;
 };
 
-// TODO: Move the flag to the agent config to be set by Studio.
-const bool is_io_profiling_enabled = false;
+std::unordered_map<std::string, Transform*>* GetClassTransforms() {
+  static auto* transformations =
+      new std::unordered_map<std::string, Transform*>();
+  return transformations;
+}
 
 // Retrieve the app's data directory path
 static std::string GetAppDataPath() {
@@ -65,24 +91,21 @@ static std::string GetAppDataPath() {
   return so_path.substr(0, so_path.find_last_of('/') + 1);
 }
 
-static bool IsRetransformClassSignature(const char* sig_mutf8) {
-  return (strcmp(sig_mutf8, "Ljava/net/URL;") == 0) ||
-         (strcmp(sig_mutf8, "Lokhttp3/OkHttpClient;") == 0) ||
-         (strcmp(sig_mutf8, "Lcom/squareup/okhttp/OkHttpClient;") == 0);
-}
-
-// ClassPrepare event callback to invoke transformation of selected
-// classes, saves expensive OnClassFileLoaded calls for other classes.
+// ClassPrepare event callback to invoke transformation of selected classes.
+// In pre-P, this saves expensive OnClassFileLoaded calls for other classes.
 void JNICALL OnClassPrepare(jvmtiEnv* jvmti_env, JNIEnv* jni_env,
                             jthread thread, jclass klass) {
   char* sig_mutf8;
   jvmti_env->GetClassSignature(klass, &sig_mutf8, nullptr);
-  if (IsRetransformClassSignature(sig_mutf8)) {
-    jvmti_env->SetEventNotificationMode(
-        JVMTI_ENABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread);
+  auto class_transforms = GetClassTransforms();
+  if (class_transforms->find(sig_mutf8) != class_transforms->end()) {
+    CheckJvmtiError(
+        jvmti_env, jvmti_env->SetEventNotificationMode(
+                       JVMTI_ENABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread));
     CheckJvmtiError(jvmti_env, jvmti_env->RetransformClasses(1, &klass));
-    jvmti_env->SetEventNotificationMode(
-        JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread);
+    CheckJvmtiError(jvmti_env, jvmti_env->SetEventNotificationMode(
+                                   JVMTI_DISABLE,
+                                   JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread));
   }
   if (sig_mutf8 != nullptr) {
     jvmti_env->Deallocate((unsigned char*)sig_mutf8);
@@ -96,255 +119,101 @@ void JNICALL OnClassFileLoaded(jvmtiEnv* jvmti_env, JNIEnv* jni_env,
                                const unsigned char* class_data,
                                jint* new_class_data_len,
                                unsigned char** new_class_data) {
-  bool transformed = true;
-  if (strcmp(name, "java/net/URL") == 0) {
-    dex::Reader reader(class_data, class_data_len);
-    // The tooling interface will specify class names like "java/net/URL"
-    // however, in .dex these classes are stored using the "Ljava/net/URL;"
-    // format.
-    std::string desc = "L" + std::string(name) + ";";
-    auto class_index = reader.FindClassIndex(desc.c_str());
-    if (class_index == dex::kNoIndex) {
-      Log::V("Could not find class index for %s", name);
-      return;
-    }
+  // The tooling interface will specify class names like "java/net/URL"
+  // however, in .dex these classes are stored using the "Ljava/net/URL;"
+  // format.
+  std::string desc = "L" + std::string(name) + ";";
+  auto class_transforms = GetClassTransforms();
+  auto transform = class_transforms->find(desc);
+  if (transform == class_transforms->end()) return;
 
-    reader.CreateClassIr(class_index);
-    auto dex_ir = reader.GetIr();
-
-    slicer::MethodInstrumenter mi(dex_ir);
-    mi.AddTransformation<slicer::ExitHook>(ir::MethodId(
-        "Lcom/android/tools/profiler/support/network/httpurl/HttpURLWrapper;",
-        "wrapURLConnection"));
-    if (!mi.InstrumentMethod(ir::MethodId(desc.c_str(), "openConnection",
-                                          "()Ljava/net/URLConnection;"))) {
-      Log::E("Error instrumenting URL.openConnection");
-    }
-
-    size_t new_image_size = 0;
-    dex::u1* new_image = nullptr;
-    dex::Writer writer(dex_ir);
-
-    JvmtiAllocator allocator(jvmti_env);
-    new_image = writer.CreateImage(&allocator, &new_image_size);
-
-    *new_class_data_len = new_image_size;
-    *new_class_data = new_image;
-  } else if (strcmp(name, "okhttp3/OkHttpClient") == 0) {
-    dex::Reader reader(class_data, class_data_len);
-    std::string desc = "L" + std::string(name) + ";";
-    auto class_index = reader.FindClassIndex(desc.c_str());
-    if (class_index == dex::kNoIndex) {
-      Log::V("Could not find class index for %s", name);
-      return;
-    }
-
-    reader.CreateClassIr(class_index);
-    auto dex_ir = reader.GetIr();
-
-    slicer::MethodInstrumenter mi(dex_ir);
-    // Add Entry hook method with this argument passed as type Object.
-    mi.AddTransformation<slicer::EntryHook>(ir::MethodId(
-        "Lcom/android/tools/profiler/support/network/okhttp/OkHttp3Wrapper;",
-        "setOkHttpClassLoader"), true);
-    mi.AddTransformation<slicer::ExitHook>(ir::MethodId(
-        "Lcom/android/tools/profiler/support/network/okhttp/OkHttp3Wrapper;",
-        "insertInterceptor"));
-    if (!mi.InstrumentMethod(ir::MethodId(desc.c_str(), "networkInterceptors",
-                                          "()Ljava/util/List;"))) {
-      Log::E("Error instrumenting OkHttp3 OkHttpClient");
-    }
-
-    size_t new_image_size = 0;
-    dex::u1* new_image = nullptr;
-    dex::Writer writer(dex_ir);
-
-    JvmtiAllocator allocator(jvmti_env);
-    new_image = writer.CreateImage(&allocator, &new_image_size);
-
-    *new_class_data_len = new_image_size;
-    *new_class_data = new_image;
-  } else if (strcmp(name, "com/squareup/okhttp/OkHttpClient") == 0) {
-    dex::Reader reader(class_data, class_data_len);
-    std::string desc = "L" + std::string(name) + ";";
-    auto class_index = reader.FindClassIndex(desc.c_str());
-    if (class_index == dex::kNoIndex) {
-      Log::V("Could not find class index for %s", name);
-      return;
-    }
-
-    reader.CreateClassIr(class_index);
-    auto dex_ir = reader.GetIr();
-
-    slicer::MethodInstrumenter mi(dex_ir);
-    // Add Entry hook method with this argument passed as type Object.
-    mi.AddTransformation<slicer::EntryHook>(ir::MethodId(
-        "Lcom/android/tools/profiler/support/network/okhttp/OkHttp2Wrapper;",
-        "setOkHttpClassLoader"), true);
-    mi.AddTransformation<slicer::ExitHook>(ir::MethodId(
-        "Lcom/android/tools/profiler/support/network/okhttp/OkHttp2Wrapper;",
-        "insertInterceptor"));
-    if (!mi.InstrumentMethod(ir::MethodId(desc.c_str(), "networkInterceptors",
-                                          "()Ljava/util/List;"))) {
-      Log::E("Error instrumenting OkHttp2 OkHttpClient");
-    }
-
-    size_t new_image_size = 0;
-    dex::u1* new_image = nullptr;
-    dex::Writer writer(dex_ir);
-
-    JvmtiAllocator allocator(jvmti_env);
-    new_image = writer.CreateImage(&allocator, &new_image_size);
-
-    *new_class_data_len = new_image_size;
-    *new_class_data = new_image;
-  } else {
-    transformed = false;
+  dex::Reader reader(class_data, class_data_len);
+  auto class_index = reader.FindClassIndex(desc.c_str());
+  if (class_index == dex::kNoIndex) {
+    Log::V("Could not find class index for %s", name);
+    return;
   }
 
-  if (transformed) {
-    Log::V("Transformed class: %s", name);
-  }
-}
+  reader.CreateClassIr(class_index);
+  auto dex_ir = reader.GetIr();
+  transform->second->Apply(dex_ir);
 
-void BindJNIMethod(JNIEnv* jni, const char* class_name, const char* method_name,
-                   const char* signature) {
-  jclass klass = jni->FindClass(class_name);
-  std::string mangled_name(GetMangledName(class_name, method_name));
-  void* sym = dlsym(RTLD_DEFAULT, mangled_name.c_str());
-  if (sym != nullptr) {
-    JNINativeMethod native_method;
-    native_method.fnPtr = sym;
-    native_method.name = const_cast<char*>(method_name);
-    native_method.signature = const_cast<char*>(signature);
-    jni->RegisterNatives(klass, &native_method, 1);
-  } else {
-    Log::V("Failed to find symbol for %s", mangled_name.c_str());
-  }
-}
+  size_t new_image_size = 0;
+  dex::u1* new_image = nullptr;
+  dex::Writer writer(dex_ir);
 
-void LoadDex(jvmtiEnv* jvmti, JNIEnv* jni, AgentConfig* agent_config) {
+  JvmtiAllocator allocator(jvmti_env);
+  new_image = writer.CreateImage(&allocator, &new_image_size);
+
+  *new_class_data_len = new_image_size;
+  *new_class_data = new_image;
+  Log::V("Transformed class: %s", name);
+}  // namespace profiler
+
+void LoadDex(jvmtiEnv* jvmti, JNIEnv* jni) {
   // Load in perfa.jar which should be in to data/data.
   std::string agent_lib_path(GetAppDataPath());
   agent_lib_path.append("perfa.jar");
   jvmti->AddToBootstrapClassLoaderSearch(agent_lib_path.c_str());
+}
 
-  // TODO: Removed these once the auto-JNI-binding feature becomes
-  // available in all published O system images.
-  if (is_io_profiling_enabled) {
-    BindJNIMethod(jni, "com/android/tools/profiler/support/io/IoTracker",
-                  "trackIoCall", "(JIJZ)V");
-    BindJNIMethod(jni, "com/android/tools/profiler/support/io/IoTracker",
-                  "trackNewFileSession", "(JLjava/lang/String;)V");
-    BindJNIMethod(jni, "com/android/tools/profiler/support/io/IoTracker",
-                  "trackTerminatingFileSession", "(J)V");
-    BindJNIMethod(jni, "com/android/tools/profiler/support/io/IoTracker",
-                  "nextId", "()J");
+// Populate the map of transforms we want to apply to different classes.
+void RegisterTransforms(
+    const proto::AgentConfig& config,
+    std::unordered_map<std::string, Transform*>* transforms) {
+  transforms->insert({"Ljava/net/URL;", new JavaUrlTransform()});
+  transforms->insert({"Lokhttp3/OkHttpClient;", new Okhttp3ClientTransform()});
+  transforms->insert(
+      {"Lcom/squareup/okhttp/OkHttpClient;", new OkhttpClientTransform()});
+  if (config.cpu_api_tracing_enabled()) {
+    transforms->insert({"Landroid/os/Debug;", new AndroidDebugTransform()});
   }
+  transforms->insert(
+      {"Landroid/support/v4/app/Fragment;", new AndroidFragmentTransform()});
+  transforms->insert(
+      {"Landroidx/fragment/app/Fragment;", new AndroidXFragmentTransform()});
 
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/network/"
-                "HttpTracker$InputStreamTracker",
-                "onClose", "(J)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/network/"
-                "HttpTracker$InputStreamTracker",
-                "onReadBegin", "(J)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/network/"
-                "HttpTracker$InputStreamTracker",
-                "reportBytes", "(J[BI)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/network/"
-                "HttpTracker$OutputStreamTracker",
-                "onClose", "(J)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/network/"
-                "HttpTracker$OutputStreamTracker",
-                "onWriteBegin", "(J)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/network/"
-                "HttpTracker$OutputStreamTracker",
-                "reportBytes", "(J[BI)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "nextId", "()J");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "trackThread", "(JLjava/lang/String;J)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "onPreConnect", "(JLjava/lang/String;Ljava/lang/String;)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "onRequestBody", "(J)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "onRequest", "(JLjava/lang/String;Ljava/lang/String;)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "onResponse", "(JLjava/lang/String;Ljava/lang/String;)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "onResponseBody", "(J)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "onDisconnect", "(J)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/network/HttpTracker$Connection",
-      "onError", "(JLjava/lang/String;)V");
+  if (config.energy_profiler_enabled()) {
+    transforms->insert({"Landroid/app/Instrumentation;",
+                        new AndroidInstrumentationTransform()});
+    transforms->insert(
+        {"Landroid/app/ActivityThread;", new AndroidActivityThreadTransform()});
+    transforms->insert(
+        {"Landroid/app/AlarmManager;", new AndroidAlarmManagerTransform()});
+    transforms->insert({"Landroid/app/AlarmManager$ListenerWrapper;",
+                        new AndroidAlarmManagerListenerWrapperTransform()});
+    transforms->insert(
+        {"Landroid/app/IntentService;", new AndroidIntentServiceTransform()});
+    transforms->insert({"Landroid/app/JobSchedulerImpl;",
+                        new AndroidJobSchedulerImplTransform()});
+    transforms->insert(
+        {"Landroid/app/job/JobService;", new AndroidJobServiceTransform()});
+    transforms->insert({"Landroid/app/job/JobServiceEngine$JobHandler;",
+                        new AndroidJobServiceEngineJobHandlerTransform()});
+    transforms->insert(
+        {"Landroid/app/PendingIntent;", new AndroidPendingIntentTransform()});
+    transforms->insert({"Landroid/location/LocationManager;",
+                        new AndroidLocationManagerTransform()});
+    transforms->insert(
+        {"Landroid/location/LocationManager$ListenerTransport;",
+         new AndroidLocationManagerListenerTransportTransform()});
+    transforms->insert(
+        {"Landroid/os/PowerManager;", new AndroidPowerManagerTransform()});
+    transforms->insert({"Landroid/os/PowerManager$WakeLock;",
+                        new AndroidPowerManagerWakeLockTransform()});
+    transforms->insert(
+        {"Lcom/google/android/gms/location/FusedLocationProviderClient;",
+         new GmsFusedLocationProviderClientTransform()});
+  }
+}
 
-  BindJNIMethod(jni, "com/android/tools/profiler/support/memory/VmStatsSampler",
-                "logAllocStats", "(II)V");
-
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/event/InputConnectionWrapper",
-      "sendKeyboardEvent", "(Ljava/lang/String;)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/event/WindowProfilerCallback",
-      "sendTouchEvent", "(IJ)V");
-  BindJNIMethod(
-      jni, "com/android/tools/profiler/support/event/WindowProfilerCallback",
-      "sendKeyEvent", "(Ljava/lang/String;J)V");
-
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendActivityCreated", "(Ljava/lang/String;I)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendActivityStarted", "(Ljava/lang/String;I)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendActivityResumed", "(Ljava/lang/String;I)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendActivityPaused", "(Ljava/lang/String;I)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendActivityStopped", "(Ljava/lang/String;I)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendActivitySaved", "(Ljava/lang/String;I)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendActivityDestroyed", "(Ljava/lang/String;I)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendFragmentAdded", "(Ljava/lang/String;II)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendFragmentRemoved", "(Ljava/lang/String;II)V");
-  BindJNIMethod(jni,
-                "com/android/tools/profiler/support/profilers/EventProfiler",
-                "sendRotationEvent", "(I)V");
-
+void ProfilerInitializationWorker(jvmtiEnv* jvmti, JNIEnv* jni, void* ptr) {
+  proto::AgentConfig* config = static_cast<proto::AgentConfig*>(ptr);
   jclass service =
       jni->FindClass("com/android/tools/profiler/support/ProfilerService");
-  jmethodID initialize = jni->GetStaticMethodID(service, "initialize", "(ZZ)V");
-  bool log_live_alloc_count = agent_config->mem_config().use_live_alloc();
-  bool network_request_payload = agent_config->profiler_network_request_payload();
-  jni->CallStaticVoidMethod(service, initialize, !log_live_alloc_count,
-      network_request_payload);
+  jmethodID initialize = jni->GetStaticMethodID(service, "initialize", "(Z)V");
+  bool log_live_alloc_count = config->mem_config().use_live_alloc();
+  jni->CallStaticVoidMethod(service, initialize, !log_live_alloc_count);
 }
 
 extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
@@ -362,13 +231,15 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
   SetAllCapabilities(jvmti_env);
 
   // TODO: Update options to support more than one argument if needed.
-  profiler::Config config(options);
-  Log::V("StudioProfilers agent attached.");
-  auto agent_config = config.GetAgentConfig();
-  Agent::Instance(&config);
+  static const auto* const config = new profiler::Config(options);
+  auto const& agent_config = config->GetAgentConfig();
+  Agent::Instance(config);
 
   JNIEnv* jni_env = GetThreadLocalJNI(vm);
-  LoadDex(jvmti_env, jni_env, &agent_config);
+  LoadDex(jvmti_env, jni_env);
+
+  auto class_transforms = GetClassTransforms();
+  RegisterTransforms(agent_config, class_transforms);
 
   jvmtiEventCallbacks callbacks;
   memset(&callbacks, 0, sizeof(callbacks));
@@ -376,6 +247,19 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
   callbacks.ClassPrepare = OnClassPrepare;
   CheckJvmtiError(jvmti_env,
                   jvmti_env->SetEventCallbacks(&callbacks, sizeof(callbacks)));
+
+  // Before P ClassFileLoadHook has significant performance overhead so we
+  // only enable the hook during retransformation (on agent attach and class
+  // prepare). For P+ we want to keep the hook events always on to support
+  // multiple retransforming agents (and therefore don't need to perform
+  // retransformation on class prepare).
+  bool filter_class_load_hook = agent_config.android_feature_level() <= 27;
+  SetEventNotification(jvmti_env,
+                       filter_class_load_hook ? JVMTI_ENABLE : JVMTI_DISABLE,
+                       JVMTI_EVENT_CLASS_PREPARE);
+  SetEventNotification(jvmti_env,
+                       filter_class_load_hook ? JVMTI_DISABLE : JVMTI_ENABLE,
+                       JVMTI_EVENT_CLASS_FILE_LOAD_HOOK);
 
   // Sample instrumentation
   std::vector<jclass> classes;
@@ -385,7 +269,7 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
   jvmti_env->GetLoadedClasses(&class_count, &loaded_classes);
   for (int i = 0; i < class_count; ++i) {
     jvmti_env->GetClassSignature(loaded_classes[i], &sig_mutf8, nullptr);
-    if (IsRetransformClassSignature(sig_mutf8)) {
+    if (class_transforms->find(sig_mutf8) != class_transforms->end()) {
       classes.push_back(loaded_classes[i]);
     }
     if (sig_mutf8 != nullptr) {
@@ -396,29 +280,49 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
   if (classes.size() > 0) {
     jthread thread = nullptr;
     jvmti_env->GetCurrentThread(&thread);
-    jvmti_env->SetEventNotificationMode(
-        JVMTI_ENABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread);
+    if (filter_class_load_hook) {
+      CheckJvmtiError(jvmti_env, jvmti_env->SetEventNotificationMode(
+                                     JVMTI_ENABLE,
+                                     JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread));
+    }
     CheckJvmtiError(jvmti_env,
                     jvmti_env->RetransformClasses(classes.size(), &classes[0]));
-    jvmti_env->SetEventNotificationMode(
-        JVMTI_DISABLE, JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread);
+    if (filter_class_load_hook) {
+      CheckJvmtiError(jvmti_env, jvmti_env->SetEventNotificationMode(
+                                     JVMTI_DISABLE,
+                                     JVMTI_EVENT_CLASS_FILE_LOAD_HOOK, thread));
+    }
     if (thread != nullptr) {
       jni_env->DeleteLocalRef(thread);
     }
   }
-
-  jvmti_env->SetEventNotificationMode(JVMTI_ENABLE, JVMTI_EVENT_CLASS_PREPARE,
-                                      nullptr);
 
   for (int i = 0; i < class_count; ++i) {
     jni_env->DeleteLocalRef(loaded_classes[i]);
   }
   jvmti_env->Deallocate(reinterpret_cast<unsigned char*>(loaded_classes));
 
-  MemoryTrackingEnv::Instance(vm,
-                            agent_config.mem_config().use_live_alloc(),
-                            agent_config.mem_config().max_stack_depth(),
-                            agent_config.mem_config().track_global_jni_refs());
+  Agent::Instance().AddPerfdConnectedCallback([vm, &agent_config] {
+    // MemoryTackingEnv needs a connection to perfd, which may not be always the
+    // case. If we don't postpone until there is a connection, MemoryTackingEnv
+    // is going to busy-wait, so not allowing the application to finish
+    // initialization. This callback will be called each time perfd connects.
+    MemoryTrackingEnv::Instance(vm, agent_config.mem_config());
+    // Starts the heartbeat thread after MemoryTrackingEnv is fully initialized
+    // and has opened a grpc stream perfd. The order is important as a heartbeat
+    // will trigger Studio to start live allocation tracking.
+    Agent::Instance().StartHeartbeat();
+    // Perf-test currently waits on this message to determine that perfa is
+    // connected to perfd.
+    Log::V("Perfa connected to Perfd.");
+  });
+
+  // ProfilerService#Initialize depends on JNI native methods being auto-binded
+  // after the agent finishes attaching. Therefore we call initialize after
+  // the VM is unpaused to make sure the runtime can auto-find the JNI methods.
+  jvmti_env->RunAgentThread(AllocateJavaThread(jvmti_env, jni_env),
+                            &ProfilerInitializationWorker, &agent_config,
+                            JVMTI_THREAD_NORM_PRIORITY);
 
   return JNI_OK;
 }

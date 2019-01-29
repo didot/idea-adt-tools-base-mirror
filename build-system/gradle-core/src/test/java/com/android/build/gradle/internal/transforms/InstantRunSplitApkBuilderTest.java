@@ -22,28 +22,30 @@ import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.android.SdkConstants;
-import com.android.apkzlib.zfile.ApkCreatorFactory;
 import com.android.build.VariantOutput;
-import com.android.build.gradle.internal.aapt.AaptGeneration;
-import com.android.build.gradle.internal.dsl.CoreSigningConfig;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.incremental.FileType;
 import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.builder.core.AndroidBuilder;
-import com.android.builder.core.VariantType;
+import com.android.builder.core.VariantTypeImpl;
 import com.android.builder.internal.aapt.Aapt;
 import com.android.builder.internal.aapt.AaptOptions;
 import com.android.builder.internal.aapt.AaptPackageConfig;
 import com.android.builder.sdk.TargetInfo;
 import com.android.ide.common.build.ApkInfo;
+import com.android.repository.Revision;
 import com.android.sdklib.BuildToolInfo;
 import com.android.sdklib.IAndroidTarget;
+import com.android.tools.build.apkzlib.zfile.ApkCreatorFactory;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import org.apache.commons.io.FileUtils;
 import org.gradle.api.Project;
@@ -69,18 +71,22 @@ public class InstantRunSplitApkBuilderTest {
     @Mock InstantRunBuildContext buildContext;
     @Mock AndroidBuilder androidBuilder;
     @Mock Aapt aapt;
-    @Mock CoreSigningConfig coreSigningConfig;
-    @Mock FileCollection mainResources;
+    @Mock FileCollection coreSigningConfig;
+    @Mock BuildableArtifact mainResources;
+    @Mock FileCollection mainResourcesFiles;
     @Mock FileTree mainResourcesApkFileTree;
+    @Mock BuildableArtifact splitApkResources;
+    @Mock FileTree coreSigningConfigFileTree;
 
     @Mock TargetInfo targetInfo;
     @Mock BuildToolInfo buildTools;
-    @Mock FileCollection apkList;
+    @Mock BuildableArtifact apkList;
     @Mock IAndroidTarget target;
 
     @Rule public TemporaryFolder outputDirectory = new TemporaryFolder();
     @Rule public TemporaryFolder supportDirectory = new TemporaryFolder();
     @Rule public TemporaryFolder apkListDirectory = new TemporaryFolder();
+    @Rule public TemporaryFolder signingConfigDirectory = new TemporaryFolder();
 
     InstantRunSliceSplitApkBuilder instantRunSliceSplitApkBuilder;
     File instantRunFolder;
@@ -95,12 +101,18 @@ public class InstantRunSplitApkBuilderTest {
         when(targetInfo.getBuildTools()).thenReturn(buildTools);
         when(androidBuilder.getTarget()).thenReturn(target);
         when(target.getPath(IAndroidTarget.ANDROID_JAR)).thenReturn("fake android.jar");
-        when(mainResources.getAsFileTree()).thenReturn(mainResourcesApkFileTree);
+        when(mainResources.get()).thenReturn(mainResourcesFiles);
+        when(mainResourcesFiles.getAsFileTree()).thenReturn(mainResourcesApkFileTree);
+        when(coreSigningConfig.getAsFileTree()).thenReturn(coreSigningConfigFileTree);
+        File signingConfigFile = signingConfigDirectory.newFile("signing-config.json");
+        when(coreSigningConfigFileTree.getFiles())
+                .thenReturn(new HashSet<>(Arrays.asList(signingConfigFile)));
+        when(coreSigningConfigFileTree.getSingleFile()).thenReturn(signingConfigFile);
 
         File apkListFile = apkListDirectory.newFile("apk-list.json");
         FileUtils.write(
                 apkListFile, ExistingBuildElements.persistApkList(ImmutableList.of(apkInfo)));
-        when(apkList.getSingleFile()).thenReturn(apkListFile);
+        when(apkList.iterator()).thenReturn(ImmutableList.of(apkListFile).iterator());
 
         instantRunFolder = supportDirectory.newFolder("instant-run");
         aaptTempFolder = supportDirectory.newFolder("aapt-temp");
@@ -110,19 +122,19 @@ public class InstantRunSplitApkBuilderTest {
                         project,
                         buildContext,
                         androidBuilder,
-                        "com.foo.test",
+                        null,
+                        () -> "com.foo.test",
                         coreSigningConfig,
-                        AaptGeneration.AAPT_V2_DAEMON_MODE,
                         new AaptOptions(null, false, null),
                         outputDirectory.getRoot(),
                         instantRunFolder,
-                        aaptTempFolder, /* runAapt2Serially */
                         mainResources,
                         mainResources,
                         apkList,
+                        splitApkResources,
                         apkInfo) {
                     @Override
-                    protected Aapt getAapt() {
+                    protected Aapt getLinker() {
                         return aapt;
                     }
                 };
@@ -130,9 +142,12 @@ public class InstantRunSplitApkBuilderTest {
 
     @Test
     public void testParameterInputs() {
+        when(androidBuilder.getBuildToolInfo()).thenReturn(buildTools);
+        when(buildTools.getRevision()).thenReturn(Revision.parseRevision("27.0.0"));
 
         Map<String, Object> parameterInputs = instantRunSliceSplitApkBuilder.getParameterInputs();
         assertThat(parameterInputs).containsEntry("applicationId", "com.foo.test");
+        assertThat(parameterInputs).containsEntry("aaptVersion", "27.0.0");
         assertThat(parameterInputs).hasSize(2);
     }
 
@@ -179,7 +194,7 @@ public class InstantRunSplitApkBuilderTest {
         AaptPackageConfig build = builder.build();
         File resourceOutputApk = build.getResourceOutputApk();
         assertThat(resourceOutputApk.getName()).isEqualTo("resources_ap");
-        assertThat(build.getVariantType()).isEqualTo(VariantType.DEFAULT);
+        assertThat(build.getVariantType()).isEqualTo(VariantTypeImpl.BASE_APK);
         assertThat(build.getDebuggable()).isTrue();
     }
 
@@ -210,10 +225,14 @@ public class InstantRunSplitApkBuilderTest {
         assertThat(resourceOutputApk.getName()).isEqualTo("resources_ap");
 
         ArgumentCaptor<File> outApkLocation = ArgumentCaptor.forClass(File.class);
-        Mockito.verify(androidBuilder).packageCodeSplitApk(
-                eq(resourceOutputApk), eq(dexFiles.getDexFiles()),
-                eq(coreSigningConfig), outApkLocation.capture(), any(File.class),
-                any(ApkCreatorFactory.class));
+        Mockito.verify(androidBuilder)
+                .packageCodeSplitApk(
+                        eq(resourceOutputApk),
+                        eq(dexFiles.getDexFiles()),
+                        eq(null),
+                        outApkLocation.capture(),
+                        any(File.class),
+                        any(ApkCreatorFactory.class));
 
         assertThat(outApkLocation.getValue().getName()).isEqualTo(dexFiles.encodeName() + ".apk");
         Mockito.verify(buildContext).addChangedFile(eq(FileType.SPLIT),
@@ -227,7 +246,7 @@ public class InstantRunSplitApkBuilderTest {
         ApkInfo apkInfo = ApkInfo.of(VariantOutput.OutputType.MAIN, ImmutableList.of(), -1);
 
         FileUtils.write(apkListFile, ExistingBuildElements.persistApkList(ImmutableList.of()));
-        when(apkList.getSingleFile()).thenReturn(apkListFile);
+        when(apkList.iterator()).thenReturn(ImmutableList.of(apkListFile).iterator());
 
         InstantRunSliceSplitApkBuilder instantRunSliceSplitApkBuilder =
                 new InstantRunSliceSplitApkBuilder(
@@ -235,19 +254,19 @@ public class InstantRunSplitApkBuilderTest {
                         project,
                         buildContext,
                         androidBuilder,
-                        "com.foo.test",
+                        null,
+                        () -> "com.foo.test",
                         coreSigningConfig,
-                        AaptGeneration.AAPT_V2_DAEMON_MODE,
                         new AaptOptions(null, false, null),
                         outputDirectory.getRoot(),
                         instantRunFolder,
-                        aaptTempFolder, /* runAapt2Serially */
                         mainResources,
                         mainResources,
                         apkList,
+                        splitApkResources,
                         apkInfo) {
                     @Override
-                    protected Aapt getAapt() {
+                    protected Aapt getLinker() {
                         return aapt;
                     }
                 };

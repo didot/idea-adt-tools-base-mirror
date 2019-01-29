@@ -53,7 +53,8 @@ public class FeatureSplitDeclarationTest {
 
     @Test
     public void testPersistence() throws IOException {
-        FeatureSplitDeclaration featureSplitDeclaration = new FeatureSplitDeclaration("unique");
+        FeatureSplitDeclaration featureSplitDeclaration =
+                new FeatureSplitDeclaration("unique", "foo.bar");
         featureSplitDeclaration.save(temporaryFolder.getRoot());
         File[] files = temporaryFolder.getRoot().listFiles();
         assertThat(files).isNotNull();
@@ -68,7 +69,9 @@ public class FeatureSplitDeclarationTest {
                                         temporaryFolder.getRoot(),
                                         FeatureSplitDeclaration.PERSISTED_FILE_NAME)));
         FeatureSplitDeclaration loadedDeclaration = FeatureSplitDeclaration.load(fileCollection);
-        assertThat(featureSplitDeclaration.getUniqueIdentifier())
-                .isEqualTo(loadedDeclaration.getUniqueIdentifier());
+        assertThat(featureSplitDeclaration.getModulePath())
+                .isEqualTo(loadedDeclaration.getModulePath());
+        assertThat(featureSplitDeclaration.getApplicationId())
+                .isEqualTo(loadedDeclaration.getApplicationId());
     }
 }

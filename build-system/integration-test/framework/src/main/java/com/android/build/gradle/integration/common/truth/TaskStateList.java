@@ -19,8 +19,10 @@ package com.android.build.gradle.integration.common.truth;
 import com.android.annotations.NonNull;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
+import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,173 +40,168 @@ import org.gradle.tooling.events.task.TaskSuccessResult;
  */
 public class TaskStateList {
 
-    public static class TaskInfo {
+    /**
+     * State of a task during a build. A task may or may not be in the task execution plan. When it
+     * is not in the execution plan, its state is {@link #NOT_PLANNED_FOR_EXECUTION}. When it is in
+     * the execution plan, its state can be one of the remaining states. Note that these states are
+     * mutually exclusive.
+     */
+    enum ExecutionState {
+        NOT_PLANNED_FOR_EXECUTION,
+        UP_TO_DATE,
+        FROM_CACHE,
+        DID_WORK,
+        SKIPPED,
+        FAILED
+    }
 
-        private final String taskName;
-        private final boolean wasExecuted;
-        private final boolean upToDate;
-        private final boolean inputChanged;
-        private final boolean failed;
-        private final boolean skipped;
-        private final TaskStateList taskStateList;
+    public static final class TaskInfo {
+
+        @NonNull private final String taskName;
+        @NonNull private final ExecutionState executionState;
+        @NonNull private final TaskStateList taskStateList;
 
         public TaskInfo(
-                String taskName,
-                boolean wasExecuted,
-                boolean upToDate,
-                boolean inputChanged,
-                boolean failed,
-                boolean skipped,
-                TaskStateList taskStateList) {
+                @NonNull String taskName,
+                @NonNull ExecutionState executionState,
+                @NonNull TaskStateList taskStateList) {
             this.taskName = taskName;
-            this.wasExecuted = wasExecuted;
-            this.upToDate = upToDate;
-            this.inputChanged = inputChanged;
-            this.failed = failed;
-            this.skipped = skipped;
+            this.executionState = executionState;
             this.taskStateList = taskStateList;
         }
 
+        @NonNull
         public String getTaskName() {
             return taskName;
         }
 
-        public boolean isWasExecuted() {
-            return wasExecuted;
+        @SuppressWarnings("unused")
+        @NonNull
+        public ExecutionState getExecutionState() {
+            return executionState;
         }
 
-        public boolean isUpToDate() {
-            if (!wasExecuted) {
-                throw new IllegalStateException("Task " + getTaskName() + " was not executed");
-            }
-            return upToDate;
+        /**
+         * Returns `true` if the task was planned for execution (but it may or may not have actually
+         * run as it may have been skipped for some reason).
+         *
+         * <p>To check that the task actually ran and completed successfully, use {@link
+         * #didWork()}.
+         */
+        public boolean wasPlannedForExecution() {
+            return executionState != ExecutionState.NOT_PLANNED_FOR_EXECUTION;
         }
 
-        public boolean isInputChanged() {
-            if (!wasExecuted) {
-                throw new IllegalStateException("Task " + getTaskName() + " was not executed");
-            }
-            return inputChanged;
+        /** @deprecated Use {@link #wasPlannedForExecution()} */
+        @Deprecated
+        public boolean wasExecuted() {
+            return wasPlannedForExecution();
         }
 
-        public boolean isSkipped() {
-            if (!wasExecuted) {
-                throw new IllegalStateException("Task " + getTaskName() + " was not executed");
-            }
-            return skipped;
+        public boolean wasUpToDate() {
+            return executionState == ExecutionState.UP_TO_DATE;
+        }
+
+        public boolean wasFromCache() {
+            return executionState == ExecutionState.FROM_CACHE;
+        }
+
+        public boolean didWork() {
+            return executionState == ExecutionState.DID_WORK;
+        }
+
+        public boolean wasSkipped() {
+            return executionState == ExecutionState.SKIPPED;
         }
 
         public boolean failed() {
-            if (!wasExecuted) {
-                throw new IllegalStateException("Task " + getTaskName() + " was not executed");
-            }
-            return failed;
+            return executionState == ExecutionState.FAILED;
         }
 
+        @NonNull
         TaskStateList getTaskStateList() {
             return taskStateList;
         }
     }
 
-
-    private static final Pattern INPUT_CHANGED_PATTERN =
-            Pattern.compile("Value of input property '.*' has changed for task '(\\S+)'");
-
-    public static final Pattern EXECUTED_PATTERN =
-            Pattern.compile("Tasks to be executed: \\[(.*)\\]");
-
     public static final Pattern NO_ACTIONS_PATTERN =
             Pattern.compile("Skipping task '(.*)' as it has no actions.");
 
-    @NonNull
-    private final Map<String, TaskInfo> taskInfoList;
-    @NonNull private final ImmutableSet<String> allTasks;
-    @NonNull private final ImmutableList<String> orderedTasks;
-    @NonNull private final ImmutableSet<String> upToDateTasks;
-    @NonNull private final ImmutableSet<String> notUpToDateTasks;
-    @NonNull private final ImmutableSet<String> inputChangedTasks;
+    @NonNull private final ImmutableList<String> taskList;
+    @NonNull private final ImmutableMap<String, TaskInfo> taskInfoMap;
+    @NonNull private final ImmutableMap<ExecutionState, ImmutableSet<String>> taskStateMap;
 
     public TaskStateList(
             @NonNull List<ProgressEvent> progressEvents, @NonNull String gradleOutput) {
-
-        ImmutableList.Builder<String> orderedTasksBuilder = ImmutableList.builder();
-        ImmutableSet.Builder<String> upToDateTasksBuilder = ImmutableSet.builder();
-        ImmutableSet.Builder<String> notUpToDateTasksBuilder = ImmutableSet.builder();
-        ImmutableSet.Builder<String> skippedTasksBuilder = ImmutableSet.builder();
-        ImmutableSet.Builder<String> failedTasksBuilder = ImmutableSet.builder();
+        ImmutableList.Builder<String> taskListBuilder = ImmutableList.builder();
+        Map<ExecutionState, Set<String>> taskMap = new EnumMap<>(ExecutionState.class);
+        for (ExecutionState state : ExecutionState.values()) {
+            taskMap.put(state, new HashSet<>());
+        }
 
         for (ProgressEvent progressEvent : progressEvents) {
             if (progressEvent instanceof TaskFinishEvent) {
-                String name = progressEvent.getDescriptor().getName();
-                orderedTasksBuilder.add(name);
+                String task = progressEvent.getDescriptor().getName();
+                TaskOperationResult result = ((TaskFinishEvent) progressEvent).getResult();
 
-                TaskFinishEvent taskFinishEvent = (TaskFinishEvent) progressEvent;
-                TaskOperationResult result = taskFinishEvent.getResult();
-
+                taskListBuilder.add(task);
                 if (result instanceof TaskSuccessResult) {
                     TaskSuccessResult successResult = (TaskSuccessResult) result;
-                    if (successResult.isUpToDate()) {
-                        upToDateTasksBuilder.add(name);
+                    // When the task's output is retrieved from the cache, Gradle returns both
+                    // upToDate() and fromCache() as true (see
+                    // https://github.com/gradle/gradle/issues/5252). Therefore, we need to check
+                    // isFromCache() before wasUpToDate().
+                    if (successResult.isFromCache()) {
+                        taskMap.get(ExecutionState.FROM_CACHE).add(task);
+                    } else if (successResult.isUpToDate()) {
+                        taskMap.get(ExecutionState.UP_TO_DATE).add(task);
                     } else {
-                        notUpToDateTasksBuilder.add(name);
+                        taskMap.get(ExecutionState.DID_WORK).add(task);
                     }
-                } else if (result instanceof TaskFailureResult) {
-                    failedTasksBuilder.add(name);
                 } else if (result instanceof TaskSkippedResult) {
-                    skippedTasksBuilder.add(name);
+                    taskMap.get(ExecutionState.SKIPPED).add(task);
+                } else if (result instanceof TaskFailureResult) {
+                    taskMap.get(ExecutionState.FAILED).add(task);
                 }
             }
         }
 
-        // "Anchor" tasks don't seem to emit TaskSkippedResult, but are not reported as executed
-        // by the gradle runner, even if they were not up-to-date.
-        skippedTasksBuilder.addAll(getNoActionsTasks(gradleOutput));
+        taskList = taskListBuilder.build();
 
-        orderedTasks = orderedTasksBuilder.build();
-        allTasks = ImmutableSet.copyOf(orderedTasks);
-        upToDateTasks = upToDateTasksBuilder.build();
-        notUpToDateTasks = notUpToDateTasksBuilder.build();
-        inputChangedTasks = getInputChangedTasks(gradleOutput, notUpToDateTasks);
-        ImmutableSet<String> failedTasks = failedTasksBuilder.build();
-        ImmutableSet<String> skippedTasks = skippedTasksBuilder.build();
-
-        taskInfoList = Maps.newHashMapWithExpectedSize(orderedTasks.size());
-
-        for (String taskName : orderedTasks) {
-            taskInfoList.put(
-                    taskName,
-                    new TaskInfo(
-                            taskName,
-                            true,
-                            upToDateTasks.contains(taskName),
-                            inputChangedTasks.contains(taskName),
-                            failedTasks.contains(taskName),
-                            skippedTasks.contains(taskName),
-                            this));
-        }
-    }
-
-    private static ImmutableSet<String> getInputChangedTasks(
-            @NonNull String gradleOutput, @NonNull ImmutableSet<String> notUpToDateTasks) {
-        if (!EXECUTED_PATTERN.matcher(gradleOutput).find()) {
-            throw new RuntimeException("Unable to determine task lists from Gradle output");
-        }
-
-        ImmutableSet.Builder<String> result = ImmutableSet.builder();
-        Matcher matcher = INPUT_CHANGED_PATTERN.matcher(gradleOutput);
-        while (matcher.find()) {
-            String candidate = matcher.group(1);
-            if (!notUpToDateTasks.contains(candidate)) {
-                throw new RuntimeException("Found unexpected input changed task " + candidate);
+        // Among the tasks that did work, detect those that were skipped and correct their state to
+        // SKIPPED. (For "anchor" tasks such as "build", "check", Gradle does not report them with
+        // TaskSkippedResult, so we need to detect them in the Gradle output.)
+        ImmutableSet<String> noActionsTasks =
+                getTasksByPatternFromGradleOutput(gradleOutput, NO_ACTIONS_PATTERN);
+        Preconditions.checkState(taskList.containsAll(noActionsTasks));
+        for (String noActionTask : noActionsTasks) {
+            if (taskMap.get(ExecutionState.DID_WORK).contains(noActionTask)) {
+                taskMap.get(ExecutionState.DID_WORK).remove(noActionTask);
+                taskMap.get(ExecutionState.SKIPPED).add(noActionTask);
             }
-            result.add(candidate);
         }
-        return result.build();
+
+        ImmutableMap.Builder<String, TaskInfo> taskInfoMapBuilder = ImmutableMap.builder();
+        for (ExecutionState state : taskMap.keySet()) {
+            for (String task : taskMap.get(state)) {
+                taskInfoMapBuilder.put(task, new TaskInfo(task, state, this));
+            }
+        }
+        taskInfoMap = taskInfoMapBuilder.build();
+
+        ImmutableMap.Builder<ExecutionState, ImmutableSet<String>> taskStateMapBuilder =
+                ImmutableMap.builder();
+        for (ExecutionState state : ExecutionState.values()) {
+            taskStateMapBuilder.put(state, ImmutableSet.copyOf(taskMap.get(state)));
+        }
+        taskStateMap = taskStateMapBuilder.build();
     }
 
-    private static ImmutableSet<String> getNoActionsTasks(@NonNull String gradleOutput) {
+    @NonNull
+    private static ImmutableSet<String> getTasksByPatternFromGradleOutput(
+            @NonNull String gradleOutput, @NonNull Pattern pattern) {
         ImmutableSet.Builder<String> result = ImmutableSet.builder();
-        Matcher matcher = NO_ACTIONS_PATTERN.matcher(gradleOutput);
+        Matcher matcher = pattern.matcher(gradleOutput);
         while (matcher.find()) {
             result.add(matcher.group(1));
         }
@@ -212,38 +209,46 @@ public class TaskStateList {
     }
 
     @NonNull
-    public TaskInfo getTask(@NonNull String name) {
+    public TaskInfo getTask(@NonNull String task) {
         // if the task-info is missing, then create one for a non executed task.
-        return taskInfoList.computeIfAbsent(
-                name,
-                k -> new TaskInfo(name, false /*wasExecuted*/, false, false, false, false, this));
+        return taskInfoMap.getOrDefault(
+                task, new TaskInfo(task, ExecutionState.NOT_PLANNED_FOR_EXECUTION, this));
+    }
+
+    @NonNull
+    public List<String> getPlannedForExecutionTasks() {
+        return taskList;
     }
 
     @NonNull
     public Set<String> getUpToDateTasks() {
-        return upToDateTasks;
+        return taskStateMap.get(ExecutionState.UP_TO_DATE);
     }
 
     @NonNull
-    public Set<String> getInputChangedTasks() {
-        return inputChangedTasks;
+    public Set<String> getFromCacheTasks() {
+        return taskStateMap.get(ExecutionState.FROM_CACHE);
     }
 
     @NonNull
-    public Set<String> getNotUpToDateTasks() {
-        return notUpToDateTasks;
+    public Set<String> getDidWorkTasks() {
+        return taskStateMap.get(ExecutionState.DID_WORK);
     }
 
     @NonNull
-    public List<String> getAllTasks() {
-        return orderedTasks;
+    public Set<String> getSkippedTasks() {
+        return taskStateMap.get(ExecutionState.SKIPPED);
+    }
+
+    @NonNull
+    public Set<String> getFailedTasks() {
+        return taskStateMap.get(ExecutionState.FAILED);
     }
 
     int getTaskIndex(String taskName) {
         Preconditions.checkArgument(
                 taskName.startsWith(":"), "Task name (\"" + taskName + "\") must start with ':'");
-        Preconditions.checkArgument(allTasks.contains(taskName), "Task %s not run", taskName);
-        return orderedTasks.indexOf(taskName);
+        Preconditions.checkArgument(taskList.contains(taskName), "Task %s not run", taskName);
+        return taskList.indexOf(taskName);
     }
-
 }

@@ -6,6 +6,7 @@ kotlin_library(
     # TODO: move resources out of java?
     srcs = ["src/main/java"],
     pom = ":pom",
+    resource_strip_prefix = "tools/base/lint/cli",
     resources = glob(
         include = ["src/main/java/**"],
         exclude = [
@@ -18,6 +19,9 @@ kotlin_library(
         "//prebuilts/tools/common/lint-psi/intellij-core",
         "//prebuilts/tools/common/lint-psi/kotlin-compiler",
         "//prebuilts/tools/common/lint-psi/uast",
+        "//tools/analytics-library/protos/src/main/proto",
+        "//tools/analytics-library/shared:tools.analytics-shared",
+        "//tools/analytics-library/tracker:tools.analytics-tracker",
         "//tools/base/annotations",
         "//tools/base/build-system:tools.manifest-merger",
         "//tools/base/build-system/builder-model",
@@ -25,7 +29,6 @@ kotlin_library(
         "//tools/base/layoutlib-api:tools.layoutlib-api",
         "//tools/base/lint:tools.lint-api",
         "//tools/base/lint:tools.lint-checks",
-        "//tools/base/lint:tools.lint-kotlin",
         "//tools/base/repository:tools.repository",
         "//tools/base/sdk-common:tools.sdk-common",
         "//tools/base/sdklib:tools.sdklib",

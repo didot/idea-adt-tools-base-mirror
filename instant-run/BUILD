@@ -1,34 +1,34 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.instant-run-common",
+    name = "studio.android.sdktools.instant-run-common",
     srcs = ["instant-run-common/src/main/java"],
-    iml_files = ["instant-run-common/instant-run-common.iml"],
+    iml_files = ["instant-run-common/android.sdktools.instant-run-common.iml"],
     javacopts = [
         "-source 6",
         "-target 6",
     ],
-    tags = ["managed"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     deps = [
-        "//tools/base/annotations:studio.android-annotations[module]",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",
     ],
 )
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.instant-run-client",
+    name = "studio.android.sdktools.instant-run-client",
     srcs = ["instant-run-client/src/main/java"],
-    iml_files = ["instant-run-client/instant-run-client.iml"],
-    tags = ["managed"],
+    iml_files = ["instant-run-client/android.sdktools.instant-run-client.iml"],
     test_resources = ["instant-run-client/src/test/resources"],
     test_srcs = ["instant-run-client/src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     deps = [
-        "//tools/base/instant-run:studio.instant-run-common[module]",
-        "//tools/base/ddmlib:studio.ddmlib[module]",
+        "//tools/base/instant-run:studio.android.sdktools.instant-run-common[module]",
+        "//tools/base/ddmlib:studio.android.sdktools.ddmlib[module]",
         "//tools/idea/.idea/libraries:JUnit4[test]",
         "//tools/idea/.idea/libraries:mockito[test]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",

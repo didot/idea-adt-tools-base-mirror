@@ -30,9 +30,12 @@ import com.android.repository.testframework.FakeProgressIndicator;
 import com.android.repository.testframework.FakeRepoManager;
 import com.android.repository.testframework.MockFileOp;
 import com.android.sdklib.AndroidVersion;
+import com.android.sdklib.FileOpFileWrapper;
 import com.android.sdklib.ISystemImage;
+import com.android.sdklib.devices.Storage;
 import com.android.sdklib.internal.avd.AvdInfo;
 import com.android.sdklib.internal.avd.AvdManager;
+import com.android.sdklib.internal.avd.HardwareProperties;
 import com.android.sdklib.repository.AndroidSdkHandler;
 import com.android.sdklib.repository.IdDisplay;
 import com.android.sdklib.repository.meta.DetailsTypes;
@@ -41,6 +44,7 @@ import com.android.testutils.MockLog;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.Before;
 import org.junit.Test;
@@ -51,6 +55,8 @@ import org.junit.Test;
  * <p>TODO: tests for command-line input
  */
 public class AvdManagerCliTest {
+    private static final String EMU_LOCATION = "/emulator";
+    private static final String EMU_LIB_LOCATION = "/emulator/lib";
     private static final String SDK_LOCATION = "/sdk";
     private static final String AVD_LOCATION = "/avd";
 
@@ -59,7 +65,6 @@ public class AvdManagerCliTest {
     private MockLog mLogger;
     private AvdManagerCli mCli;
     private AvdManager mAvdManager;
-    private ISystemImage mWearImage;
     private ISystemImage mGapiImage;
 
     @Before
@@ -78,6 +83,7 @@ public class AvdManagerCliTest {
         p1.setInstalledPath(new File(SDK_LOCATION, "25-gapi-x86"));
         mFileOp.recordExistingFile(new File(p1.getLocation(), SystemImageManager.SYS_IMG_NAME));
         mFileOp.recordExistingFile(new File(p1.getLocation(), AvdManager.USERDATA_IMG));
+
         String wearPath = "system-images;android-26;android-wear;armeabi-v7a";
         FakePackage.FakeLocalPackage p2 = new FakePackage.FakeLocalPackage(wearPath);
         DetailsTypes.SysImgDetailsType details2 =
@@ -90,7 +96,14 @@ public class AvdManagerCliTest {
         mFileOp.recordExistingFile(new File(p2.getLocation(), SystemImageManager.SYS_IMG_NAME));
         mFileOp.recordExistingFile(new File(p2.getLocation(), AvdManager.USERDATA_IMG));
 
-        packages.setLocalPkgInfos(ImmutableList.of(p1, p2));
+        // Create a representative hardware configuration file
+        String emuPath = "emulator";
+        FakePackage.FakeLocalPackage p3 = new FakePackage.FakeLocalPackage(emuPath);
+        p3.setInstalledPath(new File(EMU_LOCATION));
+        File hardwareDefs = new File(EMU_LIB_LOCATION, SdkConstants.FN_HARDWARE_INI);
+        createHardwarePropertiesFile(hardwareDefs.getAbsolutePath());
+
+        packages.setLocalPkgInfos(ImmutableList.of(p1, p2, p3));
 
         RepoManager mgr = new FakeRepoManager(new File(SDK_LOCATION), packages);
 
@@ -102,9 +115,6 @@ public class AvdManagerCliTest {
 
         FakeProgressIndicator progress = new FakeProgressIndicator();
         SystemImageManager systemImageManager = mSdkHandler.getSystemImageManager(progress);
-        mWearImage =
-                systemImageManager.getImageAt(
-                        mSdkHandler.getLocalPackage(wearPath, progress).getLocation());
         mGapiImage =
                 systemImageManager.getImageAt(
                         mSdkHandler.getLocalPackage(gApiPath, progress).getLocation());
@@ -114,53 +124,44 @@ public class AvdManagerCliTest {
     public void createAvd() throws Exception {
         mCli.run(
                 new String[] {
-                    "create",
-                    "avd",
-                    "--name",
-                    "testAvd",
-                    "-k",
-                    "system-images;android-26;android-wear;armeabi-v7a",
-                    "-d",
-                    "Nexus 6P"
+                    "create", "avd",
+                    "--name", "testAvd",
+                    "-k", "system-images;android-25;google_apis;x86",
+                    "-d", "Nexus 6P"
                 });
         mAvdManager.reloadAvds(mLogger);
         AvdInfo info = mAvdManager.getAvd("testAvd", true);
-        assertEquals("armeabi-v7a", info.getAbiType());
+        assertEquals("x86", info.getAbiType());
         assertEquals("Google", info.getDeviceManufacturer());
-        assertEquals(new AndroidVersion(26, null), info.getAndroidVersion());
-        assertEquals(mWearImage, info.getSystemImage());
+        assertEquals(new AndroidVersion(25, null), info.getAndroidVersion());
+        assertEquals(mGapiImage, info.getSystemImage());
+
+        File avdConfigFile = new File(info.getDataFolderPath(), "config.ini");
+        assertTrue("Expected config.ini in " + info.getDataFolderPath(), mFileOp.exists(avdConfigFile));
+        Map<String, String> config = AvdManager.parseIniFile(
+          new FileOpFileWrapper(avdConfigFile, mFileOp, false), null);
+        assertEquals("123", config.get("integerPropName"));
+        assertEquals(new Storage(1536, Storage.Unit.MiB), Storage.getStorageFromString(config.get("hw.ramSize")));
+        assertEquals(new Storage(512, Storage.Unit.MiB), Storage.getStorageFromString(config.get("sdcard.size")));
+        assertEquals(new Storage(384, Storage.Unit.MiB), Storage.getStorageFromString(config.get("vm.heapSize")));
     }
 
     @Test
     public void deleteAvd() throws Exception {
-        mAvdManager.createAvd(
-                new File(AVD_LOCATION, "test1"),
-                "testAvd1",
-                mGapiImage,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                false,
-                false,
-                false,
-                mLogger);
-        mAvdManager.createAvd(
-                new File(AVD_LOCATION, "test2"),
-                "testAvd2",
-                mWearImage,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                false,
-                false,
-                false,
-                mLogger);
+        mCli.run(
+          new String[] {
+            "create", "avd",
+            "--name", "testAvd1",
+            "-k", "system-images;android-25;google_apis;x86",
+            "-d", "Nexus 6P"
+          });
+        mCli.run(
+          new String[] {
+            "create", "avd",
+            "--name", "testAvd2",
+            "-k", "system-images;android-26;android-wear;armeabi-v7a",
+            "-d", "Nexus 6P"
+          });
         mAvdManager.reloadAvds(mLogger);
         assertEquals(2, mAvdManager.getAllAvds().length);
 
@@ -175,31 +176,20 @@ public class AvdManagerCliTest {
 
     @Test
     public void moveAvd() throws Exception {
-        mAvdManager.createAvd(
-                new File(AVD_LOCATION, "test1"),
-                "testAvd1",
-                mGapiImage,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                false,
-                false,
-                false,
-                mLogger);
+        mCli.run(
+          new String[] {
+            "create", "avd",
+            "--name", "testAvd1",
+            "-k", "system-images;android-25;google_apis;x86",
+            "-d", "Nexus 6P"
+          });
         File moved = new File(AVD_LOCATION, "moved");
         mCli.run(
                 new String[] {
-                    "move",
-                    "avd",
-                    "--name",
-                    "testAvd1",
-                    "-p",
-                    moved.getAbsolutePath(),
-                    "-r",
-                    "newName"
+                    "move", "avd",
+                    "--name", "testAvd1",
+                    "-p", moved.getAbsolutePath(),
+                    "-r", "newName"
                 });
         mAvdManager.reloadAvds(mLogger);
         assertEquals(1, mAvdManager.getAllAvds().length);
@@ -210,54 +200,39 @@ public class AvdManagerCliTest {
 
     @Test
     public void listAvds() throws Exception {
-        mAvdManager.createAvd(
-                new File(AVD_LOCATION, "test1"),
-                "testAvd1",
-                mGapiImage,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                false,
-                false,
-                false,
-                mLogger);
-        mAvdManager.createAvd(
-                new File(AVD_LOCATION, "test2"),
-                "testAvd2",
-                mWearImage,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                false,
-                false,
-                false,
-                mLogger);
+        mCli.run(
+          new String[]{
+            "create", "avd",
+            "--name", "testGapiAvd",
+            "-k", "system-images;android-25;google_apis;x86",
+            "-d", "Nexus 6P"
+          });
+        mCli.run(
+          new String[]{
+            "create", "avd",
+            "--name", "testWearApi",
+            "-k", "system-images;android-26;android-wear;armeabi-v7a",
+            "-d", "wear_round"
+          });
         mAvdManager.reloadAvds(mLogger);
+        mLogger.clear();
         mCli.run(new String[] {"list", "avds"});
         assertEquals(
-                "P Available Android Virtual Devices:\n"
-                        + "P     Name: testAvd1\n"
-                        + "P     Path: "
-                        + new File("/avd/test1").getAbsolutePath()
-                        + "\n"
-                        + "P   Target: Google APIs (Google)\n"
-                        + "P           Based on: Android 7.1.1 (Nougat)"
-                        + "P  Tag/ABI: google_apis/x86\n"
-                        + "P ---------\n"
-                        + "P     Name: testAvd2\n"
-                        + "P     Path: "
-                        + new File("/avd/test2").getAbsolutePath()
-                        + "\n"
-                        + "P   Target: Google APIs\n"
-                        + "P           Based on: Android 8.0 (Oreo)"
-                        + "P  Tag/ABI: android-wear/armeabi-v7a\n",
-                Joiner.on("").join(mLogger.getMessages()));
+            "P Available Android Virtual Devices:\n"
+          + "P     Name: testGapiAvd\n"
+          + "P   Device: Nexus 6PP  (Google)P \n"
+          + "P     Path: " + new File("/avd/testGapiAvd.avd").getAbsolutePath() + "\n"
+          + "P   Target: Google APIs (Google)\n"
+          + "P           Based on: Android 7.1.1 (Nougat)P  Tag/ABI: google_apis/x86\n"
+          + "P   Sdcard: 512 MB\n"
+          + "P ---------\n"
+          + "P     Name: testWearApi\n"
+          + "P   Device: wear_roundP  (Google)P \n"
+          + "P     Path: " + new File("/avd/testWearApi.avd").getAbsolutePath() + "\n"
+          + "P   Target: Google APIs\n"
+          + "P           Based on: Android 8.0 (Oreo)P  Tag/ABI: android-wear/armeabi-v7a\n"
+          + "P   Sdcard: 512 MB\n",
+          Joiner.on("").join(mLogger.getMessages()));
     }
 
     @Test
@@ -372,6 +347,75 @@ public class AvdManagerCliTest {
     }
 
     @Test
+    public void validateResponse() {
+        File hardwareDefs = new File(EMU_LIB_LOCATION, SdkConstants.FN_HARDWARE_INI);
+        Map<String, HardwareProperties.HardwareProperty> hwMap = HardwareProperties
+          .parseHardwareDefinitions(
+            new FileOpFileWrapper(hardwareDefs, mFileOp, false), mLogger);
+        HardwareProperties.HardwareProperty[] hwProperties = hwMap.values().toArray(
+          new HardwareProperties.HardwareProperty[0]);
+
+        for (HardwareProperties.HardwareProperty aProperty : hwProperties) {
+            switch (aProperty.getName()) {
+                case "booleanPropName":
+                    assertEquals("Boolean 'yes' should be valid",
+                               "yes", AvdManagerCli.validateResponse("yes", aProperty, mLogger));
+                    assertEquals("Boolean 'Yes' should be valid",
+                               "yes", AvdManagerCli.validateResponse("Yes", aProperty, mLogger));
+                    assertEquals("Boolean 'no' should be valid",
+                               "no", AvdManagerCli.validateResponse("no", aProperty, mLogger));
+                    assertEquals("Boolean 'true' should be invalid",
+                                 null, AvdManagerCli.validateResponse("true", aProperty, mLogger));
+                    assertEquals("Boolean 'maybe' should be invalid",
+                               null, AvdManagerCli.validateResponse("maybe", aProperty, mLogger));
+                    break;
+                case "integerPropName":
+                    assertEquals("Integer '123' should be valid",
+                                 "123", AvdManagerCli.validateResponse("123", aProperty, mLogger));
+                    assertEquals("Integer '123x' should be invalid",
+                                 null, AvdManagerCli.validateResponse("123x", aProperty, mLogger));
+                    break;
+                case "integerEnumPropName":
+                    assertEquals("Integer enum '40' should be valid",
+                                 "40", AvdManagerCli.validateResponse("40", aProperty, mLogger));
+                    assertEquals("Integer enum '45' should be invalid",
+                                 null, AvdManagerCli.validateResponse("45", aProperty, mLogger));
+                    break;
+                case "stringPropName":
+                    assertEquals("String 'Whatever$^*)#?!' should be valid",
+                                 "Whatever$^*)#?!", AvdManagerCli.validateResponse("Whatever$^*)#?!", aProperty, mLogger));
+                    break;
+                case "stringEnumPropName":
+                    assertEquals("String enum 'okString0' should be valid",
+                                 "okString0", AvdManagerCli.validateResponse("okString0", aProperty, mLogger));
+                    assertEquals("String enum 'okString3' should be invalid",
+                                 null, AvdManagerCli.validateResponse("okString3", aProperty, mLogger));
+                    break;
+                case "stringEnumTemplatePropName":
+                    assertEquals("String enum 'fixedString' should be valid",
+                                 "fixedString", AvdManagerCli.validateResponse("fixedString", aProperty, mLogger));
+                    assertEquals("String enum 'extensibleString0' should be valid",
+                                 "extensibleString0", AvdManagerCli.validateResponse("extensibleString0", aProperty, mLogger));
+                    assertEquals("String enum 'extensibleString123' should be valid",
+                                 "extensibleString123", AvdManagerCli.validateResponse("extensibleString123", aProperty, mLogger));
+                    assertEquals("String enum 'extensibleStringPlus' should be invalid",
+                                 null, AvdManagerCli.validateResponse("extensibleStringPlus", aProperty, mLogger));
+                    assertEquals("String enum '...' should be invalid",
+                                 null, AvdManagerCli.validateResponse("...", aProperty, mLogger));
+                    assertEquals("String enum 'fixedString3' should be invalid",
+                                 null, AvdManagerCli.validateResponse("fixedString3", aProperty, mLogger));
+                    break;
+                case "diskSizePropName":
+                    assertEquals("Disk size '50MB' should be valid",
+                                 "50MB", AvdManagerCli.validateResponse("50MB", aProperty, mLogger));
+                    break;
+                default:
+                    fail("Unexpected hardware property type: " + aProperty.getName());
+            }
+        }
+    }
+
+    @Test
     public void packageHelp() throws Exception {
         try {
             mCli.run(new String[] {"create", "avd", "--name", "testAvd", "-d", "Nexus 6P"});
@@ -408,16 +452,11 @@ public class AvdManagerCliTest {
         try {
             mCli.run(
                     new String[] {
-                        "create",
-                        "avd",
-                        "--name",
-                        "testAvd",
-                        "-k",
-                        "system-images;android-26;android-wear;armeabi-v7a",
-                        "-d",
-                        "Nexus 6P",
-                        "--tag",
-                        "foo"
+                        "create", "avd",
+                        "--name", "testAvd",
+                        "-k", "system-images;android-25;google_apis;x86",
+                        "-d", "Nexus 6P",
+                        "--tag", "foo"
                     });
             fail("Expected exception");
         } catch (Exception expected) {
@@ -425,7 +464,55 @@ public class AvdManagerCliTest {
         }
 
         assertEquals(
-                "E Invalid --tag foo for the selected package. Valid tags are:\n" + "android-wear",
+                "E Invalid --tag foo for the selected package. Valid tags are:\n" + "google_apis",
                 Joiner.on("").join(mLogger.getMessages()));
+    }
+
+    private void createHardwarePropertiesFile(String filePath) {
+        mFileOp.recordExistingFile(filePath,
+                                   "name        = booleanPropName\n"
+                                   + "type        = boolean\n"
+                                   + "default     = yes\n"
+                                   + "abstract    = A bool\n"
+                                   + "description = A bool value\n"
+
+                                   + "name        = integerPropName\n"
+                                   + "type        = integer\n"
+                                   + "default     = 123\n"
+                                   + "abstract    = An integer\n"
+                                   + "description = A value that is integral\n"
+
+                                   + "name        = integerEnumPropName\n"
+                                   + "type        = integer\n"
+                                   + "enum        = 10, 20, 30, 40\n"
+                                   + "default     = 10\n"
+                                   + "abstract    = An integer enum\n"
+                                   + "description = One of a set of allowed integer values\n"
+
+                                   + "name        = stringPropName\n"
+                                   + "type        = string\n"
+                                   + "default     = defString\n"
+                                   + "abstract    = A string\n"
+                                   + "description = A property that is a string\n"
+
+                                   + "name        = stringEnumPropName\n"
+                                   + "type        = string\n"
+                                   + "enum        = okString0, okString1\n"
+                                   + "default     = okString1\n"
+                                   + "abstract    = A restricted string\n"
+                                   + "description = One of a set of allowed values\n"
+
+                                   + "name        = stringEnumTemplatePropName\n"
+                                   + "type        = string\n"
+                                   + "enum        = fixedString, anotherFixedString, extensibleString0, ...\n"
+                                   + "default     = fixedString\n"
+                                   + "abstract    = An extensible string\n"
+                                   + "description = One of a set of extensible allowed values\n"
+
+                                   + "name        = diskSizePropName\n"
+                                   + "type        = diskSize\n"
+                                   + "default     = 50MB\n"
+                                   + "abstract    = A size with units\n"
+                                   + "description = A string-like size with units\n");
     }
 }

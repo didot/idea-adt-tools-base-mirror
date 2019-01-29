@@ -24,15 +24,13 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Objects;
+import java.util.*;
 import java.util.function.Consumer;
 
 /** Creates a deep copy of an {@link AndroidProject}. */
 public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidProject {
     // Increase the value when adding/removing fields or when changing the serialization/deserialization mechanism.
-    private static final long serialVersionUID = 2L;
+    private static final long serialVersionUID = 5L;
 
     @NonNull private final String myModelVersion;
     @NonNull private final String myName;
@@ -41,6 +39,7 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
     @NonNull private final Collection<ProductFlavorContainer> myProductFlavors;
     @NonNull private final Collection<SyncIssue> mySyncIssues;
     @NonNull private final Collection<Variant> myVariants;
+    @NonNull private final Collection<String> myVariantNames;
     @NonNull private final Collection<String> myFlavorDimensions;
     @NonNull private final String myCompileTarget;
     @NonNull private final Collection<String> myBootClassPath;
@@ -49,7 +48,9 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
     @NonNull private final LintOptions myLintOptions;
     @NonNull private final Collection<String> myUnresolvedDependencies;
     @NonNull private final JavaCompileOptions myJavaCompileOptions;
+    @NonNull private final AaptOptions myAaptOptions;
     @NonNull private final File myBuildFolder;
+    @NonNull private final Collection<String> myDynamicFeatures;
     @Nullable private final GradleVersion myParsedModelVersion;
     @Nullable private final String myBuildToolsVersion;
     @Nullable private final String myResourcePrefix;
@@ -61,15 +62,18 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
     private final int myHashCode;
 
     public IdeAndroidProjectImpl(
-            @NonNull AndroidProject project, @NonNull IdeDependenciesFactory dependenciesFactory) {
-        this(project, new ModelCache(), dependenciesFactory);
+            @NonNull AndroidProject project,
+            @NonNull IdeDependenciesFactory dependenciesFactory,
+            @Nullable Collection<Variant> variants) {
+        this(project, new ModelCache(), dependenciesFactory, variants);
     }
 
     @VisibleForTesting
     IdeAndroidProjectImpl(
             @NonNull AndroidProject project,
             @NonNull ModelCache modelCache,
-            @NonNull IdeDependenciesFactory dependenciesFactory) {
+            @NonNull IdeDependenciesFactory dependenciesFactory,
+            @Nullable Collection<Variant> variants) {
         super(project, modelCache);
         myModelVersion = project.getModelVersion();
         // Old plugin versions do not return model version.
@@ -92,24 +96,31 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                         container -> new IdeProductFlavorContainer(container, modelCache));
         myBuildToolsVersion = copyNewProperty(project::getBuildToolsVersion, null);
         mySyncIssues =
-                copy(
-                        project.getSyncIssues(),
-                        modelCache,
-                        issue -> new IdeSyncIssue(issue, modelCache));
+                new ArrayList<>(
+                        copy(
+                                project.getSyncIssues(),
+                                modelCache,
+                                issue -> new IdeSyncIssue(issue, modelCache)));
+        Collection<Variant> variantsToCopy = variants != null ? variants : project.getVariants();
         myVariants =
-                copy(
-                        project.getVariants(),
-                        modelCache,
-                        variant ->
-                                new IdeVariantImpl(
-                                        variant,
-                                        modelCache,
-                                        dependenciesFactory,
-                                        myParsedModelVersion));
+                new ArrayList<>(
+                        copy(
+                                variantsToCopy,
+                                modelCache,
+                                variant ->
+                                        new IdeVariantImpl(
+                                                variant,
+                                                modelCache,
+                                                dependenciesFactory,
+                                                myParsedModelVersion)));
+        myVariantNames =
+                copyNewProperty(
+                        () -> ImmutableList.copyOf(project.getVariantNames()),
+                        Collections.<String>emptyList());
         myFlavorDimensions =
                 copyNewProperty(
                         () -> ImmutableList.copyOf(project.getFlavorDimensions()),
-                        Collections.<String>emptyList());
+                        Collections.emptyList());
         myCompileTarget = project.getCompileTarget();
         myBootClassPath = ImmutableList.copyOf(project.getBootClasspath());
         myNativeToolchains =
@@ -131,13 +142,22 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                 modelCache.computeIfAbsent(
                         project.getJavaCompileOptions(),
                         options -> new IdeJavaCompileOptions(options, modelCache));
+        myAaptOptions =
+                modelCache.computeIfAbsent(
+                        project.getAaptOptions(),
+                        options -> new IdeAaptOptions(options, modelCache));
         myBuildFolder = project.getBuildFolder();
         myResourcePrefix = project.getResourcePrefix();
         myApiVersion = project.getApiVersion();
         myLibrary = project.isLibrary();
         myProjectType = getProjectType(project, myParsedModelVersion);
         myPluginGeneration = copyNewProperty(project::getPluginGeneration, null);
+        //noinspection ConstantConditions
         myBaseSplit = copyNewProperty(project::isBaseSplit, false);
+        //noinspection ConstantConditions
+        myDynamicFeatures =
+                ImmutableList.copyOf(
+                        copyNewProperty(project::getDynamicFeatures, ImmutableList.of()));
 
         myHashCode = calculateHashCode();
     }
@@ -199,13 +219,19 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
     @Override
     @NonNull
     public Collection<SyncIssue> getSyncIssues() {
-        return mySyncIssues;
+        return ImmutableList.copyOf(mySyncIssues);
     }
 
     @Override
     @NonNull
     public Collection<Variant> getVariants() {
-        return myVariants;
+        return ImmutableList.copyOf(myVariants);
+    }
+
+    @Override
+    @NonNull
+    public Collection<String> getVariantNames() {
+        return myVariantNames;
     }
 
     @Override
@@ -247,7 +273,7 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
     @Override
     @NonNull
     public AaptOptions getAaptOptions() {
-        throw new UnusedModelMethodException("getAaptOptions");
+        return myAaptOptions;
     }
 
     @Override
@@ -317,10 +343,38 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
         return myBaseSplit;
     }
 
+    @NonNull
+    @Override
+    public Collection<String> getDynamicFeatures() {
+        return myDynamicFeatures;
+    }
+
     @Override
     public void forEachVariant(@NonNull Consumer<IdeVariant> action) {
         for (Variant variant : myVariants) {
             action.accept((IdeVariant) variant);
+        }
+    }
+
+    @Override
+    public void addVariants(
+            @NonNull Collection<Variant> variants, @NonNull IdeDependenciesFactory factory) {
+        ModelCache modelCache = new ModelCache();
+        for (Variant variant : variants) {
+            myVariants.add(new IdeVariantImpl(variant, modelCache, factory, myParsedModelVersion));
+        }
+    }
+
+    @Override
+    public void addSyncIssues(@NonNull Collection<SyncIssue> syncIssues) {
+        ModelCache modelCache = new ModelCache();
+        Set<SyncIssue> currentSyncIssues = new HashSet<>(mySyncIssues);
+        for (SyncIssue issue : syncIssues) {
+            // Only add the sync issues that are not seen from previous sync.
+            IdeSyncIssue newSyncIssue = new IdeSyncIssue(issue, modelCache);
+            if (!currentSyncIssues.contains(newSyncIssue)) {
+                mySyncIssues.add(newSyncIssue);
+            }
         }
     }
 
@@ -347,6 +401,7 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                 && Objects.equals(myBuildToolsVersion, project.myBuildToolsVersion)
                 && Objects.equals(mySyncIssues, project.mySyncIssues)
                 && Objects.equals(myVariants, project.myVariants)
+                && Objects.equals(myVariantNames, project.myVariantNames)
                 && Objects.equals(myFlavorDimensions, project.myFlavorDimensions)
                 && Objects.equals(myCompileTarget, project.myCompileTarget)
                 && Objects.equals(myBootClassPath, project.myBootClassPath)
@@ -355,8 +410,10 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                 && Objects.equals(myLintOptions, project.myLintOptions)
                 && Objects.equals(myUnresolvedDependencies, project.myUnresolvedDependencies)
                 && Objects.equals(myJavaCompileOptions, project.myJavaCompileOptions)
+                && Objects.equals(myAaptOptions, project.myAaptOptions)
                 && Objects.equals(myBuildFolder, project.myBuildFolder)
-                && Objects.equals(myResourcePrefix, project.myResourcePrefix);
+                && Objects.equals(myResourcePrefix, project.myResourcePrefix)
+                && Objects.equals(myDynamicFeatures, project.myDynamicFeatures);
     }
 
     @Override
@@ -375,6 +432,7 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                 myBuildToolsVersion,
                 mySyncIssues,
                 myVariants,
+                myVariantNames,
                 myFlavorDimensions,
                 myCompileTarget,
                 myBootClassPath,
@@ -389,7 +447,9 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                 myLibrary,
                 myProjectType,
                 myPluginGeneration,
-                myBaseSplit);
+                myAaptOptions,
+                myBaseSplit,
+                myDynamicFeatures);
     }
 
     @Override
@@ -414,6 +474,8 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                 + mySyncIssues
                 + ", myVariants="
                 + myVariants
+                + ", myVariantNames="
+                + myVariantNames
                 + ", myFlavorDimensions="
                 + myFlavorDimensions
                 + ", myCompileTarget='"
@@ -444,8 +506,12 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
                 + myProjectType
                 + ", myPluginGeneration="
                 + myPluginGeneration
+                + ", myAaptOptions="
+                + myAaptOptions
                 + ", myBaseSplit="
                 + myBaseSplit
+                + ", myDynamicFeatures="
+                + myDynamicFeatures
                 + "}";
     }
 }

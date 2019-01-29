@@ -19,7 +19,7 @@ package com.android.builder.internal.aapt.v2;
 import com.android.annotations.NonNull;
 import com.android.builder.internal.aapt.AaptException;
 import com.android.builder.internal.aapt.AaptPackageConfig;
-import com.android.ide.common.res2.CompileResourceRequest;
+import com.android.ide.common.resources.CompileResourceRequest;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.io.Writer;
@@ -31,14 +31,14 @@ public class Aapt2DaemonUtil {
 
     public static void requestCompile(
             @NonNull Writer writer, @NonNull CompileResourceRequest command) throws IOException {
-        request(writer, "c", AaptV2CommandBuilder.makeCompile(command));
+        request(writer, "c", AaptV2CommandBuilder.makeCompileCommand(command));
     }
 
     public static void requestLink(@NonNull Writer writer, @NonNull AaptPackageConfig command)
             throws IOException {
         ImmutableList<String> args;
         try {
-            args = AaptV2CommandBuilder.makeLink(command);
+            args = AaptV2CommandBuilder.makeLinkCommand(command);
         } catch (AaptException e) {
             throw new IOException("Unable to make AAPT link command.", e);
         }

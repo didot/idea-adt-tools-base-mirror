@@ -26,7 +26,7 @@ import org.junit.Test
  *
  *
  * To run just this test:
- * ./gradlew :base:integration-test:test -D:base:integration-test:test.single=LintStandaloneTest
+ * ./gradlew :base:build-system:integration-test:application:test -D:base:build-system:integration-test:application:test.single=LintStandaloneTest
  */
 class LintStandaloneTest {
     @Rule @JvmField
@@ -39,7 +39,7 @@ class LintStandaloneTest {
 
         val file = project.file("lint-results.txt")
         assertThat(file).exists()
-        assertThat(file).contains("MyClass.java:4: Warning: Do not hardcode \"/sdcard/\"")
+        assertThat(file).contains("MyClass.java:5: Warning: Use Boolean.valueOf(true) instead")
         assertThat(file).contains("0 errors, 1 warnings")
     }
 }

@@ -18,6 +18,7 @@ package com.android.tools.lint.client.api;
 
 import static com.android.SdkConstants.DOT_CLASS;
 import static com.android.SdkConstants.DOT_JAR;
+import static com.android.SdkConstants.DOT_SRCJAR;
 import static org.objectweb.asm.Opcodes.ASM5;
 
 import com.android.annotations.NonNull;
@@ -112,9 +113,7 @@ class ClassEntry implements Comparable<ClassEntry> {
      */
     @NonNull
     public static List<ClassEntry> fromClassPath(
-            @NonNull LintClient client,
-            @NonNull List<File> classPath,
-            boolean sort) {
+            @NonNull LintClient client, @NonNull List<File> classPath, boolean sort) {
         if (!classPath.isEmpty()) {
             List<ClassEntry> libraryEntries = new ArrayList<>(64);
             addEntries(client, libraryEntries, classPath);
@@ -128,20 +127,20 @@ class ClassEntry implements Comparable<ClassEntry> {
     }
 
     /**
-     * Creates a list of class entries from the given class path and specific set of
-     * files within it.
+     * Creates a list of class entries from the given class path and specific set of files within
+     * it.
      *
      * @param client the client to report errors to and to use to read files
      * @param classFiles the specific set of class files to look for
-     * @param classFolders the list of class folders to look in (to determine the
-     *                     package root)
+     * @param classFolders the list of class folders to look in (to determine the package root)
      * @param sort if true, sort the results
      * @return the list of class entries, never null.
      */
     @NonNull
     public static List<ClassEntry> fromClassFiles(
             @NonNull LintClient client,
-            @NonNull List<File> classFiles, @NonNull List<File> classFolders,
+            @NonNull List<File> classFiles,
+            @NonNull List<File> classFolders,
             boolean sort) {
         List<ClassEntry> entries = new ArrayList<>(classFiles.size());
 
@@ -153,8 +152,7 @@ class ClassEntry implements Comparable<ClassEntry> {
                         byte[] bytes = client.readBytes(file);
                         for (File dir : classFolders) {
                             if (path.startsWith(dir.getPath())) {
-                                entries.add(new ClassEntry(file, null /* jarFile*/, dir,
-                                        bytes));
+                                entries.add(new ClassEntry(file, null /* jarFile*/, dir, bytes));
                                 break;
                             }
                         }
@@ -180,7 +178,8 @@ class ClassEntry implements Comparable<ClassEntry> {
             @NonNull List<ClassEntry> entries,
             @NonNull List<File> classPath) {
         for (File classPathEntry : classPath) {
-            if (classPathEntry.getName().endsWith(DOT_JAR)) {
+            String name = classPathEntry.getName();
+            if (name.endsWith(DOT_JAR)) {
                 //noinspection UnnecessaryLocalVariable
                 File jarFile = classPathEntry;
                 if (!jarFile.exists()) {
@@ -219,7 +218,7 @@ class ClassEntry implements Comparable<ClassEntry> {
                         client.log(e, null);
                     }
                 }
-            } else {
+            } else if (!name.endsWith(DOT_SRCJAR)) {
                 client.log(null, "Ignoring class path entry %1$s", classPathEntry);
             }
         }
@@ -271,8 +270,7 @@ class ClassEntry implements Comparable<ClassEntry> {
      */
     @NonNull
     public static Map<String, String> createSuperClassMap(
-            @NonNull LintClient client,
-            @NonNull List<ClassEntry> entries) {
+            @NonNull LintClient client, @NonNull List<ClassEntry> entries) {
         Map<String, String> map = Maps.newHashMapWithExpectedSize(entries.size());
         SuperclassVisitor visitor = new SuperclassVisitor(map);
         addSuperClasses(client, visitor, entries);
@@ -287,12 +285,15 @@ class ClassEntry implements Comparable<ClassEntry> {
         for (ClassEntry entry : entries) {
             try {
                 ClassReader reader = new ClassReader(entry.bytes);
-                int flags = ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG
-                        | ClassReader.SKIP_FRAMES;
+                int flags =
+                        ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES;
                 reader.accept(visitor, flags);
             } catch (Throwable t) {
-                client.log(null, "Error processing %1$s: broken class file? (%2$s)",
-                        entry.path(), t.getMessage());
+                client.log(
+                        null,
+                        "Error processing %1$s: broken class file? (%2$s)",
+                        entry.path(),
+                        t.getMessage());
             }
         }
     }
@@ -307,7 +308,12 @@ class ClassEntry implements Comparable<ClassEntry> {
         }
 
         @Override
-        public void visit(int version, int access, String name, String signature, String superName,
+        public void visit(
+                int version,
+                int access,
+                String name,
+                String signature,
+                String superName,
                 String[] interfaces) {
             // Record super class in the map (but don't waste space on java.lang.Object)
             if (superName != null && !"java/lang/Object".equals(superName)) {

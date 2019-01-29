@@ -170,8 +170,16 @@ public class InstantRunTransform extends Transform {
                         .stream()
                         .flatMap(input -> input.getJarInputs().stream())
                         .collect(Collectors.toList());
-        Preconditions.checkState(
-                jarInputs.isEmpty(), "Unexpected inputs: " + Joiner.on(", ").join(jarInputs));
+        if (!jarInputs.isEmpty()) {
+            jarInputs.forEach(
+                    jar ->
+                            Preconditions.checkState(
+                                    !jar.getFile().exists(),
+                                    "%s must not exist",
+                                    jar.getFile().toString()));
+            // just log as warning until https://issuetracker.google.com/72032032 is fixed
+            LOGGER.warning("Unexpected inputs: %s", Joiner.on(", ").join(jarInputs));
+        }
         InstantRunBuildContext buildContext = transformScope.getInstantRunBuildContext();
         buildContext.startRecording(InstantRunBuildContext.TaskType.INSTANT_RUN_TRANSFORM);
         try {
@@ -183,7 +191,7 @@ public class InstantRunTransform extends Transform {
     }
 
     public void doTransform(@NonNull TransformInvocation invocation)
-            throws IOException, TransformException, InterruptedException {
+            throws IOException, TransformException {
         InstantRunBuildContext buildContext = transformScope.getInstantRunBuildContext();
 
         // if we do not run in incremental mode, we should automatically switch to COLD swap.
@@ -261,7 +269,7 @@ public class InstantRunTransform extends Transform {
                     // non incremental mode, we need to traverse the TransformInput#getFiles()
                     // folder
                     FileUtils.cleanOutputDir(classesTwoOutput);
-                    for (File file : Files.fileTreeTraverser().breadthFirstTraversal(inputDir)) {
+                    for (File file : Files.fileTraverser().breadthFirst(inputDir)) {
                         if (file.isDirectory()) {
                             continue;
                         }
@@ -540,7 +548,7 @@ public class InstantRunTransform extends Transform {
     private static class NonDelegatingUrlClassloader extends URLClassLoader {
 
         public NonDelegatingUrlClassloader(@NonNull List<URL> urls) {
-            super(urls.toArray(new URL[urls.size()]), null);
+            super(urls.toArray(new URL[0]), null);
         }
 
         @Override

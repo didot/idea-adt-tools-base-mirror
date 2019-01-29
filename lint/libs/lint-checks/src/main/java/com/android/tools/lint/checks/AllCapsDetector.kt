@@ -19,6 +19,7 @@ package com.android.tools.lint.checks
 import com.android.SdkConstants.ANDROID_URI
 import com.android.SdkConstants.ATTR_TEXT
 import com.android.SdkConstants.VALUE_TRUE
+import com.android.ide.common.rendering.api.ResourceNamespace
 import com.android.resources.ResourceUrl
 import com.android.tools.lint.detector.api.Category
 import com.android.tools.lint.detector.api.Implementation
@@ -37,20 +38,23 @@ import org.w3c.dom.Attr
 class AllCapsDetector : LayoutDetector() {
     companion object Issues {
         /** Using all caps with markup  */
-        @JvmField val ISSUE = Issue.create(
-                "AllCaps",
-                "Combining textAllCaps and markup",
-                """
-The textAllCaps text transform will end up calling `toString` on the `CharSequence`, which has \
-the net effect of removing any markup such as `<b>`. This check looks for usages of strings \
-containing markup that also specify `textAllCaps=true`.""",
-                Category.TYPOGRAPHY,
-                8,
-                Severity.WARNING,
-                Implementation(
-                        AllCapsDetector::class.java,
-                        Scope.ALL_RESOURCES_SCOPE,
-                        Scope.RESOURCE_FILE_SCOPE))
+        @JvmField
+        val ISSUE = Issue.create(
+            id = "AllCaps",
+            briefDescription = "Combining textAllCaps and markup",
+            explanation = """
+            The textAllCaps text transform will end up calling `toString` on the `CharSequence`, which has \
+            the net effect of removing any markup such as `<b>`. This check looks for usages of strings \
+            containing markup that also specify `textAllCaps=true`.""",
+            category = Category.TYPOGRAPHY,
+            priority = 8,
+            severity = Severity.WARNING,
+            implementation = Implementation(
+                AllCapsDetector::class.java,
+                Scope.ALL_RESOURCES_SCOPE,
+                Scope.RESOURCE_FILE_SCOPE
+            )
+        )
     }
 
     override fun getApplicableAttributes(): Collection<String>? = listOf("textAllCaps")
@@ -70,7 +74,7 @@ containing markup that also specify `textAllCaps=true`.""",
         }
 
         val url = ResourceUrl.parse(text)
-        if (url == null || url.framework) {
+        if (url == null || url.isFramework) {
             return
         }
 
@@ -78,11 +82,11 @@ containing markup that also specify `textAllCaps=true`.""",
         val project = context.mainProject
         val repository = client.getResourceRepository(project, true, true) ?: return
 
-        val items = repository.getResourceItem(url.type, url.name)
-        if (items == null || items.isEmpty()) {
+        val items = repository.getResources(ResourceNamespace.TODO(), url.type, url.name)
+        if (items.isEmpty()) {
             return
         }
-        val resourceValue = items[0].getResourceValue(false) ?: return
+        val resourceValue = items[0].resourceValue ?: return
 
         val rawXmlValue = resourceValue.rawXmlValue
         if (rawXmlValue.contains("<")) {

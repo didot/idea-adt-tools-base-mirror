@@ -151,10 +151,42 @@ public interface SyncIssue {
      */
     int TYPE_DEPRECATED_DSL_VALUE = 29;
 
-    // WHEN ADDING NEW VALUES HERE, UPDATE EvalIssueReporter.Type
+    /** Indicates that the project contains the min sdk in the android manifest file. */
+    int TYPE_MIN_SDK_VERSION_IN_MANIFEST = 30;
 
-    /** Highest number assigned to types of {@link SyncIssue}s. */
-    int TYPE_MAX = 30; // increment when adding new types.
+    /** Indicates that the project contains the target sdk in the android manifest file. */
+    int TYPE_TARGET_SDK_VERSION_IN_MANIFEST = 31;
+
+    /** Indicated that an experimental gradle project option is used. */
+    int TYPE_UNSUPPORTED_PROJECT_OPTION_USE = 32;
+
+    /**
+     * Indicates that building the configuration rules for this project requires parsing the
+     * manifest file.
+     */
+    int TYPE_MANIFEST_PARSED_DURING_CONFIGURATION = 33;
+
+    /**
+     * Indicates that the version of a third-party Gradle plugin (not the Android Gradle plugin) is
+     * not supported and needs to be updated.
+     */
+    int TYPE_THIRD_PARTY_GRADLE_PLUGIN_TOO_OLD = 34;
+
+    /**
+     * Indicates that the signing configuration is declared in the dynamic-feature gradle file. This
+     * should only be declared in the application module, as dynamic-features use the base module's
+     * signing configuration, and this will be ignored.
+     */
+    int TYPE_SIGNING_CONFIG_DECLARED_IN_DYNAMIC_FEATURE = 35;
+
+    // ATTENTION: When adding new values here, update EvalIssueReporter.Type and TYPE_MAX below.
+
+    /**
+     * Highest number assigned to types of {@link SyncIssue}s.
+     *
+     * <p>TODO: Why is it needed even when there are no usages in the code?
+     */
+    int TYPE_MAX = 36; // increment when adding new types.
 
     /** Returns the severity of the issue. */
     int getSeverity();

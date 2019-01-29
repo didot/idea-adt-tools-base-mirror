@@ -25,6 +25,8 @@ import org.gradle.api.Incubating
  *
  * See [APK
  * Splits](https://developer.android.com/studio/build/configure-apk-splits.html).
+ *
+ * This interface is not currently usable. It is a work in progress.
  */
 @Incubating
 interface LanguageSplitOptions : Initializable<LanguageSplitOptions> {
@@ -37,10 +39,4 @@ interface LanguageSplitOptions : Initializable<LanguageSplitOptions> {
     /** Returns true if splits should be generated for languages.  */
     /** enables or disables splits for language  */
     var enabled: Boolean
-
-    /**
-     * Sets whether the build system should automatically determine the splits based on the
-     * "language-*" folders in the resources.
-     */
-    var auto: Boolean
 }

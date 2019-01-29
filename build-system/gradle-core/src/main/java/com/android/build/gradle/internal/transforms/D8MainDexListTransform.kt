@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.internal.transforms
 
+import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.api.transform.QualifiedContent
 import com.android.build.api.transform.QualifiedContent.ContentType
 import com.android.build.api.transform.QualifiedContent.Scope
@@ -24,11 +25,12 @@ import com.android.build.api.transform.Transform
 import com.android.build.api.transform.TransformException
 import com.android.build.api.transform.TransformInvocation
 import com.android.build.gradle.internal.LoggerWrapper
+import com.android.build.gradle.internal.api.artifact.singleFile
 import com.android.build.gradle.internal.pipeline.TransformManager
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.transforms.MainDexListTransform.ProguardInput.INPUT_JAR
-import com.android.build.gradle.internal.transforms.MainDexListTransform.ProguardInput.LIBRARY_JAR
 import com.android.builder.multidex.D8MainDexList
+import com.android.ide.common.blame.MessageReceiver
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableMap
 import com.google.common.collect.ImmutableSet
@@ -42,51 +44,66 @@ import java.util.function.Supplier
  * Calculate the main dex list using D8.
  */
 class D8MainDexListTransform(
-        private val manifestProguardRules: Path,
+        private val manifestProguardRules: BuildableArtifact,
         private val userProguardRules: Path? = null,
         private val userClasses: Path? = null,
-        private val outputMainDexList: Path,
-        private val bootClasspath: Supplier<List<Path>>) : Transform() {
+        private val includeDynamicFeatures: Boolean = false,
+        private val bootClasspath: Supplier<List<Path>>,
+        private val messageReceiver: MessageReceiver) : Transform(), MainDexListWriter {
 
     private val logger = LoggerWrapper.getLogger(D8MainDexListTransform::class.java)
-
-    constructor(variantScope: VariantScope) :
+    private lateinit var outputMainDexList: Path
+    @JvmOverloads
+    constructor(variantScope: VariantScope, includeDynamicFeatures: Boolean = false) :
             this(
-                    variantScope.manifestKeepListProguardFile.toPath(),
+                    variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.LEGACY_MULTIDEX_AAPT_DERIVED_PROGUARD_RULES),
                     variantScope.variantConfiguration.multiDexKeepProguard?.toPath(),
                     variantScope.variantConfiguration.multiDexKeepFile?.toPath(),
-                    variantScope.mainDexListFile.toPath(),
+                    includeDynamicFeatures,
                     Supplier {
                         variantScope
                                 .globalScope
                                 .androidBuilder
                                 .getBootClasspath(true)
-                                .map { it.toPath() }})
+                                .map { it.toPath() }},
+                    variantScope.globalScope.messageReceiver)
 
-    override fun getName(): String = "multidexlist"
+    override fun setMainDexListOutputFile(mainDexListFile: File) {
+        this.outputMainDexList = mainDexListFile.toPath()
+    }
+
+    override fun getName(): String = if (includeDynamicFeatures) "bundleMultiDexList" else "multidexlist"
 
     override fun getInputTypes(): ImmutableSet<out ContentType> =
             Sets.immutableEnumSet(QualifiedContent.DefaultContentType.CLASSES)
 
     override fun getScopes(): ImmutableSet<in Scope> = ImmutableSet.of()
 
-    override fun getReferencedScopes(): ImmutableSet<in Scope> =
-            Sets.immutableEnumSet(
-                    Scope.PROJECT,
-                    Scope.SUB_PROJECTS,
-                    Scope.EXTERNAL_LIBRARIES,
-                    Scope.PROVIDED_ONLY,
-                    Scope.TESTED_CODE)
+    override fun getReferencedScopes(): MutableSet<in Scope> {
+        val referenced = Sets.immutableEnumSet(
+            Scope.PROJECT,
+            Scope.SUB_PROJECTS,
+            Scope.EXTERNAL_LIBRARIES,
+            Scope.PROVIDED_ONLY,
+            Scope.TESTED_CODE
+        )
+        if (!includeDynamicFeatures) {
+            return referenced
+        }
+
+        return Sets.union(referenced, TransformManager.SCOPE_FEATURES)
+    }
 
     override fun isIncremental(): Boolean = false
 
     override fun isCacheable(): Boolean = true
 
     override fun getSecondaryFiles(): MutableCollection<SecondaryFile> =
-            listOfNotNull(manifestProguardRules, userProguardRules, userClasses)
-                    .map { it.toFile() }
-                    .map { SecondaryFile.nonIncremental(it) }
-                    .toCollection(ArrayList())
+        ImmutableList.builder<SecondaryFile>().apply {
+            add(SecondaryFile.nonIncremental(manifestProguardRules))
+            userProguardRules?.let { add(SecondaryFile.nonIncremental(it.toFile())) }
+            userClasses?.let { add(SecondaryFile.nonIncremental(it.toFile())) }
+        }.build()
 
     override fun getSecondaryFileOutputs(): ImmutableList<File> =
             ImmutableList.of(outputMainDexList.toFile())
@@ -97,25 +114,28 @@ class D8MainDexListTransform(
     override fun transform(invocation: TransformInvocation) {
         logger.verbose("Generating the main dex list using D8.")
         try {
-            val inputs = MainDexListTransform.getByInputType(invocation)
-            val programFiles = inputs[INPUT_JAR]!!.map { it.toPath() }
-            val libraryFiles = inputs[LIBRARY_JAR]!!.map { it.toPath() } + bootClasspath.get()
+            val inputs = getByInputType(invocation)
+            val programFiles = inputs[ProguardInput.INPUT_JAR]!!
+            val libraryFiles = inputs[ProguardInput.LIBRARY_JAR]!! + bootClasspath.get()
             logger.verbose("Program files: %s", programFiles.joinToString())
             logger.verbose("Library files: %s", libraryFiles.joinToString())
             logger.verbose(
                     "Proguard rule files: %s",
                     listOfNotNull(manifestProguardRules, userProguardRules).joinToString())
 
-            val proguardRules = listOfNotNull(manifestProguardRules, userProguardRules)
+            val proguardRules =
+                listOfNotNull(manifestProguardRules.singleFile().toPath(), userProguardRules)
             val mainDexClasses = mutableSetOf<String>()
 
-            val keepRules = MainDexListTransform.getPlatformRules().map { it -> "-keep " + it }
             mainDexClasses.addAll(
-                    D8MainDexList.generate(
-                            keepRules,
-                            proguardRules,
-                            programFiles,
-                            libraryFiles))
+                D8MainDexList.generate(
+                    getPlatformRules(),
+                    proguardRules,
+                    programFiles,
+                    libraryFiles,
+                    messageReceiver
+                )
+            )
 
             if (userClasses != null) {
                 mainDexClasses.addAll(Files.readAllLines(userClasses))
@@ -124,8 +144,46 @@ class D8MainDexListTransform(
             Files.deleteIfExists(outputMainDexList)
             Files.write(outputMainDexList, mainDexClasses)
         } catch (e: D8MainDexList.MainDexListException) {
-            throw TransformException("Error while generating the main dex list.", e)
+            throw TransformException("Error while generating the main dex list:${System.lineSeparator()}${e.message}", e)
         }
-
     }
+
+    private fun getByInputType(invocation: TransformInvocation): Map<ProguardInput, List<Path>> {
+        val libraryScopes = Sets.immutableEnumSet(Scope.PROVIDED_ONLY, Scope.TESTED_CODE)
+
+        val (inputs, libraries) =
+                invocation.referencedInputs
+                    .flatMap { it.directoryInputs + it.jarInputs }
+                    .asSequence().partition {
+                        !it.scopes.minus(
+                            libraryScopes
+                        ).isEmpty()
+                    }
+
+        return mapOf(
+            ProguardInput.INPUT_JAR to inputs.map { it.file.toPath() },
+            ProguardInput.LIBRARY_JAR to libraries.map { it.file.toPath() })
+    }
+}
+
+internal fun getPlatformRules(): List<String> = listOf(
+    "-keep public class * extends android.app.Instrumentation {\n"
+            + "  <init>(); \n"
+            + "  void onCreate(...);\n"
+            + "  android.app.Application newApplication(...);\n"
+            + "  void callApplicationOnCreate(android.app.Application);\n"
+            + "  Z onException(java.lang.Object, java.lang.Throwable);\n"
+            + "}",
+    "-keep public class * extends android.app.Application { "
+            + "  <init>();\n"
+            + "  void attachBaseContext(android.content.Context);\n"
+            + "}",
+    "-keep public class * extends android.app.backup.BackupAgent { <init>(); }",
+    "-keep public class * implements java.lang.annotation.Annotation { *;}",
+    "-keep public class * extends android.test.InstrumentationTestCase { <init>(); }"
+)
+
+private enum class ProguardInput {
+    INPUT_JAR,
+    LIBRARY_JAR
 }

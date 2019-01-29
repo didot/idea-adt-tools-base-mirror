@@ -11,7 +11,9 @@ import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.SyncIssue;
+import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableList;
+import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import org.junit.Before;
@@ -38,10 +40,12 @@ public class BuildToolsTest {
     private static final List<String> JAVAC_TASKS =
             ImmutableList.<String>builder()
                     .addAll(COMMON_TASKS)
-                    .add(":transformClassesWithPreDexForDebug")
-                    .add(":transformClassesWithPreDexForRelease")
-                    .add(":transformDexWithDexForDebug")
-                    .add(":transformDexWithDexForRelease")
+                    .add(":transformClassesWithDexBuilderForDebug")
+                    .add(":transformClassesWithDexBuilderForRelease")
+                    .add(":mergeDexDebug")
+                    .add(":mergeExtDexDebug")
+                    .add(":mergeDexRelease")
+                    .add(":mergeExtDexRelease")
                     .build();
 
     @Rule
@@ -63,12 +67,19 @@ public class BuildToolsTest {
                         + GradleTestProject.DEFAULT_BUILD_TOOL_VERSION
                         + "'\n"
                         + "}\n");
+
+        // Add an Aidl file so that it's not skipped due to no-source.
+        File aidlDir = project.file("src/main/aidl/com/example/helloworld");
+        FileUtils.mkdirs(aidlDir);
+        TestFileUtils.appendToFile(
+                new File(aidlDir, "MyRect.aidl"),
+                "" + "package com.example.helloworld;\n" + "parcelable MyRect;\n");
     }
 
     @Test
     public void nullBuild() throws IOException, InterruptedException {
-        project.executor().withUseDexArchive(false).run("assemble");
-        GradleBuildResult result = project.executor().withUseDexArchive(false).run("assemble");
+        project.executor().run("assemble");
+        GradleBuildResult result = project.executor().run("assemble");
 
         assertThat(result.getUpToDateTasks()).containsAllIn(JAVAC_TASKS);
     }
@@ -92,7 +103,7 @@ public class BuildToolsTest {
                         + "'\n"
                         + "}\n");
 
-        project.executor().withUseDexArchive(false).run("assemble");
+        project.executor().run("assemble");
 
         String otherBuildToolsVersion = AndroidBuilder.MIN_BUILD_TOOLS_REV.toString();
         // Sanity check:
@@ -111,9 +122,9 @@ public class BuildToolsTest {
                         + "'\n"
                         + "}\n");
 
-        GradleBuildResult result = project.executor().withUseDexArchive(false).run("assemble");
+        GradleBuildResult result = project.executor().run("assemble");
 
-        assertThat(result.getInputChangedTasks()).containsAllIn(JAVAC_TASKS);
+        assertThat(result.getDidWorkTasks()).containsAllIn(COMMON_TASKS);
     }
 
     @Test

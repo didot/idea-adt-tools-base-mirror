@@ -27,11 +27,6 @@ public class BuilderConstants {
     public static final String EXT_LIB_ARCHIVE = "aar";
 
     /**
-     * Extension for atom bundles.
-     */
-    public static final String EXT_ATOMBUNDLE_ARCHIVE = "atombundle";
-
-    /**
      * The name of the default config.
      */
     public static final String MAIN = "main";
@@ -49,8 +44,7 @@ public class BuilderConstants {
     public static final String DEVICE = "device";
 
     public static final String FD_ANDROID_TESTS = "androidTests";
-    public static final String FD_ANDROID_RESULTS =
-            VariantType.ANDROID_TEST.getPrefix() + "-results";
+    public static final String FD_ANDROID_RESULTS = VariantType.ANDROID_TEST_PREFIX + "-results";
 
     public static final String FD_FLAVORS = "flavors";
     public static final String FD_FLAVORS_ALL = "all";

@@ -19,7 +19,7 @@ package com.android.tools.lint.checks
 import com.android.builder.model.AndroidLibrary
 import com.android.builder.model.JavaLibrary
 import com.android.builder.model.Library
-import com.android.tools.lint.checks.GradleDetector.getCompileDependencies
+import com.android.tools.lint.checks.GradleDetector.Companion.getCompileDependencies
 import com.android.tools.lint.detector.api.Project
 import java.util.ArrayDeque
 
@@ -39,7 +39,7 @@ data class Coordinate(val group: String, val artifact: String) : Comparable<Coor
  */
 class BlacklistedDeps(val project: Project) {
 
-    private var map: MutableMap<Coordinate,List<Library>>? = null
+    private var map: MutableMap<Coordinate, List<Library>>? = null
 
     init {
         val dependencies = getCompileDependencies(project)
@@ -76,16 +76,18 @@ class BlacklistedDeps(val project: Project) {
     }
 
     private fun visitAndroidLibraries(
-            stack: ArrayDeque<Library>,
-            libraries: Collection<AndroidLibrary>) {
+        stack: ArrayDeque<Library>,
+        libraries: Collection<AndroidLibrary>
+    ) {
         for (library in libraries) {
             visitAndroidLibrary(stack, library)
         }
     }
 
     private fun visitJavaLibraries(
-            stack: ArrayDeque<Library>,
-            libraries: Collection<JavaLibrary>) {
+        stack: ArrayDeque<Library>,
+        libraries: Collection<JavaLibrary>
+    ) {
         for (library in libraries) {
             visitJavaLibrary(stack, library)
         }
@@ -132,8 +134,9 @@ class BlacklistedDeps(val project: Project) {
     }
 
     private fun isBlacklistedDependency(
-            groupId: String,
-            artifactId: String): Boolean {
+        groupId: String,
+        artifactId: String
+    ): Boolean {
         when (groupId) {
             // org.apache.http.*
             "org.apache.httpcomponents" -> return "httpclient" == artifactId

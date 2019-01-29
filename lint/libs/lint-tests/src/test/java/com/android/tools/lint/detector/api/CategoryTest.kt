@@ -20,7 +20,6 @@ import com.google.common.base.Joiner
 import com.google.common.collect.Lists
 import junit.framework.TestCase
 import java.lang.reflect.Modifier
-import java.util.Collections
 
 class CategoryTest : TestCase() {
     fun testCompare() {
@@ -35,22 +34,29 @@ class CategoryTest : TestCase() {
             }
         }
 
-        Collections.sort(categories)
+        categories.sort()
 
-        assertEquals(""
-                + "Lint\n"
-                + "Correctness\n"
-                + "Correctness:Messages\n"
-                + "Correctness:Chrome OS\n"
-                + "Security\n"
-                + "Performance\n"
-                + "Usability:Typography\n"
-                + "Usability:Icons\n"
-                + "Usability\n"
-                + "Accessibility\n"
-                + "Internationalization\n"
-                + "Internationalization:Bidirectional Text",
-                Joiner.on("\n").join(categories))
+        assertEquals(
+            "" +
+                    "Lint\n" +
+                    "Correctness\n" +
+                    "Correctness:Messages\n" +
+                    "Correctness:Chrome OS\n" +
+                    "Security\n" +
+                    "Compliance\n" +
+                    "Performance\n" +
+                    "Performance:Application Size\n" +
+                    "Usability:Typography\n" +
+                    "Usability:Icons\n" +
+                    "Usability\n" +
+                    "Accessibility\n" +
+                    "Internationalization\n" +
+                    "Interoperability\n" +
+                    "Interoperability:Kotlin Interoperability\n" +
+                    "Interoperability:Java Interoperability\n" +
+                    "Internationalization:Bidirectional Text",
+            Joiner.on("\n").join(categories)
+        )
     }
 
     fun testGetName() = assertEquals("Messages", Category.MESSAGES.name)

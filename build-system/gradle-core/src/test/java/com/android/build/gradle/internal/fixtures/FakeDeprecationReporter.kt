@@ -17,7 +17,7 @@
 package com.android.build.gradle.internal.fixtures
 
 import com.android.build.gradle.internal.errors.DeprecationReporter
-import com.google.common.collect.ImmutableTable
+import com.android.build.gradle.options.Option
 
 class FakeDeprecationReporter: DeprecationReporter {
 
@@ -47,11 +47,28 @@ class FakeDeprecationReporter: DeprecationReporter {
         deprecationWarnings.add(oldDslElement)
     }
 
-    override fun reportDeprecatedConfiguration(
+    override fun reportDeprecatedApi(
+        newApiElement: String,
+        oldApiElement: String,
+        url: String,
+        deprecationTarget: DeprecationReporter.DeprecationTarget
+    ) {
+        deprecationWarnings.add(oldApiElement)
+    }
+
+    override fun reportRenamedConfiguration(
         newConfiguration: String,
         oldConfiguration: String,
         deprecationTarget: DeprecationReporter.DeprecationTarget,
         url: String?
+    ) {
+        deprecationWarnings.add(oldConfiguration)
+    }
+
+    override fun reportDeprecatedConfiguration(
+        newDslElement: String,
+        oldConfiguration: String,
+        deprecationTarget: DeprecationReporter.DeprecationTarget
     ) {
         deprecationWarnings.add(oldConfiguration)
     }
@@ -70,10 +87,7 @@ class FakeDeprecationReporter: DeprecationReporter {
         deprecationWarnings.add(option)
     }
 
-    override fun reportDeprecatedOptions(
-            options: ImmutableTable<String, String, DeprecationReporter.DeprecationTarget>) {
-        for (cell in options.cellSet()) {
-            reportDeprecatedOption(cell.columnKey!!, cell.rowKey, cell.value!!)
-        }
+    override fun reportExperimentalOption(option: Option<*>, value: String) {
+        deprecationWarnings.add(option.propertyName)
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2007 The Android Open Source Project
+ * Copyright (C) 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,86 +13,132 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.ide.common.resources;
 
-import com.android.ide.common.rendering.api.ResourceValue;
-import com.android.ide.common.resources.configuration.Configurable;
+import com.android.SdkConstants;
+import com.android.annotations.NonNull;
+import com.android.annotations.VisibleForTesting;
 import com.android.ide.common.resources.configuration.FolderConfiguration;
-import com.android.io.IAbstractFile;
-import com.android.resources.ResourceType;
-
-import java.util.Collection;
+import com.google.common.base.MoreObjects;
+import java.io.File;
+import java.util.List;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
 
 /**
- * Represents a Resource file (a file under $Project/res/)
+ * Represents a file in a resource folders.
+ *
+ * <p>It contains a link to the {@link File}, the qualifier string (which is the name of the folder
+ * after the first '-' character), a list of {@link ResourceMergerItem}s and a type.
+ *
+ * <p>The type of the file is based on whether the file is located in a values folder ({@link
+ * FileType#XML_VALUES}) or in another folder ({@link FileType#SINGLE_FILE} or {@link
+ * FileType#GENERATED_FILES}).
  */
-public abstract class ResourceFile implements Configurable {
+public class ResourceFile extends DataFile<ResourceMergerItem> {
+    static final String ATTR_QUALIFIER = "qualifiers";
 
-    private final IAbstractFile mFile;
-    private final ResourceFolder mFolder;
+    private FolderConfiguration mFolderConfiguration;
 
-    protected ResourceFile(IAbstractFile file, ResourceFolder folder) {
-        mFile = file;
-        mFolder = folder;
+    /**
+     * Creates a resource file with a single resource item.
+     *
+     * <p>The source file is set on the item with {@link ResourceMergerItem#setSourceFile(DataFile)}
+     *
+     * <p>The type of the ResourceFile will be {@link FileType#SINGLE_FILE}.
+     *
+     * @param file the File
+     * @param item the resource item
+     * @param folderConfiguration the folder configuration
+     */
+    public ResourceFile(
+            @NonNull File file,
+            @NonNull ResourceMergerItem item,
+            @NonNull FolderConfiguration folderConfiguration) {
+        super(file, FileType.SINGLE_FILE);
+        mFolderConfiguration = folderConfiguration;
+        init(item);
     }
 
-    protected abstract void load(ScanningContext context);
-    protected abstract void update(ScanningContext context);
-    protected abstract void dispose(ScanningContext context);
+    /**
+     * Creates a resource file with a list of resource items.
+     *
+     * <p>The source file is set on the items with {@link ResourceMergerItem#setSourceFile(DataFile)}
+     *
+     * <p>The type of the ResourceFile will be {@link FileType#XML_VALUES}.
+     *
+     * @param file the File
+     * @param items the resource items
+     * @param folderConfiguration the folder configuration
+     */
+    public ResourceFile(
+            @NonNull File file,
+            @NonNull List<ResourceMergerItem> items,
+            @NonNull FolderConfiguration folderConfiguration) {
+        this(file, items, folderConfiguration, FileType.XML_VALUES);
+    }
+
+    private ResourceFile(
+            @NonNull File file,
+            @NonNull List<ResourceMergerItem> items,
+            @NonNull FolderConfiguration folderConfiguration,
+            @NonNull FileType fileType) {
+        super(file, fileType);
+        mFolderConfiguration = folderConfiguration;
+        init(items);
+    }
+
+    public static ResourceFile generatedFiles(
+            @NonNull File file,
+            @NonNull List<ResourceMergerItem> items,
+            @NonNull FolderConfiguration folderConfiguration) {
+        // TODO: Replace other constructors with named methods.
+        return new ResourceFile(file, items, folderConfiguration, FileType.GENERATED_FILES);
+    }
+
+    /**
+     * Creates a resource file with a single resource item.
+     *
+     * <p>This method parses the folder configuration from qualifiers for each file independently
+     * (which may be less performant than parsing it once for all files in a folder and supplying
+     * the parsed configuration).
+     */
+    @VisibleForTesting
+    public static ResourceFile createSingle(
+            @NonNull File file, @NonNull ResourceMergerItem item, @NonNull String qualifiers) {
+        FolderConfiguration folderConfiguration = FolderConfiguration.getConfigForQualifierString(qualifiers);
+        assert folderConfiguration != null;
+        return new ResourceFile(file, item, folderConfiguration);
+    }
+
+    @NonNull
+    public String getQualifiers() {
+        return mFolderConfiguration.getQualifierString();
+    }
+
+    // Used in Studio
+    public void setQualifiers(@NonNull String qualifiers) {
+        mFolderConfiguration = FolderConfiguration.getConfigForQualifierString(qualifiers);
+    }
+
+    @NonNull
+    public FolderConfiguration getFolderConfiguration() {
+        return mFolderConfiguration;
+    }
 
     @Override
-    public FolderConfiguration getConfiguration() {
-        return mFolder.getConfiguration();
+    void addExtraAttributes(Document document, Node node, String namespaceUri) {
+        NodeUtils.addAttribute(document, node, namespaceUri, ATTR_QUALIFIER, getQualifiers());
+
+        if (getType() == FileType.GENERATED_FILES) {
+            NodeUtils.addAttribute(document, node, namespaceUri, SdkConstants.ATTR_PREPROCESSING, "true");
+        }
     }
-
-    /**
-     * Returns the IFile associated with the ResourceFile.
-     */
-    public final IAbstractFile getFile() {
-        return mFile;
-    }
-
-    /**
-     * Returns the parent folder as a {@link ResourceFolder}.
-     */
-    public final ResourceFolder getFolder() {
-        return mFolder;
-    }
-
-    public final ResourceRepository getRepository() {
-        return mFolder.getRepository();
-    }
-
-    /**
-     * Returns whether the resource is a framework resource.
-     */
-    public final boolean isFramework() {
-        return mFolder.getRepository().isFrameworkRepository();
-    }
-
-    /**
-     * Returns the list of {@link ResourceType} generated by the file. This is never null.
-     */
-    public abstract Collection<ResourceType> getResourceTypes();
-
-    /**
-     * Returns whether the file generated a resource of a specific type.
-     * @param type The {@link ResourceType}
-     */
-    public abstract boolean hasResources(ResourceType type);
-
-    /**
-     * Returns the value of a resource generated by this file by {@link ResourceType} and name.
-     * <p>If no resource match, <code>null</code> is returned.
-     * @param type the type of the resource.
-     * @param name the name of the resource.
-     */
-    public abstract ResourceValue getValue(ResourceType type, String name);
 
     @Override
     public String toString() {
-        return mFile.toString();
+        return MoreObjects.toStringHelper(getClass())
+                .add("mFile", mFile)
+                .toString();
     }
 }
-

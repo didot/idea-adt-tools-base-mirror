@@ -81,9 +81,8 @@ public final class DexArchiveTestUtil {
                         DexArchiveBuilder.createD8DexBuilder(
                                 minSdkVersion,
                                 true,
-                                Collections.emptyList(),
-                                Collections.emptyList(),
-                                new ClassFileProviderFactory(),
+                                new ClassFileProviderFactory(Collections.emptyList()),
+                                new ClassFileProviderFactory(Collections.emptyList()),
                                 true,
                                 new StandardOutErrMessageReceiver());
             }
@@ -209,19 +208,22 @@ public final class DexArchiveTestUtil {
         DexArchiveMerger merger;
         switch (dexMergerTool) {
             case DX:
-                merger = DexArchiveMerger.createDxDexMerger(dxContext, ForkJoinPool.commonPool());
+                merger =
+                        DexArchiveMerger.createDxDexMerger(
+                                dxContext, ForkJoinPool.commonPool(), true);
                 break;
             case D8:
                 merger =
                         DexArchiveMerger.createD8DexMerger(
                                 new StandardOutErrMessageReceiver(),
                                 dexingType == DexingType.NATIVE_MULTIDEX ? 21 : 1,
-                                true);
+                                true,
+                                ForkJoinPool.commonPool());
                 break;
             default:
                 throw new AssertionError();
         }
         Files.createDirectory(outputDir);
-        merger.mergeDexArchives(inputs, outputDir, mainDexList, dexingType);
+        merger.mergeDexArchives(inputs.iterator(), outputDir, mainDexList, dexingType);
     }
 }

@@ -18,8 +18,9 @@ package com.android.build.gradle.internal.packaging;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.apkzlib.zfile.ApkCreatorFactory;
-import com.android.apkzlib.zfile.NativeLibrariesPackagingMode;
+import com.android.build.gradle.internal.incremental.CapturingChangesApkCreator;
+import com.android.build.gradle.internal.incremental.FolderBasedApkCreator;
+import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.internal.packaging.IncrementalPackager;
 import com.android.builder.model.SigningConfig;
 import com.android.builder.packaging.PackagerException;
@@ -27,6 +28,8 @@ import com.android.builder.packaging.PackagingUtils;
 import com.android.ide.common.signing.CertificateInfo;
 import com.android.ide.common.signing.KeystoreHelper;
 import com.android.ide.common.signing.KeytoolException;
+import com.android.tools.build.apkzlib.zfile.ApkCreatorFactory;
+import com.android.tools.build.apkzlib.zfile.NativeLibrariesPackagingMode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import java.io.File;
@@ -37,6 +40,7 @@ import java.security.cert.X509Certificate;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
 import org.gradle.api.Project;
 
@@ -50,11 +54,43 @@ import org.gradle.api.Project;
  */
 public class IncrementalPackagerBuilder {
 
-    /**
-     * Signing key. {@code null} if not defined.
-     */
-    @Nullable
-    private PrivateKey key;
+    /** Enums for all the supported output format. */
+    public enum ApkFormat {
+        /** Usual APK format. */
+        FILE {
+            @Override
+            ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild) {
+                return ApkCreatorFactories.fromProjectProperties(project, debuggableBuild);
+            }
+        },
+
+        FILE_WITH_LIST_OF_CHANGES {
+            @SuppressWarnings({"OResourceOpenedButNotSafelyClosed", "resource"})
+            @Override
+            ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild) {
+                ApkCreatorFactory apk =
+                        ApkCreatorFactories.fromProjectProperties(project, debuggableBuild);
+                return creationData ->
+                        new CapturingChangesApkCreator(creationData, apk.make(creationData));
+            }
+        },
+
+        /** Directory with a structure mimicking the APK format. */
+        DIRECTORY {
+            @SuppressWarnings({"OResourceOpenedButNotSafelyClosed", "resource"})
+            @Override
+            ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild) {
+                return creationData ->
+                        new CapturingChangesApkCreator(
+                                creationData, new FolderBasedApkCreator(creationData));
+            }
+        };
+
+        abstract ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild);
+    }
+
+    /** Signing key. {@code null} if not defined. */
+    @Nullable private PrivateKey key;
 
     /**
      * Signing certificate. {@code null} if not defined
@@ -77,9 +113,10 @@ public class IncrementalPackagerBuilder {
     @Nullable
     private File outputFile;
 
-    /**
-     * The minimum SDK.
-     */
+    /** Desired format of the output. */
+    @NonNull private ApkFormat apkFormat;
+
+    /** The minimum SDK. */
     private int minSdk;
 
     /**
@@ -140,12 +177,14 @@ public class IncrementalPackagerBuilder {
     /** aapt options no compress config. */
     @Nullable private Collection<String> aaptOptionsNoCompress;
 
-    /**
-     * Creates a new builder.
-     */
-    public IncrementalPackagerBuilder() {
+    @Nullable private EvalIssueReporter issueReporter;
+    @Nullable private BooleanSupplier canParseManifest;
+
+    /** Creates a new builder. */
+    public IncrementalPackagerBuilder(@NonNull ApkFormat apkFormat) {
         minSdk = 1;
         abiFilters = new HashSet<>();
+        this.apkFormat = apkFormat;
     }
 
     /**
@@ -156,19 +195,29 @@ public class IncrementalPackagerBuilder {
      */
     @NonNull
     public IncrementalPackagerBuilder withSigning(@Nullable SigningConfig signingConfig) {
+        if (signingConfig == null) {
+            return this;
+        }
         try {
-            if (signingConfig != null && signingConfig.isSigningReady()) {
-                CertificateInfo certificateInfo = KeystoreHelper.getCertificateInfo(
-                        signingConfig.getStoreType(),
-                        Preconditions.checkNotNull(signingConfig.getStoreFile()),
-                        Preconditions.checkNotNull(signingConfig.getStorePassword()),
-                        Preconditions.checkNotNull(signingConfig.getKeyPassword()),
-                        Preconditions.checkNotNull(signingConfig.getKeyAlias()));
-                key = certificateInfo.getKey();
-                certificate = certificateInfo.getCertificate();
-                v1SigningEnabled = signingConfig.isV1SigningEnabled();
-                v2SigningEnabled = signingConfig.isV2SigningEnabled();
-            }
+            String error =
+                    "SigningConfig \""
+                            + signingConfig.getName()
+                            + "\" is missing required property \"%s\".";
+            CertificateInfo certificateInfo =
+                    KeystoreHelper.getCertificateInfo(
+                            signingConfig.getStoreType(),
+                            Preconditions.checkNotNull(
+                                    signingConfig.getStoreFile(), error, "storeFile"),
+                            Preconditions.checkNotNull(
+                                    signingConfig.getStorePassword(), error, "storePassword"),
+                            Preconditions.checkNotNull(
+                                    signingConfig.getKeyPassword(), error, "keyPassword"),
+                            Preconditions.checkNotNull(
+                                    signingConfig.getKeyAlias(), error, "keyAlias"));
+            key = certificateInfo.getKey();
+            certificate = certificateInfo.getCertificate();
+            v1SigningEnabled = signingConfig.isV1SigningEnabled();
+            v2SigningEnabled = signingConfig.isV2SigningEnabled();
         } catch (KeytoolException|FileNotFoundException e) {
             throw new RuntimeException(e);
         }
@@ -324,6 +373,17 @@ public class IncrementalPackagerBuilder {
     }
 
     /**
+     * Sets the issueReporter to report errors/warnings.
+     *
+     * @param issueReporter the EvalIssueReporter to use.
+     * @return {@code this} for use with fluent-style notation
+     */
+    public IncrementalPackagerBuilder withIssueReporter(@NonNull EvalIssueReporter issueReporter) {
+        this.issueReporter = issueReporter;
+        return this;
+    }
+
+    /**
      * Creates the packager, verifying that all the minimum data has been provided. The required
      * information are:
      *
@@ -344,7 +404,8 @@ public class IncrementalPackagerBuilder {
         if (noCompressPredicate == null) {
             if (manifest != null) {
                 noCompressPredicate =
-                        PackagingUtils.getNoCompressPredicate(aaptOptionsNoCompress, manifest);
+                        PackagingUtils.getNoCompressPredicate(
+                                aaptOptionsNoCompress, manifest, () -> true, issueReporter);
             } else {
                 noCompressPredicate = path -> false;
             }
@@ -353,7 +414,8 @@ public class IncrementalPackagerBuilder {
         if (nativeLibrariesPackagingMode == null) {
             if (manifest != null) {
                 nativeLibrariesPackagingMode =
-                        PackagingUtils.getNativeLibrariesLibrariesPackagingMode(manifest);
+                        PackagingUtils.getNativeLibrariesLibrariesPackagingMode(
+                                manifest, canParseManifest, issueReporter);
             } else {
                 nativeLibrariesPackagingMode = NativeLibrariesPackagingMode.COMPRESSED;
             }
@@ -370,15 +432,13 @@ public class IncrementalPackagerBuilder {
                         createdBy,
                         minSdk,
                         nativeLibrariesPackagingMode,
-                        noCompressPredicate);
+                        noCompressPredicate::test);
 
         try {
             return new IncrementalPackager(
                     creationData,
                     intermediateDir,
-                    ApkCreatorFactories.fromProjectProperties(
-                            project,
-                            debuggableBuild),
+                    apkFormat.factory(project, debuggableBuild),
                     abiFilters,
                     jniDebuggableBuild);
         } catch (PackagerException|IOException e) {

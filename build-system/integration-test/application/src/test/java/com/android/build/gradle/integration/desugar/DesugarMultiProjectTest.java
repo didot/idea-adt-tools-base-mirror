@@ -17,22 +17,24 @@
 package com.android.build.gradle.integration.desugar;
 
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
-import static com.android.testutils.truth.PathSubject.assertThat;
+import static com.android.build.gradle.integration.desugar.DesugaringProjectConfigurator.configureR8Desugaring;
+import static com.android.build.gradle.internal.scope.VariantScope.Java8LangSupport.D8;
+import static com.android.build.gradle.internal.scope.VariantScope.Java8LangSupport.DESUGAR;
+import static com.android.build.gradle.internal.scope.VariantScope.Java8LangSupport.R8;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.integration.common.fixture.GradleTaskExecutor;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
+import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.options.BooleanOption;
-import com.android.ide.common.process.ProcessException;
 import com.android.testutils.apk.Apk;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.regex.Pattern;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -44,11 +46,11 @@ import org.junit.runners.Parameterized;
 public class DesugarMultiProjectTest {
 
     @Parameterized.Parameters(name = "{0}")
-    public static Collection<Boolean> getParams() {
-        return ImmutableList.of(true, false);
+    public static Collection<VariantScope.Java8LangSupport> getParams() {
+        return ImmutableList.of(R8, D8, DESUGAR);
     }
 
-    @Parameterized.Parameter public boolean useD8Desugaring;
+    @Parameterized.Parameter public VariantScope.Java8LangSupport tool;
 
     @Rule
     public GradleTestProject project =
@@ -56,13 +58,16 @@ public class DesugarMultiProjectTest {
 
     @Before
     public void setUp() throws IOException {
+        if (tool == R8) {
+            configureR8Desugaring(project.getSubproject("app"));
+        }
         compileWithJava8Target();
         addSources();
     }
 
     @Test
     public void testIncrementalBuilds_changeExisting()
-            throws IOException, InterruptedException, ProcessException {
+            throws Exception {
         executor().run("assembleDebug");
 
         TestFileUtils.addMethod(
@@ -73,9 +78,10 @@ public class DesugarMultiProjectTest {
                         .toFile(),
                 "default void name() {}");
         executor().run("assembleDebug");
-        Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
+        try (Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG)) {
 
-        assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("name");
+            assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("name");
+        }
 
         TestFileUtils.searchAndReplace(
                 project.getSubproject("baseLibrary")
@@ -83,12 +89,13 @@ public class DesugarMultiProjectTest {
                         .toPath()
                         .resolve("com/example/CarbonForm.java")
                         .toFile(),
-                Pattern.quote("default void name() {}"),
+                "default void name() {}",
                 "");
         executor().run("assembleDebug");
-        apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
+        try (Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG)) {
 
-        assertThat(apk).hasClass("Lcom/example/Cat;").that().doesNotHaveMethod("name");
+            assertThat(apk).hasClass("Lcom/example/Cat;").that().doesNotHaveMethod("name");
+        }
 
         executor().run("clean");
 
@@ -100,14 +107,15 @@ public class DesugarMultiProjectTest {
                         .toFile(),
                 "default void animalName() {}");
         executor().run("assembleDebug");
-        apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
+        try (Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG)) {
 
-        assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("animalName");
+            assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("animalName");
+        }
     }
 
     @Test
     public void testIncrementalBuilds_addToDirectDependency()
-            throws IOException, InterruptedException, ProcessException {
+            throws Exception {
         executor().run("assembleDebug");
 
         Path newLibSrc =
@@ -127,11 +135,12 @@ public class DesugarMultiProjectTest {
                         .toPath()
                         .resolve("com/example/Animal.java")
                         .toFile(),
-                Pattern.quote("extends CarbonForm {"),
+                "extends CarbonForm {",
                 "extends CarbonForm, IAnimal {");
         executor().run("assembleDebug");
-        Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
-        assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("kind");
+        try (Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG)) {
+            assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("kind");
+        }
 
         Files.delete(newLibSrc);
         TestFileUtils.searchAndReplace(
@@ -140,16 +149,17 @@ public class DesugarMultiProjectTest {
                         .toPath()
                         .resolve("com/example/Animal.java")
                         .toFile(),
-                Pattern.quote(", IAnimal {"),
+                ", IAnimal {",
                 "{");
         executor().run("assembleDebug");
-        apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
-        assertThat(apk).hasClass("Lcom/example/Cat;").that().doesNotHaveMethod("kind");
+        try (Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG)) {
+            assertThat(apk).hasClass("Lcom/example/Cat;").that().doesNotHaveMethod("kind");
+        }
     }
 
     @Test
     public void testIncrementalBuilds_addToTransitiveDependency()
-            throws IOException, InterruptedException, ProcessException {
+            throws Exception {
         executor().run("assembleDebug");
 
         Path newBaseLibSrc =
@@ -169,11 +179,12 @@ public class DesugarMultiProjectTest {
                         .toPath()
                         .resolve("com/example/CarbonForm.java")
                         .toFile(),
-                Pattern.quote("interface CarbonForm {"),
+                "interface CarbonForm {",
                 "interface CarbonForm extends ICarbonForm {");
         executor().run("assembleDebug");
-        Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
-        assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("latinName");
+        try (Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG)) {
+            assertThat(apk).hasClass("Lcom/example/Cat;").that().hasMethod("latinName");
+        }
 
         Files.delete(newBaseLibSrc);
         TestFileUtils.searchAndReplace(
@@ -182,11 +193,12 @@ public class DesugarMultiProjectTest {
                         .toPath()
                         .resolve("com/example/CarbonForm.java")
                         .toFile(),
-                Pattern.quote("extends ICarbonForm {"),
+                "extends ICarbonForm {",
                 "{");
         executor().run("assembleDebug");
-        apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
-        assertThat(apk).hasClass("Lcom/example/Cat;").that().doesNotHaveMethod("latinName");
+        try (Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG)) {
+            assertThat(apk).hasClass("Lcom/example/Cat;").that().doesNotHaveMethod("latinName");
+        }
     }
 
     private void compileWithJava8Target() throws IOException {
@@ -245,6 +257,9 @@ public class DesugarMultiProjectTest {
 
     @NonNull
     private GradleTaskExecutor executor() {
-        return project.executor().with(BooleanOption.ENABLE_D8_DESUGARING, useD8Desugaring);
+        return project.executor()
+                .with(BooleanOption.ENABLE_D8_DESUGARING, tool == D8)
+                .with(BooleanOption.ENABLE_R8, tool == R8)
+                .with(BooleanOption.ENABLE_R8_DESUGARING, tool == R8);
     }
 }

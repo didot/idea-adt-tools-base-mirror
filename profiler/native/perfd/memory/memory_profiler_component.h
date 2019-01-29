@@ -21,16 +21,14 @@
 #include "internal_memory_service.h"
 #include "memory_service.h"
 #include "perfd/profiler_component.h"
-#include "perfd/sessions/sessions_manager.h"
 
 namespace profiler {
 
 class MemoryProfilerComponent final : public ProfilerComponent {
  public:
-  explicit MemoryProfilerComponent(const SessionsManager& sessions,
-                                   Daemon::Utilities* utilities)
-      : private_service_(sessions, &collectors_),
-        public_service_(&private_service_, utilities, &collectors_) {}
+  explicit MemoryProfilerComponent(Clock* clock, FileCache* file_cache)
+      : private_service_(&collectors_),
+        public_service_(&private_service_, clock, file_cache, &collectors_) {}
 
   // Returns the service that talks to desktop clients (e.g., Studio).
   grpc::Service* GetPublicService() override { return &public_service_; }
@@ -43,8 +41,8 @@ class MemoryProfilerComponent final : public ProfilerComponent {
 
   MemoryServiceImpl public_service_;
 
-  // Mapping session id to MemoryCollector.
-  std::unordered_map<int64_t, MemoryCollector> collectors_;
+  // Mapping pid to MemoryCollector.
+  std::unordered_map<int32_t, MemoryCollector> collectors_;
 };
 
 }  // namespace profiler

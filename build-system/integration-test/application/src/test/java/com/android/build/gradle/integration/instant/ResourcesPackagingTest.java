@@ -26,12 +26,13 @@ import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.Logcat;
 import com.android.build.gradle.integration.common.fixture.TemporaryProjectModification;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
-import com.android.build.gradle.internal.transforms.InstantRunSlicer;
+import com.android.build.gradle.internal.transforms.DexArchiveBuilderTransform;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.tasks.InstantRunResourcesApkBuilder;
 import com.android.builder.model.InstantRun;
 import com.android.builder.model.OptionalCompilationStep;
 import com.android.sdklib.AndroidVersion;
+import com.android.sdklib.SdkVersionInfo;
 import com.android.testutils.apk.Apk;
 import com.android.tools.ir.client.InstantRunArtifact;
 import com.android.tools.ir.client.InstantRunArtifactType;
@@ -80,7 +81,8 @@ public class ResourcesPackagingTest {
                 InstantRunTestUtils.getInstantRunModel(
                         mProject.model().fetchAndroidProjects().getOnlyModel());
 
-        AndroidVersion androidVersion = new AndroidVersion(separateResourcesApk ? 26 : 21, null);
+        AndroidVersion androidVersion = new AndroidVersion(
+                separateResourcesApk ? SdkVersionInfo.HIGHEST_KNOWN_STABLE_API : 21, null);
         mProject.executor()
                 .withInstantRun(androidVersion, OptionalCompilationStep.FULL_APK)
                 .with(BooleanOption.ENABLE_SEPARATE_APK_RESOURCES, separateResourcesApk)
@@ -92,13 +94,18 @@ public class ResourcesPackagingTest {
         // the other the resources.apk. Otherwise, just one for the main apk
         int extraApks = separateResourcesApk ? 2 : 1;
         assertThat(buildInfo.getArtifacts())
-                .hasSize(InstantRunSlicer.NUMBER_OF_SLICES_FOR_PROJECT_CLASSES + extraApks);
+                .hasSize(
+                        DexArchiveBuilderTransform.NUMBER_OF_SLICES_FOR_PROJECT_CLASSES
+                                + extraApks);
         assertThat(
                         InstantRunTestUtils.getArtifactsOfType(
                                         buildInfo, InstantRunArtifactType.SPLIT)
                                 .size())
                 // Subtract the main APK.
-                .isEqualTo(InstantRunSlicer.NUMBER_OF_SLICES_FOR_PROJECT_CLASSES + extraApks - 1);
+                .isEqualTo(
+                        DexArchiveBuilderTransform.NUMBER_OF_SLICES_FOR_PROJECT_CLASSES
+                                + extraApks
+                                - 1);
 
         InstantRunArtifact splitMain =
                 InstantRunTestUtils.getOnlyArtifactOfType(

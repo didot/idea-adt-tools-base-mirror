@@ -35,6 +35,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -48,7 +49,7 @@ public class TestFileUtils {
 
         return Files.walk(base)
                 .filter(Files::isRegularFile)
-                .map(path -> path.toString().substring(base.toString().length()))
+                .map(path -> path.toString().substring(base.toString().length() + 1))
                 .collect(Collectors.toList());
     }
 
@@ -66,15 +67,66 @@ public class TestFileUtils {
         }
     }
 
-    public static void searchAndReplace(
-            @NonNull File file,
-            @NonNull String search,
-            @NonNull String replace) throws IOException {
-        searchAndReplace(file.toPath(), search, replace);
+    /**
+     * Searches a string in a file that matches the given regular expression and replaces it with
+     * another string.
+     *
+     * <p>To search for a string literal instead of a regular expression, use {@link
+     * #searchAndReplace(File, String, String)} instead.
+     *
+     * @see #searchAndReplace(File, String, String)
+     */
+    public static void searchRegexAndReplace(
+            @NonNull File file, @NonNull String regex, @NonNull String replacement)
+            throws IOException {
+        doSearchAndReplace(file.toPath(), regex, replacement, 0);
     }
 
+    /**
+     * Searches a string in a file that matches the given regular expression and replaces it with
+     * another string.
+     *
+     * <p>To search for a string literal instead of a regular expression, use {@link
+     * #searchAndReplace(Path, String, String)} instead.
+     *
+     * @see #searchAndReplace(Path, String, String)
+     */
+    public static void searchRegexAndReplace(
+            @NonNull Path file, @NonNull String regex, @NonNull String replacement)
+            throws IOException {
+        doSearchAndReplace(file, regex, replacement, 0);
+    }
+
+    /**
+     * Searches a string literal in a file and replaces it with another string.
+     *
+     * <p>To search for a regular expression instead of a string literal, use {@link
+     * #searchRegexAndReplace(File, String, String)} instead.
+     *
+     * @see #searchRegexAndReplace(File, String, String)
+     */
     public static void searchAndReplace(
-            @NonNull Path file, @NonNull String search, @NonNull String replace)
+            @NonNull File file, @NonNull String literal, @NonNull String replacement)
+            throws IOException {
+        doSearchAndReplace(file.toPath(), literal, replacement, Pattern.LITERAL);
+    }
+
+    /**
+     * Searches a string literal in a file and replaces it with another string.
+     *
+     * <p>To search for a regular expression instead of a string literal, use {@link
+     * #searchRegexAndReplace(Path, String, String)} instead.
+     *
+     * @see #searchRegexAndReplace(Path, String, String)
+     */
+    public static void searchAndReplace(
+            @NonNull Path path, @NonNull String literal, @NonNull String replacement)
+            throws IOException {
+        doSearchAndReplace(path, literal, replacement, Pattern.LITERAL);
+    }
+
+    private static void doSearchAndReplace(
+            @NonNull Path file, @NonNull String search, @NonNull String replace, int flags)
             throws IOException {
 
         String content = new String(java.nio.file.Files.readAllBytes(file));
@@ -86,7 +138,7 @@ public class TestFileUtils {
             replace = StringHelper.toSystemLineSeparator(replace);
         }
 
-        String newContent = content.replaceAll(search, replace);
+        String newContent = Pattern.compile(search, flags).matcher(content).replaceAll(replace);
         assertNotEquals(
                 "No match in file"
                         + "\n - File:   " + file + "\n - Search: " + search
@@ -126,7 +178,7 @@ public class TestFileUtils {
             @NonNull File javaFile,
             @NonNull String methodCode) throws IOException {
         // Put the method code before the last closing brace.
-        searchAndReplace(javaFile, "\n}\\s*$", "\n    " + methodCode + "\n\n}");
+        searchRegexAndReplace(javaFile, "\n}\\s*$", "\n    " + methodCode + "\n\n}");
     }
 
     public static void appendToFile(@NonNull File file, @NonNull String content) throws IOException {

@@ -36,10 +36,25 @@ import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 @SuppressWarnings("ClassNameDiffersFromFileName")
 public class ConstantEvaluatorTest extends TestCase {
-    private static void checkUast(Object expected, @Language("JAVA") String source,
-            final String targetVariable) {
+    private static void checkJavaUast(
+            Object expected, @Language("JAVA") String source, final String targetVariable) {
         Pair<JavaContext, Disposable> pair =
                 LintUtilsTest.parse(source, new File("src/test/pkg/Test.java"));
+        checkUast(expected, pair, source, targetVariable);
+    }
+
+    private static void checkKotlinUast(
+            Object expected, @Language("Kt") String source, final String targetVariable) {
+        Pair<JavaContext, Disposable> pair =
+                LintUtilsTest.parseKotlin(source, new File("src/test/pkg/Test.kt"));
+        checkUast(expected, pair, source, targetVariable);
+    }
+
+    private static void checkUast(
+            Object expected,
+            Pair<JavaContext, Disposable> pair,
+            String source,
+            final String targetVariable) {
         JavaContext context = pair.getFirst();
         Disposable disposable = pair.getSecond();
         assertNotNull(context);
@@ -48,55 +63,57 @@ public class ConstantEvaluatorTest extends TestCase {
 
         // Find the expression
         final AtomicReference<UExpression> reference = new AtomicReference<>();
-        uFile.accept(new AbstractUastVisitor() {
-            @Override
-            public boolean visitVariable(UVariable variable) {
-                String name = variable.getName();
-                if (name != null && name.equals(targetVariable)) {
-                    reference.set(variable.getUastInitializer());
-                }
+        uFile.accept(
+                new AbstractUastVisitor() {
+                    @Override
+                    public boolean visitVariable(UVariable variable) {
+                        String name = variable.getName();
+                        if (name != null && name.equals(targetVariable)) {
+                            reference.set(variable.getUastInitializer());
+                        }
 
-                return super.visitVariable(variable);
-            }
-        });
+                        return super.visitVariable(variable);
+                    }
+                });
 
         UExpression expression = reference.get();
         Object actual = ConstantEvaluator.evaluate(context, expression);
         if (expected == null) {
             assertNull(actual);
         } else {
-            assertNotNull("Couldn't compute value for " + source + ", expected "
-                            + expected + " but was " + actual,
+            assertNotNull(
+                    "Couldn't compute value for "
+                            + source
+                            + ", expected "
+                            + expected
+                            + " but was "
+                            + actual,
                     actual);
             assertSame(expected.getClass(), actual.getClass());
             if (expected instanceof Object[] && actual instanceof Object[]) {
-                assertEquals(Arrays.toString((Object[]) expected),
-                        Arrays.toString((Object[]) actual));
+                assertEquals(
+                        Arrays.toString((Object[]) expected), Arrays.toString((Object[]) actual));
                 assertTrue(Arrays.equals((Object[]) expected, (Object[]) actual));
             } else if (expected instanceof int[] && actual instanceof int[]) {
-                assertEquals(Arrays.toString((int[]) expected),
-                        Arrays.toString((int[]) actual));
+                assertEquals(Arrays.toString((int[]) expected), Arrays.toString((int[]) actual));
             } else if (expected instanceof boolean[] && actual instanceof boolean[]) {
-                assertEquals(Arrays.toString((boolean[]) expected),
-                        Arrays.toString((boolean[]) actual));
+                assertEquals(
+                        Arrays.toString((boolean[]) expected), Arrays.toString((boolean[]) actual));
             } else if (expected instanceof byte[] && actual instanceof byte[]) {
-                assertEquals(Arrays.toString((byte[]) expected),
-                        Arrays.toString((byte[]) actual));
+                assertEquals(Arrays.toString((byte[]) expected), Arrays.toString((byte[]) actual));
             } else {
                 assertEquals(expected.toString(), actual.toString());
                 assertEquals(expected, actual);
             }
         }
         if (expected instanceof String) {
-            assertEquals(expected, ConstantEvaluator.evaluateString(context, expression,
-                    false));
+            assertEquals(expected, ConstantEvaluator.evaluateString(context, expression, false));
         }
         Disposer.dispose(disposable);
     }
 
-
-    private static void checkPsi(Object expected, @Language("JAVA") String source,
-            final String targetVariable) {
+    private static void checkPsi(
+            Object expected, @Language("JAVA") String source, final String targetVariable) {
         Pair<JavaContext, Disposable> pair =
                 LintUtilsTest.parse(source, new File("src/test/pkg/Test.java"));
         JavaContext context = pair.getFirst();
@@ -107,88 +124,117 @@ public class ConstantEvaluatorTest extends TestCase {
 
         // Find the expression
         final AtomicReference<PsiExpression> reference = new AtomicReference<>();
-        javaFile.accept(new JavaRecursiveElementVisitor() {
-            @Override
-            public void visitLocalVariable(PsiLocalVariable variable) {
-                super.visitLocalVariable(variable);
-                String name = variable.getName();
-                if (name != null && name.equals(targetVariable)) {
-                    reference.set(variable.getInitializer());
-                }
-            }
-        });
+        javaFile.accept(
+                new JavaRecursiveElementVisitor() {
+                    @Override
+                    public void visitLocalVariable(PsiLocalVariable variable) {
+                        super.visitLocalVariable(variable);
+                        String name = variable.getName();
+                        if (name != null && name.equals(targetVariable)) {
+                            reference.set(variable.getInitializer());
+                        }
+                    }
+                });
         PsiExpression expression = reference.get();
         Object actual = ConstantEvaluator.evaluate(context, expression);
         if (expected == null) {
             assertNull(actual);
         } else {
-            assertNotNull("Couldn't compute value for " + source + ", expected "
-                            + expected + " but was " + actual,
+            assertNotNull(
+                    "Couldn't compute value for "
+                            + source
+                            + ", expected "
+                            + expected
+                            + " but was "
+                            + actual,
                     actual);
             assertSame(expected.getClass(), actual.getClass());
             if (expected instanceof Object[] && actual instanceof Object[]) {
-                assertEquals(Arrays.toString((Object[]) expected),
-                        Arrays.toString((Object[]) actual));
+                assertEquals(
+                        Arrays.toString((Object[]) expected), Arrays.toString((Object[]) actual));
                 assertTrue(Arrays.equals((Object[]) expected, (Object[]) actual));
             } else if (expected instanceof int[] && actual instanceof int[]) {
-                assertEquals(Arrays.toString((int[]) expected),
-                        Arrays.toString((int[]) actual));
+                assertEquals(Arrays.toString((int[]) expected), Arrays.toString((int[]) actual));
             } else if (expected instanceof boolean[] && actual instanceof boolean[]) {
-                assertEquals(Arrays.toString((boolean[]) expected),
-                        Arrays.toString((boolean[]) actual));
+                assertEquals(
+                        Arrays.toString((boolean[]) expected), Arrays.toString((boolean[]) actual));
             } else if (expected instanceof byte[] && actual instanceof byte[]) {
-                assertEquals(Arrays.toString((byte[]) expected),
-                        Arrays.toString((byte[]) actual));
+                assertEquals(Arrays.toString((byte[]) expected), Arrays.toString((byte[]) actual));
             } else {
                 assertEquals(expected.toString(), actual.toString());
                 assertEquals(expected, actual);
             }
         }
         if (expected instanceof String) {
-            assertEquals(expected, ConstantEvaluator.evaluateString(context, expression,
-                    false));
+            assertEquals(expected, ConstantEvaluator.evaluateString(context, expression, false));
         }
         Disposer.dispose(disposable);
     }
 
-    private static void check(Object expected, @Language("JAVA") String source,
-            final String targetVariable) {
-        checkUast(expected, source, targetVariable);
+    private static void check(
+            Object expected, @Language("JAVA") String source, final String targetVariable) {
+        checkJavaUast(expected, source, targetVariable);
         checkPsi(expected, source, targetVariable);
         LintCoreApplicationEnvironment.disposeApplicationEnvironment();
     }
 
-    private static void checkStatements(Object expected, String statementsSource,
-            final String targetVariable) {
+    private static void checkStatements(
+            Object expected, String statementsSource, final String targetVariable) {
         @Language("JAVA")
-        String source = ""
-                + "package test.pkg;\n"
-                + "public class Test {\n"
-                + "    public void test() {\n"
-                + "        " + statementsSource + "\n"
-                + "    }\n"
-                + "    public static final int MY_INT_FIELD = 5;\n"
-                + "    public static final boolean MY_BOOLEAN_FIELD = true;\n"
-                + "    public static final String MY_STRING_FIELD = \"test\";\n"
-                + "}\n";
+        String source =
+                ""
+                        + "package test.pkg;\n"
+                        + "public class Test {\n"
+                        + "    public void test() {\n"
+                        + "        "
+                        + statementsSource
+                        + "\n"
+                        + "    }\n"
+                        + "    public static final int MY_INT_FIELD = 5;\n"
+                        + "    public static final boolean MY_BOOLEAN_FIELD = true;\n"
+                        + "    public static final String MY_STRING_FIELD = \"test\";\n"
+                        + "}\n";
 
         check(expected, source, targetVariable);
     }
 
     private static void checkExpression(Object expected, String expressionSource) {
         @Language("JAVA")
-        String source = ""
-                + "package test.pkg;\n"
-                + "public class Test {\n"
-                + "    public void test() {\n"
-                + "        Object expression = " + expressionSource + ";\n"
-                + "    }\n"
-                + "    public static final int MY_INT_FIELD = 5;\n"
-                + "    public static final boolean MY_BOOLEAN_FIELD = true;\n"
-                + "    public static final String MY_STRING_FIELD = \"test\";\n"
-                + "}\n";
+        String source =
+                ""
+                        + "package test.pkg;\n"
+                        + "public class Test {\n"
+                        + "    public void test() {\n"
+                        + "        Object expression = "
+                        + expressionSource
+                        + ";\n"
+                        + "    }\n"
+                        + "    public static final int MY_INT_FIELD = 5;\n"
+                        + "    public static final boolean MY_BOOLEAN_FIELD = true;\n"
+                        + "    public static final String MY_STRING_FIELD = \"test\";\n"
+                        + "}\n";
 
         check(expected, source, "expression");
+    }
+
+    private static void checkKotlinExpression(Object expected, String expressionSource) {
+        @Language("Kt")
+        String source =
+                ""
+                        + "package test.pkg\n"
+                        + "class Test {\n"
+                        + "    fun test() {\n"
+                        + "        val expression = "
+                        + expressionSource
+                        + "\n"
+                        + "    }\n"
+                        + "    const val MY_INT_FIELD = 5;\n"
+                        + "    const val MY_BOOLEAN_FIELD = true;\n"
+                        + "    const val MY_STRING_FIELD = \"test\";\n"
+                        + "}\n";
+
+        checkKotlinUast(expected, source, "expression");
+        LintCoreApplicationEnvironment.disposeApplicationEnvironment();
     }
 
     public void testStrings() {
@@ -201,6 +247,35 @@ public class ConstantEvaluatorTest extends TestCase {
         checkExpression(new int[] {1, 2, 3}, "new int[] { 1,2,3] }");
         checkExpression(new int[0], "new int[0]");
         checkExpression(new byte[0], "new byte[0]");
+    }
+
+    public void testLargeArrays() {
+        checkExpression(new ConstantEvaluator.ArrayReference(Byte.TYPE, 100, 2), "new byte[100][]");
+        checkExpression(new ConstantEvaluator.ArrayReference(Byte.TYPE, 100, 1), "new byte[100]");
+        checkExpression(
+                new ConstantEvaluator.ArrayReference("java.lang.Integer", 100, 1),
+                "new Integer[100]");
+        checkExpression(100, "(new byte[100]).length");
+        checkExpression(100, "(new Integer[100]).length");
+    }
+
+    public void testKotlin() {
+        checkKotlinExpression(
+                new ConstantEvaluator.ArrayReference(Integer.TYPE, 100, 1), "IntArray(100)");
+        checkKotlinExpression(100, "IntArray(100).size");
+        checkKotlinExpression(1000, "kotlin.Array<String>(1000).size");
+        checkKotlinExpression(
+                new ConstantEvaluator.ArrayReference(String.class, 1000, 1), "Array<String>(1000)");
+        checkKotlinExpression(
+                new ConstantEvaluator.ArrayReference(String.class, 1000, 1),
+                "kotlin.Array<String>(1000)");
+        checkKotlinExpression(new Integer[] {1, 2, 3, 4}, "arrayOf(1,2,3,4)");
+        checkKotlinExpression(3, "arrayOf(1,2,3,4)[2]");
+        checkKotlinExpression(4, "arrayOf(1,2,3,4).size");
+        checkKotlinExpression(
+                new ConstantEvaluator.ArrayReference(String.class, 1000, 1),
+                "arrayOfNulls<String>(1000)");
+        checkKotlinExpression(1000, "arrayOfNulls<String>(1000).size");
     }
 
     public void testBooleans() {
@@ -226,8 +301,8 @@ public class ConstantEvaluatorTest extends TestCase {
         checkExpression(1, "(int)1");
         checkExpression(1L, "(long)1");
         checkExpression(1, "(int)1.1f");
-        checkExpression((short)65537, "(short)65537");
-        checkExpression((byte)1023, "(byte)1023");
+        checkExpression((short) 65537, "(short)65537");
+        checkExpression((byte) 1023, "(byte)1023");
         checkExpression(1.5, "(double)1.5f");
         checkExpression(-5.0, "(double)-5");
     }
@@ -246,14 +321,14 @@ public class ConstantEvaluatorTest extends TestCase {
         checkExpression(5, "5 | 1");
         checkExpression(1, "5 & 1");
         checkExpression(~5, "~5");
-        checkExpression(~(long)5, "~(long)5");
-        checkExpression(~(short)5, "~(short)5");
-        checkExpression(~(byte)5, "~(byte)5");
-        checkExpression(-(long)5, "-(long)5");
-        checkExpression(-(short)5, "-(short)5");
-        checkExpression(-(byte)5, "-(byte)5");
-        checkExpression(-(double)5, "-(double)5");
-        checkExpression(-(float)5, "-(float)5");
+        checkExpression(~(long) 5, "~(long)5");
+        checkExpression(~(short) 5, "~(short)5");
+        checkExpression(~(byte) 5, "~(byte)5");
+        checkExpression(-(long) 5, "-(long)5");
+        checkExpression(-(short) 5, "-(short)5");
+        checkExpression(-(byte) 5, "-(byte)5");
+        checkExpression(-(double) 5, "-(double)5");
+        checkExpression(-(float) 5, "-(float)5");
         checkExpression(-2, "1 + -3");
 
         checkExpression(false, "11 == 5");
@@ -293,14 +368,18 @@ public class ConstantEvaluatorTest extends TestCase {
     }
 
     public void testStatements() {
-        checkStatements(9, ""
+        checkStatements(
+                9,
+                ""
                         + "int x = +5;\n"
                         + "int y = x;\n"
                         + "int w;\n"
                         + "w = -1;\n"
                         + "int z = x + 5 + w;\n",
                 "z");
-        checkStatements("hello world", ""
+        checkStatements(
+                "hello world",
+                ""
                         + "String initial = \"hello\";\n"
                         + "String other;\n"
                         + "other = \" world\";\n"
@@ -309,14 +388,14 @@ public class ConstantEvaluatorTest extends TestCase {
     }
 
     public void testConditionals() {
-        checkStatements(-5, ""
+        checkStatements(
+                -5,
+                ""
                         + "boolean condition = false;\n"
                         + "condition = !condition;\n"
                         + "int z = condition ? -5 : 4;\n",
                 "z");
-        checkStatements(-4, ""
-                        + "boolean condition = true && false;\n"
-                        + "int z = condition ? 5 : -4;\n",
-                "z");
+        checkStatements(
+                -4, "boolean condition = true && false;\nint z = condition ? 5 : -4;\n", "z");
     }
 }

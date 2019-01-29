@@ -19,60 +19,110 @@ package com.android.tools.apk.analyzer;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.apk.analyzer.internal.AndroidArtifact;
-import com.android.tools.apk.analyzer.internal.ZipArtifact;
-import com.android.utils.FileUtils;
-import com.google.common.collect.FluentIterable;
-import com.google.common.collect.TreeTraverser;
+import com.android.tools.apk.analyzer.internal.ApkArchive;
+import com.android.tools.apk.analyzer.internal.AppBundleArchive;
+import com.android.tools.apk.analyzer.internal.ArchiveManagerImpl;
+import com.android.tools.apk.analyzer.internal.InstantAppBundleArchive;
+import com.android.utils.ILogger;
+import com.android.utils.NullLogger;
 import java.io.IOException;
-import java.nio.file.FileSystem;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.stream.StreamSupport;
+import java.util.Objects;
 
 public class Archives {
 
+    /** Opens an archive file from the local file system */
     @NonNull
-    public static Archive open(@NonNull Path archive) throws IOException {
-        //we assume this is an AIA bundle, which we give special handling
-        if (archive.getFileName().toString().toLowerCase().endsWith(".zip")) {
-            return ZipArtifact.fromZippedBundle(archive);
-        } else {
-            FileSystem fileSystem = FileUtils.createZipFilesystem(archive);
-            return new AndroidArtifact(archive, fileSystem);
-        }
+    public static ArchiveContext open(@NonNull Path path) throws IOException {
+        return open(path, NullLogger.getLogger());
     }
 
+    /** Opens an archive file from the local file system */
     @NonNull
-    static Archive openInnerZip(@NonNull Path archive) throws IOException {
-        FileSystem fileSystem = FileUtils.createZipFilesystem(archive);
-        return new AndroidArtifact(archive, fileSystem);
+    public static ArchiveContext open(@NonNull Path path, @NonNull ILogger logger)
+            throws IOException {
+        //noinspection resource,IOResourceOpenedButNotSafelyClosed
+        ArchiveManagerImpl archiveManager = new ArchiveManagerImpl(logger);
+        return archiveManager.openArchive(path);
+    }
+
+    /**
+     * Returns the {@link ArchiveEntry} corresponding to the "main" {@code AndroidManifest.xml} file
+     * of the archive.
+     */
+    @Nullable
+    public static ArchiveEntry getFirstManifestArchiveEntry(@NonNull ArchiveNode input) {
+        // APK file has their manifest in the top level node
+        if (input.getData().getArchive() instanceof ApkArchive) {
+            Archive archive = input.getData().getArchive();
+            return getTopLevelManifestEntry(input, archive);
+        }
+
+        // AIA bundle files contain multiple APK files. Look for the first one that contains
+        // a manifest at the top level
+        if (input.getData().getArchive() instanceof InstantAppBundleArchive) {
+            return input.getChildren()
+                    .stream()
+                    .map(
+                            node -> {
+                                if (node.getData() instanceof InnerArchiveEntry) {
+                                    ArchiveEntry innerEntry =
+                                            ((InnerArchiveEntry) node.getData()).asArchiveEntry();
+                                    return getTopLevelManifestEntry(node, innerEntry.getArchive());
+                                }
+                                return null;
+                            })
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        // App bundle contain one node for the base module and one for each dynamic feature
+        // module. The "main" manifest is the one of the base module.
+        if (input.getData().getArchive() instanceof AppBundleArchive) {
+            AppBundleArchive appBundleArchive = (AppBundleArchive) input.getData().getArchive();
+            ArchiveNode baseDir =
+                    getChild(input, appBundleArchive.getContentRoot().resolve("base/"));
+            if (baseDir == null) {
+                return null;
+            }
+            ArchiveNode manifestDir =
+                    getChild(baseDir, baseDir.getData().getPath().resolve("manifest/"));
+            if (manifestDir == null) {
+                return null;
+            }
+            ArchiveNode manifest =
+                    getChild(
+                            manifestDir,
+                            manifestDir
+                                    .getData()
+                                    .getPath()
+                                    .resolve(SdkConstants.FN_ANDROID_MANIFEST_XML));
+            if (manifest == null) {
+                return null;
+            }
+            return manifest.getData();
+        }
+        return null;
     }
 
     @Nullable
-    public static Archive getFirstManifestArchive(@NonNull ArchiveNode input) {
-        FluentIterable<ArchiveNode> bfsIterable =
-                new TreeTraverser<ArchiveNode>() {
-                    @Override
-                    public Iterable<ArchiveNode> children(@NonNull ArchiveNode root) {
-                        return root.getChildren();
-                    }
-                }.breadthFirstTraversal(input);
+    private static ArchiveNode getChild(@NonNull ArchiveNode input, @NonNull Path path) {
+        return input.getChildren()
+                .stream()
+                .filter(node -> node.getData().getPath().equals(path))
+                .findFirst()
+                .orElse(null);
+    }
 
-        return StreamSupport.stream(bfsIterable.spliterator(), false)
-                .map(
-                        node ->
-                                node.getData() instanceof InnerArchiveEntry
-                                        ? ((InnerArchiveEntry) node.getData())
-                                                .asArchiveEntry()
-                                                .getArchive()
-                                        : node.getData().getArchive())
-                .distinct()
-                .filter(
-                        archive ->
-                                Files.exists(
-                                        archive.getContentRoot()
-                                                .resolve(SdkConstants.FN_ANDROID_MANIFEST_XML)))
+    @Nullable
+    private static ArchiveEntry getTopLevelManifestEntry(
+            @NonNull ArchiveNode input, Archive archive) {
+        Path path = archive.getContentRoot().resolve(SdkConstants.FN_ANDROID_MANIFEST_XML);
+        return input.getChildren()
+                .stream()
+                .filter(x -> x.getData().getPath().equals(path))
+                .map(ArchiveNode::getData)
                 .findFirst()
                 .orElse(null);
     }

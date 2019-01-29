@@ -18,7 +18,7 @@ package com.android.build.gradle.integration.application;
 
 import com.android.build.gradle.integration.common.category.DeviceTests;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
-import com.android.build.gradle.integration.common.fixture.app.AndroidTestApp;
+import com.android.build.gradle.integration.common.fixture.app.AndroidTestModule;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
@@ -29,10 +29,10 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 public class ResValueTypeConnectedTest {
-    public static AndroidTestApp app = HelloWorldApp.noBuildFile();
+    public static AndroidTestModule app = HelloWorldApp.noBuildFile();
 
     static {
-        app.removeFile(app.getFile("HelloWorldTest.java"));
+        app.removeFileByName("HelloWorldTest.java");
         app.addFile(
                 new TestSourceFile(
                         "src/androidTest/java/com/example/helloworld",
@@ -74,7 +74,7 @@ public class ResValueTypeConnectedTest {
                         + "        resValue \"declare-styleable\", \"resDeclareStyleable\", \"foo\"\n"
                         + "        resValue \"dimen\",             \"resDimen\",            \"42px\"\n"
                         + "        resValue \"fraction\",          \"resFraction\",         \"42%\"\n"
-                        + "        resValue \"id\",                \"resId\",               \"42\"\n"
+                        + "        resValue \"id\",                \"resId\",               \"\"\n // needs to be empty or a resource reference"
                         + "        resValue \"integer\",           \"resInteger\",          \"42\"\n"
                         + "        resValue \"plurals\",           \"resPlurals\",          \"s\"\n"
                         + "        resValue \"string\",            \"resString\",           \"00\"  // resString becomes \"0\" if it is incorrectly treated  as int.\n"

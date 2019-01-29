@@ -33,10 +33,9 @@ public class HelloWorldLibraryApp extends MultiModuleTestProject implements Test
     public HelloWorldLibraryApp() {
         super(ImmutableMap.of(":app", new EmptyAndroidTestApp(), ":lib", HelloWorldApp.noBuildFile()));
 
-        AndroidTestApp app = (AndroidTestApp) getSubproject(":app");
+        AndroidTestModule app = (AndroidTestModule) getSubproject(":app");
         app.addFile(
                 new TestSourceFile(
-                        "",
                         "build.gradle",
                         "apply plugin: 'com.android.application'\n"
                                 + "\n"
@@ -48,9 +47,9 @@ public class HelloWorldLibraryApp extends MultiModuleTestProject implements Test
                                 + "     compileSdkVersion "
                                 + GradleTestProject.DEFAULT_COMPILE_SDK_VERSION
                                 + "\n"
-                                + "     buildToolsVersion '"
-                                + GradleTestProject.DEFAULT_BUILD_TOOL_VERSION
-                                + "'\n"
+                                + "    defaultConfig {\n"
+                                + "        minSdkVersion 3\n"
+                                + "    }\n"
                                 + "}\n"));
 
         // Create AndroidManifest.xml that uses the Activity from the library.
@@ -61,7 +60,6 @@ public class HelloWorldLibraryApp extends MultiModuleTestProject implements Test
 "      android:versionCode=\"1\"\n" +
 "      android:versionName=\"1.0\">\n" +
 "\n" +
-"    <uses-sdk android:minSdkVersion=\"3\" />\n" +
 "    <application android:label=\"@string/app_name\">\n" +
 "        <activity\n" +
 "            android:name=\"com.example.helloworld.HelloWorld\"\n" +
@@ -74,10 +72,9 @@ public class HelloWorldLibraryApp extends MultiModuleTestProject implements Test
 "    </application>\n" +
 "</manifest>\n"));
 
-        AndroidTestApp lib = (AndroidTestApp) getSubproject(":lib");
+        AndroidTestModule lib = (AndroidTestModule) getSubproject(":lib");
         lib.addFile(
                 new TestSourceFile(
-                        "",
                         "build.gradle",
                         "apply plugin: 'com.android.library'\n"
                                 + "\n"
@@ -85,9 +82,6 @@ public class HelloWorldLibraryApp extends MultiModuleTestProject implements Test
                                 + "     compileSdkVersion "
                                 + GradleTestProject.DEFAULT_COMPILE_SDK_VERSION
                                 + "\n"
-                                + "     buildToolsVersion '"
-                                + GradleTestProject.DEFAULT_BUILD_TOOL_VERSION
-                                + "'\n"
                                 + "}\n"));
 
     }

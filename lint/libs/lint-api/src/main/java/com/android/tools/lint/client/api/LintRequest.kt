@@ -16,6 +16,7 @@
 
 package com.android.tools.lint.client.api
 
+import com.android.tools.lint.detector.api.Platform
 import com.android.tools.lint.detector.api.Project
 import com.android.tools.lint.detector.api.Scope
 import com.google.common.annotations.Beta
@@ -30,22 +31,26 @@ import java.util.EnumSet
  */
 @Beta
 open class LintRequest(
-        /**
-         * The lint client requesting the lint check
-         *
-         * @return the client, never null
-         */
-        val client: LintClient,
+    /**
+     * The lint client requesting the lint check
+     *
+     * @return the client, never null
+     */
+    val client: LintClient,
 
-        /**
-         * The set of files to check with lint. This can reference Android projects,
-         * or directories containing Android projects, or individual XML or Java files
-         * (typically for incremental IDE analysis).
-         */
-        val files: List<File>) {
+    /**
+     * The set of files to check with lint. This can reference Android projects,
+     * or directories containing Android projects, or individual XML or Java files
+     * (typically for incremental IDE analysis).
+     */
+    val files: List<File>
+) {
 
     @JvmField
     protected var scope: EnumSet<Scope>? = null
+
+    @JvmField
+    protected var platform: EnumSet<Platform>? = null
 
     @JvmField
     protected var releaseMode: Boolean? = null
@@ -62,7 +67,7 @@ open class LintRequest(
     protected var projects: Collection<Project>? = null
 
     /**
-     * Sets the scope to use; lint checks which require a wider scope set
+     * Gets the scope to use; lint checks which require a wider scope set
      * will be ignored
      *
      * @return the scope to use, or null to use the default
@@ -79,6 +84,23 @@ open class LintRequest(
      */
     fun setScope(scope: EnumSet<Scope>?): LintRequest {
         this.scope = scope
+        return this
+    }
+
+    /**
+     * Gets the platforms that apply to this lint analysis
+     *
+     * @return the platforms to use, or null to use the default
+     */
+    open fun getPlatform(): EnumSet<Platform>? = platform
+
+    /**
+     * Sets the platforms that apply to this lint analysis
+     *
+     * @return this, for constructor chaining
+     */
+    fun setPlatform(platform: EnumSet<Platform>?): LintRequest {
+        this.platform = platform
         return this
     }
 
@@ -116,7 +138,7 @@ open class LintRequest(
      */
     open fun getMainProject(project: Project): Project = project
 
-    open fun getProjects() : Collection<Project>? = projects
+    open fun getProjects(): Collection<Project>? = projects
 
     fun setProjects(projects: Collection<Project>?): LintRequest {
         this.projects = projects

@@ -1,35 +1,12 @@
 <resources>
     <string name="app_name">ProfilerTester</string>
     <string name="action_settings">Settings</string>
+    <string name="follow_instructions">Please Follow the Instructions</string>
 
+    <string name="fragment_a_title">Fragment A</string>
+    <string name="nav_to_b">Go to Fragment B</string>
 
-    <string-array name="category_array">
-        <item>CPU</item>
-        <item>MEMORY</item>
-        <item>NETWORK</item>
-        <item>EVENT</item>
-    </string-array>
-
-    <string-array name="cpu_array">
-        <item>Periodic Usage</item>
-        <item>File Writing</item>
-    </string-array>
-
-    <string-array name="memory_array">
-        <item>Java Memory Allocation</item>
-        <item>Native Memory Allocation</item>
-        <item>Object Allocation</item>
-    </string-array>
-
-    <string-array name="network_array">
-        <item>Http Request</item>
-        <item>OkHttp Request</item>
-    </string-array>
-
-    <string-array name="event_array">
-        <item>Basic Events</item>
-        <item>Type Words</item>
-        <item>Switch Activities</item>
-    </string-array>
+    <string name="fragment_b_title">Fragment B</string>
+    <string name="nav_to_a">Go to Fragment A</string>
 
 </resources>

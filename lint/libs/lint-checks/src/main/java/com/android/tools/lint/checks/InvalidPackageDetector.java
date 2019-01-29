@@ -42,35 +42,32 @@ import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 
-/**
- * Looks for usages of Java packages that are not included in Android.
- */
+/** Looks for usages of Java packages that are not included in Android. */
 public class InvalidPackageDetector extends Detector implements ClassScanner {
     /** Accessing an invalid package */
-    public static final Issue ISSUE = Issue.create(
-            "InvalidPackage",
-            "Package not included in Android",
-
-            "This check scans through libraries looking for calls to APIs that are not included " +
-            "in Android.\n" +
-            "\n" +
-            "When you create Android projects, the classpath is set up such that you can only " +
-            "access classes in the API packages that are included in Android. However, if you " +
-            "add other projects to your libs/ folder, there is no guarantee that those .jar " +
-            "files were built with an Android specific classpath, and in particular, they " +
-            "could be accessing unsupported APIs such as java.applet.\n" +
-            "\n" +
-            "This check scans through library jars and looks for references to API packages " +
-            "that are not included in Android and flags these. This is only an error if your " +
-            "code calls one of the library classes which wind up referencing the unsupported " +
-            "package.",
-
-            Category.CORRECTNESS,
-            6,
-            Severity.ERROR,
-            new Implementation(
-                    InvalidPackageDetector.class,
-                    Scope.JAVA_LIBRARY_SCOPE));
+    public static final Issue ISSUE =
+            Issue.create(
+                            "InvalidPackage",
+                            "Package not included in Android",
+                            "This check scans through libraries looking for calls to APIs that are not included "
+                                    + "in Android.\n"
+                                    + "\n"
+                                    + "When you create Android projects, the classpath is set up such that you can only "
+                                    + "access classes in the API packages that are included in Android. However, if you "
+                                    + "add other projects to your libs/ folder, there is no guarantee that those .jar "
+                                    + "files were built with an Android specific classpath, and in particular, they "
+                                    + "could be accessing unsupported APIs such as java.applet.\n"
+                                    + "\n"
+                                    + "This check scans through library jars and looks for references to API packages "
+                                    + "that are not included in Android and flags these. This is only an error if your "
+                                    + "code calls one of the library classes which wind up referencing the unsupported "
+                                    + "package.",
+                            Category.CORRECTNESS,
+                            6,
+                            Severity.ERROR,
+                            new Implementation(
+                                    InvalidPackageDetector.class, Scope.JAVA_LIBRARY_SCOPE))
+                    .setAndroidSpecific(true);
 
     private static final String JAVA_PKG_PREFIX = "java/";
     private static final String JAVAX_PKG_PREFIX = "javax/";
@@ -78,27 +75,24 @@ public class InvalidPackageDetector extends Detector implements ClassScanner {
     private ApiLookup mApiDatabase;
 
     /**
-     * List of candidates that are potential package violations. These are
-     * recorded as candidates rather than flagged immediately such that we can
-     * filter out hits for classes that are also defined as libraries (possibly
-     * encountered later in the library traversal).
+     * List of candidates that are potential package violations. These are recorded as candidates
+     * rather than flagged immediately such that we can filter out hits for classes that are also
+     * defined as libraries (possibly encountered later in the library traversal).
      */
     private List<Candidate> mCandidates;
     /**
-     * Set of Java packages defined in the libraries; this means that if the
-     * user has added libraries in this package namespace (such as the
-     * null annotations jars) we don't flag these.
+     * Set of Java packages defined in the libraries; this means that if the user has added
+     * libraries in this package namespace (such as the null annotations jars) we don't flag these.
      */
     private final Set<String> mJavaxLibraryClasses = Sets.newHashSetWithExpectedSize(64);
 
     /** Constructs a new package check */
-    public InvalidPackageDetector() {
-    }
+    public InvalidPackageDetector() {}
 
     @Override
-    public void beforeCheckProject(@NonNull Context context) {
-        mApiDatabase = ApiLookup.get(context.getClient(),
-                context.getMainProject().getBuildTarget());
+    public void beforeCheckRootProject(@NonNull Context context) {
+        mApiDatabase =
+                ApiLookup.get(context.getClient(), context.getMainProject().getBuildTarget());
     }
 
     // ---- Implements ClassScanner ----
@@ -154,30 +148,12 @@ public class InvalidPackageDetector extends Detector implements ClassScanner {
 
                     // No need to check methods in this local class; we know they
                     // won't be an API match
-                    if (node.getOpcode() == Opcodes.INVOKEVIRTUAL
-                            && owner.equals(classNode.name)) {
+                    if (node.getOpcode() == Opcodes.INVOKEVIRTUAL && owner.equals(classNode.name)) {
                         owner = classNode.superName;
                     }
 
-                    while (owner != null) {
-                        if (isInvalidPackage(owner)) {
-                            record(context, method, instruction, owner);
-                        }
-
-                        // For virtual dispatch, walk up the inheritance chain checking
-                        // each inherited method
-                        if (owner.startsWith("android/")
-                                || owner.startsWith(JAVA_PKG_PREFIX)
-                                || owner.startsWith(JAVAX_PKG_PREFIX)) {
-                            owner = null;
-                        } else if (node.getOpcode() == Opcodes.INVOKEVIRTUAL) {
-                            owner = context.getDriver().getSuperClass(owner);
-                        } else if (node.getOpcode() == Opcodes.INVOKESTATIC) {
-                            // Inherit through static classes as well
-                            owner = context.getDriver().getSuperClass(owner);
-                        } else {
-                            owner = null;
-                        }
+                    if (isInvalidPackage(owner)) {
+                        record(context, method, instruction, owner);
                     }
                 } else if (type == AbstractInsnNode.FIELD_INSN) {
                     FieldInsnNode node = (FieldInsnNode) instruction;
@@ -208,8 +184,8 @@ public class InvalidPackageDetector extends Detector implements ClassScanner {
             // Annotations-related code is usually fine; these tend to be for build time
             // jars, such as dagger
             //noinspection SimplifiableIfStatement
-            if (className.startsWith("javax/annotation/") ||
-                    className.startsWith("javax/lang/model")) {
+            if (className.startsWith("javax/annotation/")
+                    || className.startsWith("javax/lang/model")) {
                 return false;
             }
 
@@ -227,8 +203,8 @@ public class InvalidPackageDetector extends Detector implements ClassScanner {
         return packageLength;
     }
 
-    private void record(ClassContext context, MethodNode method,
-            AbstractInsnNode instruction, String owner) {
+    private void record(
+            ClassContext context, MethodNode method, AbstractInsnNode instruction, String owner) {
         if (owner.indexOf('$') != -1) {
             // Don't report inner classes too; there will pretty much always be an outer class
             // reference as well
@@ -242,7 +218,7 @@ public class InvalidPackageDetector extends Detector implements ClassScanner {
     }
 
     @Override
-    public void afterCheckProject(@NonNull Context context) {
+    public void afterCheckRootProject(@NonNull Context context) {
         if (mCandidates == null) {
             return;
         }
@@ -273,9 +249,16 @@ public class InvalidPackageDetector extends Detector implements ClassScanner {
                 }
             }
 
-            String message = String.format(
-                    "Invalid package reference in library; not included in Android: `%1$s`. " +
-                    "Referenced from `%2$s`.", pkg, ClassContext.getFqcn(referencedIn));
+            if (jarFile.getName().startsWith("junit-")) {
+                // Deliberately whitelisted; see b/73555280
+                return;
+            }
+
+            String message =
+                    String.format(
+                            "Invalid package reference in library; not included in Android: `%1$s`. "
+                                    + "Referenced from `%2$s`.",
+                            pkg, ClassContext.getFqcn(referencedIn));
             context.report(ISSUE, location, message);
         }
     }
@@ -294,7 +277,6 @@ public class InvalidPackageDetector extends Detector implements ClassScanner {
         // No need to do work on this library, which is included in pretty much all new ADT
         // projects
         return file.getPath().endsWith("android-support-v4.jar");
-
     }
 
     private static class Candidate {

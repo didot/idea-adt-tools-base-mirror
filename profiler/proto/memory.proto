@@ -44,6 +44,10 @@ service MemoryService {
   rpc ListHeapDumpInfos(ListDumpInfosRequest) returns (ListHeapDumpInfosResponse) {
   }
 
+  // Import heap dump data
+  rpc ImportHeapDump(ImportHeapDumpRequest) returns (ImportHeapDumpResponse) {
+  }
+
   // Enable or disable an allocation tracking session.
   // Note that for pre-O, this call is handled on Studio side within the proxy
   // layer, and allocation records are fetched upon the completion of a tracking
@@ -61,6 +65,9 @@ service MemoryService {
       returns (AllocationContextsResponse) {}
   // Pre-O only: Used by Studio only for exporting legacy tracking data.
   rpc GetLegacyAllocationDump(DumpDataRequest) returns (DumpDataResponse) {}
+  // Pre-O only: Import saved allocation records.
+  rpc ImportLegacyAllocations(ImportLegacyAllocationsRequest)
+      returns (ImportLegacyAllocationsResponse) {}
 
   // O+ studio-side only: Mirrors GetLegacyAllocationEvents but for O+ data.
   // This returns all allocation deallocation events that happened
@@ -86,10 +93,19 @@ service MemoryService {
   rpc ForceGarbageCollection(ForceGarbageCollectionRequest)
       returns (ForceGarbageCollectionResponse) {}
 
+  // O+ only: Updates the allocation tracking sampling rate during
+  // a live session.
+  rpc SetAllocationSamplingRate(SetAllocationSamplingRateRequest)
+      returns (SetAllocationSamplingRateResponse) {}
+
   // O+ studio-side only: Given a time interval returns a set of all events
   // related to creations and deletions of global JNI references.
   rpc GetJNIGlobalRefsEvents(JNIGlobalRefsEventsRequest)
       returns (BatchJNIGlobalRefEvent) {}
+
+  // Turn list of addresses into symbolized native callstack frames.
+  rpc ResolveNativeBacktrace(ResolveNativeBacktraceRequest)
+      returns (NativeCallStack) {}
 }
 
 message MemoryStartRequest {
@@ -157,8 +173,8 @@ message MemoryData {
   repeated AllocationsInfo allocations_info = 6;
   repeated BatchAllocationSample allocation_samples = 7;
   repeated BatchJNIGlobalRefEvent jni_reference_event_batches = 8;
+  repeated AllocationSamplingRateEvent alloc_sampling_rate_events = 9;
 }
-
 // Proto for describing a heap dump record.
 // A HeapDumpInfo is returned if either the start_time or end_time falls
 // within the requested time window.
@@ -211,6 +227,21 @@ message DumpDataResponse {
   bytes data = 2;
 }
 
+message ImportHeapDumpRequest {
+  Session session = 1;
+  bytes data = 2;
+  HeapDumpInfo info = 3;
+}
+
+message ImportHeapDumpResponse {
+  enum Status {
+    UNSPECIFIED = 0;
+    SUCCESS = 1;
+    FAILURE = 2;
+  }
+  Status status = 1;
+}
+
 message ListDumpInfosRequest {
   Session session = 1;
   int64 start_time = 2;  // exclusive
@@ -253,6 +284,22 @@ message TrackAllocationsResponse {
   AllocationsInfo info = 2;
 }
 
+// Represents an event when live allocations are recorded with a new
+// AllocationSamplingRate. Note that this message is not used by the legacy
+// allocation tracking.
+message AllocationSamplingRateEvent {
+  int64 timestamp = 1;
+  AllocationSamplingRate sampling_rate = 2;
+}
+
+message AllocationSamplingRate {
+  // Number of allocations between samples.
+  // e.g. when set to 100, we only track 1 out of every 100 allocations.
+  // When set to 0, allocation tracking is turned off.
+  // When set to 1, every allocation is tracked (i.e. full tracking).
+  int32 sampling_num_interval = 1;
+}
+
 message TrackAllocationsRequest {
   Session session = 1;
   int64 request_time = 2;
@@ -268,6 +315,26 @@ message TrackAllocationsRequest {
   // and end times of a session. On O+ setups, perfd +
   // the agent would perform allocation tracking.
   bool legacy = 4;
+}
+
+message ImportLegacyAllocationsRequest {
+  Session session = 1;
+  AllocationsInfo info = 2;
+  // The allocation events that should be returned when
+  // GetLegacyAllocationEvents is called.
+  LegacyAllocationEventsResponse allocations = 3;
+  // The classes and stack traces that should be returned
+  // when GetLegacyAllocationContexts is called.
+  AllocationContextsResponse contexts = 4;
+}
+
+message ImportLegacyAllocationsResponse {
+  enum Status {
+    UNSPECIFIED = 0;
+    SUCCESS = 1;
+    FAILURE = 2;
+  }
+  Status status = 1;
 }
 
 message LegacyAllocationEventsRequest {
@@ -459,6 +526,35 @@ message NativeBacktrace {
   repeated uint64 addresses = 1;
 }
 
+message ResolveNativeBacktraceRequest {
+  Session session = 1;
+  NativeBacktrace backtrace = 2;
+}
+
+message NativeCallStack {
+  message NativeFrame {
+    int64 address = 1;
+    int64 module_offset = 2;
+    string module_name = 3;
+    string symbol_name = 4;
+    string file_name = 5;
+    int32 line_number = 6;
+  }
+
+  repeated NativeFrame frames = 1;
+}
+
+message MemoryMap {
+  message MemoryRegion {
+    string name = 1;
+    uint64 start_address = 2;
+    uint64 end_address = 3;
+    uint64 file_offset = 4;
+  }
+
+  repeated MemoryRegion regions = 1;
+}
+
 // Proto format for handling O+ JNI global reference creation / deletion.
 message JNIGlobalReferenceEvent {
   enum Type {
@@ -496,6 +592,8 @@ message BatchJNIGlobalRefEvent {
   int32 pid = 1;
   int64 timestamp = 2;
   repeated JNIGlobalReferenceEvent events = 3;
+  MemoryMap memory_map = 4;
+  repeated ThreadInfo thread_infos = 5;
 }
 
 // Proto format for handling O+ allocation data.
@@ -576,3 +674,10 @@ message ForceGarbageCollectionRequest {
 }
 
 message ForceGarbageCollectionResponse {}
+
+message SetAllocationSamplingRateRequest {
+  Session session = 1;
+  AllocationSamplingRate sampling_rate = 2;
+}
+
+message SetAllocationSamplingRateResponse {}

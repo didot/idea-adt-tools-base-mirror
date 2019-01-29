@@ -24,7 +24,7 @@ import static com.android.tools.lint.LintCliFlags.ERRNO_HELP;
 import static com.android.tools.lint.LintCliFlags.ERRNO_INVALID_ARGS;
 import static com.android.tools.lint.LintCliFlags.ERRNO_SUCCESS;
 import static com.android.tools.lint.LintCliFlags.ERRNO_USAGE;
-import static com.android.tools.lint.detector.api.LintUtils.endsWith;
+import static com.android.tools.lint.detector.api.Lint.endsWith;
 import static com.android.tools.lint.detector.api.TextFormat.TEXT;
 
 import com.android.SdkConstants;
@@ -40,77 +40,89 @@ import com.android.tools.lint.client.api.LintRequest;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Issue;
-import com.android.tools.lint.detector.api.LintUtils;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Project;
+import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.TextFormat;
 import com.android.utils.SdkUtils;
 import com.android.utils.XmlUtils;
 import com.google.common.annotations.Beta;
+import com.google.common.base.Charsets;
+import com.google.common.io.ByteStreams;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.Writer;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-import javax.xml.parsers.ParserConfigurationException;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
+import org.jetbrains.annotations.NotNull;
 import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
 
 /**
  * Command line driver for the lint framework
- * <p>
- * <b>NOTE: This is not a public or final API; if you rely on this be prepared
- * to adjust your code for the next tools release.</b>
+ *
+ * <p><b>NOTE: This is not a public or final API; if you rely on this be prepared to adjust your
+ * code for the next tools release.</b>
  */
 @Beta
 public class Main {
     static final int MAX_LINE_WIDTH = 78;
-    private static final String ARG_ENABLE     = "--enable";
-    private static final String ARG_DISABLE    = "--disable";
-    private static final String ARG_CHECK      = "--check";
-    private static final String ARG_IGNORE     = "--ignore";
-    private static final String ARG_LIST_IDS   = "--list";
-    private static final String ARG_SHOW       = "--show";
-    private static final String ARG_QUIET      = "--quiet";
-    private static final String ARG_FULL_PATH  = "--fullpath";
-    private static final String ARG_SHOW_ALL   = "--showall";
-    private static final String ARG_HELP       = "--help";
-    private static final String ARG_NO_LINES   = "--nolines";
-    private static final String ARG_HTML       = "--html";
-    private static final String ARG_SIMPLE_HTML= "--simplehtml";
-    private static final String ARG_XML        = "--xml";
-    private static final String ARG_TEXT       = "--text";
-    private static final String ARG_CONFIG     = "--config";
-    private static final String ARG_URL        = "--url";
-    private static final String ARG_VERSION    = "--version";
-    private static final String ARG_EXIT_CODE  = "--exitcode";
-    private static final String ARG_SDK_HOME   = "--sdk-home";
-    private static final String ARG_FATAL      = "--fatalOnly";
-    private static final String ARG_PROJECT    = "--project";
-    private static final String ARG_CLASSES    = "--classpath";
-    private static final String ARG_SOURCES    = "--sources";
-    private static final String ARG_RESOURCES  = "--resources";
-    private static final String ARG_LIBRARIES  = "--libraries";
-    private static final String ARG_BUILD_API  = "--compile-sdk-version";
-    private static final String ARG_BASELINE   = "--baseline";
+    private static final String ARG_ENABLE = "--enable";
+    private static final String ARG_DISABLE = "--disable";
+    private static final String ARG_CHECK = "--check";
+    private static final String ARG_AUTO_FIX = "--apply-suggestions";
+    private static final String ARG_DESCRIBE_FIXES = "--describe-suggestions";
+    private static final String ARG_IGNORE = "--ignore";
+    private static final String ARG_LIST_IDS = "--list";
+    private static final String ARG_SHOW = "--show";
+    private static final String ARG_QUIET = "--quiet";
+    private static final String ARG_FULL_PATH = "--fullpath";
+    private static final String ARG_SHOW_ALL = "--showall";
+    private static final String ARG_HELP = "--help";
+    private static final String ARG_NO_LINES = "--nolines";
+    private static final String ARG_HTML = "--html";
+    private static final String ARG_SIMPLE_HTML = "--simplehtml";
+    private static final String ARG_XML = "--xml";
+    private static final String ARG_TEXT = "--text";
+    private static final String ARG_CONFIG = "--config";
+    private static final String ARG_URL = "--url";
+    private static final String ARG_VERSION = "--version";
+    private static final String ARG_EXIT_CODE = "--exitcode";
+    private static final String ARG_SDK_HOME = "--sdk-home";
+    private static final String ARG_FATAL = "--fatalOnly";
+    private static final String ARG_PROJECT = "--project";
+    private static final String ARG_CLASSES = "--classpath";
+    private static final String ARG_SOURCES = "--sources";
+    private static final String ARG_RESOURCES = "--resources";
+    private static final String ARG_LIBRARIES = "--libraries";
+    private static final String ARG_BUILD_API = "--compile-sdk-version";
+    private static final String ARG_BASELINE = "--baseline";
     private static final String ARG_REMOVE_FIXED = "--remove-fixed";
+    private static final String ARG_ALLOW_SUPPRESS = "--allow-suppress";
+    private static final String ARG_RESTRICT_SUPPRESS = "--restrict-suppress";
 
-    private static final String ARG_NO_WARN_2  = "--nowarn";
+    private static final String ARG_NO_WARN_2 = "--nowarn";
     // GCC style flag names for options
-    private static final String ARG_NO_WARN_1  = "-w";
-    private static final String ARG_WARN_ALL   = "-Wall";
-    private static final String ARG_ALL_ERROR  = "-Werror";
+    private static final String ARG_NO_WARN_1 = "-w";
+    private static final String ARG_WARN_ALL = "-Wall";
+    private static final String ARG_ALL_ERROR = "-Werror";
 
     private static final String PROP_WORK_DIR = "com.android.tools.lint.workdir";
     private final LintCliFlags flags = new LintCliFlags();
@@ -118,8 +130,7 @@ public class Main {
     @Nullable private File sdkHome;
 
     /** Creates a CLI driver */
-    public Main() {
-    }
+    public Main() {}
 
     /**
      * Runs the static analysis command line driver
@@ -135,8 +146,7 @@ public class Main {
     }
 
     /** Hook intended for tests */
-    protected void initializeDriver(@NonNull LintDriver driver) {
-    }
+    protected void initializeDriver(@NonNull LintDriver driver) {}
 
     /**
      * Runs the static analysis command line driver
@@ -150,194 +160,308 @@ public class Main {
             exit(ERRNO_USAGE);
         }
 
-
         // When running lint from the command line, warn if the project is a Gradle project
         // since those projects may have custom project configuration that the command line
         // runner won't know about.
-        LintCliClient client = new LintCliClient(flags, LintClient.CLIENT_CLI) {
+        LintCliClient client =
+                new LintCliClient(flags, LintClient.CLIENT_CLI) {
 
-            private Pattern mAndroidAnnotationPattern;
-            private Project unexpectedGradleProject = null;
+                    private Pattern mAndroidAnnotationPattern;
+                    private Project unexpectedGradleProject = null;
 
-            @Override
-            @NonNull
-            protected LintDriver createDriver(@NonNull IssueRegistry registry,
-                    @NonNull LintRequest request) {
-                LintDriver driver = super.createDriver(registry, request);
+                    @Override
+                    @NonNull
+                    protected LintDriver createDriver(
+                            @NonNull IssueRegistry registry, @NonNull LintRequest request) {
+                        LintDriver driver = super.createDriver(registry, request);
 
-                Project project = unexpectedGradleProject;
-                if (project != null) {
-                    String message = String.format("\"`%1$s`\" is a Gradle project. To correctly "
-                            + "analyze Gradle projects, you should run \"`gradlew :lint`\" "
-                            + "instead.", project.getName());
-                    Location location =
-                            LintUtils.guessGradleLocation(this, project.getDir(), null);
-                    LintClient.Companion.report(this,IssueRegistry.LINT_ERROR,
-                            message, driver, project, location, null);
-                }
-
-                initializeDriver(driver);
-
-                return driver;
-            }
-
-            @NonNull
-            @Override
-            protected Project createProject(@NonNull File dir, @NonNull File referenceDir) {
-                Project project = super.createProject(dir, referenceDir);
-                if (project.isGradleProject()) {
-                    // Can't report error yet; stash it here so we can report it after the
-                    // driver has been created
-                    unexpectedGradleProject = project;
-                }
-
-                return project;
-            }
-
-            @NonNull
-            @Override
-            public Configuration getConfiguration(@NonNull final Project project,
-                    @Nullable LintDriver driver) {
-                if (project.isGradleProject()) {
-                    // Don't report any issues when analyzing a Gradle project from the
-                    // non-Gradle runner; they are likely to be false, and will hide the real
-                    // problem reported above
-                    //noinspection ReturnOfInnerClass
-                    return new CliConfiguration(getConfiguration(), project, true) {
-                       @NonNull
-                       @Override
-                       public Severity getSeverity(@NonNull Issue issue) {
-                           return issue == IssueRegistry.LINT_ERROR
-                                   ? Severity.FATAL : Severity.IGNORE;
-                       }
-
-                       @Override
-                       public boolean isIgnored(@NonNull Context context, @NonNull Issue issue,
-                               @Nullable Location location, @NonNull String message) {
-                           // If you've deliberately ignored IssueRegistry.LINT_ERROR
-                           // don't flag that one either
-                           if (issue == IssueRegistry.LINT_ERROR
-                                   && new LintCliClient(flags, LintClient.getClientName())
-                                   .isSuppressed(IssueRegistry.LINT_ERROR)) {
-                               return true;
-                           }
-
-                           return issue != IssueRegistry.LINT_ERROR;
-                       }
-                   };
-                }
-                return super.getConfiguration(project, driver);
-            }
-
-            @NonNull
-            @Override
-            public CharSequence readFile(@NonNull File file) {
-                CharSequence contents = super.readFile(file);
-                if (Project.isAospBuildEnvironment()
-                        && file.getPath().endsWith(SdkConstants.DOT_JAVA)) {
-                    if (mAndroidAnnotationPattern == null) {
-                        mAndroidAnnotationPattern =
-                                Pattern.compile("android\\.annotation");
-                    }
-                    return mAndroidAnnotationPattern
-                            .matcher(contents)
-                            .replaceAll("android.support.annotation");
-                } else {
-                    return contents;
-                }
-            }
-
-            private ProjectMetadata metadata;
-
-            /** Creates a lint request */
-            @Override
-            @NonNull
-            protected LintRequest createLintRequest(@NonNull List<File> files) {
-                LintRequest request = super.createLintRequest(files);
-                File descriptor = flags.getProjectDescriptorOverride();
-                if (descriptor != null) {
-                    metadata = ProjectInitializerKt.computeMetadata(this, descriptor);
-                    List<Project> projects = metadata.getProjects();
-                    if (!projects.isEmpty()) {
-                        request.setProjects(projects);
-
-                        if (metadata.getSdk() != null) {
-                            sdkHome = metadata.getSdk();
+                        Project project = unexpectedGradleProject;
+                        if (project != null) {
+                            String message =
+                                    String.format(
+                                            "\"`%1$s`\" is a Gradle project. To correctly "
+                                                    + "analyze Gradle projects, you should run \"`gradlew :lint`\" "
+                                                    + "instead.",
+                                            project.getName());
+                            Location location =
+                                    Lint.guessGradleLocation(this, project.getDir(), null);
+                            LintClient.Companion.report(
+                                    this,
+                                    IssueRegistry.LINT_ERROR,
+                                    message,
+                                    driver,
+                                    project,
+                                    location,
+                                    null);
                         }
 
-                        if (metadata.getBaseline() != null) {
-                            flags.setBaselineFile(metadata.getBaseline());
-                        }
+                        initializeDriver(driver);
+
+                        return driver;
                     }
-                }
 
-                return request;
-            }
-
-            @NonNull
-            @Override
-            public List<File> findRuleJars(@NonNull Project project) {
-                if (metadata != null) {
-                    List<File> jars = metadata.getLintChecks().get(project);
-                    if (jars != null) {
-                        return jars;
-                    }
-                }
-
-                return super.findRuleJars(project);
-            }
-
-            @Nullable
-            @Override
-            public File getCacheDir(@Nullable String name, boolean create) {
-                if (metadata != null) {
-                    File dir = metadata.getCache();
-                    if (dir != null) {
-                        if (name != null) {
-                            dir = new File(dir, name);
+                    @NonNull
+                    @Override
+                    protected Project createProject(@NonNull File dir, @NonNull File referenceDir) {
+                        Project project = super.createProject(dir, referenceDir);
+                        if (project.isGradleProject()) {
+                            // Can't report error yet; stash it here so we can report it after the
+                            // driver has been created
+                            unexpectedGradleProject = project;
                         }
 
-                        if (create && !dir.exists()) {
-                            if (!dir.mkdirs()) {
-                                return null;
+                        return project;
+                    }
+
+                    @NonNull
+                    @Override
+                    public Configuration getConfiguration(
+                            @NonNull final Project project, @Nullable LintDriver driver) {
+                        if (overrideConfiguration != null) {
+                            return overrideConfiguration;
+                        }
+
+                        if (project.isGradleProject()) {
+                            // Don't report any issues when analyzing a Gradle project from the
+                            // non-Gradle runner; they are likely to be false, and will hide the real
+                            // problem reported above
+                            //noinspection ReturnOfInnerClass
+                            return new CliConfiguration(getConfiguration(), project, true) {
+                                @NonNull
+                                @Override
+                                public Severity getSeverity(@NonNull Issue issue) {
+                                    return issue == IssueRegistry.LINT_ERROR
+                                            ? Severity.FATAL
+                                            : Severity.IGNORE;
+                                }
+
+                                @Override
+                                public boolean isIgnored(
+                                        @NonNull Context context,
+                                        @NonNull Issue issue,
+                                        @Nullable Location location,
+                                        @NonNull String message) {
+                                    // If you've deliberately ignored IssueRegistry.LINT_ERROR
+                                    // don't flag that one either
+                                    if (issue == IssueRegistry.LINT_ERROR
+                                            && new LintCliClient(flags, LintClient.getClientName())
+                                                    .isSuppressed(IssueRegistry.LINT_ERROR)) {
+                                        return true;
+                                    }
+
+                                    return issue != IssueRegistry.LINT_ERROR;
+                                }
+                            };
+                        }
+                        return super.getConfiguration(project, driver);
+                    }
+
+                    private byte[] readSrcJar(@NonNull File file) {
+                        String path = file.getPath();
+                        int srcJarIndex = path.indexOf("srcjar!");
+                        if (srcJarIndex != -1) {
+                            File jarFile = new File(path.substring(0, srcJarIndex + 6));
+                            if (jarFile.exists()) {
+                                try (ZipFile zipFile = new ZipFile(jarFile)) {
+                                    String name =
+                                            path.substring(srcJarIndex + 8)
+                                                    .replace(File.separatorChar, '/');
+                                    ZipEntry entry = zipFile.getEntry(name);
+                                    if (entry != null) {
+                                        try (InputStream is = zipFile.getInputStream(entry)) {
+                                            byte[] bytes = ByteStreams.toByteArray(is);
+                                            return bytes;
+                                        } catch (Exception e) {
+                                            log(e, null);
+                                        }
+                                    }
+                                } catch (ZipException e) {
+                                    Main.this.log(e, "Could not unzip %1$s", jarFile);
+                                } catch (IOException e) {
+                                    Main.this.log(e, "Could not read %1$s", jarFile);
+                                }
                             }
                         }
-                        return dir;
+
+                        return null;
                     }
-                }
 
-                return super.getCacheDir(name, create);
-            }
+                    @NonNull
+                    @Override
+                    public CharSequence readFile(@NonNull File file) {
+                        // .srcjar file handle?
+                        byte[] srcJarBytes = readSrcJar(file);
+                        if (srcJarBytes != null) {
+                            return new String(srcJarBytes, Charsets.UTF_8);
+                        }
 
-            @Nullable
-            @Override
-            public Document getMergedManifest(@NonNull Project project) {
-                if (metadata != null) {
-                    File manifest = metadata.getMergedManifests().get(project);
-                    if (manifest != null && manifest.exists()) {
-                        try {
-                            // We can't call
-                            //   resolveMergeManifestSources(document, manifestReportFile)
-                            // here since we don't have the merging log.
-                            return XmlUtils.parseUtfXmlFile(manifest, true);
-                        } catch (IOException | SAXException | ParserConfigurationException e) {
-                            log(e, "Could not read/parse %1$s", manifest);
+                        CharSequence contents = super.readFile(file);
+                        if (Project.isAospBuildEnvironment()
+                                && file.getPath().endsWith(SdkConstants.DOT_JAVA)) {
+                            if (mAndroidAnnotationPattern == null) {
+                                mAndroidAnnotationPattern = Pattern.compile("android\\.annotation");
+                            }
+                            return mAndroidAnnotationPattern
+                                    .matcher(contents)
+                                    .replaceAll("android.support.annotation");
+                        } else {
+                            return contents;
                         }
                     }
-                }
 
-                return super.getMergedManifest(project);
-            }
+                    @NonNull
+                    @Override
+                    public byte[] readBytes(@NotNull File file) throws IOException {
+                        // .srcjar file handle?
+                        byte[] srcJarBytes = readSrcJar(file);
+                        if (srcJarBytes != null) {
+                            return srcJarBytes;
+                        }
 
-            @Nullable
-            @Override
-            public File getSdkHome() {
-                if (Main.this.sdkHome != null) {
-                    return Main.this.sdkHome;
-                }
-                return super.getSdkHome();
-            }
-        };
+                        return super.readBytes(file);
+                    }
+
+                    private ProjectMetadata metadata;
+
+                    /** Creates a lint request */
+                    @Override
+                    @NonNull
+                    protected LintRequest createLintRequest(@NonNull List<File> files) {
+                        LintRequest request = super.createLintRequest(files);
+                        File descriptor = flags.getProjectDescriptorOverride();
+                        if (descriptor != null) {
+                            metadata = ProjectInitializerKt.computeMetadata(this, descriptor);
+                            List<Project> projects = metadata.getProjects();
+                            if (!projects.isEmpty()) {
+                                request.setProjects(projects);
+
+                                if (metadata.getSdk() != null) {
+                                    sdkHome = metadata.getSdk();
+                                }
+
+                                if (metadata.getBaseline() != null) {
+                                    flags.setBaselineFile(metadata.getBaseline());
+                                }
+
+                                EnumSet<Scope> scope = EnumSet.copyOf(Scope.ALL);
+                                if (metadata.getIncomplete()) {
+                                    scope.remove(Scope.ALL_CLASS_FILES);
+                                    scope.remove(Scope.ALL_JAVA_FILES);
+                                    scope.remove(Scope.ALL_RESOURCE_FILES);
+                                }
+                                request.setScope(scope);
+
+                                request.setPlatform(metadata.getPlatforms());
+                            }
+                        }
+
+                        return request;
+                    }
+
+                    @NonNull
+                    @Override
+                    public List<File> findRuleJars(@NonNull Project project) {
+                        if (metadata != null) {
+                            List<File> jars = metadata.getLintChecks().get(project);
+                            if (jars != null) {
+                                return jars;
+                            }
+                        }
+
+                        return super.findRuleJars(project);
+                    }
+
+                    @NonNull
+                    @Override
+                    public List<File> findGlobalRuleJars() {
+                        if (metadata != null) {
+                            List<File> jars = metadata.getGlobalLintChecks();
+                            if (!jars.isEmpty()) {
+                                return jars;
+                            }
+                        }
+
+                        return super.findGlobalRuleJars();
+                    }
+
+                    @Nullable
+                    @Override
+                    public File getCacheDir(@Nullable String name, boolean create) {
+                        if (metadata != null) {
+                            File dir = metadata.getCache();
+                            if (dir != null) {
+                                if (name != null) {
+                                    dir = new File(dir, name);
+                                }
+
+                                if (create && !dir.exists()) {
+                                    if (!dir.mkdirs()) {
+                                        return null;
+                                    }
+                                }
+                                return dir;
+                            }
+                        }
+
+                        return super.getCacheDir(name, create);
+                    }
+
+                    @Nullable
+                    @Override
+                    public Document getMergedManifest(@NonNull Project project) {
+                        if (metadata != null) {
+                            File manifest = metadata.getMergedManifests().get(project);
+                            if (manifest != null && manifest.exists()) {
+                                try {
+                                    // We can't call
+                                    //   resolveMergeManifestSources(document, manifestReportFile)
+                                    // here since we don't have the merging log.
+                                    return XmlUtils.parseUtfXmlFile(manifest, true);
+                                } catch (IOException | SAXException e) {
+                                    log(e, "Could not read/parse %1$s", manifest);
+                                }
+                            }
+                        }
+
+                        return super.getMergedManifest(project);
+                    }
+
+                    @Nullable
+                    @Override
+                    public File getSdkHome() {
+                        if (Main.this.sdkHome != null) {
+                            return Main.this.sdkHome;
+                        }
+                        return super.getSdkHome();
+                    }
+
+                    @Override
+                    protected boolean addBootClassPath(
+                            @NonNull Collection<? extends Project> knownProjects,
+                            List<File> files) {
+                        if (metadata != null && !metadata.getJdkBootClasspath().isEmpty()) {
+                            boolean isAndroid = false;
+                            for (Project project : knownProjects) {
+                                if (project.isAndroidProject()) {
+                                    isAndroid = true;
+                                    break;
+                                }
+                            }
+                            if (!isAndroid) {
+                                files.addAll(metadata.getJdkBootClasspath());
+                                return true;
+                            }
+
+                            boolean ok = super.addBootClassPath(knownProjects, files);
+                            if (!ok) {
+                                files.addAll(metadata.getJdkBootClasspath());
+                            }
+                            return ok;
+                        }
+
+                        return super.addBootClassPath(knownProjects, files);
+                    }
+                };
 
         // Mapping from file path prefix to URL. Applies only to HTML reports
         String urlMap = null;
@@ -346,8 +470,7 @@ public class Main {
         for (int index = 0; index < args.length; index++) {
             String arg = args[index];
 
-            if (arg.equals(ARG_HELP)
-                    || arg.equals("-h") || arg.equals("-?")) {
+            if (arg.equals(ARG_HELP) || arg.equals("-h") || arg.equals("-?")) {
                 if (index < args.length - 1) {
                     String topic = args[index + 1];
                     if (topic.equals("suppress") || topic.equals("ignore")) {
@@ -372,8 +495,8 @@ public class Main {
                             for (Issue issue : registry.getIssues()) {
                                 // Check prefix such that filtering on the "Usability" category
                                 // will match issue category "Usability:Icons" etc.
-                                if (issue.getCategory().getName().startsWith(category) ||
-                                        issue.getCategory().getFullName().startsWith(category)) {
+                                if (issue.getCategory().getName().startsWith(category)
+                                        || issue.getCategory().getFullName().startsWith(category)) {
                                     listIssue(System.out, issue);
                                 }
                             }
@@ -399,8 +522,8 @@ public class Main {
                             for (Issue issue : registry.getIssues()) {
                                 // Check prefix such that filtering on the "Usability" category
                                 // will match issue category "Usability:Icons" etc.
-                                if (issue.getCategory().getName().startsWith(category) ||
-                                        issue.getCategory().getFullName().startsWith(category)) {
+                                if (issue.getCategory().getName().startsWith(category)
+                                        || issue.getCategory().getFullName().startsWith(category)) {
                                     describeIssue(issue);
                                     System.out.println();
                                 }
@@ -467,8 +590,8 @@ public class Main {
                 // Get an absolute path such that we can ask its parent directory for
                 // write permission etc.
                 output = output.getAbsoluteFile();
-                if (output.isDirectory() ||
-                        (!output.exists() && output.getName().indexOf('.') == -1)) {
+                if (output.isDirectory()
+                        || (!output.exists() && output.getName().indexOf('.') == -1)) {
                     if (!output.exists()) {
                         boolean mkdirs = output.mkdirs();
                         if (!mkdirs) {
@@ -524,7 +647,10 @@ public class Main {
                     exit(ERRNO_EXISTS);
                 }
                 try {
-                    flags.getReporters().add(Reporter.createXmlReporter(client, output, false));
+                    flags.getReporters()
+                            .add(
+                                    Reporter.createXmlReporter(
+                                            client, output, false, flags.isIncludeXmlFixes()));
                 } catch (IOException e) {
                     log(e, null);
                     exit(ERRNO_INVALID_ARGS);
@@ -539,7 +665,7 @@ public class Main {
                 boolean closeWriter;
                 String outputName = args[++index];
                 if (outputName.equals("stdout")) {
-                    //noinspection IOResourceOpenedButNotSafelyClosed
+                    //noinspection IOResourceOpenedButNotSafelyClosed,resource
                     writer = new PrintWriter(System.out, true);
                     closeWriter = false;
                 } else {
@@ -561,7 +687,7 @@ public class Main {
                         exit(ERRNO_EXISTS);
                     }
                     try {
-                        //noinspection IOResourceOpenedButNotSafelyClosed
+                        //noinspection IOResourceOpenedButNotSafelyClosed,resource
                         writer = new BufferedWriter(new FileWriter(output));
                     } catch (IOException e) {
                         log(e, null);
@@ -584,15 +710,11 @@ public class Main {
                         for (Issue issue : registry.getIssues()) {
                             // Check prefix such that filtering on the "Usability" category
                             // will match issue category "Usability:Icons" etc.
-                            if (issue.getCategory().getName().startsWith(category) ||
-                                    issue.getCategory().getFullName().startsWith(category)) {
+                            if (issue.getCategory().getName().startsWith(category)
+                                    || issue.getCategory().getFullName().startsWith(category)) {
                                 flags.getSuppressedIds().add(issue.getId());
                             }
                         }
-                    } else if (!registry.isIssueId(id)) {
-                        System.err.println("Invalid id or category \"" + id + "\".\n");
-                        displayValidIds(registry, System.err);
-                        exit(ERRNO_INVALID_ARGS);
                     } else {
                         flags.getSuppressedIds().add(id);
                     }
@@ -609,16 +731,11 @@ public class Main {
                         // Enable all issues with the given category
                         String category = id;
                         for (Issue issue : registry.getIssues()) {
-                            if (issue.getCategory().getName().startsWith(category) ||
-                                    issue.getCategory().getFullName().startsWith(category)) {
+                            if (issue.getCategory().getName().startsWith(category)
+                                    || issue.getCategory().getFullName().startsWith(category)) {
                                 flags.getEnabledIds().add(issue.getId());
                             }
                         }
-                    } else if (!registry.isIssueId(id)) {
-                        System.err.println("Invalid id or category \"" + id + "\".\n");
-                        displayValidIds(registry, System.err);
-                        exit(ERRNO_INVALID_ARGS);
-                    } else {
                         flags.getEnabledIds().add(id);
                     }
                 }
@@ -641,15 +758,11 @@ public class Main {
                         for (Issue issue : registry.getIssues()) {
                             // Check prefix such that filtering on the "Usability" category
                             // will match issue category "Usability:Icons" etc.
-                            if (issue.getCategory().getName().startsWith(category) ||
-                                    issue.getCategory().getFullName().startsWith(category)) {
+                            if (issue.getCategory().getName().startsWith(category)
+                                    || issue.getCategory().getFullName().startsWith(category)) {
                                 checkedIds.add(issue.getId());
                             }
                         }
-                    } else if (!registry.isIssueId(id)) {
-                        System.err.println("Invalid id or category \"" + id + "\".\n");
-                        displayValidIds(registry, System.err);
-                        exit(ERRNO_INVALID_ARGS);
                     } else {
                         checkedIds.add(id);
                     }
@@ -660,13 +773,27 @@ public class Main {
                 flags.setCheckAllWarnings(true);
             } else if (arg.equals(ARG_ALL_ERROR)) {
                 flags.setWarningsAsErrors(true);
+            } else if (arg.equals(ARG_AUTO_FIX)) {
+                flags.setAutoFix(true);
+            } else if (arg.equals(ARG_DESCRIBE_FIXES)) {
+                flags.setIncludeXmlFixes(true);
+                // Make sure we also update any XML reporters we've *already* created before
+                // coming across this flag:
+                for (Reporter reporter : flags.getReporters()) {
+                    if (reporter instanceof XmlReporter) {
+                        XmlReporter xmlReporter = (XmlReporter) reporter;
+                        if (!xmlReporter.isIntendedForBaseline()) {
+                            xmlReporter.setIncludeFixes(true);
+                        }
+                    }
+                }
             } else if (arg.equals(ARG_CLASSES)) {
                 if (index == args.length - 1) {
                     System.err.println("Missing class folder name");
                     exit(ERRNO_INVALID_ARGS);
                 }
                 String paths = args[++index];
-                for (String path : LintUtils.splitPath(paths)) {
+                for (String path : Lint.splitPath(paths)) {
                     File input = getInArgumentPath(path);
                     if (!input.exists()) {
                         System.err.println("Class path entry " + input + " does not exist.");
@@ -685,7 +812,7 @@ public class Main {
                     exit(ERRNO_INVALID_ARGS);
                 }
                 String paths = args[++index];
-                for (String path : LintUtils.splitPath(paths)) {
+                for (String path : Lint.splitPath(paths)) {
                     File input = getInArgumentPath(path);
                     if (!input.exists()) {
                         System.err.println("Source folder " + input + " does not exist.");
@@ -704,7 +831,7 @@ public class Main {
                     exit(ERRNO_INVALID_ARGS);
                 }
                 String paths = args[++index];
-                for (String path : LintUtils.splitPath(paths)) {
+                for (String path : Lint.splitPath(paths)) {
                     File input = getInArgumentPath(path);
                     if (!input.exists()) {
                         System.err.println("Resource folder " + input + " does not exist.");
@@ -723,7 +850,7 @@ public class Main {
                     exit(ERRNO_INVALID_ARGS);
                 }
                 String paths = args[++index];
-                for (String path : LintUtils.splitPath(paths)) {
+                for (String path : Lint.splitPath(paths)) {
                     File input = getInArgumentPath(path);
                     if (!input.exists()) {
                         System.err.println("Library " + input + " does not exist.");
@@ -749,7 +876,7 @@ public class Main {
                     exit(ERRNO_INVALID_ARGS);
                 }
                 String paths = args[++index];
-                for (String path : LintUtils.splitPath(paths)) {
+                for (String path : Lint.splitPath(paths)) {
                     File input = getInArgumentPath(path);
                     if (!input.exists()) {
                         System.err.println("Project descriptor " + input + " does not exist.");
@@ -783,6 +910,10 @@ public class Main {
                 flags.setBaselineFile(input);
             } else if (arg.equals(ARG_REMOVE_FIXED)) {
                 flags.setRemovedFixedBaselineIssues(true);
+            } else if (arg.equals(ARG_ALLOW_SUPPRESS)) {
+                flags.setAllowSuppress(true);
+            } else if (arg.equals(ARG_RESTRICT_SUPPRESS)) {
+                flags.setAllowSuppress(false);
             } else if (arg.startsWith("--")) {
                 System.err.println("Invalid argument " + arg + "\n");
                 printUsage(System.err);
@@ -804,26 +935,30 @@ public class Main {
             exit(ERRNO_INVALID_ARGS);
         } else if (files.size() > 1
                 && (flags.getClassesOverride() != null
-                    || flags.getSourcesOverride() != null
-                    || flags.getLibrariesOverride() != null
-                    || flags.getResourcesOverride() != null)) {
-            System.err.println(String.format(
-                  "The %1$s, %2$s, %3$s and %4$s arguments can only be used with a single project",
-                  ARG_SOURCES, ARG_CLASSES, ARG_LIBRARIES, ARG_RESOURCES));
+                        || flags.getSourcesOverride() != null
+                        || flags.getLibrariesOverride() != null
+                        || flags.getResourcesOverride() != null)) {
+            System.err.println(
+                    String.format(
+                            "The %1$s, %2$s, %3$s and %4$s arguments can only be used with a single project",
+                            ARG_SOURCES, ARG_CLASSES, ARG_LIBRARIES, ARG_RESOURCES));
             exit(ERRNO_INVALID_ARGS);
         }
+
+        client.syncConfigOptions();
 
         List<Reporter> reporters = flags.getReporters();
         if (reporters.isEmpty()) {
             //noinspection VariableNotUsedInsideIf
             if (urlMap != null) {
-                System.err.println(String.format(
-                        "Warning: The %1$s option only applies to HTML reports (%2$s)",
-                            ARG_URL, ARG_HTML));
+                System.err.println(
+                        String.format(
+                                "Warning: The %1$s option only applies to HTML reports (%2$s)",
+                                ARG_URL, ARG_HTML));
             }
 
-            reporters.add(new TextReporter(client, flags,
-                    new PrintWriter(System.out, true), false));
+            reporters.add(
+                    new TextReporter(client, flags, new PrintWriter(System.out, true), false));
         } else {
             //noinspection VariableNotUsedInsideIf
             if (urlMap != null) {
@@ -835,7 +970,7 @@ public class Main {
                         int index = s.indexOf('=');
                         if (index == -1) {
                             System.err.println(
-                              "The URL map argument must be of the form 'path_prefix=url_prefix'");
+                                    "The URL map argument must be of the form 'path_prefix=url_prefix'");
                             exit(ERRNO_INVALID_ARGS);
                         }
                         String key = s.substring(0, index);
@@ -895,9 +1030,9 @@ public class Main {
 
     /**
      * Converts a relative or absolute command-line argument into an output file.
-     * <p>
-     * The difference with {@code getInArgumentPath} is that we can't check whether the
-     * a relative path turned into an absolute compared to lint.workdir actually exists.
+     *
+     * <p>The difference with {@code getInArgumentPath} is that we can't check whether the a
+     * relative path turned into an absolute compared to lint.workdir actually exists.
      *
      * @param filename The filename given as a command-line argument.
      * @return A File matching filename, either absolute or relative to lint.workdir if defined.
@@ -920,11 +1055,10 @@ public class Main {
     }
 
     /**
-     * Returns the File corresponding to the system property or the environment variable
-     * for {@link #PROP_WORK_DIR}.
-     * This property is typically set by the SDK/tools/lint[.bat] wrapper.
-     * It denotes the path where the command-line client was originally invoked from
-     * and can be used to convert relative input/output paths.
+     * Returns the File corresponding to the system property or the environment variable for {@link
+     * #PROP_WORK_DIR}. This property is typically set by the SDK/tools/lint[.bat] wrapper. It
+     * denotes the path where the command-line client was originally invoked from and can be used to
+     * convert relative input/output paths.
      *
      * @return A new File corresponding to {@link #PROP_WORK_DIR} or null.
      */
@@ -950,91 +1084,123 @@ public class Main {
         // \\u00a0 is a non-breaking space
         final String NBSP = "\u00a0\u00a0\u00a0\u00a0";
 
-        return
-            "Lint errors can be suppressed in a variety of ways:\n" +
-            "\n" +
-            "1. With a `@SuppressLint` annotation in the Java code\n" +
-            "2. With a `tools:ignore` attribute in the XML file\n" +
-            "3. With a //noinspection comment in the source code\n" +
-            "4. With ignore flags specified in the `build.gradle` file, " +
-                "as explained below\n" +
-            "5. With a `lint.xml` configuration file in the project\n" +
-            "6. With a `lint.xml` configuration file passed to lint " +
-                "via the " + ARG_CONFIG + " flag\n" +
-            "7. With the " + ARG_IGNORE + " flag passed to lint.\n" +
-            "\n" +
-            "To suppress a lint warning with an annotation, add " +
-            "a `@SuppressLint(\"id\")` annotation on the class, method " +
-            "or variable declaration closest to the warning instance " +
-            "you want to disable. The id can be one or more issue " +
-            "id's, such as `\"UnusedResources\"` or `{\"UnusedResources\"," +
-            "\"UnusedIds\"}`, or it can be `\"all\"` to suppress all lint " +
-            "warnings in the given scope.\n" +
-            "\n" +
-            "To suppress a lint warning with a comment, add " +
-            "a `//noinspection id` comment on the line before the statement " +
-            "with the error.\n" +
-            "\n" +
-            "To suppress a lint warning in an XML file, add a " +
-            "`tools:ignore=\"id\"` attribute on the element containing " +
-            "the error, or one of its surrounding elements. You also " +
-            "need to define the namespace for the tools prefix on the " +
-            "root element in your document, next to the `xmlns:android` " +
-            "declaration:\n" +
-            "`xmlns:tools=\"http://schemas.android.com/tools\"`\n" +
-            "\n" +
-            "To suppress a lint warning in a `build.gradle` file, add a " +
-            "section like this:\n" +
-            "\n" +
-            "android {\n" +
-            NBSP + "lintOptions {\n" +
-            NBSP + NBSP + "disable 'TypographyFractions','TypographyQuotes'\n" +
-            NBSP + "}\n" +
-            "}\n" +
-            "\n" +
-            "Here we specify a comma separated list of issue id's after the " +
-            "disable command. You can also use `warning` or `error` instead " +
-            "of `disable` to change the severity of issues.\n" +
-            "\n" +
-            "To suppress lint warnings with a configuration XML file, " +
-            "create a file named `lint.xml` and place it at the root " +
-            "directory of the module in which it applies.\n" +
-            "\n" +
-            "The format of the `lint.xml` file is something like the " +
-            "following:\n" +
-            "\n" +
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
-            "<lint>\n" +
-            NBSP + "<!-- Ignore everything in the test source set -->\n" +
-            NBSP + "<issue id=\"all\">\n" +
-            NBSP + NBSP + "<ignore path=\"\\*/test/\\*\" />\n" +
-            NBSP + "</issue>\n" +
-            "\n" +
-            NBSP + "<!-- Disable this given check in this project -->\n" +
-            NBSP + "<issue id=\"IconMissingDensityFolder\" severity=\"ignore\" />\n" +
-            "\n" +
-            NBSP + "<!-- Ignore the ObsoleteLayoutParam issue in the given files -->\n" +
-            NBSP + "<issue id=\"ObsoleteLayoutParam\">\n" +
-            NBSP + NBSP + "<ignore path=\"res/layout/activation.xml\" />\n" +
-            NBSP + NBSP + "<ignore path=\"res/layout-xlarge/activation.xml\" />\n" +
-            NBSP + NBSP + "<ignore regexp=\"(foo|bar)\\.java\" />\n" +
-            NBSP + "</issue>\n" +
-            "\n" +
-            NBSP + "<!-- Ignore the UselessLeaf issue in the given file -->\n" +
-            NBSP + "<issue id=\"UselessLeaf\">\n" +
-            NBSP + NBSP + "<ignore path=\"res/layout/main.xml\" />\n" +
-            NBSP + "</issue>\n" +
-            "\n" +
-            NBSP + "<!-- Change the severity of hardcoded strings to \"error\" -->\n" +
-            NBSP + "<issue id=\"HardcodedText\" severity=\"error\" />\n" +
-            "</lint>\n" +
-            "\n" +
-            "To suppress lint checks from the command line, pass the " + ARG_IGNORE +  " " +
-            "flag with a comma separated list of ids to be suppressed, such as:\n" +
-            "`$ lint --ignore UnusedResources,UselessLeaf /my/project/path`\n" +
-            "\n" +
-            "For more information, see " +
-            "http://g.co/androidstudio/suppressing-lint-warnings\n";
+        return "Lint errors can be suppressed in a variety of ways:\n"
+                + "\n"
+                + "1. With a `@SuppressLint` annotation in the Java code\n"
+                + "2. With a `tools:ignore` attribute in the XML file\n"
+                + "3. With a //noinspection comment in the source code\n"
+                + "4. With ignore flags specified in the `build.gradle` file, "
+                + "as explained below\n"
+                + "5. With a `lint.xml` configuration file in the project\n"
+                + "6. With a `lint.xml` configuration file passed to lint "
+                + "via the "
+                + ARG_CONFIG
+                + " flag\n"
+                + "7. With the "
+                + ARG_IGNORE
+                + " flag passed to lint.\n"
+                + "\n"
+                + "To suppress a lint warning with an annotation, add "
+                + "a `@SuppressLint(\"id\")` annotation on the class, method "
+                + "or variable declaration closest to the warning instance "
+                + "you want to disable. The id can be one or more issue "
+                + "id's, such as `\"UnusedResources\"` or `{\"UnusedResources\","
+                + "\"UnusedIds\"}`, or it can be `\"all\"` to suppress all lint "
+                + "warnings in the given scope.\n"
+                + "\n"
+                + "To suppress a lint warning with a comment, add "
+                + "a `//noinspection id` comment on the line before the statement "
+                + "with the error.\n"
+                + "\n"
+                + "To suppress a lint warning in an XML file, add a "
+                + "`tools:ignore=\"id\"` attribute on the element containing "
+                + "the error, or one of its surrounding elements. You also "
+                + "need to define the namespace for the tools prefix on the "
+                + "root element in your document, next to the `xmlns:android` "
+                + "declaration:\n"
+                + "`xmlns:tools=\"http://schemas.android.com/tools\"`\n"
+                + "\n"
+                + "To suppress a lint warning in a `build.gradle` file, add a "
+                + "section like this:\n"
+                + "\n"
+                + "android {\n"
+                + NBSP
+                + "lintOptions {\n"
+                + NBSP
+                + NBSP
+                + "disable 'TypographyFractions','TypographyQuotes'\n"
+                + NBSP
+                + "}\n"
+                + "}\n"
+                + "\n"
+                + "Here we specify a comma separated list of issue id's after the "
+                + "disable command. You can also use `warning` or `error` instead "
+                + "of `disable` to change the severity of issues.\n"
+                + "\n"
+                + "To suppress lint warnings with a configuration XML file, "
+                + "create a file named `lint.xml` and place it at the root "
+                + "directory of the module in which it applies.\n"
+                + "\n"
+                + "The format of the `lint.xml` file is something like the "
+                + "following:\n"
+                + "\n"
+                + "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                + "<lint>\n"
+                + NBSP
+                + "<!-- Ignore everything in the test source set -->\n"
+                + NBSP
+                + "<issue id=\"all\">\n"
+                + NBSP
+                + NBSP
+                + "<ignore path=\"\\*/test/\\*\" />\n"
+                + NBSP
+                + "</issue>\n"
+                + "\n"
+                + NBSP
+                + "<!-- Disable this given check in this project -->\n"
+                + NBSP
+                + "<issue id=\"IconMissingDensityFolder\" severity=\"ignore\" />\n"
+                + "\n"
+                + NBSP
+                + "<!-- Ignore the ObsoleteLayoutParam issue in the given files -->\n"
+                + NBSP
+                + "<issue id=\"ObsoleteLayoutParam\">\n"
+                + NBSP
+                + NBSP
+                + "<ignore path=\"res/layout/activation.xml\" />\n"
+                + NBSP
+                + NBSP
+                + "<ignore path=\"res/layout-xlarge/activation.xml\" />\n"
+                + NBSP
+                + NBSP
+                + "<ignore regexp=\"(foo|bar)\\.java\" />\n"
+                + NBSP
+                + "</issue>\n"
+                + "\n"
+                + NBSP
+                + "<!-- Ignore the UselessLeaf issue in the given file -->\n"
+                + NBSP
+                + "<issue id=\"UselessLeaf\">\n"
+                + NBSP
+                + NBSP
+                + "<ignore path=\"res/layout/main.xml\" />\n"
+                + NBSP
+                + "</issue>\n"
+                + "\n"
+                + NBSP
+                + "<!-- Change the severity of hardcoded strings to \"error\" -->\n"
+                + NBSP
+                + "<issue id=\"HardcodedText\" severity=\"error\" />\n"
+                + "</lint>\n"
+                + "\n"
+                + "To suppress lint checks from the command line, pass the "
+                + ARG_IGNORE
+                + " "
+                + "flag with a comma separated list of ids to be suppressed, such as:\n"
+                + "`$ lint --ignore UnusedResources,UselessLeaf /my/project/path`\n"
+                + "\n"
+                + "For more information, see "
+                + "http://g.co/androidstudio/suppressing-lint-warnings\n";
     }
 
     private static void printVersion(LintCliClient client) {
@@ -1067,18 +1233,19 @@ public class Main {
     private static void showIssues(IssueRegistry registry) {
         List<Issue> issues = registry.getIssues();
         List<Issue> sorted = new ArrayList<>(issues);
-        Collections.sort(sorted, (issue1, issue2) -> {
-            int d = issue1.getCategory().compareTo(issue2.getCategory());
-            if (d != 0) {
-                return d;
-            }
-            d = issue2.getPriority() - issue1.getPriority();
-            if (d != 0) {
-                return d;
-            }
+        sorted.sort(
+                (issue1, issue2) -> {
+                    int d = issue1.getCategory().compareTo(issue2.getCategory());
+                    if (d != 0) {
+                        return d;
+                    }
+                    d = issue2.getPriority() - issue1.getPriority();
+                    if (d != 0) {
+                        return d;
+                    }
 
-            return issue1.getId().compareTo(issue2.getId());
-        });
+                    return issue1.getId().compareTo(issue2.getId());
+                });
 
         System.out.println("Available issues:\n");
         Category previousCategory = null;
@@ -1112,8 +1279,9 @@ public class Main {
 
         if (!issue.isEnabledByDefault()) {
             System.out.println("NOTE: This issue is disabled by default!");
-            System.out.println(String.format("You can enable it by adding %1$s %2$s", ARG_ENABLE,
-                    issue.getId()));
+            System.out.println(
+                    String.format(
+                            "You can enable it by adding %1$s %2$s", ARG_ENABLE, issue.getId()));
         }
 
         System.out.println();
@@ -1147,77 +1315,122 @@ public class Main {
         out.println("Usage: " + command + " [flags] <project directories>\n");
         out.println("Flags:\n");
 
-        printUsage(out, new String[] {
-            ARG_HELP, "This message.",
-            ARG_HELP + " <topic>", "Help on the given topic, such as \"suppress\".",
-            ARG_LIST_IDS, "List the available issue id's and exit.",
-            ARG_VERSION, "Output version information and exit.",
-            ARG_EXIT_CODE, "Set the exit code to " + ERRNO_ERRORS + " if errors are found.",
-            ARG_SHOW, "List available issues along with full explanations.",
-            ARG_SHOW + " <ids>", "Show full explanations for the given list of issue id's.",
-            ARG_FATAL, "Only check for fatal severity issues",
-
-            "", "\nEnabled Checks:",
-            ARG_DISABLE + " <list>", "Disable the list of categories or " +
-                "specific issue id's. The list should be a comma-separated list of issue " +
-                "id's or categories.",
-            ARG_ENABLE + " <list>", "Enable the specific list of issues. " +
-                "This checks all the default issues plus the specifically enabled issues. The " +
-                "list should be a comma-separated list of issue id's or categories.",
-            ARG_CHECK + " <list>", "Only check the specific list of issues. " +
-                "This will disable everything and re-enable the given list of issues. " +
-                "The list should be a comma-separated list of issue id's or categories.",
-            ARG_NO_WARN_1 + ", " + ARG_NO_WARN_2, "Only check for errors (ignore warnings)",
-            ARG_WARN_ALL, "Check all warnings, including those off by default",
-            ARG_ALL_ERROR, "Treat all warnings as errors",
-            ARG_CONFIG + " <filename>", "Use the given configuration file to " +
-                    "determine whether issues are enabled or disabled. If a project contains " +
-                    "a lint.xml file, then this config file will be used as a fallback.",
-            ARG_BASELINE, "Use (or create) the given baseline file to filter out known issues.",
-
-
-            "", "\nOutput Options:",
-            ARG_QUIET, "Don't show progress.",
-            ARG_FULL_PATH, "Use full paths in the error output.",
-            ARG_SHOW_ALL, "Do not truncate long messages, lists of alternate locations, etc.",
-            ARG_NO_LINES, "Do not include the source file lines with errors " +
-                "in the output. By default, the error output includes snippets of source code " +
-                "on the line containing the error, but this flag turns it off.",
-            ARG_HTML + " <filename>", "Create an HTML report instead. If the filename is a " +
-                "directory (or a new filename without an extension), lint will create a " +
-                "separate report for each scanned project.",
-            ARG_URL + " filepath=url", "Add links to HTML report, replacing local " +
-                "path prefixes with url prefix. The mapping can be a comma-separated list of " +
-                "path prefixes to corresponding URL prefixes, such as " +
-                "C:\\temp\\Proj1=http://buildserver/sources/temp/Proj1.  To turn off linking " +
-                "to files, use " + ARG_URL + " " + VALUE_NONE,
-            ARG_XML + " <filename>", "Create an XML report instead.",
-
-            "", "\nProject Options:",
-            ARG_PROJECT + " <file>", "Use the given project layout descriptor file to describe " +
-                "the set of available sources, resources and libraries. Used to drive lint with " +
-                "build systems not natively integrated with lint.",
-            ARG_RESOURCES + " <dir>", "Add the given folder (or path) as a resource directory " +
-                "for the project. Only valid when running lint on a single project.",
-            ARG_SOURCES + " <dir>", "Add the given folder (or path) as a source directory for " +
-                "the project. Only valid when running lint on a single project.",
-            ARG_CLASSES + " <dir>", "Add the given folder (or jar file, or path) as a class " +
-                "directory for the project. Only valid when running lint on a single project.",
-            ARG_LIBRARIES + " <dir>", "Add the given folder (or jar file, or path) as a class " +
-                "library for the project. Only valid when running lint on a single project.",
-            ARG_BUILD_API + " <version>", "Use the given compileSdkVersion to pick an SDK " +
-                "target to resolve Android API call to",
-            ARG_SDK_HOME + " <dir>", "Use the given SDK instead of attempting to find it " +
-                "relative to the lint installation or via $ANDROID_HOME",
-
-            "", "\nExit Status:",
-            "0",                                 "Success.",
-            Integer.toString(ERRNO_ERRORS),      "Lint errors detected.",
-            Integer.toString(ERRNO_USAGE),       "Lint usage.",
-            Integer.toString(ERRNO_EXISTS),      "Cannot clobber existing file.",
-            Integer.toString(ERRNO_HELP),        "Lint help.",
-            Integer.toString(ERRNO_INVALID_ARGS), "Invalid command-line argument.",
-        });
+        printUsage(
+                out,
+                new String[] {
+                    ARG_HELP,
+                    "This message.",
+                    ARG_HELP + " <topic>",
+                    "Help on the given topic, such as \"suppress\".",
+                    ARG_LIST_IDS,
+                    "List the available issue id's and exit.",
+                    ARG_VERSION,
+                    "Output version information and exit.",
+                    ARG_EXIT_CODE,
+                    "Set the exit code to " + ERRNO_ERRORS + " if errors are found.",
+                    ARG_SHOW,
+                    "List available issues along with full explanations.",
+                    ARG_SHOW + " <ids>",
+                    "Show full explanations for the given list of issue id's.",
+                    ARG_FATAL,
+                    "Only check for fatal severity issues",
+                    ARG_AUTO_FIX,
+                    "Apply suggestions to the source code (for safe fixes)",
+                    "",
+                    "\nEnabled Checks:",
+                    ARG_DISABLE + " <list>",
+                    "Disable the list of categories or "
+                            + "specific issue id's. The list should be a comma-separated list of issue "
+                            + "id's or categories.",
+                    ARG_ENABLE + " <list>",
+                    "Enable the specific list of issues. "
+                            + "This checks all the default issues plus the specifically enabled issues. The "
+                            + "list should be a comma-separated list of issue id's or categories.",
+                    ARG_CHECK + " <list>",
+                    "Only check the specific list of issues. "
+                            + "This will disable everything and re-enable the given list of issues. "
+                            + "The list should be a comma-separated list of issue id's or categories.",
+                    ARG_NO_WARN_1 + ", " + ARG_NO_WARN_2,
+                    "Only check for errors (ignore warnings)",
+                    ARG_WARN_ALL,
+                    "Check all warnings, including those off by default",
+                    ARG_ALL_ERROR,
+                    "Treat all warnings as errors",
+                    ARG_CONFIG + " <filename>",
+                    "Use the given configuration file to "
+                            + "determine whether issues are enabled or disabled. If a project contains "
+                            + "a lint.xml file, then this config file will be used as a fallback.",
+                    ARG_BASELINE,
+                    "Use (or create) the given baseline file to filter out known issues.",
+                    ARG_ALLOW_SUPPRESS,
+                    "Whether to allow suppressing issues that have been explicitly registered "
+                            + "as not suppressible.",
+                    "",
+                    "\nOutput Options:",
+                    ARG_QUIET,
+                    "Don't show progress.",
+                    ARG_FULL_PATH,
+                    "Use full paths in the error output.",
+                    ARG_SHOW_ALL,
+                    "Do not truncate long messages, lists of alternate locations, etc.",
+                    ARG_NO_LINES,
+                    "Do not include the source file lines with errors "
+                            + "in the output. By default, the error output includes snippets of source code "
+                            + "on the line containing the error, but this flag turns it off.",
+                    ARG_HTML + " <filename>",
+                    "Create an HTML report instead. If the filename is a "
+                            + "directory (or a new filename without an extension), lint will create a "
+                            + "separate report for each scanned project.",
+                    ARG_URL + " filepath=url",
+                    "Add links to HTML report, replacing local "
+                            + "path prefixes with url prefix. The mapping can be a comma-separated list of "
+                            + "path prefixes to corresponding URL prefixes, such as "
+                            + "C:\\temp\\Proj1=http://buildserver/sources/temp/Proj1.  To turn off linking "
+                            + "to files, use "
+                            + ARG_URL
+                            + " "
+                            + VALUE_NONE,
+                    ARG_XML + " <filename>",
+                    "Create an XML report instead.",
+                    "",
+                    "\nProject Options:",
+                    ARG_PROJECT + " <file>",
+                    "Use the given project layout descriptor file to describe "
+                            + "the set of available sources, resources and libraries. Used to drive lint with "
+                            + "build systems not natively integrated with lint.",
+                    ARG_RESOURCES + " <dir>",
+                    "Add the given folder (or path) as a resource directory "
+                            + "for the project. Only valid when running lint on a single project.",
+                    ARG_SOURCES + " <dir>",
+                    "Add the given folder (or path) as a source directory for "
+                            + "the project. Only valid when running lint on a single project.",
+                    ARG_CLASSES + " <dir>",
+                    "Add the given folder (or jar file, or path) as a class "
+                            + "directory for the project. Only valid when running lint on a single project.",
+                    ARG_LIBRARIES + " <dir>",
+                    "Add the given folder (or jar file, or path) as a class "
+                            + "library for the project. Only valid when running lint on a single project.",
+                    ARG_BUILD_API + " <version>",
+                    "Use the given compileSdkVersion to pick an SDK "
+                            + "target to resolve Android API call to",
+                    ARG_SDK_HOME + " <dir>",
+                    "Use the given SDK instead of attempting to find it "
+                            + "relative to the lint installation or via $ANDROID_HOME",
+                    "",
+                    "\nExit Status:",
+                    "0",
+                    "Success.",
+                    Integer.toString(ERRNO_ERRORS),
+                    "Lint errors detected.",
+                    Integer.toString(ERRNO_USAGE),
+                    "Lint usage.",
+                    Integer.toString(ERRNO_EXISTS),
+                    "Cannot clobber existing file.",
+                    Integer.toString(ERRNO_HELP),
+                    "Lint help.",
+                    Integer.toString(ERRNO_INVALID_ARGS),
+                    "Invalid command-line argument.",
+                });
     }
 
     private static void printUsage(PrintStream out, String[] args) {
@@ -1240,16 +1453,17 @@ public class Main {
             if (arg.isEmpty()) {
                 out.println(description);
             } else {
-                out.print(wrap(String.format(formatString, arg, description),
-                        MAX_LINE_WIDTH, indent));
+                out.print(
+                        wrap(
+                                String.format(formatString, arg, description),
+                                MAX_LINE_WIDTH,
+                                indent));
             }
         }
     }
 
     public void log(
-            @Nullable Throwable exception,
-            @Nullable String format,
-            @Nullable Object... args) {
+            @Nullable Throwable exception, @Nullable String format, @Nullable Object... args) {
         System.out.flush();
         if (!flags.isQuiet()) {
             // Place the error message on a line of its own since we're printing '.' etc

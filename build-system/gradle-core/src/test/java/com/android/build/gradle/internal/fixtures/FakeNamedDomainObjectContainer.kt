@@ -20,11 +20,14 @@ import groovy.lang.Closure
 import org.gradle.api.Action
 import org.gradle.api.DomainObjectCollection
 import org.gradle.api.Named
+import org.gradle.api.NamedDomainObjectCollectionSchema
 import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.NamedDomainObjectFactory
+import org.gradle.api.NamedDomainObjectProvider
 import org.gradle.api.NamedDomainObjectSet
 import org.gradle.api.Namer
 import org.gradle.api.Rule
+import org.gradle.api.provider.Provider
 import org.gradle.api.specs.Spec
 import java.util.SortedMap
 import java.util.SortedSet
@@ -224,5 +227,29 @@ open class FakeNamedDomainObjectContainer<T>(
 
     override fun configure(p0: Closure<*>?): NamedDomainObjectContainer<T> {
         TODO("not implemented")
+    }
+
+    override fun configureEach(p0: Action<in T>?) {
+        TODO("not implemented")
+    }
+
+    override fun addLater(p0: Provider<out T>?) {
+        TODO("not implemented")
+    }
+
+    override fun register(p0: String?, p1: Action<in T>?): NamedDomainObjectProvider<T> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun register(p0: String?): NamedDomainObjectProvider<T> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun named(p0: String?): NamedDomainObjectProvider<T> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun getCollectionSchema(): NamedDomainObjectCollectionSchema {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
     }
 }

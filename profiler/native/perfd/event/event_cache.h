@@ -23,15 +23,14 @@
 
 #include <grpc++/grpc++.h>
 
-#include "perfd/daemon.h"
 #include "proto/internal_event.grpc.pb.h"
+#include "utils/clock.h"
 
 namespace profiler {
 
 class EventCache {
  public:
-  explicit EventCache(const Daemon::Utilities& utilities)
-      : clock_(utilities.clock()) {}
+  explicit EventCache(Clock* clock) : clock_(clock) {}
   // Adds data to the event cache, the data is copied.
   void AddActivityData(const proto::ActivityData& data);
   void AddSystemData(const proto::SystemData& data);
@@ -63,7 +62,7 @@ class EventCache {
   // App's Id to CacheMaps map.
   std::unordered_map<int32_t, CacheMaps> cache_;
 
-  const Clock& clock_;
+  Clock* clock_;
 };
 
 }  // end of namespace profiler

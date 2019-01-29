@@ -16,10 +16,12 @@
 
 package com.android.tools.lint.client.api
 
+import com.android.tools.lint.detector.api.CURRENT_API
 import com.android.tools.lint.detector.api.Category
 import com.android.tools.lint.detector.api.Detector
 import com.android.tools.lint.detector.api.Implementation
 import com.android.tools.lint.detector.api.Issue
+import com.android.tools.lint.detector.api.Platform
 import com.android.tools.lint.detector.api.Scope
 import com.android.tools.lint.detector.api.Severity
 import com.google.common.annotations.Beta
@@ -34,7 +36,6 @@ import java.util.HashSet
 /**
  * Registry which provides a list of checks to be performed on an Android project
  *
- *
  * **NOTE: This is not a public or final API; if you rely on this be prepared
  * to adjust your code for the next tools release.**
  */
@@ -47,7 +48,7 @@ protected constructor() {
 
     /**
      * The Lint API version this issue registry's checks were compiled.
-     * You should return
+     * You should return [CURRENT_API].
      */
     open val api: Int = -1
 
@@ -56,7 +57,10 @@ protected constructor() {
      * same as [api], but if you have tested it with older version and it
      * works, you can return that level.
      */
-    open val minApi: Int get() { return api }
+    open val minApi: Int
+        get() {
+            return api
+        }
 
     /**
      * The list of issues that can be found by all known detectors (including those that may be
@@ -102,7 +106,7 @@ protected constructor() {
                     }
                 }
             }
-            scopeIssues.put(scope, list)
+            scopeIssues[scope] = list
         }
 
         return list
@@ -115,6 +119,7 @@ protected constructor() {
      * @param client the client to report errors to
      * @param configuration the configuration to look up which issues are
      * enabled etc from
+     * @param platforms the platforms applying to this analysis
      * @param scope the scope for the analysis, to filter out detectors that
      * require wider analysis than is currently being performed
      * @param scopeToDetectors an optional map which (if not null) will be
@@ -123,10 +128,12 @@ protected constructor() {
      * @return a list of new detector instances
      */
     internal fun createDetectors(
-            client: LintClient,
-            configuration: Configuration,
-            scope: EnumSet<Scope>,
-            scopeToDetectors: MutableMap<Scope, MutableList<Detector>>?): List<Detector> {
+        client: LintClient,
+        configuration: Configuration,
+        scope: EnumSet<Scope>,
+        platforms: EnumSet<Platform>,
+        scopeToDetectors: MutableMap<Scope, MutableList<Detector>>?
+    ): List<Detector> {
 
         val issues = getIssuesForScope(scope)
         if (issues.isEmpty()) {
@@ -137,6 +144,13 @@ protected constructor() {
         val detectorToScope = HashMap<Class<out Detector>, EnumSet<Scope>>()
 
         for (issue in issues) {
+            if (!issue.platforms.isEmpty() && !issue.platforms.containsAll(platforms)) {
+                // This check does not apply in this context. For example, if we're
+                // analyzing an Android project, and the check does not specify Scope.ANDROID
+                // in its platforms, we skip it. As a special case, empty platforms is allowed.
+                continue
+            }
+
             val implementation = issue.implementation
             var detectorClass: Class<out Detector> = implementation.detectorClass
             val issueScope = implementation.scope
@@ -154,11 +168,11 @@ protected constructor() {
             if (scopeToDetectors != null) {
                 val s = detectorToScope[detectorClass]
                 if (s == null) {
-                    detectorToScope.put(detectorClass, issueScope)
+                    detectorToScope[detectorClass] = issueScope
                 } else if (!s.containsAll(issueScope)) {
                     val union = EnumSet.copyOf(s)
                     union.addAll(issueScope)
-                    detectorToScope.put(detectorClass, union)
+                    detectorToScope[detectorClass] = union
                 }
             }
         }
@@ -175,16 +189,14 @@ protected constructor() {
                         var list: MutableList<Detector>? = scopeToDetectors[s]
                         if (list == null) {
                             list = ArrayList()
-                            scopeToDetectors.put(s, list)
+                            scopeToDetectors[s] = list
                         }
                         list.add(detector)
                     }
-
                 }
             } catch (t: Throwable) {
                 client.log(t, "Can't initialize detector %1\$s", clz.name)
             }
-
         }
 
         return detectors
@@ -222,14 +234,12 @@ protected constructor() {
      * @return an iterator for all the categories, never null
      */
     fun getCategories(): List<Category> {
-        var categories = IssueRegistry.categories
+        var categories = this.categories
         if (categories == null) {
-            synchronized(IssueRegistry::class.java) {
-                categories = IssueRegistry.categories
-                if (categories == null) {
-                    categories = Collections.unmodifiableList(createCategoryList())
-                    IssueRegistry.categories = categories
-                }
+            categories = Collections.unmodifiableList(createCategoryList())
+            this.categories = categories
+            if (cacheable()) {
+                cachedCategories = categories
             }
         }
 
@@ -242,7 +252,7 @@ protected constructor() {
             categorySet.add(issue.category)
         }
         val sorted = ArrayList(categorySet)
-        Collections.sort(sorted)
+        sorted.sort()
         return sorted
     }
 
@@ -255,52 +265,87 @@ protected constructor() {
     fun getIssue(id: String): Issue? {
         var map = idToIssue
         if (map == null) {
-            synchronized(IssueRegistry::class.java) {
-                map = idToIssue
-                if (map == null) {
-                    map = createIdToIssueMap()
-                    idToIssue = map
-                }
+            map = createIdToIssueMap()
+            this.idToIssue = map
+            if (cacheable()) {
+                cachedIdToIssue = map
             }
         }
 
-        return map!![id]
+        return map[id]
     }
 
     private fun createIdToIssueMap(): Map<String, Issue> {
         val issues = issues
         val map = Maps.newHashMapWithExpectedSize<String, Issue>(issues.size + 2)
         for (issue in issues) {
-            map.put(issue.id, issue)
+            map[issue.id] = issue
         }
 
-        map.put(PARSER_ERROR.id, PARSER_ERROR)
-        map.put(LINT_ERROR.id, LINT_ERROR)
-        map.put(BASELINE.id, BASELINE)
-        map.put(OBSOLETE_LINT_CHECK.id, OBSOLETE_LINT_CHECK)
+        map[PARSER_ERROR.id] = PARSER_ERROR
+        map[LINT_ERROR.id] = LINT_ERROR
+        map[BASELINE.id] = BASELINE
+        map[OBSOLETE_LINT_CHECK.id] = OBSOLETE_LINT_CHECK
         return map
     }
 
-    companion object {
-        @Volatile private var categories: List<Category>? = null
-        @Volatile private var idToIssue: Map<String, Issue>? = null
-        private var scopeIssues: MutableMap<EnumSet<Scope>, List<Issue>> = Maps.newHashMap()
+    @Volatile
+    private var categories: List<Category>?
+    @Volatile
+    private var idToIssue: Map<String, Issue>?
+    private var scopeIssues: MutableMap<EnumSet<Scope>, List<Issue>>
 
-        private val DUMMY_IMPLEMENTATION = Implementation(Detector::class.java,
-                EnumSet.noneOf(Scope::class.java))
+    /**
+     * Whether this issue registry has state that is cacheable. Issue registries
+     * which include project specific state (such as custom checks for example)
+     * are not.
+     */
+    protected open fun cacheable(): Boolean = false
+
+    init {
+        @Suppress("LeakingThis")
+        if (cacheable()) {
+            // In the IDE, cache across incremental runs; here, lint is never run in parallel
+            scopeIssues = cachedScopeIssues
+            idToIssue = cachedIdToIssue
+            categories = cachedCategories
+        } else {
+            // Outside of the IDE, typically in Gradle, we don't want this caching since
+            // lint can run in parallel and this caching can be incorrect;
+            // see for example issue 77891711
+            scopeIssues = Maps.newHashMap()
+            idToIssue = null
+            categories = null
+        }
+    }
+
+    companion object {
+        @Volatile
+        private var cachedCategories: List<Category>? = null
+        @Volatile
+        private var cachedIdToIssue: Map<String, Issue>? = null
+        private var cachedScopeIssues: MutableMap<EnumSet<Scope>, List<Issue>> = Maps.newHashMap()
+
+        private val DUMMY_IMPLEMENTATION = Implementation(
+            Detector::class.java,
+            EnumSet.noneOf(Scope::class.java)
+        )
         /**
          * Issue reported by lint (not a specific detector) when it cannot even
          * parse an XML file prior to analysis
          */
         @JvmField // temporarily
         val PARSER_ERROR = Issue.create(
-                "ParserError",
-                "Parser Errors",
-                "Lint will ignore any files that contain fatal parsing errors. These may contain " + "other errors, or contain code which affects issues in other files.",
-                Category.LINT,
-                10,
-                Severity.ERROR,
-                DUMMY_IMPLEMENTATION)
+            id = "ParserError",
+            briefDescription = "Parser Errors",
+            explanation = """
+                Lint will ignore any files that contain fatal parsing errors. These may \
+                contain other errors, or contain code which affects issues in other files.""",
+            category = Category.LINT,
+            priority = 10,
+            severity = Severity.ERROR,
+            implementation = DUMMY_IMPLEMENTATION
+        )
 
         /**
          * Issue reported by lint for various other issues which prevents lint from
@@ -308,33 +353,35 @@ protected constructor() {
          */
         @JvmField // temporarily
         val LINT_ERROR = Issue.create(
-                "LintError",
-                "Lint Failure",
-                "This issue type represents a problem running lint itself. Examples include " +
-                "failure to find bytecode for source files (which means certain detectors " +
-                "could not be run), parsing errors in lint configuration files, etc." +
-                "\n" +
-                "These errors are not errors in your own code, but they are shown to make " +
-                "it clear that some checks were not completed.",
+            id = "LintError",
+            briefDescription = "Lint Failure",
+            explanation = """
+                This issue type represents a problem running lint itself. Examples include \
+                failure to find bytecode for source files (which means certain detectors \
+                could not be run), parsing errors in lint configuration files, etc.
 
-                Category.LINT,
-                10,
-                Severity.ERROR,
-                DUMMY_IMPLEMENTATION)
+                These errors are not errors in your own code, but they are shown to make it \
+                clear that some checks were not completed.
+                """,
+            category = Category.LINT,
+            priority = 10,
+            severity = Severity.ERROR,
+            implementation = DUMMY_IMPLEMENTATION
+        )
 
         /**
          * Issue reported when lint is canceled
          */
         @JvmField // temporarily
         val CANCELLED = Issue.create(
-                "LintCanceled",
-                "Lint Canceled",
-                "Lint canceled by user; the issue report may not be complete.",
-
-                Category.LINT,
-                0,
-                Severity.INFORMATIONAL,
-                DUMMY_IMPLEMENTATION)
+            id = "LintCanceled",
+            briefDescription = "Lint Canceled",
+            explanation = "Lint canceled by user; the issue report may not be complete.",
+            category = Category.LINT,
+            priority = 0,
+            severity = Severity.INFORMATIONAL,
+            implementation = DUMMY_IMPLEMENTATION
+        )
 
         /**
          * Issue reported by lint for various other issues which prevents lint from
@@ -342,28 +389,31 @@ protected constructor() {
          */
         @JvmField // temporarily
         val BASELINE = Issue.create(
-                "LintBaseline",
-                "Baseline Issues",
-                "Lint can be configured with a \"baseline\"; a set of current issues found in " +
-                        "a codebase, which future runs of lint will silently ignore. Only new issues " +
-                        "not found in the baseline are reported.\n" +
-                        "\n" +
-                        "Note that while opening files in the IDE, baseline issues are not filtered out; " +
-                        "the purpose of baselines is to allow you to get started using lint and break " +
-                        "the build on all newly introduced errors, without having to go back and fix the " +
-                        "entire codebase up front. However, when you open up existing files you still " +
-                        "want to be aware of and fix issues as you come across them.\n" +
-                        "\n" +
-                        "This issue type is used to emit two types of informational messages in reports: " +
-                        "first, whether any issues were filtered out so you don't have a false sense of " +
-                        "security if you forgot that you've checked in a baseline file, and second, " +
-                        "whether any issues in the baseline file appear to have been fixed such that you " +
-                        "can stop filtering them out and get warned if the issues are re-introduced.",
+            id = "LintBaseline",
+            briefDescription = "Baseline Issues",
+            explanation = """
+                Lint can be configured with a "baseline"; a set of current issues found \
+                in a codebase, which future runs of lint will silently ignore. Only new \
+                issues not found in the baseline are reported.
 
-                Category.LINT,
-                10,
-                Severity.INFORMATIONAL,
-                DUMMY_IMPLEMENTATION)
+                Note that while opening files in the IDE, baseline issues are not \
+                filtered out; the purpose of baselines is to allow you to get started \
+                using lint and break the build on all newly introduced errors, without \
+                having to go back and fix the entire codebase up front. However, when \
+                you open up existing files you still want to be aware of and fix issues \
+                as you come across them.
+
+                This issue type is used to emit two types of informational messages in \
+                reports: first, whether any issues were filtered out so you don't have \
+                a false sense of security if you forgot that you've checked in a \
+                baseline file, and second, whether any issues in the baseline file \
+                appear to have been fixed such that you can stop filtering them out and \
+                get warned if the issues are re-introduced.""",
+            category = Category.LINT,
+            priority = 10,
+            severity = Severity.INFORMATIONAL,
+            implementation = DUMMY_IMPLEMENTATION
+        )
 
         /**
          * Issue reported by lint when it encounters old lint checks that haven't been
@@ -371,36 +421,36 @@ protected constructor() {
          */
         @JvmField // temporarily
         val OBSOLETE_LINT_CHECK = Issue.create(
-                "ObsoleteLintCustomCheck",
-                "Obsolete custom lint check",
+            id = "ObsoleteLintCustomCheck",
+            briefDescription = "Obsolete custom lint check",
+            explanation = """
+                Lint can be extended with "custom checks": additional checks implemented \
+                by developers and libraries to for example enforce specific API usages \
+                required by a library or a company coding style guideline.
 
-                "Lint can be extended with \"custom checks\": additional checks implemented by " +
-                "developers and libraries to for example enforce specific API usages required " +
-                "by a library or a company coding style guideline.\n" +
-                "\n" +
-                "The Lint APIs are not yet stable, so these checks may either cause a performance, " +
-                "degradation, or stop working, or provide wrong results.\n" +
-                "\n" +
-                "This warning flags custom lint checks that are found to be using obsolete APIs and " +
-                "will need to be updated to run in the current lint environment." +
-                "\n" +
-                "It may also flag issues found to be using a **newer** version of the API, " +
-                "meaning that you need to use a newer version of lint (or Android Studio " +
-                "or Gradle plugin etc) to work with these checks.",
+                The Lint APIs are not yet stable, so these checks may either cause a \
+                performance degradation, or stop working, or provide wrong results.
 
-                Category.LINT,
-                10,
-                Severity.WARNING,
-                DUMMY_IMPLEMENTATION)
+                This warning flags custom lint checks that are found to be using obsolete \
+                APIs and will need to be updated to run in the current lint environment.
+
+                It may also flag issues found to be using a **newer** version of the API, \
+                meaning that you need to use a newer version of lint (or Android Studio \
+                or Gradle plugin etc) to work with these checks.""",
+            category = Category.LINT,
+            priority = 10,
+            severity = Severity.WARNING,
+            implementation = DUMMY_IMPLEMENTATION
+        )
 
         /**
          * Reset the registry such that it recomputes its available issues.
          */
         fun reset() {
             synchronized(IssueRegistry::class.java) {
-                idToIssue = null
-                categories = null
-                scopeIssues = Maps.newHashMap()
+                cachedIdToIssue = null
+                cachedCategories = null
+                cachedScopeIssues = Maps.newHashMap()
             }
         }
     }

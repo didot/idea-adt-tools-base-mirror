@@ -25,13 +25,11 @@ import com.android.tools.ir.client.InstantRunArtifact
 import com.android.tools.ir.client.InstantRunArtifactType
 import com.google.common.truth.Truth.assertThat
 import org.junit.ClassRule
-import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
 
 @RunWith(Parameterized::class)
-@Ignore
 class InstantRunChangePatchingPolicyTest(private val firstBuild: BuildTarget,
         private val secondBuild: BuildTarget) {
 

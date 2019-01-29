@@ -16,22 +16,23 @@
 
 package com.android.tools.lint
 
+import com.android.SdkConstants.DOT_KT
+import com.android.SdkConstants.DOT_KTS
+import com.android.SdkConstants.DOT_SRCJAR
 import com.intellij.core.CoreJavaFileManager
 import com.intellij.ide.highlighter.JavaFileType
 import com.intellij.mock.MockProject
 import com.intellij.openapi.components.ServiceManager
-import com.intellij.openapi.extensions.Extensions
 import com.intellij.openapi.util.io.FileUtilRt
 import com.intellij.openapi.vfs.PersistentFSConstants
 import com.intellij.openapi.vfs.StandardFileSystems
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
-import com.intellij.psi.PsiElementFinder
 import com.intellij.psi.PsiManager
 import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.util.io.URLUtil
 import org.jetbrains.kotlin.asJava.LightClassGenerationSupport
-import org.jetbrains.kotlin.asJava.finder.JavaElementFinder
 import org.jetbrains.kotlin.cli.common.CLIConfigurationKeys
 import org.jetbrains.kotlin.cli.common.CliModuleVisibilityManagerImpl
 import org.jetbrains.kotlin.cli.common.messages.MessageCollector
@@ -39,11 +40,11 @@ import org.jetbrains.kotlin.cli.common.messages.MessageRenderer
 import org.jetbrains.kotlin.cli.common.messages.PrintingMessageCollector
 import org.jetbrains.kotlin.cli.common.script.CliScriptDefinitionProvider
 import org.jetbrains.kotlin.cli.jvm.compiler.ClasspathRootsResolver
-import org.jetbrains.kotlin.cli.jvm.compiler.CliLightClassGenerationSupport
 import org.jetbrains.kotlin.cli.jvm.compiler.CliVirtualFileFinderFactory
 import org.jetbrains.kotlin.cli.jvm.compiler.JvmPackagePartProvider
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCliJavaFileManagerImpl
 import org.jetbrains.kotlin.cli.jvm.compiler.KotlinCoreEnvironment
+import org.jetbrains.kotlin.cli.jvm.compiler.NoScopeRecordCliBindingTrace
 import org.jetbrains.kotlin.cli.jvm.compiler.TopDownAnalyzerFacadeForJVM
 import org.jetbrains.kotlin.cli.jvm.config.JavaSourceRoot
 import org.jetbrains.kotlin.cli.jvm.config.JvmClasspathRoot
@@ -66,7 +67,6 @@ import org.jetbrains.kotlin.load.kotlin.ModuleVisibilityManager
 import org.jetbrains.kotlin.load.kotlin.VirtualFileFinderFactory
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.resolve.BindingTrace
-import org.jetbrains.kotlin.resolve.CodeAnalyzerInitializer
 import org.jetbrains.kotlin.resolve.jvm.extensions.AnalysisHandlerExtension
 import org.jetbrains.kotlin.resolve.jvm.modules.JavaModuleResolver
 import org.jetbrains.kotlin.resolve.lazy.declarations.CliDeclarationProviderFactoryService
@@ -74,8 +74,8 @@ import org.jetbrains.kotlin.resolve.lazy.declarations.DeclarationProviderFactory
 import org.jetbrains.kotlin.script.ScriptDefinitionProvider
 import org.jetbrains.kotlin.script.ScriptDependenciesProvider
 import org.jetbrains.kotlin.script.StandardScriptDefinition
-import org.jetbrains.uast.kotlin.KotlinUastBindingContextProviderService
-import org.jetbrains.uast.kotlin.internal.CliKotlinUastBindingContextProviderService
+import org.jetbrains.uast.kotlin.KotlinUastResolveProviderService
+import org.jetbrains.uast.kotlin.internal.CliKotlinUastResolveProviderService
 import org.jetbrains.uast.kotlin.internal.UastAnalysisHandlerExtension
 import java.io.File
 
@@ -85,12 +85,11 @@ import java.io.File
 
 // Analyze PSI files with Kotlin compiler and produce binding context
 // From https://github.com/JetBrains/kotlin/commits/rr/yan : fb82b72dc1892d377ccf98511d56ecce219c8098
-object KotlinLintAnalyzerFacade {
-    @JvmStatic
-    fun analyze(files: List<File>, javaRoots: List<File>, project: MockProject): BindingTrace {
+class KotlinLintAnalyzerFacade {
+    fun analyze(files: List<File>, contentRoots: List<File>, project: MockProject): BindingTrace {
 
         if (ServiceManager.getService(project, LightClassGenerationSupport::class.java) == null) {
-            KotlinLintAnalyzerFacade.registerProjectComponents(project)
+            registerProjectComponents(project)
         }
 
         val localFs = StandardFileSystems.local()
@@ -98,96 +97,150 @@ object KotlinLintAnalyzerFacade {
 
         val virtualFiles = files.mapNotNull { localFs.findFileByPath(it.absolutePath) }
         val ktFiles = virtualFiles.mapNotNull { psiManager.findFile(it) }.filterIsInstance<KtFile>()
+            .toMutableList()
 
-        return analyzePsi(ktFiles, javaRoots, project)
+        for (root in contentRoots) {
+            if (root.path.endsWith(DOT_SRCJAR)) {
+                // Add in any .kt files found in the source jars as well
+                val jarFs = StandardFileSystems.jar()
+                val jar = jarFs.findFileByPath(root.path + URLUtil.JAR_SEPARATOR)
+                if (jar != null) {
+                    addKtFiles(psiManager, jar, ktFiles)
+                }
+            }
+        }
+
+        return analyzePsi(ktFiles, contentRoots, project)
     }
 
-    @JvmStatic
-    private fun analyzePsi(
-            ktFiles: List<KtFile>,
-            javaRoots: List<File>, project: MockProject): BindingTrace {
+    private fun addKtFiles(
+        psiManager: PsiManager,
+        root: VirtualFile,
+        ktFiles: MutableList<KtFile>
+    ) {
+        val name = root.name
+        if (name.endsWith(DOT_KT) || name.endsWith(DOT_KTS)) {
+            (psiManager.findFile(root) as? KtFile)?.let { ktFiles.add(it) }
+        } else {
+            for (child in root.children) {
+                addKtFiles(psiManager, child, ktFiles)
+            }
+        }
+    }
 
-        val trace = CliLightClassGenerationSupport.NoScopeRecordCliBindingTrace()
+    private fun analyzePsi(
+        ktFiles: List<KtFile>,
+        contentRoots: List<File>,
+        project: MockProject
+    ): BindingTrace {
+        val trace = NoScopeRecordCliBindingTrace()
         val localFs = StandardFileSystems.local()
         // We can't figure out if the given directory is a binary or a source root, so we add
         // it to both lists
-        val javaBinaryRoots = javaRoots
-                .mapNotNull { localFs.findFileByPath(it.absolutePath) }
-                .map { JavaRoot(it, JavaRoot.RootType.BINARY) }
+        val javaBinaryRoots = contentRoots
+            .mapNotNull {
+                if (it.name.endsWith(DOT_SRCJAR)) {
+                    null
+                } else {
+                    contentRootToVirtualFile(JvmClasspathRoot(it))
+                }
+            }
+            .map { JavaRoot(it, JavaRoot.RootType.BINARY) }
 
-        val javaSourceRoots = javaRoots
-                .filter { it.isDirectory }
-                .mapNotNull { localFs.findFileByPath(it.absolutePath) }
-                .map { JavaRoot(it, JavaRoot.RootType.SOURCE) }
-
+        val javaSourceRoots = contentRoots
+            .filter { it.isDirectory }
+            .mapNotNull { localFs.findFileByPath(it.absolutePath) }
+            .map { JavaRoot(it, JavaRoot.RootType.SOURCE) } +
+                contentRoots
+                    .filter { it.name.endsWith(DOT_SRCJAR) }
+                    .mapNotNull { findJarRoot(it.absoluteFile) }
+                    .map { JavaRoot(it, JavaRoot.RootType.SOURCE) }
 
         // If project already depends on Kotlin, there should already be the correct standard
         // libraries on the classpath. But if not (e.g. tests), use them from lint's own
         // classpath.
-        val extra = if (!hasKotlinStdlib(javaRoots)) findKotlinStandardLibraries() else emptyList()
+        val extraRoots =
+            if (!hasKotlinStdlib(contentRoots)) findKotlinStandardLibraries() else emptyList()
+        val allJavaRoots = javaBinaryRoots + javaSourceRoots + extraRoots
 
-        val allJavaRoots = javaBinaryRoots + javaSourceRoots + extra
-        val compilerConfiguration = createCompilerConfiguration("lintWithKotlin", allJavaRoots)
+        val compilerConfiguration = createCompilerConfiguration(
+            "lintWithKotlin",
+            javaBinaryRoots,
+            javaSourceRoots
+        )
 
         for (registrar in compilerConfiguration.getList(ComponentRegistrar.PLUGIN_COMPONENT_REGISTRARS)) {
             registrar.registerProjectComponents(project, compilerConfiguration)
         }
 
         fun createPackagePartProvider(scope: GlobalSearchScope): JvmPackagePartProvider {
-            return JvmPackagePartProvider(compilerConfiguration.languageVersionSettings, scope).apply {
+            return JvmPackagePartProvider(
+                compilerConfiguration.languageVersionSettings,
+                scope
+            ).apply {
                 addRoots(allJavaRoots)
+                packagePartProviders += this
             }
         }
 
         project.picoContainer.unregisterComponent(DeclarationProviderFactoryService::class.java.name)
-        project.registerService(DeclarationProviderFactoryService::class.java, CliDeclarationProviderFactoryService(ktFiles))
+        project.registerService(
+            DeclarationProviderFactoryService::class.java,
+            CliDeclarationProviderFactoryService(ktFiles)
+        )
 
         PersistentFSConstants::class.java.getDeclaredField("ourMaxIntellisenseFileSize")
-                .apply { isAccessible = true }
-                .setInt(null, FileUtilRt.LARGE_FOR_CONTENT_LOADING)
+            .apply { isAccessible = true }
+            .setInt(null, FileUtilRt.LARGE_FOR_CONTENT_LOADING)
 
-        val scriptDefinitionProvider = ScriptDefinitionProvider.getInstance(project) as? CliScriptDefinitionProvider
+        val scriptDefinitionProvider =
+            ScriptDefinitionProvider.getInstance(project) as? CliScriptDefinitionProvider
         if (scriptDefinitionProvider != null) {
             scriptDefinitionProvider.setScriptDefinitions(
-                    compilerConfiguration.getList(JVMConfigurationKeys.SCRIPT_DEFINITIONS))
+                compilerConfiguration.getList(JVMConfigurationKeys.SCRIPT_DEFINITIONS)
+            )
 
             ScriptDependenciesProvider.getInstance(project).let { importsProvider ->
                 compilerConfiguration.addJvmClasspathRoots(
-                        ktFiles.mapNotNull(importsProvider::getScriptDependencies)
-                                .flatMap { it.classpath }
-                                .distinctBy { it.absolutePath })
+                    ktFiles.mapNotNull(importsProvider::getScriptDependencies)
+                        .flatMap { it.classpath }
+                        .distinctBy { it.absolutePath })
             }
         }
 
         val jdkHome = compilerConfiguration.get(JVMConfigurationKeys.JDK_HOME)
-        val jrtFileSystem = VirtualFileManager.getInstance().getFileSystem(StandardFileSystems.JRT_PROTOCOL)
+        val jrtFileSystem =
+            VirtualFileManager.getInstance().getFileSystem(StandardFileSystems.JRT_PROTOCOL)
         val javaModuleFinder = CliJavaModuleFinder(jdkHome?.path?.let { path ->
             jrtFileSystem?.findFileByPath(path + URLUtil.JAR_SEPARATOR)
         })
 
         val outputDirectory =
-                compilerConfiguration.get(JVMConfigurationKeys.MODULES)?.singleOrNull()?.getOutputDirectory()
-                        ?: compilerConfiguration.get(JVMConfigurationKeys.OUTPUT_DIRECTORY)?.absolutePath
-
+            compilerConfiguration.get(JVMConfigurationKeys.MODULES)?.singleOrNull()?.getOutputDirectory()
+                ?: compilerConfiguration.get(JVMConfigurationKeys.OUTPUT_DIRECTORY)?.absolutePath
 
         val classpathRootsResolver = ClasspathRootsResolver(
-                PsiManager.getInstance(project),
-                PrintingMessageCollector(System.err,  MessageRenderer.WITHOUT_PATHS, true),
-                compilerConfiguration.getList(JVMConfigurationKeys.ADDITIONAL_JAVA_MODULES),
-                this::contentRootToVirtualFile,
-                javaModuleFinder,
-                !compilerConfiguration.getBoolean(CLIConfigurationKeys.ALLOW_KOTLIN_PACKAGE),
-                outputDirectory?.let(this::findLocalFile)
+            PsiManager.getInstance(project),
+            PrintingMessageCollector(System.err, MessageRenderer.WITHOUT_PATHS, true),
+            compilerConfiguration.getList(JVMConfigurationKeys.ADDITIONAL_JAVA_MODULES),
+            this::contentRootToVirtualFile,
+            javaModuleFinder,
+            !compilerConfiguration.getBoolean(CLIConfigurationKeys.ALLOW_KOTLIN_PACKAGE),
+            outputDirectory?.let(this::findLocalFile)
         )
 
         val (initialRoots, javaModules) =
-                classpathRootsResolver.convertClasspathRoots(compilerConfiguration.getList(
-                        JVMConfigurationKeys.CONTENT_ROOTS))
+                classpathRootsResolver.convertClasspathRoots(
+                    compilerConfiguration.getList(
+                        JVMConfigurationKeys.CONTENT_ROOTS
+                    )
+                )
 
-        val javaModuleResolver = CliJavaModuleResolver(classpathRootsResolver.javaModuleGraph,
-                javaModules, javaModuleFinder.systemModules.toList())
+        val javaModuleResolver = CliJavaModuleResolver(
+            classpathRootsResolver.javaModuleGraph,
+            javaModules, javaModuleFinder.systemModules.toList()
+        )
         project.registerServiceIfNeeded(JavaModuleResolver::class.java, javaModuleResolver)
-
 
         val (roots, singleJavaFileRoots) =
                 initialRoots.partition { (file) -> file.isDirectory || file.extension != JavaFileType.DEFAULT_EXTENSION }
@@ -198,45 +251,38 @@ object KotlinLintAnalyzerFacade {
         project.registerServiceIfNeeded(MetadataFinderFactory::class.java, finderFactory)
         project.registerServiceIfNeeded(VirtualFileFinderFactory::class.java, finderFactory)
 
-        (ServiceManager.getService(project, CoreJavaFileManager::class.java) as KotlinCliJavaFileManagerImpl).initialize(
-                rootsIndex,
-                packagePartProviders,
-                SingleJavaFileRootsIndex(singleJavaFileRoots),
-                compilerConfiguration.getBoolean(JVMConfigurationKeys.USE_FAST_CLASS_FILES_READING)
+        (ServiceManager.getService(
+            project,
+            CoreJavaFileManager::class.java
+        ) as KotlinCliJavaFileManagerImpl).initialize(
+            rootsIndex,
+            packagePartProviders,
+            SingleJavaFileRootsIndex(singleJavaFileRoots),
+            compilerConfiguration.getBoolean(JVMConfigurationKeys.USE_FAST_CLASS_FILES_READING)
         )
 
         TopDownAnalyzerFacadeForJVM.analyzeFilesWithJavaIntegration(
-                project, ktFiles, trace, compilerConfiguration, ::createPackagePartProvider)
+            project, ktFiles, trace, compilerConfiguration, ::createPackagePartProvider
+        )
 
         return trace
     }
 
     private val packagePartProviders = mutableListOf<JvmPackagePartProvider>()
 
-
-    @JvmStatic
     private fun registerProjectComponents(project: MockProject) {
         KotlinCoreEnvironment.registerPluginExtensionPoints(project)
-        val area = Extensions.getArea(project)
-
-        val cliLightClassGenerationSupport = CliLightClassGenerationSupport(project)
-        project.registerService(LightClassGenerationSupport::class.java,
-                cliLightClassGenerationSupport)
-        project.registerService(CliLightClassGenerationSupport::class.java,
-                cliLightClassGenerationSupport)
-        project.registerService(CodeAnalyzerInitializer::class.java, cliLightClassGenerationSupport)
-
-        area.getExtensionPoint(PsiElementFinder.EP_NAME).registerExtension(
-                JavaElementFinder(project,
-                        cliLightClassGenerationSupport))
-
+        KotlinCoreEnvironment.registerKotlinLightClassSupport(project)
 
         project.registerServiceIfNeeded(
-                KotlinUastBindingContextProviderService::class.java,
-                CliKotlinUastBindingContextProviderService::class.java)
+            KotlinUastResolveProviderService::class.java,
+            CliKotlinUastResolveProviderService::class.java
+        )
 
-        project.registerService(ModuleVisibilityManager::class.java,
-                CliModuleVisibilityManagerImpl(false))
+        project.registerService(
+            ModuleVisibilityManager::class.java,
+            CliModuleVisibilityManagerImpl(false)
+        )
 
         AnalysisHandlerExtension.registerExtension(project, UastAnalysisHandlerExtension())
 
@@ -249,35 +295,25 @@ object KotlinLintAnalyzerFacade {
     }
 
     private fun findLocalFile(path: String): VirtualFile? =
-            LintCoreApplicationEnvironment.get().localFileSystem.findFileByPath(path)
+        LintCoreApplicationEnvironment.get().localFileSystem.findFileByPath(path)
 
     private fun findLocalFile(root: JvmContentRoot): VirtualFile? {
         val file = findLocalFile(root.file.absolutePath)
         if (file == null) {
-            println("Classpath entry points to a non-existent location: \${root.file}")
+            println("Classpath entry points to a non-existent location: ${root.file}")
         }
         return file
     }
 
     private fun contentRootToVirtualFile(root: JvmContentRoot): VirtualFile? {
-        if (root is JvmClasspathRoot) {
+        if (root is JvmClasspathRoot || root is JvmModulePathRoot || root is JavaSourceRoot) {
             return if (root.file.isFile) {
                 findJarRoot(root.file)
             } else {
                 findLocalFile(root)
             }
         }
-        if (root is JvmModulePathRoot) {
-            return if (root.file.isFile) {
-                findJarRoot(root.file)
-            } else {
-                findLocalFile(root)
-            }
-        }
-        if (root is JavaSourceRoot) {
-            return findLocalFile(root)
-        }
-        throw IllegalStateException("Unexpected root: \$root")
+        throw IllegalStateException("Unexpected root: $root")
     }
 
     private fun <T> MockProject.registerServiceIfNeeded(intf: Class<T>, impl: T) {
@@ -292,7 +328,11 @@ object KotlinLintAnalyzerFacade {
         }
     }
 
-    private fun createCompilerConfiguration(moduleName: String, javaRoots: List<JavaRoot>): CompilerConfiguration {
+    private fun createCompilerConfiguration(
+        moduleName: String,
+        javaBinaryRoots: List<JavaRoot>,
+        javaSourceRoots: List<JavaRoot>
+    ): CompilerConfiguration {
         val configuration = CompilerConfiguration()
         configuration.put(CommonConfigurationKeys.MODULE_NAME, moduleName)
         configuration.put(CLIConfigurationKeys.MESSAGE_COLLECTOR_KEY, MessageCollector.NONE)
@@ -300,18 +340,11 @@ object KotlinLintAnalyzerFacade {
             configuration.add(JVMConfigurationKeys.SCRIPT_DEFINITIONS, StandardScriptDefinition)
         }
 
-        val javaSources = javaRoots
-                .filter { it.type == JavaRoot.RootType.SOURCE }
-                .mapNotNull { it.file.canonicalPath }
-                .map(::File)
+        val sourceRoots = javaSourceRoots.map { VfsUtilCore.virtualToIoFile(it.file) }
+        val classpathRoots = javaBinaryRoots.map { VfsUtilCore.virtualToIoFile(it.file) }
 
-        val classpath = javaRoots
-                .filter { it.type == JavaRoot.RootType.BINARY }
-                .mapNotNull { it.file.canonicalPath }
-                .map(::File)
-
-        configuration.addJavaSourceRoots(javaSources)
-        configuration.addJvmClasspathRoots(classpath)
+        configuration.addJavaSourceRoots(sourceRoots)
+        configuration.addJvmClasspathRoots(classpathRoots)
 
         return configuration
     }
@@ -320,7 +353,8 @@ object KotlinLintAnalyzerFacade {
         for (root in roots) {
             val path = root.path
             if (path.contains("kotlin-stdlib-") &&
-                    root.name.startsWith("kotlin-stdlib-")) {
+                root.name.startsWith("kotlin-stdlib-")
+            ) {
                 return true
             }
         }
@@ -336,8 +370,9 @@ object KotlinLintAnalyzerFacade {
                 val file = File(path)
                 val name = file.name
                 if (name.startsWith("kotlin-stdlib") ||
-                        name.startsWith("kotlin-reflect") ||
-                        name.startsWith("kotlin-script-runtime")) {
+                    name.startsWith("kotlin-reflect") ||
+                    name.startsWith("kotlin-script-runtime")
+                ) {
                     val localFs = StandardFileSystems.local()
                     val virtualFile = localFs.findFileByPath(path) ?: continue
                     paths.add(JavaRoot(virtualFile, JavaRoot.RootType.BINARY))

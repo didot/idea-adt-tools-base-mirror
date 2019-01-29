@@ -28,7 +28,7 @@ import static com.android.SdkConstants.ID_PREFIX;
 import static com.android.SdkConstants.MULTI_AUTO_COMPLETE_TEXT_VIEW;
 import static com.android.SdkConstants.NEW_ID_PREFIX;
 import static com.android.SdkConstants.TEXT_VIEW;
-import static com.android.tools.lint.detector.api.LintUtils.stripIdPrefix;
+import static com.android.tools.lint.detector.api.Lint.stripIdPrefix;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -52,46 +52,41 @@ import java.util.Set;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
 
-/**
- * Detector which finds unlabeled text fields
- */
+/** Detector which finds unlabeled text fields */
 public class LabelForDetector extends LayoutDetector {
-    /**
-     * The main issue discovered by this detector
-     */
-    public static final Issue ISSUE = Issue.create(
-            "LabelFor",
-            "Missing accessibility label",
-            "Editable text fields should provide an `android:hint` or, provided your " +
-             "`minSdkVersion` is at least 17, they may be referenced by a view " +
-             "with a `android:labelFor` attribute.\n" +
-             "\n" +
-             "When using `android:labelFor`, be sure to provide an `android:text` or an " +
-             "`android:contentDescription`.\n" +
-             "\n" +
-             "If your view is labeled but by a label in a different layout which " +
-             "includes this one, just suppress this warning from lint.",
-            Category.A11Y,
-            2,
-            Severity.WARNING,
-            new Implementation(LabelForDetector.class, Scope.RESOURCE_FILE_SCOPE));
+    /** The main issue discovered by this detector */
+    public static final Issue ISSUE =
+            Issue.create(
+                    "LabelFor",
+                    "Missing accessibility label",
+                    "Editable text fields should provide an `android:hint` or, provided your "
+                            + "`minSdkVersion` is at least 17, they may be referenced by a view "
+                            + "with a `android:labelFor` attribute.\n"
+                            + "\n"
+                            + "When using `android:labelFor`, be sure to provide an `android:text` or an "
+                            + "`android:contentDescription`.\n"
+                            + "\n"
+                            + "If your view is labeled but by a label in a different layout which "
+                            + "includes this one, just suppress this warning from lint.",
+                    Category.A11Y,
+                    2,
+                    Severity.WARNING,
+                    new Implementation(LabelForDetector.class, Scope.RESOURCE_FILE_SCOPE));
 
     private static final String PREFIX = "Missing accessibility label";
 
-    private static final String PROVIDE_HINT =  "where minSdk < 17, you should provide an " +
-            "`android:hint`";
+    private static final String PROVIDE_HINT =
+            "where minSdk < 17, you should provide an `android:hint`";
 
-    private static final String PROVIDE_LABEL_FOR_OR_HINT = "provide either a view with an " +
-            "`android:labelFor` that references this view or provide an `android:hint`";
+    private static final String PROVIDE_LABEL_FOR_OR_HINT =
+            "provide either a view with an "
+                    + "`android:labelFor` that references this view or provide an `android:hint`";
 
     private Set<String> mLabels;
     private List<Element> mEditableTextFields;
 
-    /**
-     * Constructs a new {@link LabelForDetector}
-     */
-    public LabelForDetector() {
-    }
+    /** Constructs a new {@link LabelForDetector} */
+    public LabelForDetector() {}
 
     @Override
     @Nullable
@@ -101,11 +96,7 @@ public class LabelForDetector extends LayoutDetector {
 
     @Override
     public Collection<String> getApplicableElements() {
-        return Arrays.asList(
-                EDIT_TEXT,
-                AUTO_COMPLETE_TEXT_VIEW,
-                MULTI_AUTO_COMPLETE_TEXT_VIEW
-        );
+        return Arrays.asList(EDIT_TEXT, AUTO_COMPLETE_TEXT_VIEW, MULTI_AUTO_COMPLETE_TEXT_VIEW);
     }
 
     @Override
@@ -131,7 +122,7 @@ public class LabelForDetector extends LayoutDetector {
 
                 XmlContext xmlContext = (XmlContext) context;
                 String message = "";
-                Location location = xmlContext.getLocation(element);
+                Location location = xmlContext.getElementLocation(element);
                 int minSdk = context.getMainProject().getMinSdk();
 
                 if (hintProvided && labelForProvided) {
@@ -172,6 +163,11 @@ public class LabelForDetector extends LayoutDetector {
 
         Element element = attribute.getOwnerElement();
 
+        if (mLabels == null) {
+            mLabels = Sets.newHashSet();
+        }
+        mLabels.add(attribute.getValue());
+
         // Unlikely this is anything other than a TextView. If it is, bail.
         if (!element.getLocalName().equals(TEXT_VIEW)) {
             return;
@@ -183,25 +179,23 @@ public class LabelForDetector extends LayoutDetector {
 
         if ((textAttributeNode == null || textAttributeNode.getValue().isEmpty())
                 && (contentDescriptionNode == null
-                || contentDescriptionNode.getValue().isEmpty())) {
-            LintFix fix = fix().group(
-                    fix().set(ANDROID_URI, ATTR_TEXT, "").caretBegin().build(),
-                    fix().set(ANDROID_URI, ATTR_CONTENT_DESCRIPTION, "").caretBegin().build());
+                        || contentDescriptionNode.getValue().isEmpty())) {
+            LintFix fix =
+                    fix().alternatives(
+                                    fix().set(ANDROID_URI, ATTR_TEXT, "").caretBegin().build(),
+                                    fix().set(ANDROID_URI, ATTR_CONTENT_DESCRIPTION, "")
+                                            .caretBegin()
+                                            .build());
 
             context.report(
                     ISSUE,
                     element,
-                    context.getLocation(element),
+                    context.getElementLocation(element, null, ANDROID_URI, ATTR_LABEL_FOR),
                     messageWithPrefix(
                             "when using `android:labelFor`, you must also define an "
                                     + "`android:text` or an `android:contentDescription`"),
                     fix);
         }
-
-        if (mLabels == null) {
-            mLabels = Sets.newHashSet();
-        }
-        mLabels.add(attribute.getValue());
     }
 
     @Override
@@ -222,7 +216,7 @@ public class LabelForDetector extends LayoutDetector {
         mEditableTextFields.add(element);
     }
 
-    private String messageWithPrefix(String message) {
+    private static String messageWithPrefix(String message) {
         return PREFIX + ": " + message;
     }
 }

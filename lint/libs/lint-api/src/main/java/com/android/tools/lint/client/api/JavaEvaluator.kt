@@ -23,12 +23,14 @@ import com.android.builder.model.JavaLibrary
 import com.android.builder.model.Library
 import com.android.builder.model.MavenCoordinates
 import com.android.tools.lint.detector.api.ClassContext
+import com.android.tools.lint.detector.api.Project
 import com.google.common.collect.Maps
 import com.intellij.psi.PsiAnnotation
 import com.intellij.psi.PsiAnonymousClass
 import com.intellij.psi.PsiArrayType
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiClassType
+import com.intellij.psi.PsiCompiledElement
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiEllipsisType
 import com.intellij.psi.PsiMember
@@ -49,6 +51,7 @@ import org.jetbrains.uast.UCallExpression
 import org.jetbrains.uast.UElement
 import org.jetbrains.uast.UExpression
 import org.jetbrains.uast.UMethod
+import org.jetbrains.uast.getContainingUClass
 import java.io.File
 import java.util.ArrayList
 
@@ -72,7 +75,7 @@ const val TYPE_DOUBLE_WRAPPER = "java.lang.Double"
 const val TYPE_FLOAT_WRAPPER = "java.lang.Float"
 const val TYPE_CHARACTER_WRAPPER = "java.lang.Character"
 
-abstract// Some of these methods may be overridden by LintClients
+abstract // Some of these methods may be overridden by LintClients
 class JavaEvaluator {
     abstract val dependencies: Dependencies?
 
@@ -84,26 +87,30 @@ class JavaEvaluator {
     private var jarToGroup: MutableMap<String, MavenCoordinates>? = null
 
     abstract fun extendsClass(
-            cls: PsiClass?,
-            className: String,
-            strict: Boolean): Boolean
+        cls: PsiClass?,
+        className: String,
+        strict: Boolean
+    ): Boolean
 
     abstract fun implementsInterface(
-            cls: PsiClass,
-            interfaceName: String,
-            strict: Boolean): Boolean
+        cls: PsiClass,
+        interfaceName: String,
+        strict: Boolean
+    ): Boolean
 
     open fun isMemberInSubClassOf(
-            method: PsiMember,
-            className: String,
-            strict: Boolean): Boolean {
+        method: PsiMember,
+        className: String,
+        strict: Boolean
+    ): Boolean {
         val containingClass = method.containingClass
         return containingClass != null && extendsClass(containingClass, className, strict)
     }
 
     open fun isMemberInClass(
-            method: PsiMember?,
-            className: String): Boolean {
+        method: PsiMember?,
+        className: String
+    ): Boolean {
         if (method == null) {
             return false
         }
@@ -120,9 +127,10 @@ class JavaEvaluator {
      * both [.extendsClass] and [ ][.implementsInterface].
      */
     open fun inheritsFrom(
-            cls: PsiClass,
-            className: String,
-            strict: Boolean): Boolean {
+        cls: PsiClass,
+        className: String,
+        strict: Boolean
+    ): Boolean {
         return extendsClass(cls, className, strict) || implementsInterface(cls, className, strict)
     }
 
@@ -132,18 +140,19 @@ class JavaEvaluator {
      * class possibly extending the given class, and if the parameter types are the exact types
      * specified.
      *
-     * @param method        the method in question
-     * @param className     the class name the method should be defined in or inherit from (or
+     * @param method the method in question
+     * @param className the class name the method should be defined in or inherit from (or
      * if null, allow any class)
-     * @param allowInherit  whether we allow checking for inheritance
+     * @param allowInherit whether we allow checking for inheritance
      * @param argumentTypes the names of the types of the parameters
      * @return true if this method is defined in the given class and with the given parameters
      */
     open fun methodMatches(
-            method: PsiMethod,
-            className: String?,
-            allowInherit: Boolean,
-            vararg argumentTypes: String): Boolean {
+        method: PsiMethod,
+        className: String?,
+        allowInherit: Boolean,
+        vararg argumentTypes: String
+    ): Boolean {
         if (className != null && allowInherit) {
             if (!isMemberInSubClassOf(method, className, false)) {
                 return false
@@ -156,13 +165,14 @@ class JavaEvaluator {
     /**
      * Returns true if the given method's parameters are the exact types specified.
      *
-     * @param method        the method in question
+     * @param method the method in question
      * @param argumentTypes the names of the types of the parameters
      * @return true if this method is defined in the given class and with the given parameters
      */
     open fun parametersMatch(
-            method: PsiMethod,
-            vararg argumentTypes: String): Boolean {
+        method: PsiMethod,
+        vararg argumentTypes: String
+    ): Boolean {
         val parameterList = method.parameterList
         if (parameterList.parametersCount != argumentTypes.size) {
             return false
@@ -180,23 +190,26 @@ class JavaEvaluator {
 
     /** Returns true if the given type matches the given fully qualified type name  */
     open fun parameterHasType(
-            method: PsiMethod?,
-            parameterIndex: Int,
-            typeName: String): Boolean {
+        method: PsiMethod?,
+        parameterIndex: Int,
+        typeName: String
+    ): Boolean {
         if (method == null) {
             return false
         }
         val parameterList = method.parameterList
-        return parameterList.parametersCount > parameterIndex && typeMatches(parameterList.parameters[parameterIndex].type,
-                typeName)
+        return parameterList.parametersCount > parameterIndex && typeMatches(
+            parameterList.parameters[parameterIndex].type,
+            typeName
+        )
     }
 
     /** Returns true if the given type matches the given fully qualified type name  */
     open fun typeMatches(
-            type: PsiType?,
-            typeName: String): Boolean {
+        type: PsiType?,
+        typeName: String
+    ): Boolean {
         return type != null && type.canonicalText == typeName
-
     }
 
     open fun resolve(element: PsiElement): PsiElement? {
@@ -215,6 +228,14 @@ class JavaEvaluator {
         if (owner != null) {
             val modifierList = owner.modifierList
             return modifierList != null && modifierList.hasModifierProperty(PsiModifier.PUBLIC)
+        }
+        return false
+    }
+
+    open fun isProtected(owner: PsiModifierListOwner?): Boolean {
+        if (owner != null) {
+            val modifierList = owner.modifierList
+            return modifierList != null && modifierList.hasModifierProperty(PsiModifier.PROTECTED)
         }
         return false
     }
@@ -257,6 +278,24 @@ class JavaEvaluator {
             return null
         }
         val superMethods = method.findSuperMethods()
+        if (superMethods.size > 1) {
+            // Prefer non-compiled concrete methods
+            for (m in superMethods) {
+                if (m !is PsiCompiledElement && m.containingClass?.isInterface == false) {
+                    return m
+                }
+            }
+            for (m in superMethods) {
+                if (m.containingClass?.isInterface == false) {
+                    return m
+                }
+            }
+            for (m in superMethods) {
+                if (m !is PsiCompiledElement) {
+                    return m
+                }
+            }
+        }
         return if (superMethods.isNotEmpty()) {
             superMethods[0]
         } else null
@@ -280,9 +319,11 @@ class JavaEvaluator {
     }
 
     @Suppress("DeprecatedCallableAddReplaceWith")
-    @Deprecated("Most lint APIs (such as ApiLookup) no longer require internal JVM names and\n" +
-            "      accept qualified names that can be obtained by calling the\n" +
-            "      {@link #getQualifiedName(PsiClass)} method.")
+    @Deprecated(
+        "Most lint APIs (such as ApiLookup) no longer require internal JVM names and\n" +
+                "      accept qualified names that can be obtained by calling the\n" +
+                "      {@link #getQualifiedName(PsiClass)} method."
+    )
     open fun getInternalName(psiClass: PsiClass): String? {
         var qualifiedName = psiClass.qualifiedName
         if (qualifiedName == null) {
@@ -298,9 +339,11 @@ class JavaEvaluator {
     }
 
     @Suppress("DeprecatedCallableAddReplaceWith")
-    @Deprecated("Most lint APIs (such as ApiLookup) no longer require internal JVM names and\n" +
-            "      accept qualified names that can be obtained by calling the\n" +
-            "      {@link #getQualifiedName(PsiClassType)} method.")
+    @Deprecated(
+        "Most lint APIs (such as ApiLookup) no longer require internal JVM names and\n" +
+                "      accept qualified names that can be obtained by calling the\n" +
+                "      {@link #getQualifiedName(PsiClassType)} method."
+    )
     open fun getInternalName(psiClassType: PsiClassType): String? {
         return ClassContext.getInternalName(psiClassType.canonicalText)
     }
@@ -317,8 +360,11 @@ class JavaEvaluator {
      * @param includeReturn whether the return type should be included
      * @return a simplified version of the internal JVM description for the method
      */
-    open fun getMethodDescription(method: PsiMethod, includeName: Boolean,
-            includeReturn: Boolean): String? {
+    open fun getMethodDescription(
+        method: PsiMethod,
+        includeName: Boolean,
+        includeReturn: Boolean
+    ): String? {
         assert(!includeName) // not yet tested
         assert(!includeReturn) // not yet tested
 
@@ -365,11 +411,16 @@ class JavaEvaluator {
     }
 
     @Suppress("DeprecatedCallableAddReplaceWith")
-    @Deprecated("Most lint APIs (such as ApiLookup) no longer require internal JVM method\n" +
-            "      descriptions and accept JVM equivalent descriptions that can be obtained by calling the\n" +
-            "      {@link #getMethodDescription} method.")
-    open fun getInternalDescription(method: PsiMethod, includeName: Boolean,
-            includeReturn: Boolean): String? {
+    @Deprecated(
+        "Most lint APIs (such as ApiLookup) no longer require internal JVM method\n" +
+                "      descriptions and accept JVM equivalent descriptions that can be obtained by calling the\n" +
+                "      {@link #getMethodDescription} method."
+    )
+    open fun getInternalDescription(
+        method: PsiMethod,
+        includeName: Boolean,
+        includeReturn: Boolean
+    ): String? {
         assert(!includeName) // not yet tested
         assert(!includeReturn) // not yet tested
 
@@ -422,8 +473,10 @@ class JavaEvaluator {
      * The JVM equivalent type name differs from the real JVM name by using dot ('.') instead of
      * slash ('/') and dollar sign ('$') characters.
      */
-    private fun appendJvmEquivalentTypeName(signature: StringBuilder,
-            outerClass: PsiClass): Boolean {
+    private fun appendJvmEquivalentTypeName(
+        signature: StringBuilder,
+        outerClass: PsiClass
+    ): Boolean {
         val className = getQualifiedName(outerClass) ?: return false
         signature.append('L').append(className).append(';')
         return true
@@ -433,8 +486,10 @@ class JavaEvaluator {
      * The JVM equivalent signature differs from the real JVM signature by using dot ('.') instead
      * of slash ('/') and dollar sign ('$') characters.
      */
-    private fun appendJvmEquivalentSignature(buffer: StringBuilder,
-            type: PsiType?): Boolean {
+    private fun appendJvmEquivalentSignature(
+        buffer: StringBuilder,
+        type: PsiType?
+    ): Boolean {
         if (type == null) {
             return false
         }
@@ -458,8 +513,10 @@ class JavaEvaluator {
     }
 
     @Deprecated("")
-    private fun appendJvmTypeName(signature: StringBuilder,
-            outerClass: PsiClass): Boolean {
+    private fun appendJvmTypeName(
+        signature: StringBuilder,
+        outerClass: PsiClass
+    ): Boolean {
         @Suppress("DEPRECATION")
         val className = getInternalName(outerClass) ?: return false
         signature.append('L').append(className).append(';')
@@ -467,8 +524,10 @@ class JavaEvaluator {
     }
 
     @Deprecated("")
-    private fun appendJvmSignature(buffer: StringBuilder,
-            type: PsiType?): Boolean {
+    private fun appendJvmSignature(
+        buffer: StringBuilder,
+        type: PsiType?
+    ): Boolean {
         if (type == null) {
             return false
         }
@@ -560,16 +619,25 @@ class JavaEvaluator {
 
     abstract fun getClassType(psiClass: PsiClass?): PsiClassType?
 
-    abstract fun getAllAnnotations(owner: PsiModifierListOwner,
-            inHierarchy: Boolean): Array<PsiAnnotation>
+    abstract fun getAllAnnotations(
+        owner: UAnnotated,
+        inHierarchy: Boolean
+    ): List<UAnnotation>
+
+    abstract fun getAllAnnotations(
+        owner: PsiModifierListOwner,
+        inHierarchy: Boolean
+    ): Array<PsiAnnotation>
 
     abstract fun findAnnotationInHierarchy(
-            listOwner: PsiModifierListOwner,
-            vararg annotationNames: String): PsiAnnotation?
+        listOwner: PsiModifierListOwner,
+        vararg annotationNames: String
+    ): PsiAnnotation?
 
     abstract fun findAnnotation(
-            listOwner: PsiModifierListOwner?,
-            vararg annotationNames: String): PsiAnnotation?
+        listOwner: PsiModifierListOwner?,
+        vararg annotationNames: String
+    ): PsiAnnotation?
 
     /**
      * Try to determine the path to the .jar file containing the element, **if** applicable
@@ -586,17 +654,21 @@ class JavaEvaluator {
      * on the given modifier list holder
      *
      * @param annotation the annotation to check
-     * @param owner      the owner potentially declaring the annotation
+     * @param owner the owner potentially declaring the annotation
      * @return true if the annotation is inherited rather than being declared directly on this owner
      */
-    open fun isInherited(annotation: PsiAnnotation,
-            owner: PsiModifierListOwner): Boolean {
+    open fun isInherited(
+        annotation: PsiAnnotation,
+        owner: PsiModifierListOwner
+    ): Boolean {
         val annotationOwner = annotation.owner
         return annotationOwner == null || annotationOwner != owner.modifierList
     }
 
-    open fun isInherited(annotation: UAnnotation,
-            owner: PsiModifierListOwner): Boolean {
+    open fun isInherited(
+        annotation: UAnnotation,
+        owner: PsiModifierListOwner
+    ): Boolean {
         val psi = annotation.psi
         if (psi is PsiAnnotation) {
             val annotationOwner = psi.owner
@@ -611,7 +683,7 @@ class JavaEvaluator {
      * on the given modifier list holder
      *
      * @param annotation the annotation to check
-     * @param owner      the owner potentially declaring the annotation
+     * @param owner the owner potentially declaring the annotation
      * @return true if the annotation is inherited rather than being declared directly on this owner
      */
     open fun isInherited(annotation: UAnnotation, owner: UAnnotated): Boolean {
@@ -626,6 +698,11 @@ class JavaEvaluator {
     // a UMethod is both a PsiElement and a UElement
     open fun getPackage(node: UMethod): PsiPackage? {
         return getPackage(node as PsiElement)
+    }
+
+    /** Returns the Lint project containing the given element */
+    open fun getProject(element: PsiElement): Project? {
+        return null
     }
 
     /**
@@ -694,7 +771,7 @@ class JavaEvaluator {
                 if (coordinates == null) {
                     coordinates = MyMavenCoordinates.NONE
                 }
-                jarToGroup!!.put(jarFile, coordinates)
+                jarToGroup!![jarFile] = coordinates
             }
             return if (coordinates === MyMavenCoordinates.NONE) null else coordinates
         }
@@ -731,11 +808,13 @@ class JavaEvaluator {
                         val prefix = jarFile.substring(0, prefixEnd)
                         val suffix = jarFile.substring(suffixStart)
 
-                        val aarPrefixMatch = findOwnerLibrary(dependencies.libraries, prefix, suffix)
+                        val aarPrefixMatch =
+                            findOwnerLibrary(dependencies.libraries, prefix, suffix)
                         if (aarPrefixMatch != null) {
                             return aarPrefixMatch
                         }
-                        val jarPrefixMatch = findOwnerJavaLibrary(dependencies.javaLibraries, prefix, suffix)
+                        val jarPrefixMatch =
+                            findOwnerJavaLibrary(dependencies.javaLibraries, prefix, suffix)
                         if (jarPrefixMatch != null) {
                             return jarPrefixMatch
                         }
@@ -748,8 +827,9 @@ class JavaEvaluator {
     }
 
     private fun findOwnerJavaLibrary(
-            dependencies: Collection<JavaLibrary>,
-            jarFile: String): Library? {
+        dependencies: Collection<JavaLibrary>,
+        jarFile: String
+    ): Library? {
         for (library in dependencies) {
             if (jarFile == library.jarFile.path) {
                 return library
@@ -766,7 +846,8 @@ class JavaEvaluator {
     private fun findOwnerJavaLibrary(
         dependencies: Collection<JavaLibrary>,
         pathPrefix: String,
-        pathSuffix: String): Library? {
+        pathSuffix: String
+    ): Library? {
         for (library in dependencies) {
             val path = library.jarFile.path
             if (path.startsWith(pathPrefix) && path.endsWith(pathSuffix)) {
@@ -782,8 +863,9 @@ class JavaEvaluator {
     }
 
     private fun findOwnerLibrary(
-            dependencies: Collection<AndroidLibrary>,
-            jarFile: String): Library? {
+        dependencies: Collection<AndroidLibrary>,
+        jarFile: String
+    ): Library? {
         for (library in dependencies) {
             if (jarFile == library.jarFile.path) {
                 return library
@@ -810,7 +892,8 @@ class JavaEvaluator {
     private fun findOwnerLibrary(
         dependencies: Collection<AndroidLibrary>,
         pathPrefix: String,
-        pathSuffix: String): Library? {
+        pathSuffix: String
+    ): Library? {
         for (library in dependencies) {
             val path = library.jarFile.path
             if (path.startsWith(pathPrefix) && path.endsWith(pathSuffix)) {
@@ -843,8 +926,9 @@ class JavaEvaluator {
      * default parameters, and varargs and the spread operator.
      */
     open fun computeArgumentMapping(
-            call: UCallExpression,
-            method: PsiMethod): Map<UExpression, PsiParameter> {
+        call: UCallExpression,
+        method: PsiMethod
+    ): Map<UExpression, PsiParameter> {
         return emptyMap()
     }
 
@@ -872,7 +956,9 @@ class JavaEvaluator {
         for (annotation in annotations) {
             val signature = annotation.qualifiedName
             if (signature == null || signature.startsWith("java.") && !relevantAnnotations!!.contains(
-                    signature)) {
+                    signature
+                )
+            ) {
                 // @Override, @SuppressWarnings etc. Ignore
                 continue
             }
@@ -918,16 +1004,67 @@ class JavaEvaluator {
 
         return if (result != null)
             result.toTypedArray()
-        else
-            PsiAnnotation.EMPTY_ARRAY
+        else PsiAnnotation.EMPTY_ARRAY
+    }
+
+    /**
+     * Returns true if this method is overriding a method from a super class, or
+     * optionally if it is implementing a method from an interface
+     */
+    fun isOverride(method: UMethod, includeInterfaces: Boolean = true): Boolean {
+        if (isStatic(method)) {
+            return false
+        }
+
+        if (isPublic(method) || isProtected(method)) {
+            val cls = method.getContainingUClass() ?: return false
+            val superCls = cls.superClass ?: return false
+
+            if (includeInterfaces) {
+                val superMethods = method.findSuperMethods()
+                return superMethods.isNotEmpty()
+            }
+
+            val superMethod = superCls.findMethodBySignature(method.psi, true)
+            return superMethod != null
+        }
+
+        return false
+    }
+
+    /**
+     * Returns true if this method is overriding a method from a super class, or
+     * optionally if it is implementing a method from an interface
+     */
+    fun isOverride(method: PsiMethod, includeInterfaces: Boolean = true): Boolean {
+        if (isStatic(method)) {
+            return false
+        }
+
+        if (isPublic(method) || isProtected(method)) {
+            val cls = method.containingClass ?: return false
+            val superCls = cls.superClass ?: return false
+
+            if (includeInterfaces) {
+                val superMethods = method.findSuperMethods()
+                return superMethods.isNotEmpty()
+            }
+
+            val superMethod = superCls.findMethodBySignature(method, true)
+            return superMethod != null
+        }
+
+        return false
     }
 
     /**
      * Dummy implementation of [com.android.builder.model.MavenCoordinates] which
      * only stores group and artifact id's for now
      */
-    private class MyMavenCoordinates(private val groupId: String,
-            private val artifactId: String) : MavenCoordinates {
+    private class MyMavenCoordinates(
+        private val groupId: String,
+        private val artifactId: String
+    ) : MavenCoordinates {
 
         override fun getGroupId(): String {
             return groupId

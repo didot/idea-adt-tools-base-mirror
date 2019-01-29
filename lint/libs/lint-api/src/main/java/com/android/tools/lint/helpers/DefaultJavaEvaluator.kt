@@ -18,8 +18,9 @@ package com.android.tools.lint.helpers
 
 import com.android.builder.model.Dependencies
 import com.android.tools.lint.client.api.JavaEvaluator
-import com.android.tools.lint.detector.api.LintUtils
 import com.android.tools.lint.detector.api.Project
+import com.android.tools.lint.detector.api.computeKotlinArgumentMapping
+import com.android.tools.lint.detector.api.isKotlin
 import com.google.common.collect.Sets
 import com.intellij.codeInsight.AnnotationUtil
 import com.intellij.psi.JavaDirectoryService
@@ -43,11 +44,15 @@ import com.intellij.psi.search.GlobalSearchScope
 import com.intellij.psi.util.InheritanceUtil
 import com.intellij.psi.util.MethodSignatureUtil
 import com.intellij.psi.util.TypeConversionUtil
+import com.intellij.util.io.URLUtil
+import org.jetbrains.uast.UAnnotated
+import org.jetbrains.uast.UAnnotation
 import org.jetbrains.uast.UCallExpression
 import org.jetbrains.uast.UDeclaration
 import org.jetbrains.uast.UElement
 import org.jetbrains.uast.UExpression
 import org.jetbrains.uast.getContainingUFile
+import org.jetbrains.uast.java.JavaUAnnotation
 
 open class DefaultJavaEvaluator(
     private val myProject: com.intellij.openapi.project.Project?,
@@ -72,9 +77,11 @@ open class DefaultJavaEvaluator(
         return InheritanceUtil.isInheritor(cls, strict, className)
     }
 
-    override fun implementsInterface(cls: PsiClass,
-            interfaceName: String,
-            strict: Boolean): Boolean {
+    override fun implementsInterface(
+        cls: PsiClass,
+        interfaceName: String,
+        strict: Boolean
+    ): Boolean {
         // TODO: This checks superclasses too. Let's find a cheaper method which only checks interfaces.
         return InheritanceUtil.isInheritor(cls, strict, interfaceName)
     }
@@ -84,19 +91,67 @@ open class DefaultJavaEvaluator(
     }
 
     override fun findClass(qualifiedName: String): PsiClass? {
-        return JavaPsiFacade.getInstance(myProject ?: return null).findClass(qualifiedName,
-                GlobalSearchScope.allScope(myProject))
+        return JavaPsiFacade.getInstance(myProject ?: return null).findClass(
+            qualifiedName,
+            GlobalSearchScope.allScope(myProject)
+        )
     }
 
     override fun getClassType(psiClass: PsiClass?): PsiClassType? {
         return if (myProject != null && psiClass != null)
             JavaPsiFacade.getElementFactory(myProject).createType(psiClass)
-        else
-            null
+        else null
     }
 
-    override fun getAllAnnotations(owner: PsiModifierListOwner,
-            inHierarchy: Boolean): Array<PsiAnnotation> {
+    override fun getAllAnnotations(
+        owner: UAnnotated,
+        inHierarchy: Boolean
+    ): List<UAnnotation> {
+        if (owner is UDeclaration) {
+            // Going to PSI means we drop vital context from Kotlin annotations.
+            // Therefore, call into UAST to get the full Kotlin annotations, but also
+            // merge in external annotations and inherited annotations from the class
+            // files, and pick unique.
+            val annotations = owner.annotations
+            val psiAnnotations = getAllAnnotations(owner.psi, inHierarchy)
+
+            if (!annotations.isEmpty()) {
+                if (psiAnnotations.isEmpty()) {
+                    return annotations
+                }
+
+                // Filter with preference given to the builtins
+                val result = mutableListOf<UAnnotation>()
+                for (psi in psiAnnotations) {
+                    val signature = psi.qualifiedName
+                    var handled = false
+                    for (ua in annotations) {
+                        if (ua.qualifiedName == signature) {
+                            result.add(ua)
+                            handled = true
+                            break
+                        }
+                    }
+                    if (!handled) {
+                        result.add(JavaUAnnotation.wrap(psi))
+                    }
+                }
+
+                return result
+            }
+
+            // Work around bug: Passing in a UAST node to this method generates a
+            // "class JavaUParameter not found among parameters: [PsiParameter:something]" error
+            return JavaUAnnotation.wrap(psiAnnotations)
+        }
+
+        return owner.annotations
+    }
+
+    override fun getAllAnnotations(
+        owner: PsiModifierListOwner,
+        inHierarchy: Boolean
+    ): Array<PsiAnnotation> {
         if (owner is UDeclaration) {
             // Work around bug: Passing in a UAST node to this method generates a
             // "class JavaUParameter not found among parameters: [PsiParameter:something]" error
@@ -108,18 +163,24 @@ open class DefaultJavaEvaluator(
         return AnnotationUtil.getAllAnnotations(owner, inHierarchy, null, false)
     }
 
-    override fun findAnnotationInHierarchy(listOwner: PsiModifierListOwner,
-            vararg annotationNames: String): PsiAnnotation? {
+    override fun findAnnotationInHierarchy(
+        listOwner: PsiModifierListOwner,
+        vararg annotationNames: String
+    ): PsiAnnotation? {
         if (listOwner is UDeclaration) {
             // Work around UAST bug
             return findAnnotationInHierarchy(listOwner.psi, *annotationNames)
         }
-        return AnnotationUtil.findAnnotationInHierarchy(listOwner,
-                Sets.newHashSet(*annotationNames))
+        return AnnotationUtil.findAnnotationInHierarchy(
+            listOwner,
+            Sets.newHashSet(*annotationNames)
+        )
     }
 
-    override fun findAnnotation(listOwner: PsiModifierListOwner?,
-            vararg annotationNames: String): PsiAnnotation? {
+    override fun findAnnotation(
+        listOwner: PsiModifierListOwner?,
+        vararg annotationNames: String
+    ): PsiAnnotation? {
         if (listOwner is UDeclaration) {
             // Work around UAST bug
             return findAnnotation(listOwner.psi, *annotationNames)
@@ -144,7 +205,7 @@ open class DefaultJavaEvaluator(
 
     private fun findJarPath(containingFile: PsiFile?): String? {
         if (containingFile is PsiCompiledFile) {
-            ///This code is roughly similar to the following:
+            // This code is roughly similar to the following:
             //      VirtualFile jarVirtualFile = PsiUtil.getJarFile(containingFile);
             //      if (jarVirtualFile != null) {
             //        return jarVirtualFile.getPath();
@@ -153,9 +214,9 @@ open class DefaultJavaEvaluator(
             // VirtualFile lookup which we don't actually need (we're just after the
             // raw URL suffix)
             val file = containingFile.virtualFile
-            if (file != null && file.fileSystem.protocol == "jar") {
+            if (file != null && file.fileSystem.protocol == URLUtil.JAR_PROTOCOL) {
                 val path = file.path
-                val separatorIndex = path.indexOf("!/")
+                val separatorIndex = path.indexOf(URLUtil.JAR_SEPARATOR)
                 if (separatorIndex >= 0) {
                     return path.substring(0, separatorIndex)
                 }
@@ -170,24 +231,23 @@ open class DefaultJavaEvaluator(
         if (containingFile != null) {
             // Optimization: JavaDirectoryService can be slow so try to compute it directly
             if (containingFile is PsiJavaFile) {
-                return packageInfoCache.computeIfAbsent(containingFile.packageName,
-                    { name ->
-                        val cls = findClass(name + '.' + PsiPackage.PACKAGE_INFO_CLASS)
-                        val modifierList = cls?.modifierList
-                        object : PsiPackageImpl(node.manager, name) {
-                            override fun getAnnotationList(): PsiModifierList? {
-                                return if (modifierList != null) {
-                                    // Use composite even if we just have one such that we don't
-                                    // pass a modifier list tied to source elements in the class
-                                    // (modifier lists can be part of the AST)
-                                    PsiCompositeModifierList(
-                                        manager,
-                                        listOf(modifierList)
-                                    )
-                                } else null
-                            }
+                return packageInfoCache.computeIfAbsent(containingFile.packageName) { name ->
+                    val cls = findClass(name + '.' + PsiPackage.PACKAGE_INFO_CLASS)
+                    val modifierList = cls?.modifierList
+                    object : PsiPackageImpl(node.manager, name) {
+                        override fun getAnnotationList(): PsiModifierList? {
+                            return if (modifierList != null) {
+                                // Use composite even if we just have one such that we don't
+                                // pass a modifier list tied to source elements in the class
+                                // (modifier lists can be part of the AST)
+                                PsiCompositeModifierList(
+                                    manager,
+                                    listOf(modifierList)
+                                )
+                            } else null
                         }
-                    })
+                    }
+                }
             }
 
             val dir = containingFile.parent
@@ -210,7 +270,6 @@ open class DefaultJavaEvaluator(
         return if (erased is PsiClassType) {
             super.getQualifiedName((erased as PsiClassType?)!!)
         } else super.getQualifiedName(psiClassType)
-
     }
 
     override fun getQualifiedName(psiClass: PsiClass): String? {
@@ -223,12 +282,11 @@ open class DefaultJavaEvaluator(
         return if (erased is PsiClassType) {
             super.getInternalName((erased as PsiClassType?)!!)
         } else super.getInternalName(psiClassType)
-
     }
 
     @Suppress("OverridingDeprecatedMember")
     override fun getInternalName(psiClass: PsiClass): String? {
-        return LintUtils.getInternalName(psiClass)
+        return com.android.tools.lint.detector.api.getInternalName(psiClass)
     }
 
     override fun erasure(type: PsiType?): PsiType? {
@@ -242,22 +300,40 @@ open class DefaultJavaEvaluator(
             return emptyMap()
         }
 
-        // TODO: In Kotlin, produce argument mapping based on the BindingContext
+        // Call into lint-kotlin to look up the argument mapping if this call is a Kotlin method.
+        val kotlinMap = computeKotlinArgumentMapping(call, method)
+        if (kotlinMap != null) {
+            return kotlinMap
+        }
 
         val arguments = call.valueArguments
         val parameters = parameterList.parameters
 
         var j = 0
-        if (parameters.isNotEmpty() && "\$receiver" == parameters[0].name) {
+        if (parameters.isNotEmpty() && "\$receiver" == parameters[0].name &&
+            isKotlin(call.sourcePsi)
+        ) {
             // Kotlin extension method.
-            // TODO: Find out if there's a better way to look this up!
-            // (and more importantly, handle named parameters, *args, etc.
             j++
         }
 
         var i = 0
         val n = Math.min(parameters.size, arguments.size)
         val map = HashMap<UExpression, PsiParameter>(2 * n)
+
+        /* Here is a UAST supported way to compute this, but it doesn't handle
+           varargs well (some unit tests fail showing the particular scenarios)
+        if (call is UCallExpressionEx) {
+            for (index in 0 until parameters.size) {
+                val argument = call.getArgumentForParameter(index) ?: continue
+                val parameter = parameters[index]
+                map[argument] = parameter
+            }
+
+            return map
+        }
+         */
+
         while (j < n) {
             val argument = arguments[i]
             val parameter = parameters[j]

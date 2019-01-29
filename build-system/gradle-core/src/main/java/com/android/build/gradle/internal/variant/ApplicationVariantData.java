@@ -25,6 +25,7 @@ import com.android.builder.core.VariantType;
 import com.android.builder.profile.Recorder;
 import com.google.common.collect.Maps;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * Data about a variant that produce an application APK
@@ -35,11 +36,11 @@ public class ApplicationVariantData extends ApkVariantData implements TestedVari
     public ApplicationVariantData(
             @NonNull GlobalScope globalScope,
             @NonNull AndroidConfig androidConfig,
-            @NonNull GradleVariantConfiguration config,
             @NonNull TaskManager taskManager,
+            @NonNull GradleVariantConfiguration config,
             @NonNull Recorder recorder) {
         super(globalScope, androidConfig, taskManager, config, recorder);
-        testVariants = Maps.newEnumMap(VariantType.class);
+        testVariants = Maps.newHashMap();
     }
 
     @Override

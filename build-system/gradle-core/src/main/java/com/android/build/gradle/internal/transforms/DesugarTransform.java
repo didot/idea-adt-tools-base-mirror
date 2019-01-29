@@ -73,11 +73,15 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.gradle.api.file.FileCollection;
 import org.gradle.workers.WorkerExecutor;
 
-/** Desugar all Java 8 bytecode. */
+/**
+ * Desugar all bytecode that is using Java 8 langauge features, using the desugar tool. This
+ * transform processes all runtime classes and it uses the runtime classpath and bootclasspath to
+ * rewrite the code.
+ */
 public class DesugarTransform extends Transform {
 
     private enum FileCacheInputParams {
@@ -145,8 +149,7 @@ public class DesugarTransform extends Transform {
      */
     static final int MIN_INPUT_SIZE_TO_COPY_TO_TMP = 400;
 
-    @NonNull private final Supplier<List<File>> androidJarClasspath;
-    @NonNull private final List<Path> compilationBootclasspath;
+    @NonNull private final FileCollection bootClasspath;
     @Nullable private final FileCache userCache;
     private final int minSdk;
     @NonNull private final JavaProcessExecutor executor;
@@ -155,13 +158,13 @@ public class DesugarTransform extends Transform {
     private boolean verbose;
     private final boolean enableGradleWorkers;
     @NonNull private final String projectVariant;
-    private final boolean enableIncrementalDesugaring;
+    // If a flag should be passed to handle http://b/62623509, for JaCoCo older than 0.7.8
+    private final boolean enableBugFixForJacoco;
 
     @NonNull private Set<InputEntry> cacheMisses = Sets.newConcurrentHashSet();
 
     public DesugarTransform(
-            @NonNull Supplier<List<File>> androidJarClasspath,
-            @NonNull String compilationBootclasspath,
+            @NonNull FileCollection bootClasspath,
             @Nullable FileCache userCache,
             int minSdk,
             @NonNull JavaProcessExecutor executor,
@@ -169,10 +172,9 @@ public class DesugarTransform extends Transform {
             boolean enableGradleWorkers,
             @NonNull Path tmpDir,
             @NonNull String projectVariant,
-            boolean enableIncrementalDesugaring) {
+            boolean enableBugFixForJacoco) {
         this(
-                androidJarClasspath,
-                compilationBootclasspath,
+                bootClasspath,
                 userCache,
                 minSdk,
                 executor,
@@ -180,14 +182,13 @@ public class DesugarTransform extends Transform {
                 enableGradleWorkers,
                 tmpDir,
                 projectVariant,
-                enableIncrementalDesugaring,
-                WaitableExecutor.useGlobalSharedThreadPool());
+                WaitableExecutor.useGlobalSharedThreadPool(),
+                enableBugFixForJacoco);
     }
 
     @VisibleForTesting
     DesugarTransform(
-            @NonNull Supplier<List<File>> androidJarClasspath,
-            @NonNull String compilationBootclasspath,
+            @NonNull FileCollection bootClasspath,
             @Nullable FileCache userCache,
             int minSdk,
             @NonNull JavaProcessExecutor executor,
@@ -195,10 +196,9 @@ public class DesugarTransform extends Transform {
             boolean enableGradleWorkers,
             @NonNull Path tmpDir,
             @NonNull String projectVariant,
-            boolean enableIncrementalDesugaring,
-            @NonNull WaitableExecutor waitableExecutor) {
-        this.androidJarClasspath = androidJarClasspath;
-        this.compilationBootclasspath = PathUtils.getClassPathItems(compilationBootclasspath);
+            @NonNull WaitableExecutor waitableExecutor,
+            boolean enableBugFixForJacoco) {
+        this.bootClasspath = bootClasspath;
         this.userCache = null;
         this.minSdk = minSdk;
         this.executor = executor;
@@ -207,7 +207,7 @@ public class DesugarTransform extends Transform {
         this.enableGradleWorkers = enableGradleWorkers;
         this.tmpDir = tmpDir;
         this.projectVariant = projectVariant;
-        this.enableIncrementalDesugaring = enableIncrementalDesugaring;
+        this.enableBugFixForJacoco = enableBugFixForJacoco;
     }
 
     @NonNull
@@ -243,18 +243,12 @@ public class DesugarTransform extends Transform {
     @NonNull
     @Override
     public Collection<SecondaryFile> getSecondaryFiles() {
-        ImmutableList.Builder<SecondaryFile> files = ImmutableList.builder();
-        androidJarClasspath.get().forEach(file -> files.add(SecondaryFile.nonIncremental(file)));
-
-        compilationBootclasspath.forEach(
-                file -> files.add(SecondaryFile.nonIncremental(file.toFile())));
-
-        return files.build();
+        return ImmutableList.of(SecondaryFile.nonIncremental(bootClasspath));
     }
 
     @Override
     public boolean isIncremental() {
-        return enableIncrementalDesugaring;
+        return true;
     }
 
     @Override
@@ -296,10 +290,6 @@ public class DesugarTransform extends Transform {
     @NonNull
     private Set<File> incrementalAnalysis(@NonNull TransformInvocation invocation)
             throws InterruptedException {
-        if (!enableIncrementalDesugaring) {
-            return ImmutableSet.of();
-        }
-
         DesugarIncrementalTransformHelper helper =
                 new DesugarIncrementalTransformHelper(projectVariant, invocation, waitableExecutor);
         Set<Path> additionalPaths = helper.getAdditionalPaths();
@@ -321,7 +311,7 @@ public class DesugarTransform extends Transform {
             for (DirectoryInput dirInput : input.getDirectoryInputs()) {
                 Path output = getOutputPath(transformInvocation.getOutputProvider(), dirInput);
                 if (!dirInput.getFile().isDirectory()) {
-                    PathUtils.deleteIfExists(output);
+                    PathUtils.deleteRecursivelyIfExists(output);
                 }
                 processDirectory(
                         output, additionalPaths, dirInput, transformInvocation.isIncremental());
@@ -335,7 +325,7 @@ public class DesugarTransform extends Transform {
                 }
 
                 Path output = getOutputPath(outputProvider, jarInput);
-                PathUtils.deleteIfExists(output);
+                PathUtils.deleteRecursivelyIfExists(output);
                 processSingle(jarInput.getFile().toPath(), output, jarInput.getScopes());
             }
         }
@@ -356,7 +346,7 @@ public class DesugarTransform extends Transform {
         Path dirPath = dirInput.getFile().toPath();
 
         if (!isIncremental) {
-            PathUtils.deleteIfExists(output);
+            PathUtils.deleteRecursivelyIfExists(output);
             processSingle(dirPath, output, dirInput.getScopes());
             return;
         }
@@ -379,7 +369,7 @@ public class DesugarTransform extends Transform {
 
         if (totalSize < MIN_INPUT_SIZE_TO_COPY_TO_TMP || cntFilesToProcess > totalSize / 10) {
             // input size too small, or too many files changed
-            PathUtils.deleteIfExists(output);
+            PathUtils.deleteRecursivelyIfExists(output);
             processSingle(dirPath, output, dirInput.getScopes());
             return;
         }
@@ -402,7 +392,7 @@ public class DesugarTransform extends Transform {
             if (!parentFile.isDirectory()) {
                 // parent dir was removed, just remove the output mapped to that dir
                 Path relativeDirPath = dirPath.relativize(parentFile.toPath());
-                PathUtils.deleteIfExists(relativeDirPath);
+                PathUtils.deleteRecursivelyIfExists(relativeDirPath);
                 continue;
             }
 
@@ -504,7 +494,13 @@ public class DesugarTransform extends Transform {
 
             DesugarProcessArgs processArgs =
                     new DesugarProcessArgs(
-                            inToOut, classpath, bootclasspath, tmpDir.toString(), verbose, minSdk);
+                            inToOut,
+                            classpath,
+                            bootclasspath,
+                            tmpDir.toString(),
+                            verbose,
+                            minSdk,
+                            enableBugFixForJacoco);
             args.add(processArgs);
         }
         return args;
@@ -531,11 +527,12 @@ public class DesugarTransform extends Transform {
 
     @NonNull
     private List<String> getBootclasspath() {
-        List<String> desugarBootclasspath =
-                androidJarClasspath.get().stream().map(File::toString).collect(Collectors.toList());
-        compilationBootclasspath.forEach(p -> desugarBootclasspath.add(p.toString()));
-
-        return desugarBootclasspath;
+        return bootClasspath
+                .getFiles()
+                .stream()
+                .filter(File::exists)
+                .map(File::toString)
+                .collect(Collectors.toList());
     }
 
     private void processSingle(
@@ -631,7 +628,7 @@ public class DesugarTransform extends Transform {
             @NonNull TransformOutputProvider outputProvider, @NonNull QualifiedContent content) {
         return outputProvider
                 .getContentLocation(
-                        content.getName(),
+                        content.getFile().toString(),
                         content.getContentTypes(),
                         content.getScopes(),
                         content instanceof DirectoryInput ? Format.DIRECTORY : Format.JAR)

@@ -41,17 +41,23 @@ public class LibsTestTest {
         String manifestContent =
                 Files.toString(
                         project.file(
-                                "lib1/build/intermediates/manifest/androidTest/debug/AndroidManifest.xml"),
+                                "lib1/build/intermediates/merged_manifests/debugAndroidTest/AndroidManifest.xml"),
                         StandardCharsets.UTF_8);
 
         Document manifest = XmlUtils.parseDocument(manifestContent, true);
         XPath xPath = AndroidXPathFactory.newXPath();
 
         final String testApkPackage = "com.android.tests.libstest.lib1.test";
-        assertThat(xPath.evaluate("/manifest/@package", manifest)).isEqualTo(testApkPackage);
+        assertThat(xPath.evaluate("/manifest/@package", manifest))
+                .named("package")
+                .isEqualTo(testApkPackage);
+
         assertThat(xPath.evaluate("/manifest/instrumentation/@android:name", manifest))
+                .named("instrumentation-name")
                 .isEqualTo("android.test.InstrumentationTestRunner");
+
         assertThat(xPath.evaluate("/manifest/instrumentation/@android:targetPackage", manifest))
+                .named("targetPackage")
                 .isEqualTo(testApkPackage);
     }
 }

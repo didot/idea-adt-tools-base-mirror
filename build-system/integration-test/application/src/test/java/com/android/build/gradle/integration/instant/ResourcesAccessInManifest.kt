@@ -18,7 +18,6 @@ package com.android.build.gradle.integration.instant
 
 import com.google.common.truth.Truth.assertThat
 
-import com.android.SdkConstants
 import com.android.build.gradle.integration.common.fixture.Adb
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp
@@ -28,6 +27,7 @@ import com.android.build.gradle.integration.common.utils.TestFileUtils
 import com.android.build.gradle.internal.incremental.InstantRunVerifierStatus
 import com.android.build.gradle.tasks.InstantRunResourcesApkBuilder
 import com.android.sdklib.AndroidVersion
+import com.android.sdklib.SdkVersionInfo
 import com.android.tools.ir.client.InstantRunArtifactType
 import com.google.common.collect.Iterables
 import org.junit.Rule
@@ -50,7 +50,7 @@ class ResourcesAccessInManifest {
 
         val instantRunModel = InstantRunTestUtils.getInstantRunModel(project.model().fetchAndroidProjects().onlyModel)
 
-        InstantRunTestUtils.doInitialBuild(project, AndroidVersion(26, null))
+        InstantRunTestUtils.doInitialBuild(project, AndroidVersion(SdkVersionInfo.HIGHEST_KNOWN_STABLE_API, null))
 
         var context = InstantRunTestUtils.loadContext(instantRunModel)
         TruthHelper.assertThat(context.verifierStatus)
@@ -62,7 +62,7 @@ class ResourcesAccessInManifest {
                 "<string name=\"app_version\">2.7.0</string>")
 
         project.executor()
-                .withInstantRun(AndroidVersion(26, null))
+                .withInstantRun(AndroidVersion(SdkVersionInfo.HIGHEST_KNOWN_STABLE_API, null))
                 .run("assembleDebug")
 
         context = InstantRunTestUtils.loadContext(instantRunModel)
@@ -77,7 +77,6 @@ class ResourcesAccessInManifest {
         private val sApp = HelloWorldApp.forPlugin("com.android.application")
 
         init {
-            sApp.removeFile(sApp.getFile(SdkConstants.ANDROID_MANIFEST_XML))
             val manifestFile = TestSourceFile(
                     "src/main",
                     "AndroidManifest.xml",
@@ -87,7 +86,6 @@ class ResourcesAccessInManifest {
                             + "      android:versionName=\"@string/app_version\"\n"
                             + "      android:versionCode=\"1\">\n"
                             + "\n"
-                            + "    <uses-sdk android:minSdkVersion=\"3\" />\n"
                             + "    <application android:label=\"@string/app_name\">\n"
                             + "        <activity android:name=\".HelloWorld\"\n"
                             + "                  android:label=\"@string/app_name\">\n"
@@ -98,7 +96,7 @@ class ResourcesAccessInManifest {
                             + "        </activity>\n"
                             + "    </application>\n"
                             + "</manifest>\n")
-            sApp.addFile(manifestFile)
+            sApp.replaceFile(manifestFile)
 
             val resFile = TestSourceFile(
                     "src/main/res/values",

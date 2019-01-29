@@ -39,9 +39,22 @@ public abstract class ProguardConfigurable extends Transform {
 
     private final VariantType variantType;
 
+    private final boolean includeFeaturesInScopes;
+
     ProguardConfigurable(@NonNull VariantScope scope) {
-        configurationFiles = scope.getGlobalScope().getProject().files();
-        this.variantType = scope.getVariantData().getType();
+        this(
+                scope.getGlobalScope().getProject().files(),
+                scope.getVariantData().getType(),
+                scope.consumesFeatureJars());
+    }
+
+    ProguardConfigurable(
+            @NonNull ConfigurableFileCollection configurationFiles,
+            @NonNull VariantType type,
+            boolean includeFeaturesInScopes) {
+        this.configurationFiles = configurationFiles;
+        this.variantType = type;
+        this.includeFeaturesInScopes = includeFeaturesInScopes;
     }
 
     public void setConfigurationFiles(FileCollection configFiles) {
@@ -55,10 +68,11 @@ public abstract class ProguardConfigurable extends Transform {
     @NonNull
     @Override
     public Set<? super Scope> getScopes() {
-        if (variantType == VariantType.LIBRARY) {
+        if (variantType.isAar()) {
             return TransformManager.SCOPE_FULL_LIBRARY_WITH_LOCAL_JARS;
+        } else if (includeFeaturesInScopes) {
+            return TransformManager.SCOPE_FULL_WITH_FEATURES;
         }
-
         return TransformManager.SCOPE_FULL_PROJECT;
     }
 
@@ -66,12 +80,12 @@ public abstract class ProguardConfigurable extends Transform {
     @Override
     public Set<Scope> getReferencedScopes() {
         Set<Scope> set = Sets.newHashSetWithExpectedSize(5);
-        if (variantType == VariantType.LIBRARY) {
+        if (variantType.isAar()) {
             set.add(Scope.SUB_PROJECTS);
             set.add(Scope.EXTERNAL_LIBRARIES);
         }
 
-        if (variantType.isForTesting()) {
+        if (variantType.isTestComponent()) {
             set.add(Scope.TESTED_CODE);
         }
 
@@ -81,6 +95,8 @@ public abstract class ProguardConfigurable extends Transform {
     }
 
     public abstract void keep(@NonNull String keep);
+
+    public abstract void keepattributes();
 
     public abstract void dontwarn(@NonNull String dontwarn);
 

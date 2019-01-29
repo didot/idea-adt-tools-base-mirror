@@ -16,13 +16,18 @@
 
 package com.android.build.gradle.integration.common.fixture;
 
+import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.build.gradle.integration.common.fixture.app.AbstractAndroidTestApp;
-import com.android.build.gradle.integration.common.fixture.app.AndroidTestApp;
+import com.android.build.gradle.integration.BazelIntegrationTestsSuite;
+import com.android.build.gradle.integration.common.fixture.app.AbstractAndroidTestModule;
+import com.android.build.gradle.integration.common.fixture.app.AndroidTestModule;
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
+import com.android.build.gradle.integration.common.utils.SdkHelper;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.testutils.TestUtils;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import java.io.File;
@@ -40,6 +45,7 @@ public final class GradleTestProjectBuilder {
     @Nullable private String name;
     @Nullable private TestProject testProject = null;
     @Nullable private String targetGradleVersion;
+    @Nullable private String compileSdkVersion;
     @Nullable private String buildToolsVersion;
     private boolean withoutNdk = false;
     @NonNull private List<String> gradleProperties = Lists.newArrayList();
@@ -49,13 +55,23 @@ public final class GradleTestProjectBuilder {
     private boolean withDependencyChecker = true;
     // Indicates if we need to create a project without setting cmake.dir in local.properties.
     private boolean withCmakeDirInLocalProp = false;
-    @NonNull String cmakeVersion;
+    @Nullable String cmakeVersion;
+    @Nullable private List<Path> repoDirectories;
+    @Nullable private File androidHome;
+    @Nullable private File androidNdkHome;
+    @Nullable private File gradleDistributionDirectory;
+    @Nullable private File gradleBuildCacheDirectory;
+    @Nullable private String kotlinVersion;
 
-    private boolean withDeviceProvider = true;
+    private Boolean withDeviceProvider = null;
     private boolean withSdk = true;
     private boolean withAndroidGradlePlugin = true;
+    private boolean withKotlinGradlePlugin = false;
     // list of included builds, relative to the main testDir
     private List<String> withIncludedBuilds = Lists.newArrayList();
+
+    /** Whether or not to output the log of the last build result when a test fails */
+    private boolean outputLogOnFailure = true;
 
     /** Create a GradleTestProject. */
     @NonNull
@@ -63,6 +79,41 @@ public final class GradleTestProjectBuilder {
         if (targetGradleVersion == null) {
             targetGradleVersion = GradleTestProject.GRADLE_TEST_VERSION;
         }
+
+        if (androidHome == null && withSdk) {
+            androidHome = SdkHelper.findSdkDir();
+        }
+
+        if (androidNdkHome == null) {
+            String envCustomAndroidNdkHome =
+                    Strings.emptyToNull(System.getenv().get("CUSTOM_ANDROID_NDK_HOME"));
+            if (envCustomAndroidNdkHome != null) {
+                androidNdkHome = new File(envCustomAndroidNdkHome);
+                Preconditions.checkState(
+                        androidNdkHome.isDirectory(),
+                        "CUSTOM_ANDROID_NDK_HOME must point to a directory, "
+                                + androidNdkHome.getAbsolutePath()
+                                + " is not a directory");
+            } else {
+                androidNdkHome =
+                        TestUtils.runningFromBazel()
+                                ? BazelIntegrationTestsSuite.NDK_IN_TMP.toFile()
+                                : new File(androidHome, SdkConstants.FD_NDK);
+            }
+        }
+
+        if (gradleDistributionDirectory == null) {
+            gradleDistributionDirectory = TestUtils.getWorkspaceFile("tools/external/gradle");
+        }
+
+        if (kotlinVersion == null) {
+            kotlinVersion = TestUtils.getKotlinVersionForTests();
+        }
+
+        if (withDeviceProvider == null) {
+            withDeviceProvider = GradleTestProject.APPLY_DEVICEPOOL_PLUGIN;
+        }
+
         return new GradleTestProject(
                 name,
                 testProject,
@@ -71,6 +122,7 @@ public final class GradleTestProjectBuilder {
                 withDependencyChecker,
                 gradleProperties,
                 heapSize,
+                compileSdkVersion,
                 buildToolsVersion,
                 profileDirectory,
                 cmakeVersion,
@@ -78,8 +130,16 @@ public final class GradleTestProjectBuilder {
                 withDeviceProvider,
                 withSdk,
                 withAndroidGradlePlugin,
+                withKotlinGradlePlugin,
                 withIncludedBuilds,
-                testDir);
+                testDir,
+                repoDirectories,
+                androidHome,
+                androidNdkHome,
+                gradleDistributionDirectory,
+                gradleBuildCacheDirectory,
+                kotlinVersion,
+                outputLogOnFailure);
     }
 
     /**
@@ -98,6 +158,37 @@ public final class GradleTestProjectBuilder {
         return this;
     }
 
+    public GradleTestProjectBuilder withAndroidHome(File androidHome) {
+        this.androidHome = androidHome;
+        return this;
+    }
+
+    public GradleTestProjectBuilder withGradleDistributionDirectory(
+            File gradleDistributionDirectory) {
+        this.gradleDistributionDirectory = gradleDistributionDirectory;
+        return this;
+    }
+
+    /**
+     * Sets a custom directory for the Gradle build cache (not the Android Gradle build cache). The
+     * path can be absolute or relative to testDir.
+     */
+    public GradleTestProjectBuilder withGradleBuildCacheDirectory(
+            @NonNull File gradleBuildCacheDirectory) {
+        this.gradleBuildCacheDirectory = gradleBuildCacheDirectory;
+        return this;
+    }
+
+    public GradleTestProjectBuilder setTargetGradleVersion(@Nullable String targetGradleVersion) {
+        this.targetGradleVersion = targetGradleVersion;
+        return this;
+    }
+
+    public GradleTestProjectBuilder withKotlinVersion(String kotlinVersion) {
+        this.kotlinVersion = kotlinVersion;
+        return this;
+    }
+
     public GradleTestProjectBuilder withDeviceProvider(boolean withDeviceProvider) {
         this.withDeviceProvider = withDeviceProvider;
         return this;
@@ -108,8 +199,18 @@ public final class GradleTestProjectBuilder {
         return this;
     }
 
+    public GradleTestProjectBuilder withRepoDirectories(List<Path> repoDirectories) {
+        this.repoDirectories = repoDirectories;
+        return this;
+    }
+
     public GradleTestProjectBuilder withAndroidGradlePlugin(boolean withAndroidGradlePlugin) {
         this.withAndroidGradlePlugin = withAndroidGradlePlugin;
+        return this;
+    }
+
+    public GradleTestProjectBuilder withKotlinGradlePlugin(boolean withKotlinGradlePlugin) {
+        this.withKotlinGradlePlugin = withKotlinGradlePlugin;
         return this;
     }
 
@@ -136,7 +237,7 @@ public final class GradleTestProjectBuilder {
 
     /** Create GradleTestProject from an existing test project. */
     public GradleTestProjectBuilder fromTestProject(@NonNull String project) {
-        AndroidTestApp app = new EmptyTestApp();
+        AndroidTestModule app = new EmptyTestApp();
         if (name == null) {
             name = project;
         }
@@ -146,28 +247,34 @@ public final class GradleTestProjectBuilder {
         return fromTestApp(app);
     }
 
+    public GradleTestProjectBuilder fromDir(@NonNull File dir) {
+        Preconditions.checkArgument(
+                dir.isDirectory(), dir.getAbsolutePath() + " is not a directory");
+        AndroidTestModule app = new EmptyTestApp();
+        addAllFiles(app, dir);
+        return fromTestApp(app);
+    }
+
     /** Create GradleTestProject from an existing test project. */
     public GradleTestProjectBuilder fromExternalProject(@NonNull String project) {
-        AndroidTestApp app = new EmptyTestApp();
         name = project;
         File parentDir = TestUtils.getWorkspaceFile("external");
         File projectDir = new File(parentDir, project);
         if (!projectDir.exists()) {
             projectDir = new File(parentDir, project.replace('-', '_'));
         }
-        if (!projectDir.exists()) {
-            throw new RuntimeException("Project " + project + " not found in " + projectDir + ".");
-        }
-        addAllFiles(app, projectDir);
-        return fromTestApp(app);
+        return fromDir(projectDir);
     }
 
     /** Create GradleTestProject from a data binding integration test. */
-    public GradleTestProjectBuilder fromDataBindingIntegrationTest(@NonNull String project) {
-        AndroidTestApp app = new EmptyTestApp();
+    public GradleTestProjectBuilder fromDataBindingIntegrationTest(
+            @NonNull String project, boolean useAndroidX) {
+        AndroidTestModule app = new EmptyTestApp();
         name = project;
         // compute the root folder of the checkout, based on test-projects.
-        File parentDir = TestUtils.getWorkspaceFile("tools/data-binding/integration-tests");
+        String suffix = useAndroidX ? "" : "-support";
+        File parentDir =
+                TestUtils.getWorkspaceFile("tools/data-binding/integration-tests" + suffix);
 
         File projectDir = new File(parentDir, project);
         if (!projectDir.exists()) {
@@ -184,10 +291,10 @@ public final class GradleTestProjectBuilder {
 
     /** Add a new file to the project. */
     public GradleTestProjectBuilder addFiles(@NonNull List<TestSourceFile> files) {
-        if (!(this.testProject instanceof AndroidTestApp)) {
-            throw new IllegalStateException("addFile is only for AndroidTestApp");
+        if (!(this.testProject instanceof AndroidTestModule)) {
+            throw new IllegalStateException("addFile is only for AndroidTestModule");
         }
-        AndroidTestApp app = (AndroidTestApp) this.testProject;
+        AndroidTestModule app = (AndroidTestModule) this.testProject;
         for (TestSourceFile file : files) {
             app.addFile(file);
         }
@@ -217,11 +324,20 @@ public final class GradleTestProjectBuilder {
         return this;
     }
 
+    public GradleTestProjectBuilder withCompileSdkVersion(@Nullable String compileSdkVersion) {
+        this.compileSdkVersion = compileSdkVersion;
+        return this;
+    }
+
     public GradleTestProjectBuilder withBuildToolsVersion(String buildToolsVersion) {
         this.buildToolsVersion = buildToolsVersion;
         return this;
     }
 
+    public GradleTestProjectBuilder dontOutputLogOnFailure() {
+        this.outputLogOnFailure = false;
+        return this;
+    }
 
     /**
      * Enable profile output generation. Typically used in benchmark tests. By default, places the
@@ -229,18 +345,6 @@ public final class GradleTestProjectBuilder {
      */
     public GradleTestProjectBuilder enableProfileOutput() {
         this.profileDirectory = DEFAULT_PROFILE_DIR;
-        return this;
-    }
-
-    /**
-     * Enable profile output generation in the given folder. Typically used in benchmark tests.
-     *
-     * <p>Allows both absolute and relative paths. If a relative path is given, the path will be
-     * resolved against the root directory of the project.
-     */
-    public GradleTestProjectBuilder enableProfileOutputInDirectory(
-            @Nullable Path profileDirectory) {
-        this.profileDirectory = profileDirectory;
         return this;
     }
 
@@ -256,23 +360,20 @@ public final class GradleTestProjectBuilder {
         return this;
     }
 
-    private static class EmptyTestApp extends AbstractAndroidTestApp {
+    private static class EmptyTestApp extends AbstractAndroidTestModule {
         @Override
         public boolean containsFullBuildScript() {
             return true;
         }
     }
 
-    /** Add all files in a directory to an AndroidTestApp. */
-    private static void addAllFiles(AndroidTestApp app, File projectDir) {
+    /** Add all files in a directory to an AndroidTestModule. */
+    private static void addAllFiles(AndroidTestModule app, File projectDir) {
         try {
             for (String filePath : TestFileUtils.listFiles(projectDir.toPath())) {
-                File file = new File(filePath);
                 app.addFile(
                         new TestSourceFile(
-                                file.getParent(),
-                                file.getName(),
-                                Files.toByteArray(new File(projectDir, filePath))));
+                                filePath, Files.toByteArray(new File(projectDir, filePath))));
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);

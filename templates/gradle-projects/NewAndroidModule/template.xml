@@ -10,7 +10,7 @@
     <formfactor value="Mobile" />
 
     <thumbs>
-        <thumb>template_new_project.png</thumb>
+        <thumb>mobile-module.png</thumb>
     </thumbs>
 
     <parameter
@@ -100,6 +100,18 @@
     <parameter
         id="isInstantApp"
         name="Has Instant App support"
+        type="boolean"
+        default="false" />
+
+    <parameter
+        id="isDynamicFeature"
+        name="Is a Dynamic Feature"
+        type="boolean"
+        default="false" />
+
+    <parameter
+        id="isDynamicInstantApp"
+        name="Is Dynamic Instant App"
         type="boolean"
         default="false" />
 

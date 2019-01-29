@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016 The Android Open Source Project
+ * Copyright (C) 2016 - 2018 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,17 @@
 
 package com.android.tools.lint.checks;
 
-import static com.android.SdkConstants.ATTR_LAYOUT_EDITOR_ABSOLUTE_X;
-import static com.android.SdkConstants.ATTR_LAYOUT_EDITOR_ABSOLUTE_Y;
+import static com.android.SdkConstants.ATTR_LAYOUT_HEIGHT;
+import static com.android.SdkConstants.ATTR_LAYOUT_RESOURCE_PREFIX;
+import static com.android.SdkConstants.ATTR_LAYOUT_WIDTH;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_BARRIER;
+import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_GROUP;
 import static com.android.SdkConstants.CLASS_CONSTRAINT_LAYOUT_GUIDELINE;
 import static com.android.SdkConstants.CONSTRAINT_LAYOUT;
 import static com.android.SdkConstants.CONSTRAINT_LAYOUT_LIB_ARTIFACT_ID;
 import static com.android.SdkConstants.CONSTRAINT_LAYOUT_LIB_GROUP_ID;
-import static com.android.SdkConstants.TOOLS_URI;
+import static com.android.SdkConstants.TAG_INCLUDE;
+import static com.android.SdkConstants.VALUE_MATCH_PARENT;
 import static com.android.ide.common.repository.GradleCoordinate.COMPARE_PLUS_LOWER;
 
 import com.android.SdkConstants;
@@ -45,35 +49,33 @@ import com.android.tools.lint.detector.api.LintFix;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
 import java.util.Collection;
-import java.util.Collections;
 import org.w3c.dom.Element;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 
 /**
- * Check which looks for potential errors in declarations of ConstraintLayout, such as
- * under specifying constraints
+ * Check which looks for potential errors in declarations of ConstraintLayout, such as under
+ * specifying constraints
  */
 public class ConstraintLayoutDetector extends LayoutDetector {
     /** The main issue discovered by this detector */
-    public static final Issue ISSUE = Issue.create(
-            "MissingConstraints",
-            "Missing Constraints in ConstraintLayout",
-            "The layout editor allows you to place widgets anywhere on the canvas, and it " +
-            "records the current position with designtime attributes (such as " +
-            "`layout_editor_absoluteX`). These attributes are **not** applied at runtime, so if " +
-            "you push your layout on a device, the widgets may appear in a different location " +
-            "than shown in the editor. To fix this, make sure a widget has both horizontal and " +
-            "vertical constraints by dragging from the edge connections.",
-            Category.CORRECTNESS,
-            6,
-            Severity.ERROR,
-            new Implementation(
-                    ConstraintLayoutDetector.class,
-                    Scope.RESOURCE_FILE_SCOPE));
-
-    private static final String LAYOUT_CONSTRAINT_PREFIX = "layout_constraint";
+    public static final Issue ISSUE =
+            Issue.create(
+                    "MissingConstraints",
+                    "Missing Constraints in ConstraintLayout",
+                    "The layout editor allows you to place widgets anywhere on the canvas, and it "
+                            + "records the current position with designtime attributes (such as "
+                            + "`layout_editor_absoluteX`). These attributes are **not** applied at runtime, so if "
+                            + "you push your layout on a device, the widgets may appear in a different location "
+                            + "than shown in the editor. To fix this, make sure a widget has both horizontal and "
+                            + "vertical constraints by dragging from the edge connections.",
+                    Category.CORRECTNESS,
+                    6,
+                    Severity.ERROR,
+                    new Implementation(ConstraintLayoutDetector.class, Scope.RESOURCE_FILE_SCOPE));
 
     /** Latest known version of the ConstraintLayout library (as a {@link GradleVersion} */
     @SuppressWarnings("ConstantConditions")
@@ -85,12 +87,11 @@ public class ConstraintLayoutDetector extends LayoutDetector {
                     SdkConstants.LATEST_CONSTRAINT_LAYOUT_VERSION);
 
     /** Constructs a new {@link ConstraintLayoutDetector} check */
-    public ConstraintLayoutDetector() {
-    }
+    public ConstraintLayoutDetector() {}
 
     @Override
     public Collection<String> getApplicableElements() {
-        return Collections.singletonList(CONSTRAINT_LAYOUT);
+        return ImmutableSet.of(CONSTRAINT_LAYOUT.oldName(), CONSTRAINT_LAYOUT.newName());
     }
 
     @Override
@@ -104,20 +105,27 @@ public class ConstraintLayoutDetector extends LayoutDetector {
             for (AndroidLibrary library : dependencies.getLibraries()) {
                 MavenCoordinates rc = library.getResolvedCoordinates();
                 if (CONSTRAINT_LAYOUT_LIB_GROUP_ID.equals(rc.getGroupId())
-                    && CONSTRAINT_LAYOUT_LIB_ARTIFACT_ID.equals(rc.getArtifactId())) {
+                        && CONSTRAINT_LAYOUT_LIB_ARTIFACT_ID.equals(rc.getArtifactId())) {
                     if (latestAvailable == null) {
                         latestAvailable = getLatestVersion(context);
                     }
-                    GradleCoordinate version = new GradleCoordinate(
-                            CONSTRAINT_LAYOUT_LIB_GROUP_ID,
-                            CONSTRAINT_LAYOUT_LIB_ARTIFACT_ID,
-                            rc.getVersion());
+                    GradleCoordinate version =
+                            new GradleCoordinate(
+                                    CONSTRAINT_LAYOUT_LIB_GROUP_ID,
+                                    CONSTRAINT_LAYOUT_LIB_ARTIFACT_ID,
+                                    rc.getVersion());
                     if (COMPARE_PLUS_LOWER.compare(latestAvailable, version) > 0) {
-                        String message = "Using version " + version.getRevision()
-                                + " of the constraint library, which is obsolete";
+                        String message =
+                                "Using version "
+                                        + version.getRevision()
+                                        + " of the constraint library, which is obsolete";
                         LintFix fix = fix().data(ConstraintLayoutDetector.class);
-                        context.report(GradleDetector.DEPENDENCY, layout,
-                                context.getLocation(layout), message, fix);
+                        context.report(
+                                GradleDetector.DEPENDENCY,
+                                layout,
+                                context.getLocation(layout),
+                                message,
+                                fix);
                     }
                 }
             }
@@ -128,31 +136,32 @@ public class ConstraintLayoutDetector extends LayoutDetector {
             if (child.getNodeType() != Node.ELEMENT_NODE) {
                 continue;
             }
-            Element element = (Element)child;
+            Element element = (Element) child;
+            String elementTagName = element.getTagName();
 
-            if (element.getTagName().equals(CLASS_CONSTRAINT_LAYOUT_GUIDELINE)) {
+            if (CLASS_CONSTRAINT_LAYOUT_GUIDELINE.isEquals(elementTagName)) {
                 continue;
+            }
+
+            if (CLASS_CONSTRAINT_LAYOUT_GROUP.isEquals(elementTagName)) {
+                // Groups do not need to be constrained
+                continue;
+            }
+
+            if (TAG_INCLUDE.equals(elementTagName)) {
+                // Don't flag includes; they might have the right constraints inside.
+                continue;
+            }
+
+            if (!Strings.isNullOrEmpty(elementTagName)
+                    && CLASS_CONSTRAINT_LAYOUT_BARRIER.isEquals(elementTagName)
+                    && scanForBarrierConstraint(element)) {
+                // The Barrier has the necessary layout constraints. This element is constrained correctly.
+                break;
             }
 
             boolean isConstrainedHorizontally = false;
             boolean isConstrainedVertically = false;
-
-            // See if the layout doesn't use absoluteX/Y designtime positions for this
-            // child; if it doesn't, no need to complain
-
-            if (!element.hasAttributeNS(TOOLS_URI, ATTR_LAYOUT_EDITOR_ABSOLUTE_X)) {
-                // Not technically a constraint, but we'll use this to not complain
-                // about lacking constraints in this dimension
-                isConstrainedHorizontally = true;
-            }
-            if (!element.hasAttributeNS(TOOLS_URI, ATTR_LAYOUT_EDITOR_ABSOLUTE_Y)) {
-                isConstrainedVertically = true;
-                if (isConstrainedHorizontally) {
-                    // Nothing to check
-                    continue;
-                }
-            }
-
 
             NamedNodeMap attributes = element.getAttributes();
             for (int i = 0; i < attributes.getLength(); i++) {
@@ -161,10 +170,14 @@ public class ConstraintLayoutDetector extends LayoutDetector {
                 if (name == null) {
                     continue;
                 }
-                if (!name.startsWith(LAYOUT_CONSTRAINT_PREFIX) || name.endsWith("_creator")) {
+
+                if (!name.startsWith(ATTR_LAYOUT_RESOURCE_PREFIX) || name.endsWith("_creator")) {
                     continue;
                 }
-                if (name.endsWith("toLeftOf")
+
+                if ((ATTR_LAYOUT_WIDTH.equals(name)
+                                && VALUE_MATCH_PARENT.equals(attribute.getNodeValue()))
+                        || name.endsWith("toLeftOf")
                         || name.endsWith("toRightOf")
                         || name.endsWith("toStartOf")
                         || name.endsWith("toEndOf")
@@ -173,7 +186,9 @@ public class ConstraintLayoutDetector extends LayoutDetector {
                     if (isConstrainedVertically) {
                         break;
                     }
-                } else if (name.endsWith("toTopOf")
+                } else if ((ATTR_LAYOUT_HEIGHT.equals(name)
+                                && VALUE_MATCH_PARENT.equals(attribute.getNodeValue()))
+                        || name.endsWith("toTopOf")
                         || name.endsWith("toBottomOf")
                         || name.endsWith("toCenterY")
                         || name.endsWith("toBaselineOf")) {
@@ -190,18 +205,43 @@ public class ConstraintLayoutDetector extends LayoutDetector {
 
                 String message;
                 if (isConstrainedVertically) {
-                    message = "This view is not constrained horizontally: at runtime it will "
-                            + "jump to the left unless you add a horizontal constraint";
+                    message =
+                            "This view is not constrained horizontally: at runtime it will "
+                                    + "jump to the left unless you add a horizontal constraint";
                 } else if (isConstrainedHorizontally) {
-                    message = "This view is not constrained vertically: at runtime it will "
-                            + "jump to the top unless you add a vertical constraint";
+                    message =
+                            "This view is not constrained vertically: at runtime it will "
+                                    + "jump to the top unless you add a vertical constraint";
                 } else {
-                    message = "This view is not constrained. It only has designtime positions, "
-                            + "so it will jump to (0,0) at runtime unless you add the constraints";
+                    message =
+                            "This view is not constrained. It only has designtime positions, "
+                                    + "so it will jump to (0,0) at runtime unless you add the constraints";
                 }
-                context.report(ISSUE, element, context.getLocation(element), message);
+                context.report(ISSUE, element, context.getNameLocation(element), message);
             }
         }
+    }
+
+    /**
+     * @param element to scan
+     * @return true if barrier specific constraint is set. False otherwise.
+     */
+    private static boolean scanForBarrierConstraint(Element element) {
+        NamedNodeMap attributes = element.getAttributes();
+        for (int i = 0; i < attributes.getLength(); i++) {
+            Node attribute = attributes.item(i);
+            String name = attribute.getLocalName();
+
+            if (name == null) {
+                continue;
+            }
+
+            if (name.endsWith("barrierDirection")) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     @NonNull
@@ -210,13 +250,14 @@ public class ConstraintLayoutDetector extends LayoutDetector {
         AndroidSdkHandler sdkHandler = context.getClient().getSdk();
         if (sdkHandler != null) {
             ProgressIndicator progress = context.getClient().getRepositoryLogger();
-            RepoPackage latestPackage = SdkMavenRepository
-                    .findLatestVersion(LATEST_KNOWN_VERSION, sdkHandler, null, progress);
+            RepoPackage latestPackage =
+                    SdkMavenRepository.findLatestVersion(
+                            LATEST_KNOWN_VERSION, sdkHandler, null, progress);
             if (latestPackage != null) {
-                GradleCoordinate fromPackage = SdkMavenRepository
-                        .getCoordinateFromSdkPath(latestPackage.getPath());
-                if (fromPackage != null &&
-                        COMPARE_PLUS_LOWER.compare(latestAvailable, fromPackage) < 0) {
+                GradleCoordinate fromPackage =
+                        SdkMavenRepository.getCoordinateFromSdkPath(latestPackage.getPath());
+                if (fromPackage != null
+                        && COMPARE_PLUS_LOWER.compare(latestAvailable, fromPackage) < 0) {
                     latestAvailable = fromPackage;
                 }
             }

@@ -13,9 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.ide.common.rendering.api;
 
+import com.android.annotations.NonNull;
 import java.util.Collections;
 import java.util.List;
 
@@ -23,7 +23,6 @@ import java.util.List;
  * Callback for Action Bar information needed by the Layout Library.
  */
 public class ActionBarCallback {
-
     // The Navigation mode constants correspond to their counterparts in android.app.ActionBar
     public static final int NAVIGATION_MODE_STANDARD = 0;
     public static final int NAVIGATION_MODE_LIST = 1;
@@ -46,11 +45,12 @@ public class ActionBarCallback {
     }
 
     /**
-     * Returns a list of names of the IDs for menus to add to the action bar.
+     * Returns a list of resource references of the IDs for menus to add to the action bar.
      *
-     * @return the list of menu ids. The list is never null, but may be empty.
+     * @return the list of menu ids
      */
-    public List<String> getMenuIdNames() {
+    @NonNull
+    public List<ResourceReference> getMenuIds() {
         return Collections.emptyList();
     }
 

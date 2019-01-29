@@ -29,6 +29,7 @@ import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.Atomics;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -42,8 +43,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 
 /**
@@ -60,22 +59,22 @@ final class Device implements IDevice {
     private String mAvdName = null;
 
     /** State of the device. */
-    private DeviceState mState = null;
+    private DeviceState mState;
 
     /** True if ADB is running as root */
     private boolean mIsRoot = false;
 
     /** Device properties. */
     private final PropertyFetcher mPropFetcher = new PropertyFetcher(this);
-    private final Map<String, String> mMountPoints = new HashMap<String, String>();
+    private final Map<String, String> mMountPoints = new HashMap<>();
 
     private final BatteryFetcher mBatteryFetcher = new BatteryFetcher(this);
 
     @GuardedBy("mClients")
-    private final List<Client> mClients = new ArrayList<Client>();
+    private final List<Client> mClients = new ArrayList<>();
 
     /** Maps pid's of clients in {@link #mClients} to their package name. */
-    private final Map<Integer, String> mClientInfo = new ConcurrentHashMap<Integer, String>();
+    private final Map<Integer, String> mClientInfo = new ConcurrentHashMap<>();
 
     private ClientTracker mClientTracer;
 
@@ -107,9 +106,6 @@ final class Device implements IDevice {
      */
     private SocketChannel mSocketChannel;
 
-    private Integer mLastBatteryLevel = null;
-    private long mLastBatteryCheckTime = 0;
-
     /** Path to the screen recorder binary on the device. */
     private static final String SCREEN_RECORDER_DEVICE_PATH = "/system/bin/screenrecord";
     private static final long LS_TIMEOUT_SEC = 2;
@@ -120,50 +116,8 @@ final class Device implements IDevice {
     /** Cached list of hardware characteristics */
     private Set<String> mHardwareCharacteristics;
 
-    private int mApiLevel;
     @Nullable private AndroidVersion mVersion;
     private String mName;
-
-    /**
-     * Output receiver for "pm install package.apk" command line.
-     */
-    static final class InstallReceiver extends MultiLineReceiver {
-
-        private static final String SUCCESS_OUTPUT = "Success"; //$NON-NLS-1$
-        private static final Pattern FAILURE_PATTERN = Pattern.compile("Failure\\s+\\[(.*)\\]"); //$NON-NLS-1$
-
-        private String mErrorMessage = null;
-
-        public InstallReceiver() {
-        }
-
-        @Override
-        public void processNewLines(String[] lines) {
-            for (String line : lines) {
-                if (!line.isEmpty()) {
-                    if (line.startsWith(SUCCESS_OUTPUT)) {
-                        mErrorMessage = null;
-                    } else {
-                        Matcher m = FAILURE_PATTERN.matcher(line);
-                        if (m.matches()) {
-                            mErrorMessage = m.group(1);
-                        } else {
-                            mErrorMessage = "Unknown failure (" + line + ")";
-                        }
-                    }
-                }
-            }
-        }
-
-        @Override
-        public boolean isCancelled() {
-            return false;
-        }
-
-        public String getErrorMessage() {
-            return mErrorMessage;
-        }
-    }
 
     /*
      * (non-Javadoc)
@@ -244,7 +198,7 @@ final class Device implements IDevice {
         }
     }
 
-    private String cleanupStringForDisplay(String s) {
+    private static String cleanupStringForDisplay(String s) {
         if (s == null) {
             return null;
         }
@@ -297,11 +251,9 @@ final class Device implements IDevice {
         Future<String> future = mPropFetcher.getProperty(name);
         try {
             return future.get(timeout, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            // ignore
-        } catch (ExecutionException e) {
-            // ignore
-        } catch (java.util.concurrent.TimeoutException e) {
+        } catch (InterruptedException
+                | ExecutionException
+                | java.util.concurrent.TimeoutException e) {
             // ignore
         }
         return null;
@@ -313,28 +265,22 @@ final class Device implements IDevice {
     }
 
     @Override
-    public String getPropertyCacheOrSync(String name) throws TimeoutException,
-            AdbCommandRejectedException, ShellCommandUnresponsiveException, IOException {
+    public String getPropertyCacheOrSync(String name) {
         Future<String> future = mPropFetcher.getProperty(name);
         try {
             return future.get();
-        } catch (InterruptedException e) {
-            // ignore
-        } catch (ExecutionException e) {
+        } catch (InterruptedException | ExecutionException e) {
             // ignore
         }
         return null;
     }
 
     @Override
-    public String getPropertySync(String name) throws TimeoutException,
-            AdbCommandRejectedException, ShellCommandUnresponsiveException, IOException {
+    public String getPropertySync(String name) {
         Future<String> future = mPropFetcher.getProperty(name);
         try {
             return future.get();
-        } catch (InterruptedException e) {
-            // ignore
-        } catch (ExecutionException e) {
+        } catch (InterruptedException | ExecutionException e) {
             // ignore
         }
         return null;
@@ -434,10 +380,10 @@ final class Device implements IDevice {
             try {
                 mount = queryMountPoint(name);
                 mMountPoints.put(name, mount);
-            } catch (TimeoutException ignored) {
-            } catch (AdbCommandRejectedException ignored) {
-            } catch (ShellCommandUnresponsiveException ignored) {
-            } catch (IOException ignored) {
+            } catch (TimeoutException
+                    | AdbCommandRejectedException
+                    | ShellCommandUnresponsiveException
+                    | IOException ignored) {
             }
         }
         return mount;
@@ -449,22 +395,24 @@ final class Device implements IDevice {
             IOException {
 
         final AtomicReference<String> ref = Atomics.newReference();
-        executeShellCommand("echo $" + name, new MultiLineReceiver() { //$NON-NLS-1$
-            @Override
-            public boolean isCancelled() {
-                return false;
-            }
-
-            @Override
-            public void processNewLines(String[] lines) {
-                for (String line : lines) {
-                    if (!line.isEmpty()) {
-                        // this should be the only one.
-                        ref.set(line);
+        executeShellCommand(
+                "echo $" + name,
+                new MultiLineReceiver() { //$NON-NLS-1$
+                    @Override
+                    public boolean isCancelled() {
+                        return false;
                     }
-                }
-            }
-        });
+
+                    @Override
+                    public void processNewLines(@NonNull String[] lines) {
+                        for (String line : lines) {
+                            if (!line.isEmpty()) {
+                                // this should be the only one.
+                                ref.set(line);
+                            }
+                        }
+                    }
+                });
         return ref.get();
     }
 
@@ -519,7 +467,7 @@ final class Device implements IDevice {
         SyncService syncService = new SyncService(AndroidDebugBridge.getSocketAddress(), this);
         if (syncService.openSync()) {
             return syncService;
-         }
+        }
 
         return null;
     }
@@ -597,6 +545,27 @@ final class Device implements IDevice {
             IOException {
         AdbHelper.executeRemoteCommand(AndroidDebugBridge.getSocketAddress(), command, this,
                 receiver, DdmPreferences.getTimeOut());
+    }
+
+    @Override
+    public void executeShellCommand(
+            String command,
+            IShellOutputReceiver receiver,
+            long maxTimeToOutputResponse,
+            TimeUnit maxTimeUnits,
+            @Nullable InputStream is)
+            throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+                    IOException {
+        AdbHelper.executeRemoteCommand(
+                AndroidDebugBridge.getSocketAddress(),
+                AdbHelper.AdbService.EXEC,
+                command,
+                this,
+                receiver,
+                0L,
+                maxTimeToOutputResponse,
+                maxTimeUnits,
+                is);
     }
 
     @Override
@@ -708,7 +677,7 @@ final class Device implements IDevice {
     @Override
     public Client[] getClients() {
         synchronized (mClients) {
-            return mClients.toArray(new Client[mClients.size()]);
+            return mClients.toArray(new Client[0]);
         }
     }
 
@@ -749,6 +718,7 @@ final class Device implements IDevice {
 
     /**
      * Removes a {@link Client} from the list.
+     *
      * @param client the client to remove.
      * @param notify Whether or not to notify the listeners of a change.
      */
@@ -849,14 +819,9 @@ final class Device implements IDevice {
             Log.e(LOG_TAG, "Error during Sync: timeout.");
             throw e;
 
-        } catch (SyncException e) {
+        } catch (SyncException | IOException e) {
             Log.e(LOG_TAG, String.format("Error during Sync: %1$s", e.getMessage()));
             throw e;
-
-        } catch (IOException e) {
-            Log.e(LOG_TAG, String.format("Error during Sync: %1$s", e.getMessage()));
-            throw e;
-
         } finally {
             if (sync != null) {
                 sync.close();
@@ -887,14 +852,9 @@ final class Device implements IDevice {
             Log.e(LOG_TAG, "Error during Sync: timeout.");
             throw e;
 
-        } catch (SyncException e) {
+        } catch (SyncException | IOException e) {
             Log.e(LOG_TAG, String.format("Error during Sync: %1$s", e.getMessage()));
             throw e;
-
-        } catch (IOException e) {
-            Log.e(LOG_TAG, String.format("Error during Sync: %1$s", e.getMessage()));
-            throw e;
-
         } finally {
             if (sync != null) {
                 sync.close();
@@ -906,17 +866,50 @@ final class Device implements IDevice {
     public void installPackage(String packageFilePath, boolean reinstall,
             String... extraArgs)
             throws InstallException {
+        // Use default basic installReceiver
+        installPackage(packageFilePath, reinstall, new InstallReceiver(), extraArgs);
+    }
+
+    @Override
+    public void installPackage(
+            String packageFilePath,
+            boolean reinstall,
+            InstallReceiver receiver,
+            String... extraArgs)
+            throws InstallException {
+        // Use default values for some timeouts.
+        installPackage(
+                packageFilePath,
+                reinstall,
+                receiver,
+                0L,
+                INSTALL_TIMEOUT_MINUTES,
+                TimeUnit.MINUTES,
+                extraArgs);
+    }
+
+    @Override
+    public void installPackage(
+            String packageFilePath,
+            boolean reinstall,
+            InstallReceiver receiver,
+            long maxTimeout,
+            long maxTimeToOutputResponse,
+            TimeUnit maxTimeUnits,
+            String... extraArgs)
+            throws InstallException {
         try {
             String remoteFilePath = syncPackageToDevice(packageFilePath);
-            installRemotePackage(remoteFilePath, reinstall, extraArgs);
+            installRemotePackage(
+                    remoteFilePath,
+                    reinstall,
+                    receiver,
+                    maxTimeout,
+                    maxTimeToOutputResponse,
+                    maxTimeUnits,
+                    extraArgs);
             removeRemotePackage(remoteFilePath);
-        } catch (IOException e) {
-            throw new InstallException(e);
-        } catch (AdbCommandRejectedException e) {
-            throw new InstallException(e);
-        } catch (TimeoutException e) {
-            throw new InstallException(e);
-        } catch (SyncException e) {
+        } catch (IOException | AdbCommandRejectedException | TimeoutException | SyncException e) {
             throw new InstallException(e);
         }
     }
@@ -941,7 +934,7 @@ final class Device implements IDevice {
         SyncService sync = null;
         try {
             String packageFileName = getFileName(localFilePath);
-            String remoteFilePath = String.format("/data/local/tmp/%1$s", packageFileName); //$NON-NLS-1$
+            String remoteFilePath = String.format("/data/local/tmp/%1$s", packageFileName);
 
             Log.d(packageFileName, String.format("Uploading %1$s onto device '%2$s'",
                     packageFileName, getSerialNumber()));
@@ -960,14 +953,9 @@ final class Device implements IDevice {
             Log.e(LOG_TAG, "Error during Sync: timeout.");
             throw e;
 
-        } catch (SyncException e) {
+        } catch (SyncException | IOException e) {
             Log.e(LOG_TAG, String.format("Error during Sync: %1$s", e.getMessage()));
             throw e;
-
-        } catch (IOException e) {
-            Log.e(LOG_TAG, String.format("Error during Sync: %1$s", e.getMessage()));
-            throw e;
-
         } finally {
             if (sync != null) {
                 sync.close();
@@ -977,6 +965,7 @@ final class Device implements IDevice {
 
     /**
      * Helper method to retrieve the file name given a local file path
+     *
      * @param filePath full directory path to file
      * @return {@link String} file name
      */
@@ -987,8 +976,37 @@ final class Device implements IDevice {
     @Override
     public void installRemotePackage(String remoteFilePath, boolean reinstall,
             String... extraArgs) throws InstallException {
+        installRemotePackage(remoteFilePath, reinstall, new InstallReceiver(), extraArgs);
+    }
+
+    @Override
+    public void installRemotePackage(
+            String remoteFilePath,
+            boolean reinstall,
+            @NonNull InstallReceiver receiver,
+            String... extraArgs)
+            throws InstallException {
+        installRemotePackage(
+                remoteFilePath,
+                reinstall,
+                receiver,
+                0L,
+                INSTALL_TIMEOUT_MINUTES,
+                TimeUnit.MINUTES,
+                extraArgs);
+    }
+
+    @Override
+    public void installRemotePackage(
+            String remoteFilePath,
+            boolean reinstall,
+            @NonNull InstallReceiver receiver,
+            long maxTimeout,
+            long maxTimeToOutputResponse,
+            TimeUnit maxTimeUnits,
+            String... extraArgs)
+            throws InstallException {
         try {
-            InstallReceiver receiver = new InstallReceiver();
             StringBuilder optionString = new StringBuilder();
             if (reinstall) {
                 optionString.append("-r ");
@@ -998,18 +1016,15 @@ final class Device implements IDevice {
             }
             String cmd = String.format("pm install %1$s \"%2$s\"", optionString.toString(),
                     remoteFilePath);
-            executeShellCommand(cmd, receiver, INSTALL_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+            executeShellCommand(cmd, receiver, maxTimeout, maxTimeToOutputResponse, maxTimeUnits);
             String error = receiver.getErrorMessage();
             if (error != null) {
                 throw new InstallException(error);
             }
-        } catch (TimeoutException e) {
-            throw new InstallException(e);
-        } catch (AdbCommandRejectedException e) {
-            throw new InstallException(e);
-        } catch (ShellCommandUnresponsiveException e) {
-            throw new InstallException(e);
-        } catch (IOException e) {
+        } catch (TimeoutException
+                | AdbCommandRejectedException
+                | ShellCommandUnresponsiveException
+                | IOException e) {
             throw new InstallException(e);
         }
     }
@@ -1019,13 +1034,10 @@ final class Device implements IDevice {
         try {
             executeShellCommand(String.format("rm \"%1$s\"", remoteFilePath),
                     new NullOutputReceiver(), INSTALL_TIMEOUT_MINUTES, TimeUnit.MINUTES);
-        } catch (IOException e) {
-            throw new InstallException(e);
-        } catch (TimeoutException e) {
-            throw new InstallException(e);
-        } catch (AdbCommandRejectedException e) {
-            throw new InstallException(e);
-        } catch (ShellCommandUnresponsiveException e) {
+        } catch (IOException
+                | TimeoutException
+                | AdbCommandRejectedException
+                | ShellCommandUnresponsiveException e) {
             throw new InstallException(e);
         }
     }
@@ -1037,13 +1049,10 @@ final class Device implements IDevice {
             executeShellCommand("pm uninstall " + packageName, receiver, INSTALL_TIMEOUT_MINUTES,
                     TimeUnit.MINUTES);
             return receiver.getErrorMessage();
-        } catch (TimeoutException e) {
-            throw new InstallException(e);
-        } catch (AdbCommandRejectedException e) {
-            throw new InstallException(e);
-        } catch (ShellCommandUnresponsiveException e) {
-            throw new InstallException(e);
-        } catch (IOException e) {
+        } catch (TimeoutException
+                | AdbCommandRejectedException
+                | ShellCommandUnresponsiveException
+                | IOException e) {
             throw new InstallException(e);
         }
     }
@@ -1059,7 +1068,9 @@ final class Device implements IDevice {
     }
 
     @Override
-    public boolean root() throws TimeoutException, AdbCommandRejectedException, IOException, ShellCommandUnresponsiveException {
+    public boolean root()
+            throws TimeoutException, AdbCommandRejectedException, IOException,
+                    ShellCommandUnresponsiveException {
         if (!mIsRoot) {
             AdbHelper.root(AndroidDebugBridge.getSocketAddress(), this);
         }
@@ -1067,33 +1078,32 @@ final class Device implements IDevice {
     }
 
     @Override
-    public boolean isRoot() throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException, IOException {
+    public boolean isRoot()
+            throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+                    IOException {
         if (mIsRoot) {
             return true;
         }
         CollectingOutputReceiver receiver = new CollectingOutputReceiver();
-        executeShellCommand("echo $USER_ID", receiver, QUERY_IS_ROOT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        executeShellCommand(
+                "echo $USER_ID", receiver, QUERY_IS_ROOT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         String userID = receiver.getOutput().trim();
         mIsRoot = userID.equals("0");
         return mIsRoot;
     }
 
     @Override
-    public Integer getBatteryLevel() throws TimeoutException, AdbCommandRejectedException,
-            IOException, ShellCommandUnresponsiveException {
+    public Integer getBatteryLevel() {
         // use default of 5 minutes
         return getBatteryLevel(5 * 60 * 1000);
     }
 
     @Override
-    public Integer getBatteryLevel(long freshnessMs) throws TimeoutException,
-            AdbCommandRejectedException, IOException, ShellCommandUnresponsiveException {
+    public Integer getBatteryLevel(long freshnessMs) {
         Future<Integer> futureBattery = getBattery(freshnessMs, TimeUnit.MILLISECONDS);
         try {
             return futureBattery.get();
-        } catch (InterruptedException e) {
-            return null;
-        } catch (ExecutionException e) {
+        } catch (InterruptedException | ExecutionException e) {
             return null;
         }
     }
@@ -1115,7 +1125,7 @@ final class Device implements IDevice {
     public List<String> getAbis() {
         /* Try abiList (implemented in L onwards) otherwise fall back to abi and abi2. */
         String abiList = getProperty(IDevice.PROP_DEVICE_CPU_ABI_LIST);
-        if(abiList != null) {
+        if (abiList != null) {
             return Lists.newArrayList(abiList.split(","));
         } else {
             List<String> abis = Lists.newArrayListWithExpectedSize(2);

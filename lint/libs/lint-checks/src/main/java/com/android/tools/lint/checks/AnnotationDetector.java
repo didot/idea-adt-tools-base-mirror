@@ -29,7 +29,7 @@ import static com.android.tools.lint.client.api.JavaEvaluatorKt.TYPE_INT;
 import static com.android.tools.lint.client.api.JavaEvaluatorKt.TYPE_LONG;
 import static com.android.tools.lint.client.api.JavaEvaluatorKt.TYPE_SHORT;
 import static com.android.tools.lint.client.api.JavaEvaluatorKt.TYPE_STRING;
-import static com.android.tools.lint.detector.api.LintUtils.getAutoBoxedType;
+import static com.android.tools.lint.detector.api.Lint.getAutoBoxedType;
 import static com.android.tools.lint.detector.api.ResourceEvaluator.COLOR_INT_ANNOTATION;
 import static com.android.tools.lint.detector.api.ResourceEvaluator.PX_ANNOTATION;
 import static com.android.tools.lint.detector.api.ResourceEvaluator.RES_SUFFIX;
@@ -41,6 +41,7 @@ import static com.android.tools.lint.detector.api.UastLintUtils.getLongAttribute
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.support.AndroidxName;
 import com.android.tools.lint.client.api.IssueRegistry;
 import com.android.tools.lint.client.api.JavaEvaluator;
 import com.android.tools.lint.client.api.UElementHandler;
@@ -107,28 +108,41 @@ import org.jetbrains.uast.java.JavaUTypeCastExpression;
 import org.jetbrains.uast.util.UastExpressionUtils;
 import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
-/**
- * Checks annotations to make sure they are valid
- */
+/** Checks annotations to make sure they are valid */
 public class AnnotationDetector extends Detector implements SourceCodeScanner {
     public static final String GMS_HIDE_ANNOTATION = "com.google.android.gms.common.internal.Hide";
-    public static final String CHECK_RESULT_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "CheckResult";
-    public static final String INT_RANGE_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "IntRange";
-    public static final String FLOAT_RANGE_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "FloatRange";
-    public static final String SIZE_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "Size";
-    public static final String PERMISSION_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "RequiresPermission";
-    public static final String UI_THREAD_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "UiThread";
-    public static final String MAIN_THREAD_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "MainThread";
-    public static final String WORKER_THREAD_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "WorkerThread";
-    public static final String BINDER_THREAD_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "BinderThread";
-    public static final String ANY_THREAD_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "AnyThread";
-    public static final String RESTRICT_TO_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "RestrictTo";
-    public static final String VISIBLE_FOR_TESTING_ANNOTATION = SUPPORT_ANNOTATIONS_PREFIX + "VisibleForTesting";
-    public static final String PERMISSION_ANNOTATION_READ = PERMISSION_ANNOTATION + ".Read";
-    public static final String PERMISSION_ANNOTATION_WRITE = PERMISSION_ANNOTATION + ".Write";
+    public static final AndroidxName CHECK_RESULT_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "CheckResult");
+    public static final AndroidxName INT_RANGE_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "IntRange");
+    public static final AndroidxName FLOAT_RANGE_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "FloatRange");
+    public static final AndroidxName SIZE_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "Size");
+    public static final AndroidxName PERMISSION_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX.oldName(), "RequiresPermission");
+    public static final AndroidxName UI_THREAD_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "UiThread");
+    public static final AndroidxName MAIN_THREAD_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "MainThread");
+    public static final AndroidxName WORKER_THREAD_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "WorkerThread");
+    public static final AndroidxName BINDER_THREAD_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "BinderThread");
+    public static final AndroidxName ANY_THREAD_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "AnyThread");
+    public static final AndroidxName RESTRICT_TO_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "RestrictTo");
+    public static final AndroidxName VISIBLE_FOR_TESTING_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "VisibleForTesting");
+    public static final AndroidxName PERMISSION_ANNOTATION_READ =
+            AndroidxName.of(PERMISSION_ANNOTATION, "Read");
+    public static final AndroidxName PERMISSION_ANNOTATION_WRITE =
+            AndroidxName.of(PERMISSION_ANNOTATION, "Write");
 
     // TODO: Add analysis to enforce this annotation:
-    public static final String HALF_FLOAT_ANNOTATION = "android.support.annotation.HalfFloat";
+    public static final AndroidxName HALF_FLOAT_ANNOTATION =
+            AndroidxName.of(SUPPORT_ANNOTATIONS_PREFIX, "HalfFloat");
 
     public static final String THREAD_SUFFIX = "Thread";
     public static final String ATTR_SUGGEST = "suggest";
@@ -145,107 +159,105 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
 
     public static final String SECURITY_EXCEPTION = "java.lang.SecurityException";
 
-    public static final String FINDBUGS_ANNOTATIONS_CHECK_RETURN_VALUE = "edu.umd.cs.findbugs.annotations.CheckReturnValue";
-    public static final String JAVAX_ANNOTATION_CHECK_RETURN_VALUE = "javax.annotation.CheckReturnValue";
-    public static final String ERRORPRONE_CAN_IGNORE_RETURN_VALUE = "com.google.errorprone.annotations.CanIgnoreReturnValue";
-    public static final String GUAVA_VISIBLE_FOR_TESTING = "com.google.common.annotations.VisibleForTesting";
+    public static final String FINDBUGS_ANNOTATIONS_CHECK_RETURN_VALUE =
+            "edu.umd.cs.findbugs.annotations.CheckReturnValue";
+    public static final String JAVAX_ANNOTATION_CHECK_RETURN_VALUE =
+            "javax.annotation.CheckReturnValue";
+    public static final String ERRORPRONE_CAN_IGNORE_RETURN_VALUE =
+            "com.google.errorprone.annotations.CanIgnoreReturnValue";
+    public static final String GUAVA_VISIBLE_FOR_TESTING =
+            "com.google.common.annotations.VisibleForTesting";
 
-
-    public static final Implementation IMPLEMENTATION = new Implementation(
-              AnnotationDetector.class,
-              Scope.JAVA_FILE_SCOPE);
+    public static final Implementation IMPLEMENTATION =
+            new Implementation(AnnotationDetector.class, Scope.JAVA_FILE_SCOPE);
 
     /** Placing SuppressLint on a local variable doesn't work for class-file based checks */
-    public static final Issue INSIDE_METHOD = Issue.create(
-            "LocalSuppress",
-            "@SuppressLint on invalid element",
-
-            "The `@SuppressAnnotation` is used to suppress Lint warnings in Java files. However, " +
-            "while many lint checks analyzes the Java source code, where they can find " +
-            "annotations on (for example) local variables, some checks are analyzing the " +
-            "`.class` files. And in class files, annotations only appear on classes, fields " +
-            "and methods. Annotations placed on local variables disappear. If you attempt " +
-            "to suppress a lint error for a class-file based lint check, the suppress " +
-            "annotation not work. You must move the annotation out to the surrounding method.",
-
-            Category.CORRECTNESS,
-            3,
-            Severity.ERROR,
-            IMPLEMENTATION);
+    public static final Issue INSIDE_METHOD =
+            Issue.create(
+                    "LocalSuppress",
+                    "@SuppressLint on invalid element",
+                    "The `@SuppressAnnotation` is used to suppress Lint warnings in Java files. However, "
+                            + "while many lint checks analyzes the Java source code, where they can find "
+                            + "annotations on (for example) local variables, some checks are analyzing the "
+                            + "`.class` files. And in class files, annotations only appear on classes, fields "
+                            + "and methods. Annotations placed on local variables disappear. If you attempt "
+                            + "to suppress a lint error for a class-file based lint check, the suppress "
+                            + "annotation not work. You must move the annotation out to the surrounding method.",
+                    Category.CORRECTNESS,
+                    3,
+                    Severity.ERROR,
+                    IMPLEMENTATION);
 
     /** Incorrectly using a support annotation */
     @SuppressWarnings("WeakerAccess")
-    public static final Issue ANNOTATION_USAGE = Issue.create(
-            "SupportAnnotationUsage",
-            "Incorrect support annotation usage",
-
-            "This lint check makes sure that the support annotations (such as " +
-            "`@IntDef` and `@ColorInt`) are used correctly. For example, it's an " +
-            "error to specify an `@IntRange` where the `from` value is higher than " +
-            "the `to` value.",
-
-            Category.CORRECTNESS,
-            2,
-            Severity.ERROR,
-            IMPLEMENTATION);
+    public static final Issue ANNOTATION_USAGE =
+            Issue.create(
+                    "SupportAnnotationUsage",
+                    "Incorrect support annotation usage",
+                    "This lint check makes sure that the support annotations (such as "
+                            + "`@IntDef` and `@ColorInt`) are used correctly. For example, it's an "
+                            + "error to specify an `@IntRange` where the `from` value is higher than "
+                            + "the `to` value.",
+                    Category.CORRECTNESS,
+                    2,
+                    Severity.ERROR,
+                    IMPLEMENTATION);
 
     /** IntDef annotations should be unique */
-    public static final Issue UNIQUE = Issue.create(
-            "UniqueConstants",
-            "Overlapping Enumeration Constants",
-
-            "The `@IntDef` annotation allows you to " +
-            "create a light-weight \"enum\" or type definition. However, it's possible to " +
-            "accidentally specify the same value for two or more of the values, which can " +
-            "lead to hard-to-detect bugs. This check looks for this scenario and flags any " +
-            "repeated constants.\n" +
-            "\n" +
-            "In some cases, the repeated constant is intentional (for example, renaming a " +
-            "constant to a more intuitive name, and leaving the old name in place for " +
-            "compatibility purposes).  In that case, simply suppress this check by adding a " +
-            "`@SuppressLint(\"UniqueConstants\")` annotation.",
-
-            Category.CORRECTNESS,
-            3,
-            Severity.ERROR,
-            IMPLEMENTATION);
+    public static final Issue UNIQUE =
+            Issue.create(
+                            "UniqueConstants",
+                            "Overlapping Enumeration Constants",
+                            "The `@IntDef` annotation allows you to "
+                                    + "create a light-weight \"enum\" or type definition. However, it's possible to "
+                                    + "accidentally specify the same value for two or more of the values, which can "
+                                    + "lead to hard-to-detect bugs. This check looks for this scenario and flags any "
+                                    + "repeated constants.\n"
+                                    + "\n"
+                                    + "In some cases, the repeated constant is intentional (for example, renaming a "
+                                    + "constant to a more intuitive name, and leaving the old name in place for "
+                                    + "compatibility purposes).  In that case, simply suppress this check by adding a "
+                                    + "`@SuppressLint(\"UniqueConstants\")` annotation.",
+                            Category.CORRECTNESS,
+                            3,
+                            Severity.ERROR,
+                            IMPLEMENTATION)
+                    .setAndroidSpecific(true);
 
     /** Flags should typically be specified as bit shifts */
-    public static final Issue FLAG_STYLE = Issue.create(
-            "ShiftFlags",
-            "Dangerous Flag Constant Declaration",
-
-            "When defining multiple constants for use in flags, the recommended style is " +
-            "to use the form `1 << 2`, `1 << 3`, `1 << 4` and so on to ensure that the " +
-            "constants are unique and non-overlapping.",
-
-            Category.CORRECTNESS,
-            3,
-            Severity.WARNING,
-            IMPLEMENTATION);
+    public static final Issue FLAG_STYLE =
+            Issue.create(
+                    "ShiftFlags",
+                    "Dangerous Flag Constant Declaration",
+                    "When defining multiple constants for use in flags, the recommended style is "
+                            + "to use the form `1 << 2`, `1 << 3`, `1 << 4` and so on to ensure that the "
+                            + "constants are unique and non-overlapping.",
+                    Category.CORRECTNESS,
+                    3,
+                    Severity.WARNING,
+                    IMPLEMENTATION);
 
     /** All IntDef constants should be included in switch */
-    public static final Issue SWITCH_TYPE_DEF = Issue.create(
-            "SwitchIntDef",
-            "Missing @IntDef in Switch",
-
-            "This check warns if a `switch` statement does not explicitly include all " +
-            "the values declared by the typedef `@IntDef` declaration.",
-
-            Category.CORRECTNESS,
-            3,
-            Severity.WARNING,
-            IMPLEMENTATION);
+    public static final Issue SWITCH_TYPE_DEF =
+            Issue.create(
+                            "SwitchIntDef",
+                            "Missing @IntDef in Switch",
+                            "This check warns if a `switch` statement does not explicitly include all "
+                                    + "the values declared by the typedef `@IntDef` declaration.",
+                            Category.CORRECTNESS,
+                            3,
+                            Severity.WARNING,
+                            IMPLEMENTATION)
+                    .setAndroidSpecific(true);
 
     /** Constructs a new {@link AnnotationDetector} check */
-    public AnnotationDetector() {
-    }
+    public AnnotationDetector() {}
 
     // ---- implements SourceCodeScanner ----
 
     /**
-     * Set of fields we've already warned about {@link #FLAG_STYLE} for; these can
-     * be referenced multiple times, so we should only flag them once
+     * Set of fields we've already warned about {@link #FLAG_STYLE} for; these can be referenced
+     * multiple times, so we should only flag them once
      */
     private Set<PsiElement> mWarnedFlags;
 
@@ -299,7 +311,7 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                             checkSuppressLint(annotation, id);
                         }
                     } else if (UastExpressionUtils.isArrayInitializer(value)) {
-                        for (UExpression ex : ((UCallExpression)value).getValueArguments()) {
+                        for (UExpression ex : ((UCallExpression) value).getValueArguments()) {
                             if (ex instanceof ULiteralExpression) {
                                 Object v = ((ULiteralExpression) ex).getValue();
                                 if (v instanceof String) {
@@ -312,44 +324,52 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                         }
                     }
                 }
-            } else if (type.startsWith(SUPPORT_ANNOTATIONS_PREFIX)) {
-                if (CHECK_RESULT_ANNOTATION.equals(type)) {
+            } else if (SUPPORT_ANNOTATIONS_PREFIX.isPrefix(type)) {
+                if (CHECK_RESULT_ANNOTATION.isEquals(type)) {
                     // Check that the return type of this method is not void!
                     if (annotation.getUastParent() instanceof UMethod) {
                         UMethod method = (UMethod) annotation.getUastParent();
                         if (!method.isConstructor()
                                 && PsiType.VOID.equals(method.getReturnType())) {
-                            mContext.report(ANNOTATION_USAGE, annotation,
+                            mContext.report(
+                                    ANNOTATION_USAGE,
+                                    annotation,
                                     mContext.getLocation(annotation),
                                     "@CheckResult should not be specified on `void` methods");
                         }
                     }
-                } else if (INT_RANGE_ANNOTATION.equals(type)
-                        || FLOAT_RANGE_ANNOTATION.equals(type)) {
+                } else if (INT_RANGE_ANNOTATION.isEquals(type)
+                        || FLOAT_RANGE_ANNOTATION.isEquals(type)) {
                     // Check that the annotated element's type is int or long.
                     // Also make sure that from <= to.
                     boolean invalid;
-                    if (INT_RANGE_ANNOTATION.equals(type)) {
+                    if (INT_RANGE_ANNOTATION.isEquals(type)) {
                         checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
 
-                        long from = getLongAttribute(mContext, annotation, ATTR_FROM, Long.MIN_VALUE);
+                        long from =
+                                getLongAttribute(mContext, annotation, ATTR_FROM, Long.MIN_VALUE);
                         long to = getLongAttribute(mContext, annotation, ATTR_TO, Long.MAX_VALUE);
                         invalid = from > to;
                     } else {
                         checkTargetType(annotation, TYPE_FLOAT, TYPE_DOUBLE, true);
 
-                        double from = getDoubleAttribute(mContext, annotation, ATTR_FROM,
-                                Double.NEGATIVE_INFINITY);
-                        double to = getDoubleAttribute(mContext, annotation, ATTR_TO,
-                                Double.POSITIVE_INFINITY);
+                        double from =
+                                getDoubleAttribute(
+                                        mContext, annotation, ATTR_FROM, Double.NEGATIVE_INFINITY);
+                        double to =
+                                getDoubleAttribute(
+                                        mContext, annotation, ATTR_TO, Double.POSITIVE_INFINITY);
                         invalid = from > to;
                     }
                     if (invalid) {
-                        mContext.report(ANNOTATION_USAGE, annotation, mContext.getLocation(annotation),
+                        mContext.report(
+                                ANNOTATION_USAGE,
+                                annotation,
+                                mContext.getLocation(annotation),
                                 "Invalid range: the `from` attribute must be less than "
                                         + "the `to` attribute");
                     }
-                } else if (SIZE_ANNOTATION.equals(type)) {
+                } else if (SIZE_ANNOTATION.isEquals(type)) {
                     // Check that the annotated element's type is an array, or a collection
                     // (or at least not an int or long; if so, suggest IntRange)
                     // Make sure the size and the modulo is not negative.
@@ -359,26 +379,36 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                     long max = getLongAttribute(mContext, annotation, ATTR_MAX, Long.MAX_VALUE);
                     long multiple = getLongAttribute(mContext, annotation, ATTR_MULTIPLE, 1);
                     if (min > max) {
-                        mContext.report(ANNOTATION_USAGE, annotation, mContext.getLocation(annotation),
+                        mContext.report(
+                                ANNOTATION_USAGE,
+                                annotation,
+                                mContext.getLocation(annotation),
                                 "Invalid size range: the `min` attribute must be less than "
                                         + "the `max` attribute");
                     } else if (multiple < 1) {
-                        mContext.report(ANNOTATION_USAGE, annotation, mContext.getLocation(annotation),
+                        mContext.report(
+                                ANNOTATION_USAGE,
+                                annotation,
+                                mContext.getLocation(annotation),
                                 "The size multiple must be at least 1");
 
                     } else if (exact < 0 && exact != unset || min < 0 && min != Long.MIN_VALUE) {
-                        mContext.report(ANNOTATION_USAGE, annotation, mContext.getLocation(annotation),
+                        mContext.report(
+                                ANNOTATION_USAGE,
+                                annotation,
+                                mContext.getLocation(annotation),
                                 "The size can't be negative");
                     }
-                } else if (COLOR_INT_ANNOTATION.equals(type) || (PX_ANNOTATION.equals(type))) {
+                } else if (COLOR_INT_ANNOTATION.isEquals(type) || (PX_ANNOTATION.isEquals(type))) {
                     // Check that ColorInt applies to the right type
                     checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
-                } else if (INT_DEF_ANNOTATION.equals(type) || LONG_DEF_ANNOTATION.equals(type)) {
+                } else if (INT_DEF_ANNOTATION.isEquals(type)
+                        || LONG_DEF_ANNOTATION.isEquals(type)) {
                     // Make sure IntDef constants are unique
                     ensureUniqueValues(annotation);
-                } else if (PERMISSION_ANNOTATION.equals(type) ||
-                        PERMISSION_ANNOTATION_READ.equals(type) ||
-                        PERMISSION_ANNOTATION_WRITE.equals(type)) {
+                } else if (PERMISSION_ANNOTATION.isEquals(type)
+                        || PERMISSION_ANNOTATION_READ.isEquals(type)
+                        || PERMISSION_ANNOTATION_WRITE.isEquals(type)) {
                     // Check that if there are no arguments, this is specified on a parameter,
                     // and conversely, on methods and fields there is a valid argument.
                     if (annotation.getUastParent() instanceof UMethod) {
@@ -401,17 +431,21 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                         }
 
                         if (set == 0) {
-                            mContext.report(ANNOTATION_USAGE, annotation,
+                            mContext.report(
+                                    ANNOTATION_USAGE,
+                                    annotation,
                                     mContext.getLocation(annotation),
                                     "For methods, permission annotation should specify one "
                                             + "of `value`, `anyOf` or `allOf`");
                         } else if (set > 1) {
-                            mContext.report(ANNOTATION_USAGE, annotation,
+                            mContext.report(
+                                    ANNOTATION_USAGE,
+                                    annotation,
                                     mContext.getLocation(annotation),
                                     "Only specify one of `value`, `anyOf` or `allOf`");
                         }
                     }
-                } else if (type.equals(HALF_FLOAT_ANNOTATION)) {
+                } else if (HALF_FLOAT_ANNOTATION.isEquals(type)) {
                     // Check that half floats are on shorts
                     checkTargetType(annotation, TYPE_SHORT, null, true);
                 } else if (type.endsWith(RES_SUFFIX)) {
@@ -426,11 +460,11 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                     if (cls.isAnnotationType() && cls.getModifierList() != null) {
                         for (PsiAnnotation a : cls.getModifierList().getAnnotations()) {
                             String name = a.getQualifiedName();
-                            if (INT_DEF_ANNOTATION.equals(name)) {
+                            if (INT_DEF_ANNOTATION.isEquals(name)) {
                                 checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
-                            } else if (LONG_DEF_ANNOTATION.equals(name)) {
+                            } else if (LONG_DEF_ANNOTATION.isEquals(name)) {
                                 checkTargetType(annotation, TYPE_LONG, null, true);
-                            } else if (STRING_DEF_ANNOTATION.equals(type)) {
+                            } else if (STRING_DEF_ANNOTATION.isEquals(type)) {
                                 checkTargetType(annotation, TYPE_STRING, null, true);
                             }
                         }
@@ -439,8 +473,11 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
             }
         }
 
-        private void checkTargetType(@NonNull UAnnotation node, @NonNull String type1,
-                @Nullable String type2, boolean allowCollection) {
+        private void checkTargetType(
+                @NonNull UAnnotation node,
+                @NonNull String type1,
+                @Nullable String type2,
+                boolean allowCollection) {
             UElement parent = node.getUastParent();
             PsiType type;
 
@@ -458,9 +495,10 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 }
             } else if (parent instanceof UMethod) {
                 UMethod method = (UMethod) parent;
-                type = method.isConstructor()
-                        ? mContext.getEvaluator().getClassType(method.getContainingClass())
-                        : method.getReturnType();
+                type =
+                        method.isConstructor()
+                                ? mContext.getEvaluator().getClassType(method.getContainingClass())
+                                : method.getReturnType();
             } else if (parent instanceof UVariable) {
                 // Field or local variable or parameter
                 UVariable variable = (UVariable) parent;
@@ -483,12 +521,13 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                     type = type.getDeepComponentType();
                 } else if (type instanceof PsiClassType) {
                     // For example, List<Integer>
-                    PsiClassType classType = (PsiClassType)type;
+                    PsiClassType classType = (PsiClassType) type;
                     if (classType.getParameters().length == 1) {
                         PsiClass resolved = classType.resolve();
-                        if (resolved != null &&
-                            mContext.getEvaluator().implementsInterface(resolved,
-                              "java.util.Collection", false)) {
+                        if (resolved != null
+                                && mContext.getEvaluator()
+                                        .implementsInterface(
+                                                resolved, "java.util.Collection", false)) {
                             type = classType.getParameters()[0];
                         }
                     }
@@ -501,11 +540,10 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 // https://youtrack.jetbrains.com/issue/KT-20172
                 return;
             }
-            if (!typeName.equals(type1)
-                    && (type2 == null || !typeName.equals(type2))) {
+            if (!typeName.equals(type1) && (type2 == null || !typeName.equals(type2))) {
                 // Autoboxing? You can put @DrawableRes on a java.lang.Integer for example
                 if (typeName.equals(getAutoBoxedType(type1))
-                      || type2 != null && typeName.equals(getAutoBoxedType(type2))) {
+                        || type2 != null && typeName.equals(getAutoBoxedType(type2))) {
                     return;
                 }
 
@@ -513,9 +551,10 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 if (typeName.equals(TYPE_STRING)) {
                     typeName = "String";
                 }
-                String message = String.format(
-                        "This annotation does not apply for type %1$s; expected %2$s",
-                        typeName, expectedTypes);
+                String message =
+                        String.format(
+                                "This annotation does not apply for type %1$s; expected %2$s",
+                                typeName, expectedTypes);
                 Location location = mContext.getLocation(node);
                 mContext.report(ANNOTATION_USAGE, node, location, message);
             }
@@ -542,8 +581,7 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
         }
 
         /**
-         * Searches for the corresponding @IntDef annotation definition associated
-         * with a given node
+         * Searches for the corresponding @IntDef annotation definition associated with a given node
          */
         @Nullable
         private UAnnotation findIntDefAnnotation(@NonNull UExpression expression) {
@@ -551,12 +589,14 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 PsiElement resolved = ((UReferenceExpression) expression).resolve();
 
                 if (resolved instanceof PsiModifierListOwner) {
-                    PsiAnnotation[] annotations = mContext.getEvaluator().getAllAnnotations(
-                            (PsiModifierListOwner)resolved, true);
+                    PsiAnnotation[] annotations =
+                            mContext.getEvaluator()
+                                    .getAllAnnotations((PsiModifierListOwner) resolved, true);
                     PsiAnnotation[] relevantAnnotations =
                             filterRelevantAnnotations(mContext.getEvaluator(), annotations);
-                    UAnnotation annotation = TypedefDetector.Companion.findIntDef(
-                            JavaUAnnotation.wrap(relevantAnnotations));
+                    UAnnotation annotation =
+                            TypedefDetector.Companion.findIntDef(
+                                    JavaUAnnotation.wrap(relevantAnnotations));
                     if (annotation != null) {
                         return annotation;
                     }
@@ -564,8 +604,8 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
 
                 if (resolved instanceof PsiLocalVariable) {
                     PsiLocalVariable variable = (PsiLocalVariable) resolved;
-                    UExpression lastAssignment = UastLintUtils.findLastAssignment(variable,
-                            expression);
+                    UExpression lastAssignment =
+                            UastLintUtils.findLastAssignment(variable, expression);
 
                     if (lastAssignment != null) {
                         return findIntDefAnnotation(lastAssignment);
@@ -599,10 +639,11 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                     }
                 }
             } else if (expression instanceof JavaUTypeCastExpression) {
-                return findIntDefAnnotation(((JavaUTypeCastExpression)expression).getOperand());
+                return findIntDefAnnotation(((JavaUTypeCastExpression) expression).getOperand());
 
             } else if (expression instanceof UParenthesizedExpression) {
-                return findIntDefAnnotation(((UParenthesizedExpression) expression).getExpression());
+                return findIntDefAnnotation(
+                        ((UParenthesizedExpression) expression).getExpression());
             }
 
             return null;
@@ -612,7 +653,7 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
         private Integer getConstantValue(@NonNull PsiField intDefConstantRef) {
             Object constant = intDefConstantRef.computeConstantValue();
             if (constant instanceof Number) {
-                return ((Number)constant).intValue();
+                return ((Number) constant).intValue();
             }
 
             return null;
@@ -631,8 +672,8 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 return;
             }
 
-            List<UExpression> initializers = ((UCallExpression)value).getValueArguments();
-            Map<Number,Integer> valueToIndex =
+            List<UExpression> initializers = ((UCallExpression) value).getValueArguments();
+            Map<Number, Integer> valueToIndex =
                     Maps.newHashMapWithExpectedSize(initializers.size());
 
             boolean flag = getAnnotationBooleanValue(node, TYPE_DEF_FLAG_ATTRIBUTE) == Boolean.TRUE;
@@ -654,12 +695,14 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                         String message;
                         int prevIndex = valueToIndex.get(number);
                         UExpression prevConstant = initializers.get(prevIndex);
-                        message = String.format(
-                                "Constants `%1$s` and `%2$s` specify the same exact "
-                                        + "value (%3$s); this is usually a cut & paste or "
-                                        + "merge error",
-                                expression.asSourceString(), prevConstant.asSourceString(),
-                                repeatedValue.toString());
+                        message =
+                                String.format(
+                                        "Constants `%1$s` and `%2$s` specify the same exact "
+                                                + "value (%3$s); this is usually a cut & paste or "
+                                                + "merge error",
+                                        expression.asSourceString(),
+                                        prevConstant.asSourceString(),
+                                        repeatedValue.toString());
                         location = mContext.getLocation(expression);
                         Location secondary = mContext.getLocation(prevConstant);
                         secondary.setMessage("Previous same value");
@@ -690,7 +733,7 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                             if (!(o instanceof Number)) {
                                 continue;
                             }
-                            long value = ((Number)o).longValue();
+                            long value = ((Number) o).longValue();
                             // Allow -1, 0 and 1. You can write 1 as "1 << 0" but IntelliJ for
                             // example warns that that's a redundant shift.
                             if (Math.abs(value) <= 1) {
@@ -707,12 +750,22 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                             if (!mWarnedFlags.add(resolved)) {
                                 return;
                             }
-                            String message = String.format(
-                                    "Consider declaring this constant using 1 << %1$d instead",
-                                    shift);
-                            String replace = String.format(Locale.ROOT, "1%s << %d",
-                                    o instanceof Long ? "L" : "", shift);
-                            LintFix fix = fix().replace().with(replace).build();
+                            String message =
+                                    String.format(
+                                            "Consider declaring this constant using 1 << %1$d instead",
+                                            shift);
+                            String replace =
+                                    String.format(
+                                            Locale.ROOT,
+                                            "1%s << %d",
+                                            o instanceof Long ? "L" : "",
+                                            shift);
+                            LintFix fix =
+                                    fix().replace()
+                                            .sharedName("Change declaration to <<")
+                                            .with(replace)
+                                            .autoFix()
+                                            .build();
                             Location location = mContext.getLocation(initializer);
                             mContext.report(FLAG_STYLE, initializer, location, message, fix);
                         }
@@ -732,10 +785,15 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 // This issue doesn't have AST access: annotations are not
                 // available for local variables or parameters
                 UElement scope = getAnnotationScope(node);
-                mContext.report(INSIDE_METHOD, scope, mContext.getLocation(node), String.format(
-                    "The `@SuppressLint` annotation cannot be used on a local " +
-                    "variable with the lint check '%1$s': move out to the " +
-                    "surrounding method", id));
+                mContext.report(
+                        INSIDE_METHOD,
+                        scope,
+                        mContext.getLocation(node),
+                        String.format(
+                                "The `@SuppressLint` annotation cannot be used on a local "
+                                        + "variable with the lint check '%1$s': move out to the "
+                                        + "surrounding method",
+                                id));
                 return false;
             }
 
@@ -751,8 +809,8 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
 
             private boolean mReported = false;
 
-            private SwitchChecker(USwitchExpression switchExpression,
-                    List<UExpression> allowedValues) {
+            private SwitchChecker(
+                    USwitchExpression switchExpression, List<UExpression> allowedValues) {
                 mSwitchExpression = switchExpression;
                 mAllowedValues = allowedValues;
 
@@ -801,14 +859,20 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                         // It's the wrong thing to do.
                         List<String> list = computeFieldNames(mSwitchExpression, mAllowedValues);
                         // Keep error message in sync with {@link #getMissingCases}
-                        String message = "Don't use a constant here; expected one of: " + Joiner
-                                .on(", ").join(list);
-                        mContext.report(SWITCH_TYPE_DEF, caseValue,
-                                mContext.getLocation(caseValue), message);
+                        String message =
+                                "Don't use a constant here; expected one of: "
+                                        + Joiner.on(", ").join(list);
+                        mContext.report(
+                                SWITCH_TYPE_DEF,
+                                caseValue,
+                                mContext.getLocation(caseValue),
+                                message);
                         // Don't look for other missing typedef constants since you might
                         // have aliased with value
                         mReported = true;
-                    } else if (caseValue instanceof UReferenceExpression) { // default case can have null expression
+                    } else if (caseValue
+                            instanceof
+                            UReferenceExpression) { // default case can have null expression
                         PsiElement resolved = ((UReferenceExpression) caseValue).resolve();
                         if (resolved == null) {
                             // If there are compilation issues (e.g. user is editing code) we
@@ -832,8 +896,9 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                             boolean found = removeFieldFromList(mFields, resolvedField);
                             if (!found) {
                                 // Look for local alias
-                                UExpression initializer = mContext.getUastContext()
-                                        .getInitializerBody(((PsiField) resolved));
+                                UExpression initializer =
+                                        mContext.getUastContext()
+                                                .getInitializerBody(((PsiField) resolved));
                                 if (initializer instanceof UReferenceExpression) {
                                     resolved = ((UReferenceExpression) initializer).resolve();
                                     if (resolved instanceof PsiField) {
@@ -848,11 +913,12 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                                     mSeenValues.add(cv);
                                 }
                             } else {
-                                List<String> list = computeFieldNames(mSwitchExpression,
-                                        mAllowedValues);
+                                List<String> list =
+                                        computeFieldNames(mSwitchExpression, mAllowedValues);
                                 // Keep error message in sync with {@link #getMissingCases}
-                                String message = "Unexpected constant; expected one of: " + Joiner
-                                        .on(", ").join(list);
+                                String message =
+                                        "Unexpected constant; expected one of: "
+                                                + Joiner.on(", ").join(list);
                                 LintFix fix = fix().data(list);
                                 Location location = mContext.getNameLocation(caseValue);
                                 mContext.report(SWITCH_TYPE_DEF, caseValue, location, message, fix);
@@ -885,7 +951,7 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                     while (iterator.hasNext()) {
                         Object next = iterator.next();
                         if (next instanceof PsiField) {
-                            Integer cv = getConstantValue((PsiField)next);
+                            Integer cv = getConstantValue((PsiField) next);
                             if (mSeenValues.contains(cv)) {
                                 iterator.remove();
                             }
@@ -896,10 +962,13 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 if (!mFields.isEmpty()) {
                     List<String> list = computeFieldNames(mSwitchExpression, mFields);
                     // Keep error message in sync with {@link #getMissingCases}
-                    String message = "Switch statement on an `int` with known associated constant "
-                            + "missing case " + Joiner.on(", ").join(list);
+                    String message =
+                            "Switch statement on an `int` with known associated constant "
+                                    + "missing case "
+                                    + Joiner.on(", ").join(list);
                     LintFix fix = fix().data(list);
-                    Location location = mContext.getLocation(mSwitchExpression.getSwitchIdentifier());
+                    Location location =
+                            mContext.getLocation(mSwitchExpression.getSwitchIdentifier());
                     mContext.report(SWITCH_TYPE_DEF, mSwitchExpression, location, message, fix);
                 }
             }
@@ -964,10 +1033,10 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
     }
 
     /**
-     * Returns the node to use as the scope for the given annotation node.
-     * You can't annotate an annotation itself (with {@code @SuppressLint}), but
-     * you should be able to place an annotation next to it, as a sibling, to only
-     * suppress the error on this annotated element, not the whole surrounding class.
+     * Returns the node to use as the scope for the given annotation node. You can't annotate an
+     * annotation itself (with {@code @SuppressLint}), but you should be able to place an annotation
+     * next to it, as a sibling, to only suppress the error on this annotated element, not the whole
+     * surrounding class.
      */
     @NonNull
     private static UElement getAnnotationScope(@NonNull UAnnotation node) {
@@ -978,8 +1047,8 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
         return scope;
     }
 
-    private static boolean removeFieldFromList(@NonNull List<Object> fields,
-            @NonNull PsiField resolvedField) {
+    private static boolean removeFieldFromList(
+            @NonNull List<Object> fields, @NonNull PsiField resolvedField) {
         for (Object field : fields) {
             // We can't just call .equals here because the annotation
             // we are comparing against may be either a PsiFieldImpl
@@ -1017,7 +1086,7 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 continue;
             }
 
-            if (signature.startsWith(SUPPORT_ANNOTATIONS_PREFIX)
+            if (SUPPORT_ANNOTATIONS_PREFIX.isPrefix(signature)
                     || signature.equals(GMS_HIDE_ANNOTATION)) {
                 // Bail on the nullness annotations early since they're the most commonly
                 // defined ones. They're not analyzed in lint yet.
@@ -1045,10 +1114,10 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 continue;
             }
             PsiElement resolved = ref.resolve();
-            if (!(resolved instanceof PsiClass) || !((PsiClass)resolved).isAnnotationType()) {
+            if (!(resolved instanceof PsiClass) || !((PsiClass) resolved).isAnnotationType()) {
                 continue;
             }
-            PsiClass cls = (PsiClass)resolved;
+            PsiClass cls = (PsiClass) resolved;
             PsiAnnotation[] innerAnnotations = evaluator.getAllAnnotations(cls, false);
             for (int j = 0; j < innerAnnotations.length; j++) {
                 PsiAnnotation inner = innerAnnotations[j];
@@ -1057,11 +1126,11 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                     // @Override, @SuppressWarnings etc. Ignore
                     continue;
                 }
-                if (a.equals(INT_DEF_ANNOTATION)
-                        || a.equals(LONG_DEF_ANNOTATION)
-                        || a.equals(PERMISSION_ANNOTATION)
-                        || a.equals(INT_RANGE_ANNOTATION)
-                        || a.equals(STRING_DEF_ANNOTATION)) {
+                if (INT_DEF_ANNOTATION.isEquals(a)
+                        || LONG_DEF_ANNOTATION.isEquals(a)
+                        || PERMISSION_ANNOTATION.isEquals(a)
+                        || INT_RANGE_ANNOTATION.isEquals(a)
+                        || STRING_DEF_ANNOTATION.isEquals(a)) {
                     if (length == 1 && j == innerAnnotations.length - 1 && result == null) {
                         return innerAnnotations;
                     }
@@ -1074,6 +1143,7 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
         }
 
         return result != null
-                ? result.toArray(PsiAnnotation.EMPTY_ARRAY) : PsiAnnotation.EMPTY_ARRAY;
+                ? result.toArray(PsiAnnotation.EMPTY_ARRAY)
+                : PsiAnnotation.EMPTY_ARRAY;
     }
 }

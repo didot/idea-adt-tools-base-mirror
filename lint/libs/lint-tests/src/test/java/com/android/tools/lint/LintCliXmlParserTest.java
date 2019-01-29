@@ -16,6 +16,8 @@
 
 package com.android.tools.lint;
 
+import static com.android.tools.lint.client.api.LintClient.CLIENT_UNIT_TESTS;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.lint.checks.infrastructure.TestIssueRegistry;
@@ -45,28 +47,28 @@ import org.w3c.dom.NodeList;
 
 @SuppressWarnings("javadoc")
 public class LintCliXmlParserTest extends TestCase {
-    public void test() throws Exception {
+    public void testBasic() throws Exception {
         String xml =
-                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
-                "<LinearLayout xmlns:android=\"http://schemas.android.com/apk/res/android\"\n" +
-                "    android:layout_width=\"match_parent\"\n" +
-                "    android:layout_height=\"wrap_content\"\n" +
-                "    android:orientation=\"vertical\" >\n" +
-                "\n" +
-                "    <Button\n" +
-                "        android:id=\"@+id/button1\"\n" +
-                "        android:layout_width=\"wrap_content\"\n" +
-                "        android:layout_height=\"wrap_content\"\n" +
-                "        android:text=\"Button\" />\n" +
-                "\n" +
-                "    <Button\n" +
-                "        android:id=\"@+id/button2\"\n" +
-                "        android:layout_width=\"wrap_content\"\n" +
-                "        android:layout_height=\"wrap_content\"\n" +
-                "        android:text=\"Button\" />\n" +
-                "\n" +
-                "</LinearLayout>\n";
-        LintCliXmlParser parser = new LintCliXmlParser(new LintCliClient());
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                        + "<LinearLayout xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                        + "    android:layout_width=\"match_parent\"\n"
+                        + "    android:layout_height=\"wrap_content\"\n"
+                        + "    android:orientation=\"vertical\" >\n"
+                        + "\n"
+                        + "    <Button\n"
+                        + "        android:id=\"@+id/button1\"\n"
+                        + "        android:layout_width=\"wrap_content\"\n"
+                        + "        android:layout_height=\"wrap_content\"\n"
+                        + "        android:text=\"Button\" />\n"
+                        + "\n"
+                        + "    <Button\n"
+                        + "        android:id=\"@+id/button2\"\n"
+                        + "        android:layout_width=\"wrap_content\"\n"
+                        + "        android:layout_height=\"wrap_content\"\n"
+                        + "        android:text=\"Button\" />\n"
+                        + "\n"
+                        + "</LinearLayout>\n";
+        LintCliXmlParser parser = new LintCliXmlParser(new LintCliClient(CLIENT_UNIT_TESTS));
         File file = File.createTempFile("parsertest", ".xml");
         //noinspection IOResourceOpenedButNotSafelyClosed
         Writer fw = new BufferedWriter(new FileWriter(file));
@@ -76,8 +78,9 @@ public class LintCliXmlParserTest extends TestCase {
         LintRequest request = new LintRequest(client, Collections.emptyList());
         LintDriver driver = new LintDriver(new TestIssueRegistry(), client, request);
         Project project = Project.create(client, file.getParentFile(), file.getParentFile());
-        XmlContext context = new XmlContext(driver, project, null, file, null,
-                parser, xml, parser.parseXml(xml, file));
+        XmlContext context =
+                new XmlContext(
+                        driver, project, null, file, null, parser, xml, parser.parseXml(xml, file));
         Document document = parser.parseXml(context);
         assertNotNull(document);
 
@@ -87,8 +90,7 @@ public class LintCliXmlParserTest extends TestCase {
         NodeList buttons = document.getElementsByTagName("Button");
         assertEquals(2, buttons.getLength());
         final String ANDROID_URI = "http://schemas.android.com/apk/res/android";
-        assertEquals("wrap_content",
-                linearLayout.getAttributeNS(ANDROID_URI, "layout_height"));
+        assertEquals("wrap_content", linearLayout.getAttributeNS(ANDROID_URI, "layout_height"));
 
         // Check attribute positions
         Attr attr = linearLayout.getAttributeNodeNS(ANDROID_URI, "layout_width");
@@ -175,12 +177,12 @@ public class LintCliXmlParserTest extends TestCase {
     public void testLineEndings() throws Exception {
         // Test for http://code.google.com/p/android/issues/detail?id=22925
         String xml =
-                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n" +
-                "<LinearLayout>\r\n" +
-                "\r" +
-                "<LinearLayout></LinearLayout>\r\n" +
-                "</LinearLayout>\r\n";
-        LintCliXmlParser parser = new LintCliXmlParser(new LintCliClient());
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n"
+                        + "<LinearLayout>\r\n"
+                        + "\r"
+                        + "<LinearLayout></LinearLayout>\r\n"
+                        + "</LinearLayout>\r\n";
+        LintCliXmlParser parser = new LintCliXmlParser(new LintCliClient(CLIENT_UNIT_TESTS));
         File file = File.createTempFile("parsertest2", ".xml");
         //noinspection IOResourceOpenedButNotSafelyClosed
         Writer fw = new BufferedWriter(new FileWriter(file));
@@ -190,8 +192,9 @@ public class LintCliXmlParserTest extends TestCase {
         LintRequest request = new LintRequest(client, Collections.emptyList());
         LintDriver driver = new LintDriver(new TestIssueRegistry(), client, request);
         Project project = Project.create(client, file.getParentFile(), file.getParentFile());
-        XmlContext context = new XmlContext(driver, project, null, file, null,
-                parser, xml, parser.parseXml(xml, file));
+        XmlContext context =
+                new XmlContext(
+                        driver, project, null, file, null, parser, xml, parser.parseXml(xml, file));
         Document document = parser.parseXml(context);
         assertNotNull(document);
 
@@ -200,6 +203,10 @@ public class LintCliXmlParserTest extends TestCase {
     }
 
     private static class TestClient extends LintCliClient {
+        TestClient() {
+            super(CLIENT_UNIT_TESTS);
+        }
+
         @Override
         public void report(
                 @NonNull Context context,

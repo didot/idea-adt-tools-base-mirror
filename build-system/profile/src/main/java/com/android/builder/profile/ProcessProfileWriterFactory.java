@@ -22,6 +22,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
 import com.android.tools.analytics.AnalyticsSettings;
+import com.android.tools.analytics.AnalyticsSettingsData;
 import com.android.tools.analytics.Anonymizer;
 import com.android.tools.analytics.UsageTracker;
 import com.android.utils.ILogger;
@@ -30,7 +31,9 @@ import com.google.common.base.Strings;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -44,14 +47,30 @@ import java.util.concurrent.TimeUnit;
  */
 public final class ProcessProfileWriterFactory {
 
-    public static void shutdownAndMaybeWrite(@Nullable Path outputFile)
-            throws InterruptedException {
+    @SuppressWarnings("UnusedReturnValue")
+    @Nullable
+    public static Future<Void> shutdownAndMaybeWrite(@Nullable Path outputFile) {
         synchronized (LOCK) {
+            Future<Void> shutdownAction = null;
             if (sINSTANCE.isInitialized()) {
-                verifyNotNull(sINSTANCE.processProfileWriter);
-                sINSTANCE.processProfileWriter.finishAndMaybeWrite(outputFile);
+                ProcessProfileWriter processProfileWriter =
+                        verifyNotNull(sINSTANCE.processProfileWriter);
+                if (outputFile == null) {
+                    // Write analytics files in another thread as it might involve parsing manifest files.
+                    shutdownAction =
+                            sINSTANCE.mScheduledExecutorService.submit(
+                                    () -> {
+                                        processProfileWriter.finish();
+                                        return null;
+                                    });
+                } else {
+                    // If writing a GradleBuildProfile file for Benchmarking, go ahead and block
+                    processProfileWriter.finishAndWrite(outputFile);
+                    shutdownAction = CompletableFuture.completedFuture(null);
+                }
             }
             sINSTANCE.processProfileWriter = null;
+            return shutdownAction;
         }
     }
 
@@ -132,6 +151,7 @@ public final class ProcessProfileWriterFactory {
 
     @VisibleForTesting
     public static void initializeForTests() {
+        AnalyticsSettings.setInstanceForTest(new AnalyticsSettingsData());
         sINSTANCE = new ProcessProfileWriterFactory();
         ProcessProfileWriter recorder =
                 sINSTANCE.get(); // Initialize the ProcessProfileWriter instance
@@ -144,11 +164,10 @@ public final class ProcessProfileWriterFactory {
 
     private static void initializeAnalytics(@NonNull ILogger logger,
             @NonNull ScheduledExecutorService eventLoop) {
-        AnalyticsSettings settings = AnalyticsSettings.getInstance(logger);
-        UsageTracker.initialize(settings, eventLoop);
-        UsageTracker tracker = UsageTracker.getInstance();
-        tracker.setMaxJournalTime(10, TimeUnit.MINUTES);
-        tracker.setMaxJournalSize(1000);
+        AnalyticsSettings.initialize(logger);
+        UsageTracker.initialize(eventLoop);
+        UsageTracker.setMaxJournalTime(10, TimeUnit.MINUTES);
+        UsageTracker.setMaxJournalSize(1000);
     }
 
     private boolean enableChromeTracingOutput;

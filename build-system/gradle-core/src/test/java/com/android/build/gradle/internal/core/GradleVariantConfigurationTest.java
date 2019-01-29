@@ -24,12 +24,12 @@ import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.dsl.BuildType;
 import com.android.build.gradle.internal.dsl.CoreBuildType;
 import com.android.build.gradle.internal.dsl.CoreProductFlavor;
+import com.android.build.gradle.internal.fixtures.FakeEvalIssueReporter;
 import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.builder.core.DefaultApiVersion;
 import com.android.builder.core.DefaultVectorDrawablesOptions;
-import com.android.builder.core.VariantType;
-import com.android.builder.model.SourceProvider;
+import com.android.builder.core.VariantTypeImpl;
 import com.google.common.collect.ImmutableMap;
 import org.junit.Test;
 
@@ -86,16 +86,19 @@ public class GradleVariantConfigurationTest {
                 projectOptions,
                 null,
                 mockCoreProductFlavor(),
-                mock(SourceProvider.class),
+                new MockSourceProvider("src/main"),
                 null,
                 buildType,
                 null,
-                VariantType.DEFAULT,
-                null);
+                VariantTypeImpl.BASE_APK,
+                null,
+                new FakeEvalIssueReporter(),
+                () -> true);
     }
 
     private CoreProductFlavor mockCoreProductFlavor() {
         CoreProductFlavor coreProductFlavor = mock(CoreProductFlavor.class);
+        when(coreProductFlavor.getName()).thenReturn("mockCoreProductFlavor");
         when(coreProductFlavor.getVectorDrawables())
                 .thenReturn(new DefaultVectorDrawablesOptions());
         when(coreProductFlavor.getMinSdkVersion()).thenReturn(new DefaultApiVersion(16));

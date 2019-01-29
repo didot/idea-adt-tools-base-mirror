@@ -7,6 +7,7 @@ kotlin_library(
         "src/main/java",
     ],
     pom = ":pom",
+    resource_strip_prefix = "tools/base/build-system/gradle-api",
     visibility = ["//visibility:public"],
     deps = [
         "//tools/base/annotations",
@@ -27,7 +28,7 @@ maven_pom(
 
 kotlin_test(
     name = "tests",
-    size = "small",
+    size = "medium",
     srcs = ["src/test/java"],
     jvm_flags = ["-Dtest.suite.jar=tests.jar"],
     resources = glob(["src/test/resources/**"]),

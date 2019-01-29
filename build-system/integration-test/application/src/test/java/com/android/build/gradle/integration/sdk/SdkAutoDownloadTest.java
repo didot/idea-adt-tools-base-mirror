@@ -26,6 +26,7 @@ import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTaskExecutor;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.ModelBuilder;
+import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldJniApp;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.build.gradle.options.IntegerOption;
@@ -72,8 +73,9 @@ public class SdkAutoDownloadTest {
             + System.lineSeparator()
             + "target_link_libraries(hello-jni log)";
 
-    private static final String BUILD_TOOLS_VERSION = "27.0.3";
-    private static final String PLATFORM_VERSION = "26";
+    private static final String BUILD_TOOLS_VERSION = SdkConstants.CURRENT_BUILD_TOOLS_VERSION;
+    private static final String PLATFORM_VERSION =
+            TestUtils.getLatestAndroidPlatform().replace("android-", "");
 
     @Rule
     public GradleTestProject project =
@@ -84,6 +86,7 @@ public class SdkAutoDownloadTest {
                                     .useCppSource(true)
                                     .build())
                     .addGradleProperties(IntegerOption.ANDROID_SDK_CHANNEL.getPropertyName() + "=3")
+                    .withoutNdk()
                     .create();
 
     private File mSdkHome;
@@ -126,6 +129,7 @@ public class SdkAutoDownloadTest {
                         + " = "
                         + mSdkHome.getAbsolutePath().replace("\\", "\\\\"));
 
+
         TestFileUtils.appendToFile(
                 project.getBuildFile(), "android.defaultConfig.minSdkVersion = 19");
     }
@@ -154,6 +158,12 @@ public class SdkAutoDownloadTest {
         FileUtils.copyDirectoryToDirectory(
                 FileUtils.join(
                         TestUtils.getSdk().toPath().toFile(), SdkConstants.FD_PLATFORM_TOOLS),
+                FileUtils.join(mSdkHome));
+    }
+
+    private void installNdk() throws IOException {
+        FileUtils.copyDirectoryToDirectory(
+                FileUtils.join(TestUtils.getSdk().toPath().toFile(), SdkConstants.FD_NDK),
                 FileUtils.join(mSdkHome));
     }
 
@@ -278,6 +288,7 @@ public class SdkAutoDownloadTest {
     public void checkCmakeDownloading() throws Exception {
         installPlatforms();
         installBuildTools();
+        installNdk();
         TestFileUtils.appendToFile(
                 project.getBuildFile(),
                 System.lineSeparator()
@@ -293,10 +304,15 @@ public class SdkAutoDownloadTest {
         Files.write(project.file("CMakeLists.txt").toPath(),
                 cmakeLists.getBytes(StandardCharsets.UTF_8));
 
-        getExecutor().run("assembleDebug");
+        // TODO: This should be changed to assembleDebug once b/116539441 is fixed.
+        // Currently assembleDebug causes ninja to its path component limit.
+        // See https://github.com/ninja-build/ninja/issues/1161
+        getExecutor().run("clean");
 
         File cmakeDirectory = FileUtils.join(mSdkHome, SdkConstants.FD_CMAKE);
         assertThat(cmakeDirectory).isDirectory();
+        File ndkDirectory = FileUtils.join(mSdkHome, SdkConstants.FD_NDK);
+        assertThat(ndkDirectory).isDirectory();
     }
 
     @Test
@@ -304,6 +320,7 @@ public class SdkAutoDownloadTest {
         installPlatforms();
         installBuildTools();
         installPlatformTools();
+        installNdk();
         FileUtils.delete(previewLicenseFile);
         deleteLicense();
 
@@ -324,10 +341,71 @@ public class SdkAutoDownloadTest {
 
         GradleBuildResult result = getExecutor().expectFailure().run("assembleDebug");
 
-        assertThat(result.getStderr())
+        assertThat(result.getStdout())
                 .contains(
                         "Failed to install the following Android SDK packages as some licences have not been accepted");
-        assertThat(result.getStderr()).contains("CMake");
+        assertThat(result.getStdout()).contains("CMake");
+    }
+
+    @Test
+    public void checkNdkDownloading() throws Exception {
+        installPlatforms();
+        installBuildTools();
+        TestFileUtils.appendToFile(
+                project.getBuildFile(),
+                System.lineSeparator()
+                        + "android.compileSdkVersion "
+                        + PLATFORM_VERSION
+                        + System.lineSeparator()
+                        + "android.buildToolsVersion \""
+                        + BUILD_TOOLS_VERSION
+                        + "\""
+                        + System.lineSeparator()
+                        + "android.externalNativeBuild.cmake.path \"CMakeLists.txt\"");
+
+        Files.write(
+                project.file("CMakeLists.txt").toPath(),
+                cmakeLists.getBytes(StandardCharsets.UTF_8));
+
+        // TODO: This should be changed to assembleDebug once b/116539441 is fixed.
+        // Currently assembleDebug causes ninja to its path component limit.
+        // See https://github.com/ninja-build/ninja/issues/1161
+        getExecutor().run("clean");
+
+        File ndkDirectory = FileUtils.join(mSdkHome, SdkConstants.FD_NDK);
+        assertThat(ndkDirectory).isDirectory();
+    }
+
+    @Test
+    public void checkNdkMissingLicense() throws Exception {
+        installPlatforms();
+        installBuildTools();
+        installPlatformTools();
+        FileUtils.delete(previewLicenseFile);
+        deleteLicense();
+
+        TestFileUtils.appendToFile(
+                project.getBuildFile(),
+                System.lineSeparator()
+                        + "android.compileSdkVersion "
+                        + PLATFORM_VERSION
+                        + System.lineSeparator()
+                        + "android.buildToolsVersion \""
+                        + BUILD_TOOLS_VERSION
+                        + "\""
+                        + System.lineSeparator()
+                        + "android.externalNativeBuild.cmake.path \"CMakeLists.txt\"");
+
+        Files.write(
+                project.file("CMakeLists.txt").toPath(),
+                cmakeLists.getBytes(StandardCharsets.UTF_8));
+
+        GradleBuildResult result = getExecutor().expectFailure().run("assembleDebug");
+
+        assertThat(result.getStdout())
+                .contains(
+                        "Failed to install the following Android SDK packages as some licences have not been accepted");
+        assertThat(result.getStdout()).contains("ndk-bundle");
     }
 
     @Test
@@ -344,7 +422,7 @@ public class SdkAutoDownloadTest {
                         + "\""
                         + System.lineSeparator()
                         + "dependencies { compile 'com.android.support:support-v4:"
-                        + GradleTestProject.SUPPORT_LIB_VERSION
+                        + TestVersions.SUPPORT_LIB_VERSION
                         + "' }");
 
         getExecutor().run("assembleDebug");
@@ -372,7 +450,7 @@ public class SdkAutoDownloadTest {
                         + "android.defaultConfig.multiDexEnabled true"
                         + System.lineSeparator()
                         + "dependencies { compile 'com.google.android.gms:play-services:"
-                        + GradleTestProject.PLAY_SERVICES_VERSION
+                        + TestVersions.PLAY_SERVICES_VERSION
                         + "' }");
 
         getExecutor().run("assembleDebug");
@@ -381,7 +459,7 @@ public class SdkAutoDownloadTest {
                 SdkMavenRepository.GOOGLE,
                 "com.google.android.gms",
                 "play-services",
-                GradleTestProject.PLAY_SERVICES_VERSION);
+                TestVersions.PLAY_SERVICES_VERSION);
     }
 
     @Test

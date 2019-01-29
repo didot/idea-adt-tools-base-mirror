@@ -20,16 +20,20 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.core.VariantConfiguration;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
-import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
+import com.android.builder.model.SourceProvider;
 import com.android.builder.testing.TestData;
 import com.android.sdklib.AndroidVersion;
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import java.io.File;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.gradle.api.file.FileCollection;
@@ -46,17 +50,16 @@ public abstract class AbstractTestDataImpl implements TestData {
     @NonNull
     private Map<String, String> extraInstrumentationTestRunnerArgs;
 
-    @NonNull
     private boolean animationsDisabled;
 
-    @NonNull protected final FileCollection testApkDir;
+    @NonNull protected final BuildableArtifact testApkDir;
 
-    @Nullable protected final FileCollection testedApksDir;
+    @Nullable protected final BuildableArtifact testedApksDir;
 
     public AbstractTestDataImpl(
             @NonNull VariantConfiguration<?, ?, ?> testVariantConfig,
-            @NonNull FileCollection testApkDir,
-            @Nullable FileCollection testedApksDir) {
+            @NonNull BuildableArtifact testApkDir,
+            @Nullable BuildableArtifact testedApksDir) {
         this.testVariantConfig = checkNotNull(testVariantConfig);
         this.extraInstrumentationTestRunnerArgs = Maps.newHashMap();
         this.testApkDir = testApkDir;
@@ -84,7 +87,6 @@ public abstract class AbstractTestDataImpl implements TestData {
                 ImmutableMap.copyOf(extraInstrumentationTestRunnerArgs);
     }
 
-    @NonNull
     @Override
     public boolean getAnimationsDisabled() {
         return animationsDisabled;
@@ -112,12 +114,12 @@ public abstract class AbstractTestDataImpl implements TestData {
     }
 
     /**
-     * Returns the directory containing the test APK as a {@link FileCollection}.
+     * Returns the directory containing the test APK as a {@link BuildableArtifact}.
      *
      * @return the directory containing the test APK
      */
     @NonNull
-    public FileCollection getTestApkDir() {
+    public BuildableArtifact getTestApkDir() {
         return testApkDir;
     }
 
@@ -129,17 +131,33 @@ public abstract class AbstractTestDataImpl implements TestData {
      *     library
      */
     @Nullable
-    public FileCollection getTestedApksDir() {
+    public BuildableArtifact getTestedApksDir() {
         return testedApksDir;
+    }
+
+    @Nullable
+    public FileCollection getTestedApksFromBundle() {
+        return null;
+    }
+
+    @NonNull
+    @Override
+    public final List<File> getTestDirectories() {
+        // For now we check if there are any test sources. We could inspect the test classes and
+        // apply JUnit logic to see if there's something to run, but that would not catch the case
+        // where user makes a typo in a test name or forgets to inherit from a JUnit class
+        ImmutableList.Builder<File> javaDirectories = ImmutableList.builder();
+        for (SourceProvider sourceProvider : testVariantConfig.getSortedSourceProviders()) {
+            javaDirectories.addAll(sourceProvider.getJavaDirectories());
+        }
+        return javaDirectories.build();
     }
 
     @NonNull
     @Override
     public File getTestApk() {
-
-
         BuildElements testApkOutputs =
-                ExistingBuildElements.from(VariantScope.TaskOutputType.APK, testApkDir);
+                ExistingBuildElements.from(InternalArtifactType.APK, testApkDir);
         if (testApkOutputs.size() != 1) {
             throw new RuntimeException(
                     "Unexpected number of main APKs, expected 1, got  "

@@ -256,6 +256,9 @@ public class AvdManager {
      * AVD/config.ini key name representing whether to boot from a snapshot
      */
     public static final String AVD_INI_FORCE_COLD_BOOT_MODE = "fastboot.forceColdBoot";
+    public static final String AVD_INI_FORCE_CHOSEN_SNAPSHOT_BOOT_MODE = "fastboot.forceChosenSnapshotBoot";
+    public static final String AVD_INI_FORCE_FAST_BOOT_MODE = "fastboot.forceFastBoot";
+    public static final String AVD_INI_CHOSEN_SNAPSHOT_FILE = "fastboot.chosenSnapshotFile";
     public static final String AVD_INI_COLD_BOOT_ONCE = "once"; // Key value in addition to "yes" and "no"
 
     /**
@@ -314,6 +317,7 @@ public class AvdManager {
      * Pattern to match pixel-sized skin "names", e.g. "320x480".
      */
     public static final Pattern NUMERIC_SKIN_SIZE = Pattern.compile("([0-9]{2,})x([0-9]{2,})"); //$NON-NLS-1$
+    public static final String DATA_FOLDER = "data";
     public static final String USERDATA_IMG = "userdata.img";
     public static final String USERDATA_QEMU_IMG = "userdata-qemu.img";
     public static final String SNAPSHOTS_DIRECTORY = "snapshots";
@@ -520,7 +524,7 @@ public class AvdManager {
     @NonNull
     public AvdInfo[] getAllAvds() {
         synchronized (mAllAvdList) {
-            return mAllAvdList.toArray(new AvdInfo[mAllAvdList.size()]);
+            return mAllAvdList.toArray(new AvdInfo[0]);
         }
     }
 
@@ -539,7 +543,7 @@ public class AvdManager {
                     }
                 }
 
-                mValidAvdList = list.toArray(new AvdInfo[list.size()]);
+                mValidAvdList = list.toArray(new AvdInfo[0]);
             }
             return mValidAvdList;
         }
@@ -856,10 +860,13 @@ public class AvdManager {
             configValues.put(AVD_INI_PLAYSTORE_ENABLED, Boolean.toString(deviceHasPlayStore && systemImage.hasPlayStore()));
             configValues.put(AVD_INI_ARC, Boolean.toString(SystemImage.CHROMEOS_TAG.equals(tag)));
 
-            writeCpuArch(systemImage, configValues, log);
-
             createAvdSkin(skinFolder, skinName, configValues, log);
             createAvdSdCard(sdcard, editExisting, configValues, avdFolder, log);
+
+            if (hardwareConfig == null) {
+                hardwareConfig = new HashMap<>();
+            }
+            writeCpuArch(systemImage, hardwareConfig, log);
 
             addHardwareConfig(systemImage, skinFolder, avdFolder, hardwareConfig, configValues, log);
 
@@ -1341,23 +1348,34 @@ public class AvdManager {
      * @return A new {@link AvdInfo} with an {@link AvdStatus} indicating whether this AVD is
      *         valid or not.
      */
-    private AvdInfo parseAvdInfo(File iniPath, ILogger log) {
+    @VisibleForTesting
+    public AvdInfo parseAvdInfo(@NonNull File iniPath, @NonNull ILogger log) {
         Map<String, String> map = parseIniFile(
                 new FileOpFileWrapper(iniPath, mFop, false),
                 log);
 
-        String avdPath = map.get(AVD_INFO_ABS_PATH);
-
-        if (avdPath == null || !(mFop.isDirectory(new File(avdPath)))) {
-            // Try to fallback on the relative path, if present.
-            String relPath = map.get(AVD_INFO_REL_PATH);
-            if (relPath != null) {
-                File androidFolder = mSdkHandler.getAndroidFolder();
-                File f = new File(androidFolder, relPath);
-                if (mFop.isDirectory(f)) {
-                    avdPath = f.getAbsolutePath();
+        String avdPath = null;
+        if (map != null) {
+            avdPath = map.get(AVD_INFO_ABS_PATH);
+            if (avdPath == null || !(mFop.isDirectory(new File(avdPath)))) {
+                // Try to fallback on the relative path, if present.
+                String relPath = map.get(AVD_INFO_REL_PATH);
+                if (relPath != null) {
+                    File androidFolder = mSdkHandler.getAndroidFolder();
+                    File f = new File(androidFolder, relPath);
+                    if (mFop.isDirectory(f)) {
+                        avdPath = f.getAbsolutePath();
+                    }
                 }
             }
+        }
+        if (avdPath == null || !(mFop.isDirectory(new File(avdPath)))) {
+            // Corrupted .ini file
+            String avdName = iniPath.getName();
+            if (avdName.endsWith(".ini")) {
+                avdName = avdName.substring(0, avdName.length() - 4);
+            }
+            return new AvdInfo(avdName, iniPath, iniPath.getPath(), null, null, AvdStatus.ERROR_CORRUPTED_INI);
         }
 
         FileOpFileWrapper configIniFile = null;
@@ -1742,10 +1760,14 @@ public class AvdManager {
         String name = properties.get(AvdManager.AVD_INI_DEVICE_NAME);
         String manufacturer = properties.get(AvdManager.AVD_INI_DEVICE_MANUFACTURER);
 
-        if (properties != null && devices != null && name != null && manufacturer != null) {
+        if (name != null && manufacturer != null) {
             for (Device d : devices) {
                 if (d.getId().equals(name) && d.getManufacturer().equals(manufacturer)) {
-                    properties.putAll(DeviceManager.getHardwareProperties(d));
+                    // The device has a RAM size, but we don't want to use it.
+                    // Instead, we'll keep the AVD's existing RAM size setting.
+                    final Map<String, String> deviceHwProperties = DeviceManager.getHardwareProperties(d);
+                    deviceHwProperties.remove(AVD_INI_RAM_SIZE);
+                    properties.putAll(deviceHwProperties);
                     try {
                         return updateAvd(avd, properties);
                     } catch (IOException e) {
@@ -1828,6 +1850,14 @@ public class AvdManager {
         String abiType = systemImage.getAbiType();
 
         if (!mFop.exists(userdataSrc)) {
+            if (mFop.isDirectory(new File(imageFolder, DATA_FOLDER))) {
+                // Because this image includes a data folder, a
+                // userdata.img file is not needed. Don't signal
+                // an error.
+                // (The emulator will access the 'data' folder directly;
+                //  we do not need to copy it over.)
+                return;
+            }
             log.warning("Unable to find a '%1$s' file for ABI %2$s to copy into the AVD folder.",
                     USERDATA_IMG,
                     abiType);
@@ -1845,7 +1875,6 @@ public class AvdManager {
                 throw new AvdMgrException();
             }
         }
-        return;
     }
 
     /**
@@ -1917,15 +1946,15 @@ public class AvdManager {
      */
     private void writeCpuArch(
             @NonNull ISystemImage        systemImage,
-            @Nullable Map<String,String> values,
-            @NonNull  ILogger            log)
+            @NonNull Map<String,String>  values,
+            @NonNull ILogger             log)
             throws AvdMgrException {
 
         String abiType = systemImage.getAbiType();
         Abi abi = Abi.getEnum(abiType);
         if (abi != null) {
             String arch = abi.getCpuArch();
-            // Chrome OS image is a speical case: the system image
+            // Chrome OS image is a special case: the system image
             // is actually x86_64 while the android container inside
             // it is x86. We have to set it x86_64 to let it boot
             // under android emulator.
@@ -1943,7 +1972,6 @@ public class AvdManager {
             log.warning("ABI %1$s is not supported by this version of the SDK Tools", abiType);
             throw new AvdMgrException();
         }
-        return;
     }
 
     /**

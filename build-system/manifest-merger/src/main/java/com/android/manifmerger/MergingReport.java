@@ -58,6 +58,15 @@ public class MergingReport {
 
         /** Blame file for merged manifest file. */
         BLAME,
+
+        /** Merged manifest file for bundletool. */
+        BUNDLE,
+
+        /** Feature manifest to be merged back into the base. */
+        METADATA_FEATURE,
+
+        /** Merged manifest file for deploying app as an instant app. */
+        INSTANT_APP,
     }
 
     @NonNull

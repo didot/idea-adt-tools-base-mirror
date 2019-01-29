@@ -129,7 +129,7 @@ public class PathParser {
             }
             return Arrays.copyOfRange(results, 0, count);
         } catch (NumberFormatException e) {
-            throw new RuntimeException("error in parsing \"" + s + "\"", e);
+            throw new RuntimeException("Error in parsing \"" + s + "\"", e);
         }
     }
 
@@ -181,6 +181,6 @@ public class PathParser {
         if (end - start == 1 && start < value.length()) {
             addNode(list, value.charAt(start), EMPTY_FLOAT_ARRAY);
         }
-        return list.toArray(new VdPath.Node[list.size()]);
+        return list.toArray(new VdPath.Node[0]);
     }
 }

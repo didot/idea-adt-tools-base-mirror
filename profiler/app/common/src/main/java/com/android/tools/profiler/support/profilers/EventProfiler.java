@@ -69,10 +69,6 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
 
     private native void sendActivityDestroyed(String name, int hashCode);
 
-    private native void sendFragmentAdded(String name, int hashCode, int activityHash);
-
-    private native void sendFragmentRemoved(String name, int hashCode, int activityHash);
-
     private native void sendRotationEvent(int rotationValue);
 
     /**
@@ -162,7 +158,12 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
                         Field activityField = activityRecordClass.getDeclaredField("activity");
                         activityField.setAccessible(true);
                         Object activityObject = activityField.get(activityRecord);
-                        if (activitiesObject != null && activityObject instanceof Activity) {
+                        if (activitiesObject != null
+                                && activityObject instanceof Activity
+                                // Due to a race condition where we add the events then check the start up state,
+                                // an activity could be added before we get to this point. We are not able to put this
+                                // in a lock as the activity add/remove events happen on the system thread.
+                                && !myActivities.contains(activityObject)) {
                             onActivityResumed((Activity) activityObject);
                         }
                     }
@@ -194,8 +195,9 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
 
     @Override
     public void onActivityStarted(Activity activity) {
-        // The user can override any of these functions and call setCallback, as such we need to update the callback
-        // at each entry point.
+        // The user can override any of these functions and call setCallback, as such we need
+        // update the callback at each entry point. We do not need add this activity to
+        // {@link myActivities} as the activity started is not displayed.
         updateCallback(activity);
         sendActivityStarted(activity.getLocalClassName(), activity.hashCode());
     }
@@ -280,35 +282,41 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
                             ic.setAccessible(true);
                             // Replace the object with a wrapper
                             Object input = ic.get(connection);
-                            InputConnection inputConnection;
-                            boolean isWeakReference =
-                                    input.getClass().isAssignableFrom(WeakReference.class);
-                            if (isWeakReference) {
-                                inputConnection = ((WeakReference<InputConnection>) input).get();
-                            } else {
-                                inputConnection = (InputConnection) input;
-                            }
-                            if (!InputConnectionWrapper.class.isInstance(inputConnection)) {
+                            if (input != null) {
+                                InputConnection inputConnection = null;
+                                boolean isWeakReference =
+                                        input.getClass().isAssignableFrom(WeakReference.class);
                                 if (isWeakReference) {
-                                    // Store this instance of the wrapper on a thread local
-                                    // variable this prevents the wrapper from getting cleaned
-                                    // while still potentially in use. This thread does not get
-                                    // terminated until the application is terminated.
-                                    inputConnectionWrapper.setTarget(inputConnection);
-                                    ic.set(
-                                            connection,
-                                            new WeakReference<InputConnection>(
-                                                    inputConnectionWrapper));
-                                } else {
-                                    inputConnectionWrapper.setTarget((InputConnection) input);
-                                    ic.set(connection, inputConnectionWrapper);
+                                    inputConnection =
+                                            ((WeakReference<InputConnection>) input).get();
+                                } else if (InputConnection.class.isInstance(input)) {
+                                    // Only set the input connection object if it is of type input connection.
+                                    // on HTC Honor devices they modified the WeakReference to be a SoftReference as such
+                                    // we do not want to default to this case.
+                                    inputConnection = (InputConnection) input;
+                                }
+                                if (inputConnection != null
+                                        && !InputConnectionWrapper.class.isInstance(
+                                                inputConnection)) {
+                                    if (isWeakReference) {
+                                        // Store this instance of the wrapper on a thread local
+                                        // variable this prevents the wrapper from getting cleaned
+                                        // while still potentially in use. This thread does not get
+                                        // terminated until the application is terminated.
+                                        inputConnectionWrapper.setTarget(inputConnection);
+                                        ic.set(
+                                                connection,
+                                                new WeakReference<InputConnection>(
+                                                        inputConnectionWrapper));
+                                    } else {
+                                        inputConnectionWrapper.setTarget((InputConnection) input);
+                                        ic.set(connection, inputConnectionWrapper);
+                                    }
                                 }
                             }
                             //Clean up and set state so we don't do this more than once.
                             ic.setAccessible(false);
                         }
-                    } else {
-                        inputConnectionWrapper.setTarget(null);
                     }
                 }
             } catch (InterruptedException ex) {
@@ -324,6 +332,7 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
             }
         }
     }
+
     private class ActivityInitialization implements Runnable {
         private boolean myInitialized = false;
         private CountDownLatch myLatch;
@@ -340,8 +349,7 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
             boolean logErrorOnce = false;
             while (!myInitialized) {
                 try {
-                    Class activityThreadClass =
-                            Class.forName("android.app.ActivityThread");
+                    Class activityThreadClass = Class.forName("android.app.ActivityThread");
                     Application app =
                             (Application)
                                     activityThreadClass
@@ -351,6 +359,9 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
                         StudioLog.v("Acquiring Application for Events");
                         myInitialized = true;
                         app.registerActivityLifecycleCallbacks(myProfiler);
+                        // The activity could have started before the callback is added. If this happens, the activity
+                        // and touch events are not shown in the events bar.
+                        myProfiler.captureCurrentActivityState();
                     } else if (!logErrorOnce) {
                         StudioLog.e("Failed to capture application");
                         logErrorOnce = true;
@@ -372,11 +383,9 @@ public class EventProfiler implements ProfilerComponent, Application.ActivityLif
                 } catch (NoSuchMethodException ex) {
                     StudioLog.e("Failed to find currentApplication method");
                 } catch (IllegalAccessException ex) {
-                    StudioLog.e(
-                            "Insufficient privileges to get application handle");
+                    StudioLog.e("Insufficient privileges to get application handle");
                 } catch (InvocationTargetException ex) {
-                    StudioLog.e(
-                            "Failed to call static function currentApplication");
+                    StudioLog.e("Failed to call static function currentApplication");
                 }
 
                 try {

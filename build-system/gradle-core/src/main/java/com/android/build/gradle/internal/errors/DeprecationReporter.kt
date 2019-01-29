@@ -16,7 +16,7 @@
 
 package com.android.build.gradle.internal.errors
 
-import com.google.common.collect.ImmutableTable
+import com.android.build.gradle.options.Option
 
 /**
  * Reporter for issues during evaluation.
@@ -30,17 +30,21 @@ interface DeprecationReporter {
     /** Enum for deprecated element removal target.  */
     enum class DeprecationTarget  constructor(val removalTime: String) {
         // deprecation of compile in favor of api/implementation
-        CONFIG_NAME("at the end of 2018."),
+        CONFIG_NAME("at the end of 2018"),
         // deprecation due to the move to the new DSL.
-        OLD_DSL("at the end of 2018."),
+        OLD_DSL("at the end of 2018"),
         // Obsolete Dex Options
-        DEX_OPTIONS("at the end of 2018."),
-        // "auto" in splits and resConfigs.
-        AUTO_SPLITS_OR_RES_CONFIG("at the end of 2018."),
+        DEX_OPTIONS("at the end of 2018"),
         // Deprecation of AAPT, replaced by AAPT2.
-        AAPT("at the end of 2018."),
+        AAPT("at the end of 2018"),
         // When legacy dexer will be removed and fully replaced by D8.
-        LEGACY_DEXER("in AGP version 3.3")
+        LEGACY_DEXER(
+            "in the future AGP versions. For more details, see " +
+                    "https://d.android.com/r/studio-ui/d8-overview.html"),
+        // Deprecation of disabling Desugar
+        DESUGAR_TOOL("in AGP version 3.4"),
+        // Deprecation of Task Access in the variant API
+        TASK_ACCESS_VIA_VARIANT("at the end of 2019"),
     }
 
     /**
@@ -71,6 +75,22 @@ interface DeprecationReporter {
             oldDslElement: String,
             url: String,
             deprecationTarget: DeprecationTarget)
+
+    /**
+     * Reports a deprecation usage in the DSL/API.
+     *
+     * @param newApiElement the DSL element to use instead, with the name of the class owning it
+     * @param oldApiElement the name of the deprecated element, with the name of the class
+     * owning it.
+     * @param url URL to documentation about the deprecation
+     * @param deprecationTarget when the deprecated element is going to be removed. A line about the
+     * timing is added to the message.
+     */
+    fun reportDeprecatedApi(
+        newApiElement: String,
+        oldApiElement: String,
+        url: String,
+        deprecationTarget: DeprecationTarget)
 
     /**
      * Reports a deprecated value usage for a DSL element in the DSL/API.
@@ -117,7 +137,7 @@ interface DeprecationReporter {
             deprecationTarget: DeprecationTarget)
 
     /**
-     * Reports a deprecation usage in the DSL/API.
+     * Reports a renamed Configuration.
      *
      * @param newConfiguration the name of the [org.gradle.api.artifacts.Configuration] to use
      * instead
@@ -126,11 +146,24 @@ interface DeprecationReporter {
      * @param url optional url for more context.
      * timing is added to the message.
      */
-    fun reportDeprecatedConfiguration(
+    fun reportRenamedConfiguration(
             newConfiguration: String,
             oldConfiguration: String,
             deprecationTarget: DeprecationTarget,
             url: String? = null)
+
+    /**
+     * Reports a deprecated Configuration, that gets replaced by an optional DSL element
+     *
+     * @param newDslElement the name of the DSL element that replaces the configuration
+     * @param oldConfiguration the name of the deprecated [org.gradle.api.artifacts.Configuration]
+     * @param deprecationTarget when the deprecated element is going to be removed. A line about the
+     * timing is added to the message.
+     */
+    fun reportDeprecatedConfiguration(
+        newDslElement: String,
+        oldConfiguration: String,
+        deprecationTarget: DeprecationTarget)
 
     /**
      * Reports a deprecated option usage.
@@ -148,8 +181,20 @@ interface DeprecationReporter {
     /**
      * Reports deprecated options usage.
      *
-     * @param options a table containing the flag name, default value and the deprecation target of
-     * each deprecated option.
+     * @param options the set of deprecated options that were used.
      */
-    fun reportDeprecatedOptions(options: ImmutableTable<String, String, DeprecationTarget>)
+    fun reportDeprecatedOptions(options: Set<Option<*>>) {
+        for (option in options) {
+            reportDeprecatedOption(
+                option.propertyName,
+                option.defaultValue?.toString(),
+                (option.status as Option.Status.Deprecated).deprecationTarget)
+        }
+    }
+
+    /**
+     * Reports experimental options usage.
+     */
+    fun reportExperimentalOption(option: Option<*>, value: String)
+
 }

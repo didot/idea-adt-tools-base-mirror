@@ -62,6 +62,7 @@ import com.google.common.collect.Sets;
 import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.List;
@@ -104,28 +105,13 @@ public class ResourceUsageModel {
         return SdkUtils.getResourceFieldName(element.getAttribute(ATTR_NAME));
     }
 
-    public static ResourceType getResourceType(Element element) {
-        String tagName = element.getTagName();
-        if (tagName.equals(TAG_ITEM)) {
-            String typeName = element.getAttribute(ATTR_TYPE);
-            if (!typeName.isEmpty()) {
-                return ResourceType.getEnum(typeName);
-            }
-        } else if ("string-array".equals(tagName) || "integer-array".equals(tagName)) {
-            return ResourceType.ARRAY;
-        } else {
-            return ResourceType.getEnum(tagName);
-        }
-        return null;
-    }
-
     @Nullable
     public Resource getResource(Element element) {
         return getResource(element, false);
     }
 
     public Resource getResource(Element element, boolean declare) {
-        ResourceType type = getResourceType(element);
+        ResourceType type = ResourceType.fromXmlTag(element);
         if (type != null) {
             String name = getResourceFieldName(element);
             Resource resource = getResource(type, name);
@@ -155,9 +141,9 @@ public class ResourceUsageModel {
     }
 
     @Nullable
-    Resource getResourceFromUrl(@NonNull String possibleUrlReference) {
+    public Resource getResourceFromUrl(@NonNull String possibleUrlReference) {
         ResourceUrl url = ResourceUrl.parse(possibleUrlReference);
-        if (url != null && !url.framework) {
+        if (url != null && !url.isFramework()) {
             return addResource(url.type, SdkUtils.getResourceFieldName(url.name), null);
         }
 
@@ -200,7 +186,7 @@ public class ResourceUsageModel {
 
         // Some other relative path. Just look from the end:
         int typeSlash = url.lastIndexOf('/', nameSlash - 1);
-        ResourceType type = ResourceType.getEnum(url.substring(typeSlash + 1, nameSlash));
+        ResourceType type = ResourceType.fromXmlValue(url.substring(typeSlash + 1, nameSlash));
         if (type != null) {
             int nameBegin = nameSlash + 1;
             int dot = url.indexOf('.', nameBegin);
@@ -471,7 +457,6 @@ public class ResourceUsageModel {
             if (!resource.isReachable()
                     // Styles not yet handled correctly: don't mark as unused
                     && resource.type != ResourceType.ATTR
-                    && resource.type != ResourceType.DECLARE_STYLEABLE
                     && resource.type != ResourceType.STYLEABLE
                     // Don't flag known service keys read by library
                     && !SdkUtils.isServiceKey(resource.name)) {
@@ -583,7 +568,7 @@ public class ResourceUsageModel {
         }
 
         ResourceUrl url = ResourceUrl.parse(value);
-        if (url == null || url.framework) {
+        if (url == null || url.isFramework()) {
             return;
         }
 
@@ -620,7 +605,7 @@ public class ResourceUsageModel {
         }
 
         ResourceUrl url = ResourceUrl.parse(value);
-        if (url == null || url.framework) {
+        if (url == null || url.isFramework()) {
             return;
         }
 
@@ -725,13 +710,19 @@ public class ResourceUsageModel {
             @Nullable ResourceFolderType folderType,
             @NonNull File file) {
         Resource from = null;
-        if (folderType != ResourceFolderType.VALUES) {
+        if (folderType != null && folderType != ResourceFolderType.VALUES) {
             // Record resource for the whole file
             List<ResourceType> types = FolderTypeRelationship.getRelatedResourceTypes(
                     folderType);
             ResourceType type = types.get(0);
             assert type != ResourceType.ID : folderType;
-            String name = fileNameToResourceName(file.getName());
+            String fileName = file.getName();
+            if (fileName.startsWith(".")
+                    || fileName.endsWith("~")
+                    || fileName.equals("Thumbs.db")) {
+                return;
+            }
+            String name = fileNameToResourceName(fileName);
             from = declareResource(type, name, null);
         }
 
@@ -863,9 +854,9 @@ public class ResourceUsageModel {
                         continue;
                     }
                     ResourceUrl url = ResourceUrl.parse(value);
-                    if (url != null && !url.framework) {
+                    if (url != null && !url.isFramework()) {
                         Resource resource;
-                        if (url.create) {
+                        if (url.isCreate()) {
                             boolean isId = ATTR_ID.equals(attr.getLocalName());
                             if (isId && TAG_LAYOUT.equals(
                                    element.getOwnerDocument().getDocumentElement().getTagName())) {
@@ -917,9 +908,9 @@ public class ResourceUsageModel {
                                 end++;
                             }
                             url = ResourceUrl.parse(value.substring(index, end));
-                            if (url != null && !url.framework) {
+                            if (url != null && !url.isFramework()) {
                                 Resource resource;
-                                if (url.create) {
+                                if (url.isCreate()) {
                                     resource = declareResource(url.type, url.name, attr);
                                 } else {
                                     resource = addResource(url.type, url.name, null);
@@ -964,13 +955,13 @@ public class ResourceUsageModel {
             if (folderType == ResourceFolderType.VALUES) {
 
                 Resource definition = null;
-                ResourceType type = getResourceType(element);
+                ResourceType type = ResourceType.fromXmlTag(element);
                 if (type != null) {
                     String name = getResourceFieldName(element);
                     if (type == ResourceType.PUBLIC) {
                         String typeName = element.getAttribute(ATTR_TYPE);
                         if (!typeName.isEmpty()) {
-                            type = ResourceType.getEnum(typeName);
+                            type = ResourceType.fromXmlValue(typeName);
                             if (type != null) {
                                 definition = declareResource(type, name, element);
                                 definition.setPublic(true);
@@ -1665,7 +1656,7 @@ public class ResourceUsageModel {
                     char t = s.charAt(index);
                     if (t == '.') {
                         String typeName = s.substring(begin + 2, index);
-                        ResourceType type = ResourceType.getEnum(typeName);
+                        ResourceType type = ResourceType.fromClassName(typeName);
                         if (type != null) {
                             index++;
                             begin = index;

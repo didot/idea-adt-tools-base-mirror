@@ -16,16 +16,22 @@
 
 package com.android.build.gradle.internal.api;
 
+import static com.android.build.gradle.internal.api.BaseVariantImpl.TASK_ACCESS_DEPRECATION_URL;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.FilterData;
 import com.android.build.VariantOutput;
 import com.android.build.gradle.api.ApkVariantOutput;
-import com.android.build.gradle.internal.variant.TaskContainer;
+import com.android.build.gradle.internal.errors.DeprecationReporter;
+import com.android.build.gradle.internal.scope.TaskContainer;
 import com.android.build.gradle.tasks.PackageAndroidArtifact;
 import com.android.ide.common.build.ApkData;
 import com.google.common.base.MoreObjects;
 import java.io.File;
+import java.io.Serializable;
+import java.util.function.IntSupplier;
+import java.util.function.Supplier;
 import javax.inject.Inject;
 import org.gradle.api.Task;
 
@@ -38,14 +44,22 @@ import org.gradle.api.Task;
 public class ApkVariantOutputImpl extends BaseVariantOutputImpl implements ApkVariantOutput {
 
     @Inject
-    public ApkVariantOutputImpl(@NonNull ApkData apkData, @NonNull TaskContainer taskContainer) {
-        super(apkData, taskContainer);
+    public ApkVariantOutputImpl(
+            @NonNull ApkData apkData,
+            @NonNull TaskContainer taskContainer,
+            @NonNull DeprecationReporter deprecationReporter) {
+        super(apkData, taskContainer, deprecationReporter);
     }
 
     @Nullable
     @Override
     public PackageAndroidArtifact getPackageApplication() {
-        return taskContainer.getTaskByType(PackageAndroidArtifact.class);
+        deprecationReporter.reportDeprecatedApi(
+                "variant.getPackageApplicationProvider()",
+                "variantOutput.getPackageApplication()",
+                TASK_ACCESS_DEPRECATION_URL,
+                DeprecationReporter.DeprecationTarget.TASK_ACCESS_VIA_VARIANT);
+        return taskContainer.getPackageAndroidTask().getOrNull();
     }
 
     @NonNull
@@ -68,7 +82,7 @@ public class ApkVariantOutputImpl extends BaseVariantOutputImpl implements ApkVa
 
     @Override
     public void setVersionCodeOverride(int versionCodeOverride) {
-        apkData.setVersionCode(versionCodeOverride);
+        apkData.setVersionCode((IntSupplier & Serializable) () -> versionCodeOverride);
     }
 
     @Override
@@ -78,7 +92,7 @@ public class ApkVariantOutputImpl extends BaseVariantOutputImpl implements ApkVa
 
     @Override
     public void setVersionNameOverride(String versionNameOverride) {
-        apkData.setVersionName(versionNameOverride);
+        apkData.setVersionName((Supplier<String> & Serializable) () -> versionNameOverride);
     }
 
     @Override

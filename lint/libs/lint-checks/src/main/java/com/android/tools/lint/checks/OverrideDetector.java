@@ -45,52 +45,50 @@ import java.util.Set;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.MethodNode;
 
-/**
- * Checks for accidental overrides
- */
+/** Checks for accidental overrides */
 public class OverrideDetector extends Detector implements ClassScanner {
     /** Accidental overrides */
-    public static final Issue ISSUE = Issue.create(
-            "DalvikOverride",
-            "Method considered overridden by Dalvik",
+    public static final Issue ISSUE =
+            Issue.create(
+                            "DalvikOverride",
+                            "Method considered overridden by Dalvik",
+                            "The Dalvik virtual machine will treat a package private method in one "
+                                    + "class as overriding a package private method in its super class, even if "
+                                    + "they are in separate packages.\n"
+                                    + "\n"
+                                    + "If you really did intend for this method to override the other, make the "
+                                    + "method `protected` instead.\n"
+                                    + "\n"
+                                    + "If you did **not** intend the override, consider making the method private, or "
+                                    + "changing its name or signature.\n"
+                                    + "\n"
+                                    + "Note that this check is disabled be default, because ART (the successor "
+                                    + "to Dalvik) no longer has this behavior.",
+                            Category.CORRECTNESS,
+                            7,
+                            Severity.ERROR,
+                            new Implementation(
+                                    OverrideDetector.class, EnumSet.of(Scope.ALL_CLASS_FILES)))
+                    .setEnabledByDefault(false)
+                    .setAndroidSpecific(true);
 
-            "The Android virtual machine will treat a package private method in one " +
-            "class as overriding a package private method in its super class, even if " +
-            "they are in separate packages. This may be surprising, but for compatibility " +
-            "reasons the behavior has not been changed (yet).\n" +
-            "\n" +
-            "If you really did intend for this method to override the other, make the " +
-            "method `protected` instead.\n" +
-            "\n" +
-            "If you did **not** intend the override, consider making the method private, or " +
-            "changing its name or signature.",
-
-            Category.CORRECTNESS,
-            7,
-            Severity.ERROR,
-            new Implementation(
-                    OverrideDetector.class,
-                    EnumSet.of(Scope.ALL_CLASS_FILES)));
-
-    /** map from owner class name to JVM signatures for its package private methods  */
+    /** map from owner class name to JVM signatures for its package private methods */
     private final Map<String, Set<String>> mPackagePrivateMethods = Maps.newHashMap();
 
     /** Map from owner to signature to super class being overridden */
     private Map<String, Map<String, String>> mErrors;
 
     /**
-     * Map from owner to signature to corresponding location. When there are
-     * errors a single error can have locations for both the overriding and
-     * overridden methods.
+     * Map from owner to signature to corresponding location. When there are errors a single error
+     * can have locations for both the overriding and overridden methods.
      */
     private Map<String, Map<String, Location>> mLocations;
 
     /** Constructs a new {@link OverrideDetector} */
-    public OverrideDetector() {
-    }
+    public OverrideDetector() {}
 
     @Override
-    public void afterCheckProject(@NonNull Context context) {
+    public void afterCheckRootProject(@NonNull Context context) {
         // Process the check in two passes:
         //
         // In the first pass, gather the full set of package private methods for
@@ -117,12 +115,12 @@ public class OverrideDetector extends Detector implements ClassScanner {
                     int superPackageIndex = superClass.lastIndexOf('/');
 
                     // Only compare methods that differ in packages
-                    if (packageIndex == -1 || superPackageIndex != packageIndex ||
-                            !owner.regionMatches(0, superClass, 0, packageIndex)) {
+                    if (packageIndex == -1
+                            || superPackageIndex != packageIndex
+                            || !owner.regionMatches(0, superClass, 0, packageIndex)) {
                         Set<String> superMethods = mPackagePrivateMethods.get(superClass);
                         if (superMethods != null) {
-                            SetView<String> intersection = Sets.intersection(methods,
-                                    superMethods);
+                            SetView<String> intersection = Sets.intersection(methods, superMethods);
                             if (!intersection.isEmpty()) {
                                 if (mLocations == null) {
                                     mLocations = Maps.newHashMap();
@@ -147,7 +145,6 @@ public class OverrideDetector extends Detector implements ClassScanner {
                                         mLocations.put(superClass, locations);
                                     }
                                     locations.put(signature, null);
-
 
                                     Map<String, String> errors = mErrors.get(owner);
                                     if (errors == null) {
@@ -195,10 +192,11 @@ public class OverrideDetector extends Detector implements ClassScanner {
                             if (index != -1) {
                                 methodName = methodName.substring(0, index);
                             }
-                            String message = String.format(
-                                    "This package private method may be unintentionally " +
-                                    "overriding `%1$s` in `%2$s`", methodName,
-                                    ClassContext.getFqcn(superClass));
+                            String message =
+                                    String.format(
+                                            "This package private method may be unintentionally "
+                                                    + "overriding `%1$s` in `%2$s`",
+                                            methodName, ClassContext.getFqcn(superClass));
                             context.report(ISSUE, location, message);
                         }
                     }
@@ -221,7 +219,7 @@ public class OverrideDetector extends Detector implements ClassScanner {
                 MethodNode method = (MethodNode) m;
                 int access = method.access;
                 // Only record non-static package private methods
-                if ((access & (ACC_STATIC|ACC_PRIVATE|ACC_PROTECTED|ACC_PUBLIC)) != 0) {
+                if ((access & (ACC_STATIC | ACC_PRIVATE | ACC_PROTECTED | ACC_PUBLIC)) != 0) {
                     continue;
                 }
 
@@ -250,9 +248,8 @@ public class OverrideDetector extends Detector implements ClassScanner {
                 MethodNode method = (MethodNode) m;
 
                 String signature = method.name + method.desc;
-                if (methods.containsKey(signature)){
-                    if (context.getDriver().isSuppressed(ISSUE, classNode,
-                            method, null)) {
+                if (methods.containsKey(signature)) {
+                    if (context.getDriver().isSuppressed(ISSUE, classNode, method, null)) {
                         Map<String, String> errors = mErrors.get(classNode.name);
                         if (errors != null) {
                             errors.remove(signature);
@@ -262,8 +259,8 @@ public class OverrideDetector extends Detector implements ClassScanner {
 
                     Location location = context.getLocation(method, classNode);
                     methods.put(signature, location);
-                    String description = ClassContext.createSignature(classNode.name,
-                            method.name, method.desc);
+                    String description =
+                            ClassContext.createSignature(classNode.name, method.name, method.desc);
                     location.setData(description);
                 }
             }

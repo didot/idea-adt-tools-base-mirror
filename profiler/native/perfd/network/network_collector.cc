@@ -18,7 +18,7 @@
 #include <unistd.h>
 #include <cstdint>
 
-#include "perfd/network/connection_sampler.h"
+#include "perfd/network/connection_count_sampler.h"
 #include "perfd/network/connectivity_sampler.h"
 #include "perfd/network/network_constants.h"
 #include "perfd/network/speed_sampler.h"
@@ -30,14 +30,13 @@
 
 namespace profiler {
 
-NetworkCollector::NetworkCollector(int sample_ms)
-    : sample_us_(sample_ms * 1000) {
+NetworkCollector::NetworkCollector(Clock* clock, int sample_ms)
+    : clock_(clock), sample_us_(sample_ms * 1000) {
+  samplers_.emplace_back(new ConnectivitySampler());
   samplers_.emplace_back(
-      new ConnectivitySampler(NetworkConstants::GetRadioStatusCommand()));
+      new SpeedSampler(clock, NetworkConstants::GetTrafficBytesFilePath()));
   samplers_.emplace_back(
-      new SpeedSampler(NetworkConstants::GetTrafficBytesFilePath()));
-  samplers_.emplace_back(
-      new ConnectionSampler(NetworkConstants::GetConnectionFilePaths()));
+      new ConnectionCountSampler(NetworkConstants::GetConnectionFilePaths()));
 
   is_running_.exchange(true);
   profiler_thread_ = std::thread(&NetworkCollector::Collect, this);
@@ -59,7 +58,7 @@ void NetworkCollector::Collect() {
 
     if (should_sample) {
       Trace trace("NET:Collect");
-      for (auto &sampler : samplers_) {
+      for (auto& sampler : samplers_) {
         sampler->Refresh();
       }
       StoreDataToBuffer();
@@ -69,14 +68,12 @@ void NetworkCollector::Collect() {
 }
 
 void NetworkCollector::StoreDataToBuffer() {
-  // TODO: Use clock from Daemon::Utilities from profiler component
-  SteadyClock clock;
-  auto time = clock.GetCurrentTime();
+  auto time = clock_->GetCurrentTime();
   std::lock_guard<std::mutex> lock(buffer_mutex_);
   for (auto it = uid_to_buffers_.begin(); it != uid_to_buffers_.end(); it++) {
-    auto &uid = it->first;
-    auto &buffer = it->second;
-    for (auto &sampler : samplers_) {
+    auto& uid = it->first;
+    auto& buffer = it->second;
+    for (auto& sampler : samplers_) {
       auto response = sampler->Sample(uid);
       response.set_end_timestamp(time);
       buffer->Add(response, time);
@@ -84,7 +81,7 @@ void NetworkCollector::StoreDataToBuffer() {
   }
 }
 
-void NetworkCollector::Start(int32_t pid, NetworkProfilerBuffer *buffer) {
+void NetworkCollector::Start(int32_t pid, NetworkProfilerBuffer* buffer) {
   int uid = UidFetcher::GetUid(pid);
   std::lock_guard<std::mutex> lock(buffer_mutex_);
   if (uid >= 0) {

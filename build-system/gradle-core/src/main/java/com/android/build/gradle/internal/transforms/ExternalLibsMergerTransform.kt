@@ -51,7 +51,7 @@ class ExternalLibsMergerTransform(
         private val callableFactory : DexMergerTransformCallable.Factory) : Transform() {
 
     private val logger = LoggerWrapper.getLogger(ExternalLibsMergerTransform::class.java)
-    private val forkJoinPool = ForkJoinPool.commonPool()
+    private val forkJoinPool = ForkJoinPool()
 
     override fun getName() = "externalLibsDexMerger"
 
@@ -75,9 +75,8 @@ class ExternalLibsMergerTransform(
                 .flatMap { it.jarInputs }
 
         // if we are in incremental mode and none of our inputs have changed, return immediately.
-        if (transformInvocation.isIncremental && flattenInputs
-                .filter { it.status != Status.NOTCHANGED }
-                .isEmpty()) {
+        if (transformInvocation.isIncremental
+            && flattenInputs.none { it.status != Status.NOTCHANGED }) {
             return
         }
 
@@ -86,9 +85,10 @@ class ExternalLibsMergerTransform(
 
         // we need to re-merge all jars except the removed ones.
         val jarInputList = flattenInputs
-                .filter { it.status != Status.REMOVED }
-                .map {it.file.toPath()}
-                .toList()
+            .stream()
+            .filter { it.status != Status.REMOVED }
+            .map { it.file.toPath() }
+            .iterator()
 
         val outputHandler = ParsingProcessOutputHandler(
                 ToolOutputParser(DexParser(), Message.Kind.ERROR, logger),
@@ -102,7 +102,7 @@ class ExternalLibsMergerTransform(
         FileUtils.cleanOutputDir(outputDir)
 
         // if all jars were removed, nothing to do.
-        if (jarInputList.isEmpty()) {
+        if (!jarInputList.hasNext()) {
             return
         }
 
@@ -121,6 +121,7 @@ class ExternalLibsMergerTransform(
             // since we are merging into a single DEX_ARCHIVE (possibly containing 1 to many DEX
             // merged DEX files, no need to use a separate thread.
             callable.call()
+            forkJoinPool.shutdown()
         }
     }
 }

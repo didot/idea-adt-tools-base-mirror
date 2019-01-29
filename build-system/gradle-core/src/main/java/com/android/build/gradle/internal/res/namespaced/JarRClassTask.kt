@@ -16,13 +16,13 @@
 
 package com.android.build.gradle.internal.res.namespaced
 
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.tasks.Workers
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
-import org.gradle.workers.IsolationMode
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import javax.inject.Inject
@@ -32,29 +32,32 @@ import javax.inject.Inject
  *
  * Not used for inter-project dependencies, where the classes directory is used directly.
  */
-open class JarRClassTask @Inject constructor(private val workerExecutor: WorkerExecutor) : DefaultTask() {
+open class JarRClassTask @Inject constructor(workerExecutor: WorkerExecutor) : DefaultTask() {
 
     @get:InputFiles lateinit var rClassClasses: FileCollection private set
     @get:OutputFile lateinit var rClassJar: File private set
+    private val workers = Workers.getWorker(workerExecutor)
 
     @TaskAction
     fun jar() {
-        workerExecutor.submit(JarWorkerRunnable::class.java) {
-            it.isolationMode = IsolationMode.NONE
-            it.setParams(
-                    JarRequest(
-                            toFile = rClassJar,
-                            fromDirectories = listOf(rClassClasses.singleFile)))
+        workers.use {
+            it.submit(JarWorkerRunnable::class.java,
+                JarRequest(
+                    toFile = rClassJar,
+                    fromDirectories = listOf(rClassClasses.singleFile)
+                )
+            )
         }
     }
 
-    class ConfigAction(
-                private val name: String,
+    class CreationAction(
+                override val name: String,
                 private val rClassClasses: FileCollection,
-                private val rClassJar: File) : TaskConfigAction<JarRClassTask> {
-        override fun getName() = name
-        override fun getType() = JarRClassTask::class.java
-        override fun execute(task: JarRClassTask) {
+                private val rClassJar: File) : TaskCreationAction<JarRClassTask>() {
+        override val type: Class<JarRClassTask>
+            get() = JarRClassTask::class.java
+
+        override fun configure(task: JarRClassTask) {
             task.rClassClasses = rClassClasses
             task.rClassJar = rClassJar
         }

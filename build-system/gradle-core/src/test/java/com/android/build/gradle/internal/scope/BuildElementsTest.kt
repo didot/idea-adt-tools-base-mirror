@@ -20,7 +20,8 @@ import com.android.build.FilterData
 import com.android.build.OutputFile
 import com.android.build.VariantOutput
 import com.android.build.gradle.internal.core.GradleVariantConfiguration
-import com.android.build.gradle.internal.scope.TaskOutputHolder.TaskOutputType.*
+import com.android.build.gradle.internal.scope.InternalArtifactType.*
+import com.android.builder.core.VariantTypeImpl
 import com.android.ide.common.build.ApkInfo
 import com.android.utils.Pair
 import com.google.common.base.Charsets
@@ -56,6 +57,7 @@ class BuildElementsTest {
     @Before
     fun setUp() {
         MockitoAnnotations.initMocks(this)
+        `when`(variantConfiguration!!.type).thenReturn(VariantTypeImpl.BASE_APK)
     }
 
     @Test
@@ -84,10 +86,10 @@ class BuildElementsTest {
                         reader))
 
         // check that persisted was loaded correctly.
-        assertThat<BuildOutput, Iterable<BuildOutput>>(buildOutputs).hasSize(1)
+        assertThat(buildOutputs).hasSize(1)
         val buildOutput = Iterators.getOnlyElement<BuildOutput>(buildOutputs.iterator())
         assertThat(buildOutput.outputFile).isEqualTo(outputForSplit)
-        assertThat<FilterData, Iterable<FilterData>>(buildOutput.apkInfo.filters).hasSize(1)
+        assertThat(buildOutput.apkInfo.filters).hasSize(1)
         val filter = Iterators.getOnlyElement(buildOutput.apkInfo.filters.iterator())
         assertThat(filter.identifier).isEqualTo("xxhdpi")
         assertThat(filter.filterType).isEqualTo(VariantOutput.FilterType.DENSITY.name)
@@ -172,7 +174,8 @@ class BuildElementsTest {
         val buildElements = ExistingBuildElements.from(MERGED_MANIFESTS, folder)
         val elementByType = buildElements.elementByType(VariantOutput.OutputType.MAIN)
         assertThat(elementByType).isNotNull()
-        assertThat(elementByType!!.outputPath.toString()).contains("/foo/bar/AndroidManifest.xml")
+        assertThat(elementByType!!.outputPath.toString()).contains(
+                File("/foo/bar/AndroidManifest.xml").path.toString())
     }
 
     @Test
@@ -291,7 +294,7 @@ class BuildElementsTest {
                 APK,
                 StringReader(gsonOutput))
 
-        assertThat<BuildOutput, Iterable<BuildOutput>>(loadedBuildOutputs).hasSize(1)
+        assertThat(loadedBuildOutputs).hasSize(1)
         loadedBuildOutputs.forEach { loadedBuildOutput ->
             assertThat(loadedBuildOutput.outputFile.absolutePath)
                     .startsWith(newProjectLocation.absolutePath)

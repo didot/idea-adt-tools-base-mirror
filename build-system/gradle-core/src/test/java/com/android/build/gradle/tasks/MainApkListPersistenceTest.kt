@@ -16,12 +16,17 @@
 
 package com.android.build.gradle.tasks
 
+import com.android.SdkConstants
 import com.android.build.VariantOutput
 import com.android.build.gradle.internal.core.GradleVariantConfiguration
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.ExistingBuildElements
+import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.MutableTaskContainer
 import com.android.build.gradle.internal.scope.OutputFactory
 import com.android.build.gradle.internal.scope.OutputScope
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.builder.core.VariantTypeImpl
 import com.google.common.collect.ImmutableList
 import com.google.common.truth.Truth.assertThat
 import org.gradle.api.Project
@@ -52,11 +57,12 @@ open class MainApkListPersistenceTest {
 
     @Mock private lateinit var variantScope: VariantScope
     @Mock private lateinit var config: GradleVariantConfiguration
+    @Mock private lateinit var artifacts: BuildArtifactsHolder
 
     private lateinit var outputScope: OutputScope
     internal lateinit var project: Project
     internal lateinit var task: MainApkListPersistence
-    private lateinit var configAction: MainApkListPersistence.ConfigAction
+    private lateinit var configAction: MainApkListPersistence.CreationAction
     internal lateinit var testDir: File
 
     @Before
@@ -69,10 +75,17 @@ open class MainApkListPersistenceTest {
         Mockito.`when`(variantScope.getTaskName(ArgumentMatchers.any(String::class.java)))
                 .thenReturn("taskFoo")
         Mockito.`when`(variantScope.outputScope).thenReturn(outputScope)
-        Mockito.`when`(variantScope.splitSupportDirectory).thenReturn(temporaryFolder.root)
+        Mockito.`when`(variantScope.artifacts).thenReturn(artifacts)
+        Mockito.`when`(variantScope.taskContainer).thenReturn(MutableTaskContainer())
+        Mockito.`when`(variantScope.fullVariantName).thenReturn("theVariantName")
+        Mockito.`when`(config.type).thenReturn(VariantTypeImpl.BASE_APK)
+
+        variantScope.taskContainer.preBuildTask = project.tasks.register("preBuildTask")
 
         task = project.tasks.create("test", MainApkListPersistence::class.java)
-        configAction = MainApkListPersistence.ConfigAction(variantScope)
+        configAction = MainApkListPersistence.CreationAction(variantScope)
+        Mockito.`when`(artifacts.appendArtifact(InternalArtifactType.APK_LIST,
+            task.name, SdkConstants.FN_APK_LIST)).thenReturn(temporaryFolder.newFolder())
     }
 
     @Test
@@ -84,7 +97,8 @@ open class MainApkListPersistenceTest {
                 ImmutableList.of(com.android.utils.Pair.of(VariantOutput.FilterType.ABI,
                         "armeabi")))
 
-        configAction.execute(task)
+        configAction.preConfigure(task.name)
+        configAction.configure(task)
         assertThat(task.apkData).containsAllIn(outputScope.apkDatas)
         assertThat(task.outputFile.absolutePath).startsWith(temporaryFolder.root.absolutePath)
 
@@ -111,7 +125,8 @@ open class MainApkListPersistenceTest {
                 ImmutableList.of(com.android.utils.Pair.of(VariantOutput.FilterType.ABI,
                         "armeabi"))).disable()
 
-        configAction.execute(task)
+        configAction.preConfigure(task.name)
+        configAction.configure(task)
         assertThat(task.apkData).containsAllIn(outputScope.apkDatas)
         assertThat(task.outputFile.absolutePath).startsWith(temporaryFolder.root.absolutePath)
 

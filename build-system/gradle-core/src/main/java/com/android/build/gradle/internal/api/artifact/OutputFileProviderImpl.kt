@@ -16,83 +16,96 @@
 
 package com.android.build.gradle.internal.api.artifact
 
-import com.android.build.api.artifact.OutputFileProvider
+import com.android.build.api.artifact.ArtifactConfigurationException
 import com.android.build.api.artifact.ArtifactType
-import com.android.build.gradle.internal.scope.BuildArtifactHolder
-import com.android.builder.errors.EvalIssueReporter
+import com.android.build.api.artifact.OutputFileProvider
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
+import com.google.common.base.Joiner
+import com.google.common.collect.HashMultimap
+import com.google.common.collect.Iterables
 import com.google.common.collect.Multimap
 import java.io.File
+import org.gradle.api.Task
 
 /**
  * Implementation for [OutputFileProvider]
  *
- * @param artifactHolder the [BuildArtifactHolder] for the variant
+ * @param artifactsHolder the [BuildArtifactsHolder] for the variant
  * @param replacedArtifacts artifacts which the output of the task will replace
  * @param appendedArtifacts artifacts which the output of the task append to
- * @param filenamesMap map artifact types to the names of the files the task will create
- * @param unassociatedFilenames list of names of files the task will create, but is not associated
- *                              with any artifact.
- * @param taskName name of the task to be created.
+ * @param task the task owning this output file provider.
  */
 class OutputFileProviderImpl(
-        artifactHolder: BuildArtifactHolder,
-        replacedArtifacts: Collection<ArtifactType>,
-        appendedArtifacts: Collection<ArtifactType>,
-        filenamesMap : Multimap<ArtifactType, String>,
-        unassociatedFilenames : Collection<String>,
-        taskName : String,
-        val issueReporter : EvalIssueReporter) : OutputFileProvider {
+        private val artifactsHolder: BuildArtifactsHolder,
+        private val replacedArtifacts: Collection<ArtifactType>,
+        private val appendedArtifacts: Collection<ArtifactType>,
+        private val task : Task) : OutputFileProvider {
 
-    // map from filename to actual File.
-    private val fileMap =
-            filenamesMap.values().union(unassociatedFilenames)
-                    .associate { it to artifactHolder.createFile(taskName, it) }
+    private val filesMap : Multimap<ArtifactType, File> = HashMultimap.create()
 
-    init{
-        for (artifactType in replacedArtifacts) {
-            val spec = BuildArtifactSpec.get(artifactType)
-            val files = filenamesMap.get(artifactType)
-            if (spec.singleFile) {
-                if (files.isEmpty()) {
-                    issueReporter.reportError(
-                            EvalIssueReporter.Type.GENERIC,
-                            "An output file must be created for OutputType '$artifactType'.")
-                }
+    override fun getFile(filename: String, vararg artifactTypes: ArtifactType): File {
+        val artifactsTypesForFile = getArtifactTypesForFile(artifactTypes.asList())
+        // check that artifactTypes are part of our replaced or appended artifacts.
+        artifactsTypesForFile.forEach {
+            if (!replacedArtifacts.contains(it) && !appendedArtifacts.contains(it)) {
+                throw ArtifactConfigurationException("$it is not configured to be appended or " +
+                        "replaced by this task, declare intent with append() or replace() APIs")
             }
-            artifactHolder.replaceArtifact(artifactType, files, taskName)
         }
 
-        for (artifactType in appendedArtifacts) {
-            artifactHolder.appendArtifact(artifactType, filenamesMap[artifactType], taskName)
+        val newFile = if (artifactsTypesForFile.size == 1) {
+            artifactsHolder.createFile(task.name, Iterables.getOnlyElement(artifactsTypesForFile), filename)
+        } else {
+            artifactsHolder.createFile(task, filename)
+        }
+
+        // associate new File with all relevant artifacts types it applies to.
+        artifactsTypesForFile.forEach {
+            filesMap.put(it, newFile)
+        }
+        return newFile
+    }
+
+    override val file: File
+        get() {
+            val artifactTypes = getArtifactTypesForFile(listOf())
+            if (artifactTypes.size != 1) {
+                throw ArtifactConfigurationException(
+                    """file() API cannot be used when task is configured to replace or append more than one type.\n
+                       This task is configured to output : """ + Joiner.on(",").join(artifactTypes))
+            }
+            return getFile(artifactsHolder.getArtifactFilename(artifactTypes.elementAt(0)))
+        }
+
+
+    fun commit() {
+        replacedArtifacts.forEach { artifactType ->
+            artifactsHolder.createBuildableArtifact(
+                artifactType,
+                BuildArtifactsHolder.OperationType.TRANSFORM,
+                filesMap.get(artifactType),
+                task.name)
+        }
+
+        appendedArtifacts.forEach { artifactType ->
+            artifactsHolder.createBuildableArtifact(
+                artifactType,
+                BuildArtifactsHolder.OperationType.APPEND,
+                filesMap.get(artifactType),
+                task.name)
         }
     }
 
-    override val file : File
-        get() = when {
-            fileMap.values.isEmpty() -> {
-                issueReporter.reportError(
-                        EvalIssueReporter.Type.GENERIC,
-                        "No output file was defined.")
-                File("")
-
-            }
-            fileMap.values.size > 1 -> {
-                issueReporter.reportError(
-                        EvalIssueReporter.Type.GENERIC,
-                        "Multiple output files was defined.")
-                File("")
-            }
-            else -> fileMap.values.single()
+    private fun getArtifactTypesForFile(artifactTypes: List<ArtifactType>): Collection<ArtifactType>{
+        val calculatedArtifactTypes = if (artifactTypes.isEmpty()) {
+            replacedArtifacts.union(appendedArtifacts)
+        } else {
+            artifactTypes
         }
-
-    override fun getFile(filename: String): File {
-        val file = fileMap[filename]
-        if (file == null) {
-            issueReporter.reportError(
-                    EvalIssueReporter.Type.GENERIC,
-                    "Multiple output files was defined.")
-            return File("")
+        if (calculatedArtifactTypes.isEmpty()) {
+            throw ArtifactConfigurationException("""Task cannot be configured to output nothing,
+                |please use append() or replace() to declare output""".trimMargin())
         }
-        return file
+        return calculatedArtifactTypes
     }
 }

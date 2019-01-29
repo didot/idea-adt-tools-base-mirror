@@ -33,19 +33,13 @@ class GraphicsFrameStatsSampler {
       const BashCommandRunner& cmd_runner,
       std::vector<profiler::proto::GraphicsData>* data_vector);
   // Returns a dumpsys command as a string that can be used to retrieve frame
-  // stats about the given |app_and_activity_name|.
-  //
-  // For API level 24+ the dumpsys command must contain the activity of the
-  // SurfaceView it is capturing data for, or it will not be able to capture the
-  // data.
-  //
-  // We assume only one activity is used throughout the monitoring
-  // process for API 24+. If the forefront activity changes monitoring will stop
-  // receiving data.
-  static std::string GetDumpsysCommand(const std::string app_and_activity_name,
-                                       const int64_t sdk);
+  // stats about the forefront activity.
+  static std::string GetDumpsysCommand();
 
  private:
+  // Obtains the current forefront activity. This will be used to generate the
+  // Dumpsys command for API levels 24+ which depend on the forfront activity.
+  static std::string GetForefrontActivity();
   // Parses the output from the dumpsys command into the |data_vector| after
   // filtering out the frame times before the given |start_timestamp_exclusive|
   // and returns the timestamp of the last frame that was parsed.
@@ -56,7 +50,7 @@ class GraphicsFrameStatsSampler {
       const std::vector<std::string>& frame_stats_string,
       const int64_t start_timestamp_exclusive,
       std::vector<proto::GraphicsData>* data_vector);
-  std::vector<std::string> Split(const std::string str, const char delimiter);
+  static std::vector<std::string> Split(const std::string str, const char delimiter);
 };
 
 }  // namespace profiler

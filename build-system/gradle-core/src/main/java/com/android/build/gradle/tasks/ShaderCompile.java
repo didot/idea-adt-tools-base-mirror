@@ -18,9 +18,10 @@ package com.android.build.gradle.tasks;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.builder.internal.compiler.ShaderProcessor;
 import com.android.ide.common.process.LoggedProcessOutputHandler;
 import com.android.utils.FileUtils;
@@ -133,21 +134,18 @@ public class ShaderCompile extends AndroidBuilderTask {
         this.scopedArgs = ImmutableMap.copyOf(scopedArgs);
     }
 
-    public static class ConfigAction implements TaskConfigAction<ShaderCompile> {
+    public static class CreationAction extends VariantTaskCreationAction<ShaderCompile> {
 
-        @NonNull
-        VariantScope scope;
-        @NonNull File outputDir;
+        private File outputDir;
 
-        public ConfigAction(@NonNull VariantScope scope, @NonNull File outputDir) {
-            this.scope = scope;
-            this.outputDir = outputDir;
+        public CreationAction(@NonNull VariantScope scope) {
+            super(scope);
         }
 
         @Override
         @NonNull
         public String getName() {
-            return scope.getTaskName("compile", "Shaders");
+            return getVariantScope().getTaskName("compile", "Shaders");
         }
 
         @Override
@@ -157,20 +155,27 @@ public class ShaderCompile extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull ShaderCompile compileTask) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+            outputDir =
+                    getVariantScope()
+                            .getArtifacts()
+                            .appendArtifact(InternalArtifactType.SHADER_ASSETS, taskName, "out");
+        }
+
+        @Override
+        public void configure(@NonNull ShaderCompile task) {
+            super.configure(task);
+            VariantScope scope = getVariantScope();
+
             final GradleVariantConfiguration variantConfiguration = scope.getVariantConfiguration();
 
-            scope.getVariantData().shaderCompileTask = compileTask;
+            task.ndkLocation = scope.getGlobalScope().getNdkHandler().getNdkDirectory();
 
-            compileTask.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            compileTask.setVariantName(variantConfiguration.getFullName());
-
-            compileTask.ndkLocation = scope.getGlobalScope().getNdkHandler().getNdkDirectory();
-
-            compileTask.setSourceDir(scope.getMergeShadersOutputDir());
-            compileTask.setOutputDir(outputDir);
-            compileTask.setDefaultArgs(variantConfiguration.getDefautGlslcArgs());
-            compileTask.setScopedArgs(variantConfiguration.getScopedGlslcArgs());
+            task.setSourceDir(scope.getMergeShadersOutputDir());
+            task.setOutputDir(outputDir);
+            task.setDefaultArgs(variantConfiguration.getDefautGlslcArgs());
+            task.setScopedArgs(variantConfiguration.getScopedGlslcArgs());
         }
     }
 }

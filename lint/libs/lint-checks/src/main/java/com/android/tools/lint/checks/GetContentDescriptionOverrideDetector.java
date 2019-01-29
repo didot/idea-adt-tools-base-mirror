@@ -35,21 +35,22 @@ import org.jetbrains.uast.UClass;
 /**
  * Check that looks for override of getContentDescription() in any class that descends from View.
  */
-public class GetContentDescriptionOverrideDetector extends Detector
-        implements SourceCodeScanner {
+public class GetContentDescriptionOverrideDetector extends Detector implements SourceCodeScanner {
 
     public static final Issue ISSUE =
             Issue.create(
-                    "GetContentDescriptionOverride", //$NON-NLS-1$
-                    "Overriding `getContentDescription()` on a View",
-                    "Overriding `getContentDescription()` may prevent some accessibility services from "
-                            + "properly navigating content exposed by your view. Instead, call "
-                            + "`setContentDescription()` when the content description needs to be changed.",
-                    Category.A11Y,
-                    9,
-                    Severity.ERROR,
-                    new Implementation(
-                            GetContentDescriptionOverrideDetector.class, Scope.JAVA_FILE_SCOPE));
+                            "GetContentDescriptionOverride",
+                            "Overriding `getContentDescription()` on a View",
+                            "Overriding `getContentDescription()` may prevent some accessibility services from "
+                                    + "properly navigating content exposed by your view. Instead, call "
+                                    + "`setContentDescription()` when the content description needs to be changed.",
+                            Category.A11Y,
+                            9,
+                            Severity.ERROR,
+                            new Implementation(
+                                    GetContentDescriptionOverrideDetector.class,
+                                    Scope.JAVA_FILE_SCOPE))
+                    .setAndroidSpecific(true);
 
     /** Constructs a new GetContentDescriptionOverrideDetector check. */
     public GetContentDescriptionOverrideDetector() {}

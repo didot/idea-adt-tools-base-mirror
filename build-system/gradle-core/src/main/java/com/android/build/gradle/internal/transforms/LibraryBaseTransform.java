@@ -18,6 +18,7 @@ package com.android.build.gradle.internal.transforms;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.JarInput;
 import com.android.build.api.transform.QualifiedContent;
 import com.android.build.api.transform.QualifiedContent.Scope;
@@ -25,8 +26,7 @@ import com.android.build.api.transform.SecondaryFile;
 import com.android.build.api.transform.Transform;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.builder.packaging.JarMerger;
-import com.android.builder.packaging.ZipAbortException;
-import com.android.builder.packaging.ZipEntryFilter;
+import com.android.builder.utils.ZipEntryUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.io.Closer;
@@ -36,17 +36,19 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.jar.JarEntry;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-import org.gradle.api.file.FileCollection;
 
 public abstract class LibraryBaseTransform extends Transform {
 
@@ -62,10 +64,10 @@ public abstract class LibraryBaseTransform extends Transform {
     protected final File mainClassLocation;
     @Nullable
     protected final File localJarsLocation;
-    @NonNull
-    protected final String packagePath;
+    @Nullable private String packagePath;
+    @NonNull private final Supplier<String> packageNameSupplier;
     protected final boolean packageBuildConfig;
-    @Nullable protected final FileCollection typedefRecipe;
+    @Nullable protected final BuildableArtifact typedefRecipe;
 
     @Nullable
     protected List<ExcludeListProvider> excludeListProviders;
@@ -73,13 +75,13 @@ public abstract class LibraryBaseTransform extends Transform {
     public LibraryBaseTransform(
             @NonNull File mainClassLocation,
             @Nullable File localJarsLocation,
-            @Nullable FileCollection typedefRecipe,
-            @NonNull String packageName,
+            @Nullable BuildableArtifact typedefRecipe,
+            @NonNull Supplier<String> packageNameSupplier,
             boolean packageBuildConfig) {
         this.mainClassLocation = mainClassLocation;
         this.localJarsLocation = localJarsLocation;
         this.typedefRecipe = typedefRecipe;
-        this.packagePath = packageName.replace(".", "/");
+        this.packageNameSupplier = packageNameSupplier;
         this.packageBuildConfig = packageBuildConfig;
     }
 
@@ -134,6 +136,9 @@ public abstract class LibraryBaseTransform extends Transform {
         // these must be regexp to match the zip entries
         excludes.add(".*/R.class$");
         excludes.add(".*/R\\$(.*).class$");
+        if (packagePath == null) {
+            packagePath = packageNameSupplier.get().replace(".", "/");
+        }
         excludes.add(packagePath + "/Manifest.class$");
         excludes.add(packagePath + "/Manifest\\$(.*).class$");
         if (!packageBuildConfig) {
@@ -172,7 +177,7 @@ public abstract class LibraryBaseTransform extends Transform {
                 copyJarWithContentFilter(
                         content.getFile(),
                         new File(localJarsLocation, content.getFile().getName()),
-                        ZipEntryFilter.CLASSES_ONLY);
+                        JarMerger.CLASSES_ONLY);
                 iterator.remove();
             }
         }
@@ -182,7 +187,7 @@ public abstract class LibraryBaseTransform extends Transform {
             try (JarMerger jarMerger =
                     new JarMerger(
                             new File(localJarsLocation, "otherclasses.jar").toPath(),
-                            ZipEntryFilter.CLASSES_ONLY)) {
+                            JarMerger.CLASSES_ONLY)) {
                 for (QualifiedContent content : qualifiedContentList) {
                     jarMerger.addDirectory(content.getFile().toPath());
                 }
@@ -198,9 +203,8 @@ public abstract class LibraryBaseTransform extends Transform {
     }
 
     protected static void copyJarWithContentFilter(
-            @NonNull File from,
-            @NonNull File to,
-            @Nullable ZipEntryFilter filter) throws IOException {
+            @NonNull File from, @NonNull File to, @Nullable Predicate<String> filter)
+            throws IOException {
         byte[] buffer = new byte[4096];
 
         try (Closer closer = Closer.create()) {
@@ -217,7 +221,7 @@ public abstract class LibraryBaseTransform extends Transform {
             while ((entry = zis.getNextEntry()) != null) {
                 String name = entry.getName();
 
-                if (entry.isDirectory() || (filter != null && !filter.checkEntry(name))) {
+                if (entry.isDirectory() || (filter != null && !filter.test(name))) {
                     continue;
                 }
 
@@ -229,6 +233,11 @@ public abstract class LibraryBaseTransform extends Transform {
                 } else {
                     // Create a new entry so that the compressed len is recomputed.
                     newEntry = new JarEntry(name);
+                }
+
+                if (!ZipEntryUtils.isValidZipEntryName(newEntry)) {
+                    throw new InvalidPathException(
+                            newEntry.getName(), "Entry name contains invalid characters");
                 }
 
                 newEntry.setLastModifiedTime(JarMerger.ZERO_TIME);
@@ -247,8 +256,6 @@ public abstract class LibraryBaseTransform extends Transform {
                 zos.closeEntry();
                 zis.closeEntry();
             }
-        } catch (ZipAbortException e) {
-            throw new IOException(e);
         }
     }
 
@@ -263,25 +270,14 @@ public abstract class LibraryBaseTransform extends Transform {
         return true;
     }
 
-    protected static void jarFolderToLocation(
-            @NonNull File fromFolder,
-            @NonNull File toFile,
-            @Nullable ZipEntryFilter filter,
-            @Nullable JarMerger.Transformer typedefRemover)
-            throws IOException {
-        try (JarMerger jarMerger = new JarMerger(toFile.toPath())) {
-            jarMerger.addDirectory(fromFolder.toPath(), filter, typedefRemover, null);
-        }
-    }
-
     protected static void mergeInputsToLocation(
             @NonNull List<QualifiedContent> qualifiedContentList,
             @NonNull File toFile,
             boolean forIntermediateJar,
-            @Nullable final ZipEntryFilter filter,
+            @Nullable final Predicate<String> filter,
             @Nullable final JarMerger.Transformer typedefRemover)
             throws IOException {
-        ZipEntryFilter filterAndOnlyClasses = ZipEntryFilter.CLASSES_ONLY.and(filter);
+        Predicate<String> filterAndOnlyClasses = JarMerger.CLASSES_ONLY.and(filter);
 
         try (JarMerger jarMerger = new JarMerger(toFile.toPath())) {
             for (QualifiedContent content : qualifiedContentList) {
@@ -291,7 +287,7 @@ public abstract class LibraryBaseTransform extends Transform {
                 boolean hasResources =
                         content.getContentTypes()
                                 .contains(QualifiedContent.DefaultContentType.RESOURCES);
-                ZipEntryFilter thisFilter =
+                Predicate<String> thisFilter =
                         hasResources || forIntermediateJar ? filter : filterAndOnlyClasses;
                 if (content instanceof JarInput) {
                     jarMerger.addJar(content.getFile().toPath(), thisFilter, null);

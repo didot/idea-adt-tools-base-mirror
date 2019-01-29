@@ -22,6 +22,7 @@ import com.android.annotations.NonNull;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.builder.core.AndroidBuilder;
+import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import org.gradle.api.Project;
 
@@ -30,14 +31,11 @@ public abstract class BaseVariantFactory implements VariantFactory {
 
     @NonNull protected final GlobalScope globalScope;
     @NonNull protected final AndroidConfig extension;
-    @NonNull protected final AndroidBuilder androidBuilder;
 
     public BaseVariantFactory(
             @NonNull GlobalScope globalScope,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull AndroidConfig extension) {
         this.globalScope = globalScope;
-        this.androidBuilder = androidBuilder;
         this.extension = extension;
     }
 
@@ -49,10 +47,11 @@ public abstract class BaseVariantFactory implements VariantFactory {
                     .getIssueReporter()
                     .reportError(
                             Type.INCOMPATIBLE_PLUGIN,
-                            "android-apt plugin is incompatible with the Android Gradle plugin.  "
-                                    + "Please use 'annotationProcessor' configuration "
-                                    + "instead.",
-                            "android-apt");
+                            new EvalIssueException(
+                                    "android-apt plugin is incompatible with the Android Gradle plugin.  "
+                                            + "Please use 'annotationProcessor' configuration "
+                                            + "instead.",
+                                    "android-apt"));
         }
     }
 }

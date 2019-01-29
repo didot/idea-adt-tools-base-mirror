@@ -17,9 +17,11 @@
 package com.android.build.gradle.internal.api.artifact
 
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.api.dsl.DslScope
+import com.android.builder.errors.EvalIssueException
 import com.android.builder.errors.EvalIssueReporter
-import org.gradle.api.Task
 import org.gradle.api.file.FileCollection
+import org.gradle.api.file.FileTree
 import org.gradle.api.tasks.TaskDependency
 import java.io.File
 import java.util.Collections
@@ -29,8 +31,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Implementation of [BuildableArtifact].
  */
 class BuildableArtifactImpl(
-        internal var fileCollection: FileCollection?,
-        private var issueReporter : EvalIssueReporter)
+        val fileCollection: FileCollection,
+        private val dslScope: DslScope)
     : BuildableArtifact {
     companion object {
         private val resolvable = AtomicBoolean(false)
@@ -50,20 +52,14 @@ class BuildableArtifactImpl(
 
     private fun checkResolvable() {
         if (!isResolvable()) {
-            issueReporter.reportError(
+            dslScope.issueReporter.reportError(
                     EvalIssueReporter.Type.GENERIC,
-                    "Resolving this BuildableArtifact can only done during task execution.")
+                    EvalIssueException("Resolving this BuildableArtifact can only done during task execution."))
         }
-        if (fileCollection == null) {
-            // If this exception is thrown, this is most likely a bug in the plugin.  It means a
-            // BuildableArtifact is created, but the Task for this BuildableArtifact is not.
-            // This error is also possible if there is another error that occurred previously, but
-            // the build continues because this is we are doing a sync and issueReporter does not
-            // throw.
-            issueReporter.reportError(
-                    EvalIssueReporter.Type.GENERIC,
-                    "BuildableArtifact has not been initialized.")
-        }
+    }
+
+    override fun get(): FileCollection {
+        return fileCollection
     }
 
     override fun iterator(): Iterator<File> {
@@ -73,21 +69,19 @@ class BuildableArtifactImpl(
     override val files : Set<File>
         get() {
             checkResolvable()
-            return Collections.unmodifiableSet(fileCollection!!.files)
+            return Collections.unmodifiableSet(fileCollection.files)
         }
 
     override fun isEmpty() : Boolean {
         checkResolvable()
-        return fileCollection!!.isEmpty
+        return fileCollection.isEmpty
     }
 
-    override fun getBuildDependencies(): TaskDependency =
-            if (fileCollection != null) {
-                fileCollection!!.buildDependencies
-            } else {
-                issueReporter.reportError(
-                        EvalIssueReporter.Type.GENERIC,
-                        "Cannot get build dependencies before BuildableArtifact is initialized.")
-                TaskDependency { mutableSetOf() }
-            }
+    override fun getBuildDependencies(): TaskDependency = fileCollection.buildDependencies
+
+    val asFileTree : FileTree
+        get() {
+            checkResolvable()
+            return fileCollection.asFileTree
+        }
 }

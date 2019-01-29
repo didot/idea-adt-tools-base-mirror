@@ -35,42 +35,52 @@ import org.jetbrains.uast.UExpression
 class AlarmDetector : Detector(), SourceCodeScanner {
     companion object Issues {
         private val IMPLEMENTATION = Implementation(
-                AlarmDetector::class.java,
-                Scope.JAVA_FILE_SCOPE)
+            AlarmDetector::class.java,
+            Scope.JAVA_FILE_SCOPE
+        )
 
         /** Alarm set too soon/frequently   */
-        @JvmField val ISSUE = Issue.create(
-                "ShortAlarm",
-                "Short or Frequent Alarm",
+        @JvmField
+        val ISSUE = Issue.create(
+            id = "ShortAlarm",
+            briefDescription = "Short or Frequent Alarm",
+            explanation = """
+            Frequent alarms are bad for battery life. As of API 22, the `AlarmManager` will override \
+            near-future and high-frequency alarm requests, delaying the alarm at least 5 seconds into the \
+            future and ensuring that the repeat interval is at least 60 seconds.
 
-                """
-Frequent alarms are bad for battery life. As of API 22, the `AlarmManager` will override \
-near-future and high-frequency alarm requests, delaying the alarm at least 5 seconds into the \
-future and ensuring that the repeat interval is at least 60 seconds.
-
-If you really need to do work sooner than 5 seconds, post a delayed message or runnable to a \
-Handler.""",
-
-                Category.CORRECTNESS,
-                6,
-                Severity.WARNING,
-                IMPLEMENTATION)
+            If you really need to do work sooner than 5 seconds, post a delayed message or runnable to a \
+            Handler.""",
+            category = Category.CORRECTNESS,
+            priority = 6,
+            severity = Severity.WARNING,
+            androidSpecific = true,
+            implementation = IMPLEMENTATION
+        )
     }
 
     override fun getApplicableMethodNames(): List<String>? = listOf("setRepeating")
 
-    override fun visitMethod(context: JavaContext, node: UCallExpression,
-                             method: PsiMethod) {
+    override fun visitMethodCall(
+        context: JavaContext,
+        node: UCallExpression,
+        method: PsiMethod
+    ) {
         val evaluator = context.evaluator
         if (evaluator.isMemberInClass(method, "android.app.AlarmManager") &&
-                evaluator.getParameterCount(method) == 4) {
+            evaluator.getParameterCount(method) == 4
+        ) {
             ensureAtLeast(context, node, 1, 5000L)
             ensureAtLeast(context, node, 2, 60000L)
         }
     }
 
-    private fun ensureAtLeast(context: JavaContext,
-                              node: UCallExpression, parameter: Int, min: Long) {
+    private fun ensureAtLeast(
+        context: JavaContext,
+        node: UCallExpression,
+        parameter: Int,
+        min: Long
+    ) {
         val argument = node.valueArguments[parameter]
         val value = getLongValue(context, argument)
         if (value < min) {
@@ -81,8 +91,9 @@ Handler.""",
     }
 
     private fun getLongValue(
-            context: JavaContext,
-            argument: UExpression): Long {
+        context: JavaContext,
+        argument: UExpression
+    ): Long {
         val value = ConstantEvaluator.evaluate(context, argument)
         if (value is Number) {
             return value.toLong()

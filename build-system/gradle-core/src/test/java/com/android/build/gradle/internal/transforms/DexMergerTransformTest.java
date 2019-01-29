@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.internal.transforms;
 
+import static com.android.build.gradle.internal.tasks.DexMergingTaskTestKt.generateArchive;
 import static com.android.build.gradle.internal.transforms.DexMergerTransform.ANDROID_L_MAX_DEX_FILES;
 import static com.android.build.gradle.internal.transforms.DexMergerTransform.EXTERNAL_DEPS_DEX_FILES;
 import static com.android.testutils.truth.MoreTruth.assertThat;
@@ -26,6 +27,7 @@ import android.databinding.tool.util.Preconditions;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.transform.Context;
 import com.android.build.api.transform.Format;
 import com.android.build.api.transform.QualifiedContent;
@@ -34,21 +36,17 @@ import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.api.transform.TransformOutputProvider;
 import com.android.build.gradle.internal.pipeline.ExtendedContentType;
-import com.android.builder.dexing.ClassFileInput;
-import com.android.builder.dexing.ClassFileInputs;
-import com.android.builder.dexing.DexArchiveBuilder;
-import com.android.builder.dexing.DexArchiveBuilderConfig;
+import com.android.build.gradle.internal.tasks.DexMergingTaskTestKt;
 import com.android.builder.dexing.DexMergerTool;
-import com.android.builder.dexing.DexerTool;
 import com.android.builder.dexing.DexingType;
-import com.android.dx.command.dexer.DxContext;
-import com.android.testutils.TestInputsGenerator;
 import com.android.testutils.TestUtils;
 import com.android.testutils.apk.Dex;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.truth.Truth;
 import java.io.File;
@@ -63,7 +61,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.gradle.api.file.FileCollection;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -331,7 +328,9 @@ public class DexMergerTransformTest {
                         new NoOpMessageReceiver(),
                         DexMergerTool.DX,
                         21,
-                        true);
+                        true,
+                        false,
+                        false);
         androidLDexMerger.transform(
                 invocationBuilder.setTransformOutputProvider(outputProvider).build());
         Truth.assertThat(
@@ -347,7 +346,9 @@ public class DexMergerTransformTest {
                         new NoOpMessageReceiver(),
                         DexMergerTool.DX,
                         23,
-                        true);
+                        true,
+                        false,
+                        false);
         postLDexMerger.transform(
                 invocationBuilder.setTransformOutputProvider(outputProvider).build());
         Truth.assertThat(
@@ -371,6 +372,100 @@ public class DexMergerTransformTest {
         Truth.assertThat(FileUtils.find(out.toFile(), Pattern.compile(".*\\.dex"))).hasSize(1);
     }
 
+    @Test
+    public void test_legacyInDebug() throws Exception {
+        List<String> secondaryClasses = Lists.newArrayList();
+        for (int i = 1; i < NUM_INPUTS; i++) {
+            secondaryClasses.add("L" + PKG + "/A" + i + ";");
+        }
+
+        Set<TransformInput> inputs =
+                getTransformInputs(NUM_INPUTS, QualifiedContent.Scope.EXTERNAL_LIBRARIES);
+
+        getTransform(DexingType.LEGACY_MULTIDEX, ImmutableSet.of(PKG + "/A0.class"), true)
+                .transform(
+                        TransformTestHelper.invocationBuilder()
+                                .setTransformOutputProvider(outputProvider)
+                                .setInputs(inputs)
+                                .build());
+
+        assertThat(new Dex(out.resolve("main/classes.dex")))
+                .containsExactlyClassesIn(ImmutableList.of("L" + PKG + "/A0;"));
+        assertThat(new Dex(out.resolve("main/classes2.dex")))
+                .containsExactlyClassesIn(secondaryClasses);
+    }
+
+    @Test
+    public void test_legacyInRelease() throws Exception {
+        List<String> expectedClasses = Lists.newArrayList();
+        for (int i = 0; i < NUM_INPUTS; i++) {
+            expectedClasses.add("L" + PKG + "/A" + i + ";");
+        }
+
+        Set<TransformInput> inputs =
+                getTransformInputs(NUM_INPUTS, QualifiedContent.Scope.EXTERNAL_LIBRARIES);
+
+        getTransform(DexingType.LEGACY_MULTIDEX, ImmutableSet.of(PKG + "/A0.class"), false)
+                .transform(
+                        TransformTestHelper.invocationBuilder()
+                                .setTransformOutputProvider(outputProvider)
+                                .setInputs(inputs)
+                                .build());
+
+        assertThat(new Dex(out.resolve("main/classes.dex")))
+                .containsExactlyClassesIn(expectedClasses);
+    }
+
+    @Test
+    public void testStreamNameChange() throws Exception {
+        // make output provider that outputs based on name
+        outputProvider =
+                new TestTransformOutputProvider(out) {
+                    @NonNull
+                    @Override
+                    public File getContentLocation(
+                            @NonNull String name,
+                            @NonNull Set<QualifiedContent.ContentType> types,
+                            @NonNull Set<? super QualifiedContent.Scope> scopes,
+                            @NonNull Format format) {
+                        return out.resolve(Long.toString(name.hashCode())).toFile();
+                    }
+                };
+        Path dexArchive = tmpDir.getRoot().toPath().resolve("dexArchive_input");
+        generateArchive(ImmutableList.of(PKG + "/C"), dexArchive);
+
+        TransformInput dirInput =
+                TransformTestHelper.directoryBuilder(dexArchive.toFile())
+                        .setName("first-run")
+                        .setScope(QualifiedContent.Scope.PROJECT)
+                        .build();
+        TransformInvocation invocation =
+                TransformTestHelper.invocationBuilder()
+                        .addInput(dirInput)
+                        .setTransformOutputProvider(outputProvider)
+                        .build();
+        getTransform(DexingType.NATIVE_MULTIDEX).transform(invocation);
+
+        dirInput =
+                TransformTestHelper.directoryBuilder(dexArchive.toFile())
+                        .setName("second-run")
+                        .setScope(QualifiedContent.Scope.PROJECT)
+                        .putChangedFiles(
+                                ImmutableMap.of(
+                                        dexArchive.resolve(PKG + "C.dex").toFile(), Status.REMOVED))
+                        .build();
+        invocation =
+                TransformTestHelper.invocationBuilder()
+                        .addInput(dirInput)
+                        .setTransformOutputProvider(outputProvider)
+                        .setIncremental(true)
+                        .build();
+        getTransform(DexingType.NATIVE_MULTIDEX).transform(invocation);
+
+        List<File> dexFiles = FileUtils.find(out.toFile(), Pattern.compile(".*\\.dex$"));
+        Truth.assertThat(dexFiles).hasSize(1);
+    }
+
     private DexMergerTransform getTransform(@NonNull DexingType dexingType) throws IOException {
         Preconditions.check(
                 dexingType != DexingType.LEGACY_MULTIDEX,
@@ -383,15 +478,15 @@ public class DexMergerTransformTest {
             @Nullable ImmutableSet<String> mainDex,
             boolean isDebuggable)
             throws IOException {
-        FileCollection collection;
+        BuildableArtifact collection;
         if (mainDex != null) {
             Preconditions.check(
                     dexingType == DexingType.LEGACY_MULTIDEX,
                     "Main dex list must only be used for legacy multidex");
             File tmpFile = tmpDir.newFile();
             Files.write(tmpFile.toPath(), mainDex, StandardOpenOption.TRUNCATE_EXISTING);
-            collection = Mockito.mock(FileCollection.class);
-            when(collection.getSingleFile()).thenReturn(tmpFile);
+            collection = Mockito.mock(BuildableArtifact.class);
+            when(collection.iterator()).thenReturn(Iterators.singletonIterator(tmpFile));
         } else {
             collection = null;
         }
@@ -401,7 +496,9 @@ public class DexMergerTransformTest {
                 new NoOpMessageReceiver(),
                 DexMergerTool.DX,
                 1,
-                isDebuggable);
+                isDebuggable,
+                false,
+                false);
     }
 
     @NonNull
@@ -442,25 +539,8 @@ public class DexMergerTransformTest {
         return inputs;
     }
 
-    private void generateArchive(@NonNull Collection<String> classes, @NonNull Path dexArchivePath)
-            throws Exception {
-        Path classesInput = tmpDir.newFolder().toPath().resolve("input");
-        TestInputsGenerator.dirWithEmptyClasses(classesInput, classes);
-
-        // now convert to dex archive
-        DexArchiveBuilder builder =
-                DexArchiveBuilder.createDxDexBuilder(
-                        new DexArchiveBuilderConfig(
-                                new DxContext(System.out, System.err),
-                                true,
-                                10,
-                                0,
-                                DexerTool.DX,
-                                10,
-                                true));
-
-        try (ClassFileInput input = ClassFileInputs.fromPath(classesInput)) {
-            builder.convert(input.entries(p -> true), dexArchivePath, false);
-        }
+    private void generateArchive(
+            @NonNull Collection<String> classes, @NonNull Path dexArchivePath) {
+        DexMergingTaskTestKt.generateArchive(tmpDir, dexArchivePath, classes);
     }
 }

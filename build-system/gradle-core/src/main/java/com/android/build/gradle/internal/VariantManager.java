@@ -16,14 +16,21 @@
 
 package com.android.build.gradle.internal;
 
+import static com.android.build.gradle.internal.dependency.DexingTransformKt.getDexingArtifactConfigurations;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.AAR;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.CONSUMER_PROGUARD_RULES;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.EXPLODED_AAR;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.JAR;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.PROCESSED_JAR;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.MOCKABLE_JAR_RETURN_DEFAULT_VALUES;
 import static com.android.builder.core.BuilderConstants.LINT;
-import static com.android.builder.core.VariantType.ANDROID_TEST;
-import static com.android.builder.core.VariantType.FEATURE;
-import static com.android.builder.core.VariantType.UNIT_TEST;
+import static com.android.builder.core.VariantTypeImpl.ANDROID_TEST;
+import static com.android.builder.core.VariantTypeImpl.UNIT_TEST;
 import static org.gradle.api.internal.artifacts.ArtifactAttributes.ARTIFACT_FORMAT;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.api.attributes.BuildTypeAttr;
 import com.android.build.api.attributes.ProductFlavorAttr;
 import com.android.build.gradle.AndroidConfig;
@@ -32,18 +39,30 @@ import com.android.build.gradle.api.AndroidSourceSet;
 import com.android.build.gradle.internal.api.DefaultAndroidSourceSet;
 import com.android.build.gradle.internal.api.ReadOnlyObjectProvider;
 import com.android.build.gradle.internal.api.VariantFilter;
+import com.android.build.gradle.internal.api.artifact.BuildArtifactSpec;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
+import com.android.build.gradle.internal.crash.ExternalApiUsageException;
+import com.android.build.gradle.internal.dependency.AarCompileClassesTransform;
 import com.android.build.gradle.internal.dependency.AarTransform;
 import com.android.build.gradle.internal.dependency.AlternateCompatibilityRule;
 import com.android.build.gradle.internal.dependency.AlternateDisambiguationRule;
 import com.android.build.gradle.internal.dependency.AndroidTypeAttr;
 import com.android.build.gradle.internal.dependency.AndroidTypeAttrCompatRule;
 import com.android.build.gradle.internal.dependency.AndroidTypeAttrDisambRule;
+import com.android.build.gradle.internal.dependency.DexingArtifactConfiguration;
+import com.android.build.gradle.internal.dependency.DexingTransform;
+import com.android.build.gradle.internal.dependency.DexingTransformKt;
 import com.android.build.gradle.internal.dependency.ExtractAarTransform;
-import com.android.build.gradle.internal.dependency.JarTransform;
+import com.android.build.gradle.internal.dependency.ExtractProGuardRulesTransform;
+import com.android.build.gradle.internal.dependency.IdentityTransform;
+import com.android.build.gradle.internal.dependency.JetifyTransform;
+import com.android.build.gradle.internal.dependency.LibraryDefinedSymbolTableTransform;
 import com.android.build.gradle.internal.dependency.LibrarySymbolTableTransform;
+import com.android.build.gradle.internal.dependency.MockableJarTransform;
+import com.android.build.gradle.internal.dependency.PlatformAttrTransform;
 import com.android.build.gradle.internal.dependency.SourceSetManager;
 import com.android.build.gradle.internal.dependency.VariantDependencies;
+import com.android.build.gradle.internal.dsl.BaseAppModuleExtension;
 import com.android.build.gradle.internal.dsl.BaseFlavor;
 import com.android.build.gradle.internal.dsl.BuildType;
 import com.android.build.gradle.internal.dsl.CoreBuildType;
@@ -52,37 +71,36 @@ import com.android.build.gradle.internal.dsl.CoreSigningConfig;
 import com.android.build.gradle.internal.profile.AnalyticsUtil;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType;
+import com.android.build.gradle.internal.publishing.PublishingSpecs;
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.variant.BaseVariantData;
-import com.android.build.gradle.internal.variant.TaskContainer;
 import com.android.build.gradle.internal.variant.TestVariantData;
-import com.android.build.gradle.internal.variant.TestVariantFactory;
 import com.android.build.gradle.internal.variant.TestedVariantData;
 import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.SigningOptions;
 import com.android.build.gradle.options.StringOption;
-import com.android.builder.core.AndroidBuilder;
+import com.android.builder.core.BuilderConstants;
 import com.android.builder.core.DefaultManifestParser;
 import com.android.builder.core.DefaultProductFlavor;
 import com.android.builder.core.DefaultProductFlavor.DimensionRequest;
 import com.android.builder.core.ManifestAttributeSupplier;
 import com.android.builder.core.VariantType;
+import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.model.ProductFlavor;
 import com.android.builder.model.SigningConfig;
 import com.android.builder.profile.ProcessProfileWriter;
 import com.android.builder.profile.Recorder;
 import com.android.utils.StringHelper;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.wireless.android.sdk.stats.ApiVersion;
-import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan.ExecutionType;
 import com.google.wireless.android.sdk.stats.GradleBuildVariant;
 import java.io.File;
 import java.util.Collection;
@@ -92,14 +110,13 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.gradle.api.Action;
-import org.gradle.api.DefaultTask;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.attributes.Attribute;
 import org.gradle.api.attributes.AttributeMatchingStrategy;
 import org.gradle.api.attributes.AttributesSchema;
+import org.gradle.api.attributes.Usage;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.model.ObjectFactory;
 
@@ -108,6 +125,12 @@ import org.gradle.api.model.ObjectFactory;
  */
 public class VariantManager implements VariantModel {
 
+    /**
+     * Artifact type for processed aars (the aars may need to be processed, e.g. jetified to
+     * AndroidX, before they can be used).
+     */
+    private static final String TYPE_PROCESSED_AAR = "processed-aar";
+
     private static final String MULTIDEX_VERSION = "1.0.2";
 
     protected static final String COM_ANDROID_SUPPORT_MULTIDEX =
@@ -115,9 +138,13 @@ public class VariantManager implements VariantModel {
     protected static final String COM_ANDROID_SUPPORT_MULTIDEX_INSTRUMENTATION =
             "com.android.support:multidex-instrumentation:" + MULTIDEX_VERSION;
 
+    protected static final String ANDROIDX_MULTIDEX_MULTIDEX =
+            JetifyTransform.androidXMappings.get("com.android.support:multidex");
+    protected static final String ANDROIDX_MULTIDEX_MULTIDEX_INSTRUMENTATION =
+            JetifyTransform.androidXMappings.get("com.android.support:multidex-instrumentation");
+
     @NonNull private final Project project;
     @NonNull private final ProjectOptions projectOptions;
-    @NonNull private final AndroidBuilder androidBuilder;
     @NonNull private final AndroidConfig extension;
     @NonNull private final VariantFactory variantFactory;
     @NonNull private final TaskManager taskManager;
@@ -132,12 +159,14 @@ public class VariantManager implements VariantModel {
     @NonNull private final Map<File, ManifestAttributeSupplier> manifestParserMap;
     @NonNull protected final GlobalScope globalScope;
     @Nullable private final CoreSigningConfig signingOverride;
+    // We cannot use gradle's state of executed as that returns true while inside afterEvalute.
+    // Wew want this to only be true after all tasks have been create.
+    private boolean hasCreatedTasks = false;
 
     public VariantManager(
             @NonNull GlobalScope globalScope,
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull AndroidConfig extension,
             @NonNull VariantFactory variantFactory,
             @NonNull TaskManager taskManager,
@@ -145,7 +174,6 @@ public class VariantManager implements VariantModel {
             @NonNull Recorder recorder) {
         this.globalScope = globalScope;
         this.extension = extension;
-        this.androidBuilder = androidBuilder;
         this.project = project;
         this.projectOptions = projectOptions;
         this.variantFactory = variantFactory;
@@ -161,17 +189,18 @@ public class VariantManager implements VariantModel {
         this.manifestParserMap = Maps.newHashMap();
 
         DefaultAndroidSourceSet mainSourceSet =
-                (DefaultAndroidSourceSet) extension.getSourceSets().getByName(extension.getDefaultConfig().getName());
+                (DefaultAndroidSourceSet)
+                        extension.getSourceSets().getByName(BuilderConstants.MAIN);
 
         DefaultAndroidSourceSet androidTestSourceSet = null;
         DefaultAndroidSourceSet unitTestSourceSet = null;
         if (variantFactory.hasTestScope()) {
             androidTestSourceSet =
-                    (DefaultAndroidSourceSet) extension.getSourceSets()
-                            .getByName(ANDROID_TEST.getPrefix());
+                    (DefaultAndroidSourceSet)
+                            extension.getSourceSets().getByName(VariantType.ANDROID_TEST_PREFIX);
             unitTestSourceSet =
-                    (DefaultAndroidSourceSet) extension.getSourceSets()
-                            .getByName(UNIT_TEST.getPrefix());
+                    (DefaultAndroidSourceSet)
+                            extension.getSourceSets().getByName(VariantType.UNIT_TEST_PREFIX);
         }
 
         this.defaultConfigData =
@@ -320,122 +349,41 @@ public class VariantManager implements VariantModel {
         return result;
     }
 
-    /**
-     * Variant/Task creation entry point.
-     */
-    public void createAndroidTasks() {
+    /** Variant/Task creation entry point. */
+    public List<VariantScope> createAndroidTasks() {
         variantFactory.validateModel(this);
         variantFactory.preVariantWork(project);
 
         if (variantScopes.isEmpty()) {
-            recorder.record(
-                    ExecutionType.VARIANT_MANAGER_CREATE_VARIANTS,
-                    project.getPath(),
-                    null /*variantName*/,
-                    this::populateVariantDataList);
+            populateVariantDataList();
         }
 
         // Create top level test tasks.
-        recorder.record(
-                ExecutionType.VARIANT_MANAGER_CREATE_TESTS_TASKS,
-                project.getPath(),
-                null /*variantName*/,
-                () -> taskManager.createTopLevelTestTasks(!productFlavors.isEmpty()));
-
-
+        taskManager.createTopLevelTestTasks(!productFlavors.isEmpty());
 
         for (final VariantScope variantScope : variantScopes) {
-            recorder.record(
-                    ExecutionType.VARIANT_MANAGER_CREATE_TASKS_FOR_VARIANT,
-                    project.getPath(),
-                    variantScope.getFullVariantName(),
-                    () -> createTasksForVariantData(variantScope));
+            createTasksForVariantData(variantScope);
         }
+
+        taskManager.createSourceSetArtifactReportTask(globalScope);
 
         taskManager.createReportTasks(variantScopes);
-    }
 
-    /** Create assemble task for VariantData. */
-    private void createAssembleTaskForVariantData(final BaseVariantData variantData) {
-        final VariantScope variantScope = variantData.getScope();
-        if (variantData.getType().isForTesting()) {
-            variantScope.setAssembleTask(taskManager.createAssembleTask(variantData));
-        } else {
-            BuildTypeData buildTypeData =
-                    buildTypes.get(variantData.getVariantConfiguration().getBuildType().getName());
-
-            Preconditions.checkNotNull(buildTypeData.getAssembleTask());
-
-            if (productFlavors.isEmpty()) {
-                // Reuse assemble task for build type if there is no product flavor.
-                variantScope.setAssembleTask(buildTypeData.getAssembleTask());
-
-                variantData.addTask(
-                        TaskContainer.TaskKind.ASSEMBLE, buildTypeData.getAssembleTask());
-            } else {
-                variantScope.setAssembleTask(taskManager.createAssembleTask(variantData));
-
-                // setup the task dependencies
-                // build type
-                buildTypeData.getAssembleTask().dependsOn(variantScope.getAssembleTask());
-
-                // each flavor
-                GradleVariantConfiguration variantConfig = variantData.getVariantConfiguration();
-                for (CoreProductFlavor flavor : variantConfig.getProductFlavors()) {
-                    ProductFlavorData productFlavorData = productFlavors.get(flavor.getName());
-
-                    DefaultTask flavorAssembleTask = productFlavorData.getAssembleTask();
-                    if (flavorAssembleTask == null) {
-                        flavorAssembleTask = taskManager.createAssembleTask(productFlavorData);
-                        productFlavorData.setAssembleTask(flavorAssembleTask);
-                    }
-                    flavorAssembleTask.dependsOn(variantScope.getAssembleTask());
-                }
-
-                // assembleTask for this flavor(dimension), created on demand if needed.
-                if (variantConfig.getProductFlavors().size() > 1) {
-                    final String name = StringHelper.capitalize(variantConfig.getFlavorName());
-                    final String variantAssembleTaskName =
-                            StringHelper.appendCapitalized("assemble", name);
-                    if (!taskManager.getTaskFactory().containsKey(variantAssembleTaskName)) {
-                        Task task = taskManager.getTaskFactory().create(variantAssembleTaskName);
-                        task.setDescription("Assembles all builds for flavor combination: " + name);
-                        task.setGroup("Build");
-                        task.dependsOn(variantScope.getAssembleTask().getName());
-                    }
-                    taskManager
-                            .getTaskFactory()
-                            .configure(
-                                    "assemble", task1 -> task1.dependsOn(variantAssembleTaskName));
-                }
-            }
-        }
+        return variantScopes;
     }
 
     /** Create tasks for the specified variant. */
     public void createTasksForVariantData(final VariantScope variantScope) {
         final BaseVariantData variantData = variantScope.getVariantData();
         final VariantType variantType = variantData.getType();
-
         final GradleVariantConfiguration variantConfig = variantScope.getVariantConfiguration();
 
-        final BuildTypeData buildTypeData = buildTypes.get(variantConfig.getBuildType().getName());
-        if (buildTypeData.getAssembleTask() == null) {
-            buildTypeData.setAssembleTask(taskManager.createAssembleTask(buildTypeData));
+        taskManager.createAssembleTask(variantData);
+        if (variantType.isBaseModule()) {
+            taskManager.createBundleTask(variantData);
         }
 
-        // Add dependency of assemble task on assemble build type task.
-        taskManager
-                .getTaskFactory()
-                .configure(
-                        "assemble",
-                        task -> {
-                            assert buildTypeData.getAssembleTask() != null;
-                            task.dependsOn(buildTypeData.getAssembleTask().getName());
-                        });
-
-        createAssembleTaskForVariantData(variantData);
-        if (variantType.isForTesting()) {
+        if (variantType.isTestComponent()) {
             final BaseVariantData testedVariantData =
                     (BaseVariantData) ((TestVariantData) variantData).getTestedVariantData();
 
@@ -458,6 +406,8 @@ public class VariantManager implements VariantModel {
             }
 
             // 2. the build type.
+            final BuildTypeData buildTypeData =
+                    buildTypes.get(variantConfig.getBuildType().getName());
             DefaultAndroidSourceSet buildTypeConfigurationProvider =
                     buildTypeData.getTestSourceSet(variantType);
             if (buildTypeConfigurationProvider != null) {
@@ -481,6 +431,10 @@ public class VariantManager implements VariantModel {
             // now add the default config
             testVariantSourceSets.add(defaultConfigData.getTestSourceSet(variantType));
 
+            final AndroidTypeAttr consumeAndroidTypeAttr =
+                    instantiateAndroidTypeAttr(
+                            testedVariantData.getVariantConfiguration().getType().getConsumeType());
+
             // If the variant being tested is a library variant, VariantDependencies must be
             // computed after the tasks for the tested variant is created.  Therefore, the
             // VariantDependencies is computed here instead of when the VariantData was created.
@@ -489,45 +443,81 @@ public class VariantManager implements VariantModel {
                                     project,
                                     variantScope.getGlobalScope().getErrorHandler(),
                                     variantConfig)
-                            .setConsumeType(
-                                    getConsumeType(
-                                            testedVariantData.getVariantConfiguration().getType()))
+                            .setConsumeType(consumeAndroidTypeAttr)
                             .addSourceSets(testVariantSourceSets)
                             .setFlavorSelection(getFlavorSelection(variantConfig))
-                            .setTestedVariantDependencies(testedVariantData.getVariantDependency())
-                            .setBaseSplit(
-                                    variantType == VariantType.FEATURE
-                                            && extension.getBaseFeature());
+                            .setTestedVariantScope(testedVariantData.getScope());
 
-            final VariantDependencies variantDep = builder.build();
+            final VariantDependencies variantDep = builder.build(variantScope);
             variantData.setVariantDependency(variantDep);
-
-            if (variantType == VariantType.ANDROID_TEST && variantConfig.isLegacyMultiDexMode()) {
-                project.getDependencies().add(
-                        variantDep.getCompileClasspath().getName(), COM_ANDROID_SUPPORT_MULTIDEX_INSTRUMENTATION);
-                project.getDependencies().add(
-                        variantDep.getRuntimeClasspath().getName(), COM_ANDROID_SUPPORT_MULTIDEX_INSTRUMENTATION);
-            }
 
             if (testedVariantData.getVariantConfiguration().getRenderscriptSupportModeEnabled()) {
                 project.getDependencies()
                         .add(
                                 variantDep.getCompileClasspath().getName(),
-                                project.files(androidBuilder.getRenderScriptSupportJar()));
+                                project.files(
+                                        globalScope
+                                                .getAndroidBuilder()
+                                                .getRenderScriptSupportJar(
+                                                        globalScope
+                                                                .getProjectOptions()
+                                                                .get(
+                                                                        BooleanOption
+                                                                                .USE_ANDROID_X))));
             }
 
-            switch (variantType) {
-                case ANDROID_TEST:
-                    taskManager.createAndroidTestVariantTasks((TestVariantData) variantData);
-                    break;
-                case UNIT_TEST:
-                    taskManager.createUnitTestVariantTasks((TestVariantData) variantData);
-                    break;
-                default:
-                    throw new IllegalArgumentException("Unknown test type " + variantType);
+            if (variantType.isApk()) { // ANDROID_TEST
+                if (variantConfig.isLegacyMultiDexMode()) {
+                    String multiDexInstrumentationDep =
+                            globalScope.getProjectOptions().get(BooleanOption.USE_ANDROID_X)
+                                    ? ANDROIDX_MULTIDEX_MULTIDEX_INSTRUMENTATION
+                                    : COM_ANDROID_SUPPORT_MULTIDEX_INSTRUMENTATION;
+                    project.getDependencies()
+                            .add(
+                                    variantDep.getCompileClasspath().getName(),
+                                    multiDexInstrumentationDep);
+                    project.getDependencies()
+                            .add(
+                                    variantDep.getRuntimeClasspath().getName(),
+                                    multiDexInstrumentationDep);
+                }
+
+                taskManager.createAndroidTestVariantTasks((TestVariantData) variantData);
+            } else { // UNIT_TEST
+                taskManager.createUnitTestVariantTasks((TestVariantData) variantData);
             }
+
         } else {
             taskManager.createTasksForVariantScope(variantScope);
+        }
+    }
+
+    /** Publish intermediate artifacts in the BuildArtifactsHolder based on PublishingSpecs. */
+    public void publishBuildArtifacts(VariantScope variantScope) {
+        BuildArtifactsHolder buildArtifactsHolder = variantScope.getArtifacts();
+        for (PublishingSpecs.OutputSpec outputSpec :
+                variantScope.getPublishingSpec().getOutputs()) {
+            com.android.build.api.artifact.ArtifactType buildArtifactType =
+                    outputSpec.getOutputType();
+            if (buildArtifactsHolder.hasArtifact(buildArtifactType)) {
+                BuildableArtifact artifact =
+                        buildArtifactsHolder.getFinalArtifactFiles(buildArtifactType);
+
+                // Gradle only support publishing single file.  Therefore, unless Gradle starts
+                // supporting publishing multiple files, PublishingSpecs should not contain any
+                // OutputSpec with an appendable ArtifactType.
+                if (BuildArtifactSpec.Companion.has(buildArtifactType)
+                        && BuildArtifactSpec.Companion.get(buildArtifactType).getAppendable()) {
+                    throw new RuntimeException(
+                            String.format(
+                                    "Appendable ArtifactType '%1s' cannot be published.",
+                                    buildArtifactType.name()));
+                }
+                variantScope.publishIntermediateArtifact(
+                        artifact,
+                        outputSpec.getArtifactType(),
+                        outputSpec.getPublishedConfigTypes());
+            }
         }
     }
 
@@ -555,76 +545,162 @@ public class VariantManager implements VariantModel {
     }
 
     @NonNull
-    private AndroidTypeAttr getConsumeType(@NonNull VariantType type) {
-        switch (type) {
-            case DEFAULT:
-                if (variantFactory instanceof TestVariantFactory) {
-                    return project.getObjects().named(AndroidTypeAttr.class, AndroidTypeAttr.APK);
-                }
-                return project.getObjects().named(AndroidTypeAttr.class, AndroidTypeAttr.AAR);
-            case LIBRARY:
-                return project.getObjects().named(AndroidTypeAttr.class, AndroidTypeAttr.AAR);
-            case FEATURE:
-            case INSTANTAPP:
-                return project.getObjects().named(AndroidTypeAttr.class, AndroidTypeAttr.FEATURE);
-            case ANDROID_TEST:
-            case UNIT_TEST:
-                throw new IllegalStateException(
-                        "Variant type '" + type + "' should not be publishing anything");
-        }
-        throw new IllegalStateException(
-                "Unsupported VariantType requested in getConsumeType(): " + type);
-    }
-
-    @NonNull
-    private AndroidTypeAttr getPublishingType(@NonNull VariantType type) {
-        switch (type) {
-            case DEFAULT:
-                return project.getObjects().named(AndroidTypeAttr.class, AndroidTypeAttr.APK);
-            case LIBRARY:
-                return project.getObjects().named(AndroidTypeAttr.class, AndroidTypeAttr.AAR);
-            case FEATURE:
-            case INSTANTAPP:
-                return project.getObjects().named(AndroidTypeAttr.class, AndroidTypeAttr.FEATURE);
-            case ANDROID_TEST:
-            case UNIT_TEST:
-                throw new IllegalStateException(
-                        "Variant type '" + type + "' should not be publishing anything");
-        }
-        throw new IllegalStateException(
-                "Unsupported VariantType requested in getPublishingType(): " + type);
+    AndroidTypeAttr instantiateAndroidTypeAttr(@NonNull String androidTypeAttrString) {
+        return project.getObjects().named(AndroidTypeAttr.class, androidTypeAttrString);
     }
 
     public void configureDependencies() {
         final DependencyHandler dependencies = project.getDependencies();
 
-        // register transforms.
-        final String explodedAarType = ArtifactType.EXPLODED_AAR.getType();
+        // USE_ANDROID_X indicates that the developers want to be in the AndroidX world, whereas
+        // ENABLE_JETIFIER indicates that they want to have automatic tool support for converting
+        // not-yet-migrated dependencies. Developers may want to use AndroidX but disable Jetifier
+        // for purposes such as debugging. However, disabling AndroidX and enabling Jetifier is not
+        // allowed.
+        if (!globalScope.getProjectOptions().get(BooleanOption.USE_ANDROID_X)
+                && globalScope.getProjectOptions().get(BooleanOption.ENABLE_JETIFIER)) {
+            throw new IllegalStateException(
+                    "AndroidX must be enabled when Jetifier is enabled. To resolve, set "
+                            + BooleanOption.USE_ANDROID_X.getPropertyName()
+                            + "=true in your gradle.properties file.");
+        }
+
+        // If Jetifier is enabled, replace old support libraries with AndroidX.
+        if (globalScope.getProjectOptions().get(BooleanOption.ENABLE_JETIFIER)) {
+            JetifyTransform.replaceOldSupportLibraries(project);
+
+            // Do not jetify libraries that have been blacklisted
+            JetifyTransform.setJetifierBlackList(
+                    globalScope.getProjectOptions().get(StringOption.JETIFIER_BLACKLIST));
+        }
+
+        /*
+         * Register transforms.
+         */
+        // The aars/jars may need to be processed (e.g., jetified to AndroidX) before they can be
+        // used
+        dependencies.registerTransform(
+                transform -> {
+                    transform.getFrom().attribute(ARTIFACT_FORMAT, AAR.getType());
+                    transform.getTo().attribute(ARTIFACT_FORMAT, TYPE_PROCESSED_AAR);
+                    transform.artifactTransform(
+                            globalScope.getProjectOptions().get(BooleanOption.ENABLE_JETIFIER)
+                                    ? JetifyTransform.class
+                                    : IdentityTransform.class);
+                });
+        dependencies.registerTransform(
+                transform -> {
+                    transform.getFrom().attribute(ARTIFACT_FORMAT, JAR.getType());
+                    transform.getTo().attribute(ARTIFACT_FORMAT, PROCESSED_JAR.getType());
+                    transform.artifactTransform(
+                            globalScope.getProjectOptions().get(BooleanOption.ENABLE_JETIFIER)
+                                    ? JetifyTransform.class
+                                    : IdentityTransform.class);
+                });
+
         dependencies.registerTransform(
                 reg -> {
-                    reg.getFrom().attribute(ARTIFACT_FORMAT, AndroidArtifacts.TYPE_AAR);
-                    reg.getTo().attribute(ARTIFACT_FORMAT, explodedAarType);
+                    reg.getFrom().attribute(ARTIFACT_FORMAT, TYPE_PROCESSED_AAR);
+                    reg.getTo().attribute(ARTIFACT_FORMAT, EXPLODED_AAR.getType());
                     reg.artifactTransform(ExtractAarTransform.class);
+                });
+
+        dependencies.registerTransform(
+                reg -> {
+                    // Query for JAR instead of PROCESSED_JAR as android.jar doesn't need processing
+                    reg.getFrom().attribute(ARTIFACT_FORMAT, JAR.getType());
+                    reg.getFrom().attribute(MOCKABLE_JAR_RETURN_DEFAULT_VALUES, true);
+                    reg.getTo().attribute(ARTIFACT_FORMAT, AndroidArtifacts.TYPE_MOCKABLE_JAR);
+                    reg.getTo().attribute(MOCKABLE_JAR_RETURN_DEFAULT_VALUES, true);
+                    reg.artifactTransform(
+                            MockableJarTransform.class, config -> config.params(true));
+                });
+        dependencies.registerTransform(
+                reg -> {
+                    // Query for JAR instead of PROCESSED_JAR as android.jar doesn't need processing
+                    reg.getFrom().attribute(ARTIFACT_FORMAT, JAR.getType());
+                    reg.getFrom().attribute(MOCKABLE_JAR_RETURN_DEFAULT_VALUES, false);
+                    reg.getTo().attribute(ARTIFACT_FORMAT, AndroidArtifacts.TYPE_MOCKABLE_JAR);
+                    reg.getTo().attribute(MOCKABLE_JAR_RETURN_DEFAULT_VALUES, false);
+                    reg.artifactTransform(
+                            MockableJarTransform.class, config -> config.params(false));
+                });
+
+        // transform to extract attr info from android.jar
+        dependencies.registerTransform(
+                reg -> {
+                    // Query for JAR instead of PROCESSED_JAR as android.jar doesn't need processing
+                    reg.getFrom().attribute(ARTIFACT_FORMAT, JAR.getType());
+                    reg.getTo().attribute(ARTIFACT_FORMAT, AndroidArtifacts.TYPE_PLATFORM_ATTR);
+                    reg.artifactTransform(PlatformAttrTransform.class);
                 });
 
         boolean sharedLibSupport =
                 globalScope
                         .getProjectOptions()
                         .get(BooleanOption.CONSUME_DEPENDENCIES_AS_SHARED_LIBRARIES);
+        boolean autoNamespaceDependencies =
+                globalScope.getExtension().getAaptOptions().getNamespaced()
+                        && globalScope
+                                .getProjectOptions()
+                                .get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES);
         for (ArtifactType transformTarget : AarTransform.getTransformTargets()) {
             dependencies.registerTransform(
                     reg -> {
-                        reg.getFrom().attribute(ARTIFACT_FORMAT, explodedAarType);
+                        reg.getFrom().attribute(ARTIFACT_FORMAT, EXPLODED_AAR.getType());
                         reg.getTo().attribute(ARTIFACT_FORMAT, transformTarget.getType());
                         reg.artifactTransform(
                                 AarTransform.class,
-                                config -> config.params(transformTarget, sharedLibSupport));
+                                config ->
+                                        config.params(
+                                                transformTarget,
+                                                sharedLibSupport,
+                                                autoNamespaceDependencies));
+                    });
+        }
+
+        // API jar(s)
+        Usage apiUsage = project.getObjects().named(Usage.class, Usage.JAVA_API);
+        dependencies.registerTransform(
+                reg -> {
+                    reg.getFrom().attribute(ARTIFACT_FORMAT, EXPLODED_AAR.getType());
+                    reg.getFrom().attribute(Usage.USAGE_ATTRIBUTE, apiUsage);
+                    reg.getTo().attribute(ARTIFACT_FORMAT, ArtifactType.CLASSES.getType());
+                    reg.getTo().attribute(Usage.USAGE_ATTRIBUTE, apiUsage);
+                    reg.artifactTransform(
+                            AarCompileClassesTransform.class,
+                            config -> config.params(autoNamespaceDependencies));
+                });
+
+        // Runtime jars
+        Usage runtimeUsage = project.getObjects().named(Usage.class, Usage.JAVA_RUNTIME);
+        dependencies.registerTransform(
+                reg -> {
+                    reg.getFrom().attribute(ARTIFACT_FORMAT, EXPLODED_AAR.getType());
+                    reg.getFrom().attribute(Usage.USAGE_ATTRIBUTE, runtimeUsage);
+                    reg.getTo().attribute(ARTIFACT_FORMAT, ArtifactType.CLASSES.getType());
+                    reg.getTo().attribute(Usage.USAGE_ATTRIBUTE, runtimeUsage);
+                    reg.artifactTransform(
+                            AarTransform.class,
+                            config ->
+                                    config.params(
+                                            ArtifactType.CLASSES,
+                                            sharedLibSupport,
+                                            autoNamespaceDependencies));
+                });
+
+        if (globalScope.getProjectOptions().get(BooleanOption.ENABLE_PROGUARD_RULES_EXTRACTION)) {
+            dependencies.registerTransform(
+                    reg -> {
+                        reg.getFrom().attribute(ARTIFACT_FORMAT, PROCESSED_JAR.getType());
+                        reg.getTo().attribute(ARTIFACT_FORMAT, CONSUMER_PROGUARD_RULES.getType());
+                        reg.artifactTransform(ExtractProGuardRulesTransform.class);
                     });
         }
 
         dependencies.registerTransform(
                 reg -> {
-                    reg.getFrom().attribute(ARTIFACT_FORMAT, explodedAarType);
+                    reg.getFrom().attribute(ARTIFACT_FORMAT, EXPLODED_AAR.getType());
                     reg.getTo()
                             .attribute(
                                     ARTIFACT_FORMAT,
@@ -632,14 +708,42 @@ public class VariantManager implements VariantModel {
                     reg.artifactTransform(LibrarySymbolTableTransform.class);
                 });
 
-        for (String transformTarget : JarTransform.getTransformTargets()) {
+        if (autoNamespaceDependencies) {
             dependencies.registerTransform(
                     reg -> {
-                        reg.getFrom().attribute(ARTIFACT_FORMAT, "jar");
-                        reg.getTo().attribute(ARTIFACT_FORMAT, transformTarget);
-                        reg.artifactTransform(JarTransform.class);
+                        reg.getFrom().attribute(ARTIFACT_FORMAT, EXPLODED_AAR.getType());
+                        reg.getTo()
+                                .attribute(
+                                        ARTIFACT_FORMAT,
+                                        ArtifactType.DEFINED_ONLY_SYMBOL_LIST.getType());
+                        reg.artifactTransform(LibraryDefinedSymbolTableTransform.class);
                     });
         }
+
+        // Transform to go from external jars to CLASSES and JAVA_RES artifacts. This returns the
+        // same exact file but with different types, since a jar file can contain both.
+        for (String classesOrResources :
+                new String[] {ArtifactType.CLASSES.getType(), ArtifactType.JAVA_RES.getType()}) {
+            dependencies.registerTransform(
+                    reg -> {
+                        reg.getFrom().attribute(ARTIFACT_FORMAT, PROCESSED_JAR.getType());
+                        reg.getTo().attribute(ARTIFACT_FORMAT, classesOrResources);
+                        reg.artifactTransform(IdentityTransform.class);
+                    });
+        }
+
+        // The Kotlin Kapt plugin should query for PROCESSED_JAR, but it is currently querying for
+        // JAR, so we need to have the workaround below to make it get PROCESSED_JAR. See
+        // http://issuetracker.google.com/111009645.
+        project.getConfigurations()
+                .all(
+                        configuration -> {
+                            if (configuration.getName().startsWith("kapt")) {
+                                configuration
+                                        .getAttributes()
+                                        .attribute(ARTIFACT_FORMAT, PROCESSED_JAR.getType());
+                            }
+                        });
 
         AttributesSchema schema = dependencies.getAttributesSchema();
 
@@ -653,6 +757,48 @@ public class VariantManager implements VariantModel {
         setBuildTypeStrategy(schema);
 
         setupFlavorStrategy(schema);
+    }
+
+    /** Configure artifact transforms that require variant-specific attribute information. */
+    private void configureVariantArtifactTransforms(
+            @NonNull Collection<VariantScope> variantScopes) {
+        DependencyHandler dependencies = project.getDependencies();
+
+        if (globalScope.getProjectOptions().get(BooleanOption.ENABLE_DEXING_ARTIFACT_TRANSFORM)) {
+
+            for (DexingArtifactConfiguration artifactConfiguration :
+                    getDexingArtifactConfigurations(variantScopes)) {
+                dependencies.registerTransform(
+                        reg -> {
+                            reg.getFrom().attribute(ARTIFACT_FORMAT, PROCESSED_JAR.getType());
+                            reg.getTo().attribute(ARTIFACT_FORMAT, ArtifactType.DEX.getType());
+
+                            reg.getFrom()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_IS_DEBUGGABLE,
+                                            Boolean.toString(artifactConfiguration.isDebuggable()));
+                            reg.getTo()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_IS_DEBUGGABLE,
+                                            Boolean.toString(artifactConfiguration.isDebuggable()));
+                            reg.getFrom()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_MIN_SDK,
+                                            Integer.toString(artifactConfiguration.getMinSdk()));
+                            reg.getTo()
+                                    .attribute(
+                                            DexingTransformKt.ATTR_MIN_SDK,
+                                            Integer.toString(artifactConfiguration.getMinSdk()));
+                            reg.artifactTransform(
+                                    DexingTransform.class,
+                                    config -> {
+                                        config.params(
+                                                artifactConfiguration.getMinSdk(),
+                                                artifactConfiguration.isDebuggable());
+                                    });
+                        });
+            }
+        }
     }
 
     private static <F, T> List<T> convert(
@@ -803,13 +949,15 @@ public class VariantManager implements VariantModel {
         } else {
             // ensure that there is always a dimension
             if (flavorDimensionList == null || flavorDimensionList.isEmpty()) {
-                androidBuilder
+                globalScope
+                        .getAndroidBuilder()
                         .getIssueReporter()
                         .reportError(
                                 EvalIssueReporter.Type.UNNAMED_FLAVOR_DIMENSION,
-                                "All flavors must now belong to a named flavor dimension. "
-                                        + "Learn more at "
-                                        + "https://d.android.com/r/tools/flavorDimensions-missing-error-message.html");
+                                new EvalIssueException(
+                                        "All flavors must now belong to a named flavor dimension. "
+                                                + "Learn more at "
+                                                + "https://d.android.com/r/tools/flavorDimensions-missing-error-message.html"));
             } else if (flavorDimensionList.size() == 1) {
                 // if there's only one dimension, auto-assign the dimension to all the flavors.
                 String dimensionName = flavorDimensionList.get(0);
@@ -842,6 +990,8 @@ public class VariantManager implements VariantModel {
                         (List<ProductFlavor>) (List) flavorCombo.getFlavorList());
             }
         }
+
+        configureVariantArtifactTransforms(variantScopes);
     }
 
     private BaseVariantData createVariantDataForVariantType(
@@ -861,7 +1011,16 @@ public class VariantManager implements VariantModel {
                                 buildTypeData.getBuildType(),
                                 buildTypeData.getSourceSet(),
                                 variantType,
-                                signingOverride);
+                                signingOverride,
+                                globalScope.getErrorHandler(),
+                                this::canParseManifest);
+
+        // Only record release artifacts
+        if (!buildTypeData.getBuildType().isDebuggable()
+                && variantType.isApk()
+                && !variantConfig.getType().isForTesting()) {
+            ProcessProfileWriter.get().recordApplicationId(variantConfig::getApplicationId);
+        }
 
         // sourceSetContainer in case we are creating variant specific sourceSets.
         NamedDomainObjectContainer<AndroidSourceSet> sourceSetsContainer = extension
@@ -919,42 +1078,56 @@ public class VariantManager implements VariantModel {
         BaseVariantData variantData =
                 variantFactory.createVariantData(variantConfig, taskManager, recorder);
 
+        VariantScope variantScope = variantData.getScope();
         VariantDependencies.Builder builder =
                 VariantDependencies.builder(
                                 project,
-                                variantData.getScope().getGlobalScope().getErrorHandler(),
+                                variantScope.getGlobalScope().getErrorHandler(),
                                 variantConfig)
-                        .setConsumeType(
-                                getConsumeType(variantData.getVariantConfiguration().getType()))
-                        .setPublishType(
-                                getPublishingType(variantData.getVariantConfiguration().getType()))
+                        .setConsumeType(instantiateAndroidTypeAttr(variantType.getConsumeType()))
                         .setFlavorSelection(getFlavorSelection(variantConfig))
-                        .addSourceSets(variantSourceSets)
-                        .setBaseSplit(
-                                variantType == VariantType.FEATURE && extension.getBaseFeature());
+                        .addSourceSets(variantSourceSets);
 
-        final VariantDependencies variantDep = builder.build();
+        final String publishType = variantType.getPublishType();
+        if (publishType != null) {
+            builder.setPublishType(instantiateAndroidTypeAttr(publishType));
+        }
+
+        if (extension instanceof BaseAppModuleExtension) {
+            builder.setFeatureList(((BaseAppModuleExtension) extension).getDynamicFeatures());
+        }
+
+        final VariantDependencies variantDep = builder.build(variantScope);
         variantData.setVariantDependency(variantDep);
 
         if (variantConfig.isLegacyMultiDexMode()) {
-            project.getDependencies().add(
-                    variantDep.getCompileClasspath().getName(), COM_ANDROID_SUPPORT_MULTIDEX);
-            project.getDependencies().add(
-                    variantDep.getRuntimeClasspath().getName(), COM_ANDROID_SUPPORT_MULTIDEX);
+            String multiDexDependency =
+                    globalScope.getProjectOptions().get(BooleanOption.USE_ANDROID_X)
+                            ? ANDROIDX_MULTIDEX_MULTIDEX
+                            : COM_ANDROID_SUPPORT_MULTIDEX;
+            project.getDependencies()
+                    .add(variantDep.getCompileClasspath().getName(), multiDexDependency);
+            project.getDependencies()
+                    .add(variantDep.getRuntimeClasspath().getName(), multiDexDependency);
         }
 
         if (variantConfig.getRenderscriptSupportModeEnabled()) {
-            File renderScriptSupportJar = androidBuilder.getRenderScriptSupportJar();
+            File renderScriptSupportJar =
+                    globalScope
+                            .getAndroidBuilder()
+                            .getRenderScriptSupportJar(
+                                    globalScope
+                                            .getProjectOptions()
+                                            .get(BooleanOption.USE_ANDROID_X));
 
             final ConfigurableFileCollection fileCollection = project.files(renderScriptSupportJar);
             project.getDependencies()
                     .add(variantDep.getCompileClasspath().getName(), fileCollection);
-            if (variantType == VariantType.DEFAULT || variantType == VariantType.FEATURE) {
+            if (variantType.isApk() && !variantType.isForTesting()) {
                 project.getDependencies()
                         .add(variantDep.getRuntimeClasspath().getName(), fileCollection);
             }
         }
-
 
         return variantData;
     }
@@ -969,7 +1142,7 @@ public class VariantManager implements VariantModel {
                             sourceSetManager.setUpSourceSet(
                                     computeSourceSetName(
                                             variantConfig.getFullName(), variantConfig.getType()),
-                                    variantConfig.getType().isForTesting());
+                                    variantConfig.getType().isTestComponent());
             variantConfig.setVariantSourceProvider(variantSourceSet);
         }
 
@@ -979,7 +1152,7 @@ public class VariantManager implements VariantModel {
                             sourceSetManager.setUpSourceSet(
                                     computeSourceSetName(
                                             variantConfig.getFlavorName(), variantConfig.getType()),
-                                    variantConfig.getType().isForTesting());
+                                    variantConfig.getType().isTestComponent());
             variantConfig.setMultiFlavorSourceProvider(multiFlavorSourceSet);
         }
     }
@@ -1027,7 +1200,8 @@ public class VariantManager implements VariantModel {
                         testSourceSet,
                         testSourceSet != null ? getParser(testSourceSet.getManifestFile()) : null,
                         buildTypeData.getTestSourceSet(type),
-                        type);
+                        type,
+                        this::canParseManifest);
 
 
         for (CoreProductFlavor productFlavor : productFlavorList) {
@@ -1106,9 +1280,7 @@ public class VariantManager implements VariantModel {
         final boolean projectMatch;
         final String restrictedVariantName;
         if (restrictVariants) {
-            projectMatch =
-                    variantType != VariantType.LIBRARY
-                            && project.getPath().equals(restrictedProject);
+            projectMatch = variantType.isApk() && project.getPath().equals(restrictedProject);
             restrictedVariantName = projectOptions.get(StringOption.IDE_RESTRICT_VARIANT_NAME);
         } else {
             projectMatch = false;
@@ -1132,8 +1304,12 @@ public class VariantManager implements VariantModel {
                         ignore = !variantFilter.getName().equals(restrictedVariantName);
                     }
                 } else {
-                    // variantFilterAction != null always true here.
-                    variantFilterAction.execute(variantFilter);
+                    try {
+                        // variantFilterAction != null always true here.
+                        variantFilterAction.execute(variantFilter);
+                    } catch (Throwable t) {
+                        throw new ExternalApiUsageException(t);
+                    }
                     ignore = variantFilter.isIgnore();
                 }
             }
@@ -1146,6 +1322,22 @@ public class VariantManager implements VariantModel {
 
                 GradleVariantConfiguration variantConfig = variantData.getVariantConfiguration();
                 VariantScope variantScope = variantData.getScope();
+
+                int minSdkVersion = variantConfig.getMinSdkVersion().getApiLevel();
+                int targetSdkVersion = variantConfig.getTargetSdkVersion().getApiLevel();
+                if (minSdkVersion > 0 && targetSdkVersion > 0 && minSdkVersion > targetSdkVersion) {
+                    globalScope
+                            .getDslScope()
+                            .getIssueReporter()
+                            .reportWarning(
+                                    EvalIssueReporter.Type.GENERIC,
+                                    String.format(
+                                            "minSdkVersion (%d) is greater than targetSdkVersion (%d) for variant \"%s\". Please change the values such that minSdkVersion is less than or equal to targetSdkVersion.",
+                                            minSdkVersion,
+                                            targetSdkVersion,
+                                            variantData.getName()));
+                }
+
                 GradleBuildVariant.Builder profileBuilder =
                         ProcessProfileWriter.getOrCreateVariant(
                                         project.getPath(), variantData.getName())
@@ -1193,7 +1385,7 @@ public class VariantManager implements VariantModel {
                         variantForAndroidTest = variantData;
                     }
 
-                    if (variantType != FEATURE) {
+                    if (!variantType.isHybrid()) { // BASE_FEATURE/FEATURE
                         // There's nothing special about unit testing the feature variant, so
                         // there's no point creating the duplicate unit testing variant. This only
                         // causes tests to run twice when running "testDebug".
@@ -1207,7 +1399,7 @@ public class VariantManager implements VariantModel {
 
         if (variantForAndroidTest != null) {
             // TODO: b/34624400
-            if (variantType != FEATURE) {
+            if (!variantType.isHybrid()) { // BASE_FEATURE/FEATURE
                 TestVariantData androidTestVariantData =
                         createTestVariantData(variantForAndroidTest, ANDROID_TEST);
                 addVariant(androidTestVariantData);
@@ -1216,8 +1408,8 @@ public class VariantManager implements VariantModel {
     }
 
     private static void checkName(@NonNull String name, @NonNull String displayName) {
-        checkPrefix(name, displayName, ANDROID_TEST.getPrefix());
-        checkPrefix(name, displayName, UNIT_TEST.getPrefix());
+        checkPrefix(name, displayName, VariantType.ANDROID_TEST_PREFIX);
+        checkPrefix(name, displayName, VariantType.UNIT_TEST_PREFIX);
 
         if (LINT.equals(name)) {
             throw new RuntimeException(String.format(
@@ -1262,6 +1454,20 @@ public class VariantManager implements VariantModel {
 
     @NonNull
     private ManifestAttributeSupplier getParser(@NonNull File file) {
-        return manifestParserMap.computeIfAbsent(file, DefaultManifestParser::new);
+        return manifestParserMap.computeIfAbsent(
+                file,
+                f ->
+                        new DefaultManifestParser(
+                                f,
+                                this::canParseManifest,
+                                globalScope.getAndroidBuilder().getIssueReporter()));
+    }
+
+    private boolean canParseManifest() {
+        return hasCreatedTasks || !projectOptions.get(BooleanOption.DISABLE_EARLY_MANIFEST_PARSING);
+    }
+
+    public void setHasCreatedTasks(boolean hasCreatedTasks) {
+        this.hasCreatedTasks = hasCreatedTasks;
     }
 }

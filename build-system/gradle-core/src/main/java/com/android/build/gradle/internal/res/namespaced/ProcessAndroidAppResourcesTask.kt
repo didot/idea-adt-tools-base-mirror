@@ -16,31 +16,38 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.SdkConstants
-import com.android.build.gradle.internal.aapt.AaptGradleFactory
+import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.api.artifact.singlePath
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
+import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.OutputScope
-import com.android.build.gradle.internal.scope.TaskConfigAction
-import com.android.build.gradle.internal.scope.TaskOutputHolder
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask
-import com.android.builder.core.VariantType
+import com.android.build.gradle.internal.tasks.Workers
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
+import com.android.build.gradle.options.BooleanOption
+import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.builder.internal.aapt.v2.QueueableAapt2
-import com.android.ide.common.process.LoggedProcessOutputHandler
 import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
+import com.google.common.collect.Iterables
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.workers.WorkerExecutor
 import java.io.File
+import java.nio.file.Files
+import javax.inject.Inject
 
 /**
  * Task to link the resource and the AAPT2 static libraries of its dependencies.
@@ -51,12 +58,23 @@ import java.io.File
  * as well as the generated R classes for this app that can be compiled against.
  */
 @CacheableTask
-open class ProcessAndroidAppResourcesTask : AndroidBuilderTask() {
+open class ProcessAndroidAppResourcesTask
+@Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
 
-    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var manifestFileDirectory: FileCollection private set
-    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var thisSubProjectStaticLibrary: FileCollection private set
+    private val workers = Workers.getWorker(workerExecutor)
+
+
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var manifestFileDirectory: BuildableArtifact private set
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var thisSubProjectStaticLibrary: BuildableArtifact private set
     @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) lateinit var libraryDependencies: FileCollection private set
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    @get:Optional
+    var convertedLibraryDependencies: BuildableArtifact? = null
+        private set
     @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) lateinit var sharedLibraryDependencies: FileCollection private set
+    @get:InputFiles @get:Optional @get:PathSensitive(PathSensitivity.RELATIVE)
+    lateinit var aapt2FromMaven: FileCollection private set
 
     @get:OutputDirectory lateinit var aaptIntermediateDir: File private set
     @get:OutputDirectory lateinit var rClassSource: File private set
@@ -66,72 +84,104 @@ open class ProcessAndroidAppResourcesTask : AndroidBuilderTask() {
 
     @TaskAction
     fun taskAction() {
-
         val staticLibraries = ImmutableList.builder<File>()
         staticLibraries.addAll(libraryDependencies.files)
-        staticLibraries.add(thisSubProjectStaticLibrary.singleFile)
+        convertedLibraryDependencies?.singlePath()?.let { convertedDir ->
+            Files.list(convertedDir).use { convertedLibraries ->
+                convertedLibraries.forEach { staticLibraries.add(it.toFile()) }
+            }
+        }
+        staticLibraries.add(thisSubProjectStaticLibrary.single())
         val config = AaptPackageConfig(
                 androidJarPath = builder.target.getPath(IAndroidTarget.ANDROID_JAR),
-                manifestFile = (File(manifestFileDirectory.singleFile,
+                manifestFile = (File(Iterables.getOnlyElement(manifestFileDirectory),
                         SdkConstants.ANDROID_MANIFEST_XML)),
                 options = AaptOptions(null, false, null),
                 staticLibraryDependencies = staticLibraries.build(),
                 imports = ImmutableList.copyOf(sharedLibraryDependencies.asIterable()),
                 sourceOutputDir = rClassSource,
                 resourceOutputApk = resourceApUnderscore,
-                variantType = VariantType.LIBRARY,
+                variantType = VariantTypeImpl.LIBRARY,
                 intermediateDir = aaptIntermediateDir)
 
-        QueueableAapt2(
-                LoggedProcessOutputHandler(iLogger),
-                builder.targetInfo!!.buildTools,
-                AaptGradleFactory.FilteringLogger(builder.logger),
-                0 /* use default */).use { aapt ->
-            aapt.link(config, iLogger)
+        val aapt2ServiceKey = registerAaptService(
+            aapt2FromMaven = aapt2FromMaven, logger = iLogger
+        )
+        workers.use {
+            it.submit(Aapt2LinkRunnable::class.java,
+                Aapt2LinkRunnable.Params(aapt2ServiceKey, config))
         }
     }
 
-    class ConfigAction(
-            private val scope: VariantScope,
-            private val rClassSource: File,
-            private val resourceApUnderscore: File,
-            val isLibrary: Boolean) : TaskConfigAction<ProcessAndroidAppResourcesTask> {
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<ProcessAndroidAppResourcesTask>(variantScope) {
 
-        override fun getName(): String {
-            return scope.getTaskName("process", "Resources")
+        override val name: String
+            get() = variantScope.getTaskName("process", "Resources")
+        override val type: Class<ProcessAndroidAppResourcesTask>
+            get() = ProcessAndroidAppResourcesTask::class.java
+
+        private lateinit var resourceApUnderscore: File
+        private lateinit var rClassSource: File
+
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+
+            val artifacts = variantScope.artifacts
+
+            rClassSource = artifacts.appendArtifact(
+                InternalArtifactType.RUNTIME_R_CLASS_SOURCES,
+                taskName)
+
+            resourceApUnderscore = variantScope.artifacts
+                .appendArtifact(
+                    InternalArtifactType.PROCESSED_RES,
+                    taskName,
+                    "res.apk")
+
         }
 
-        override fun getType(): Class<ProcessAndroidAppResourcesTask> {
-            return ProcessAndroidAppResourcesTask::class.java
-        }
+        override fun configure(task: ProcessAndroidAppResourcesTask) {
+            super.configure(task)
 
-        override fun execute(task: ProcessAndroidAppResourcesTask) {
-            task.variantName = scope.fullVariantName
+            val artifacts = variantScope.artifacts
             task.manifestFileDirectory =
-                    if (scope.hasOutput(TaskOutputHolder.TaskOutputType.AAPT_FRIENDLY_MERGED_MANIFESTS)) {
-                        scope.getOutput(TaskOutputHolder.TaskOutputType.AAPT_FRIENDLY_MERGED_MANIFESTS)
+                    if (artifacts.hasArtifact(InternalArtifactType.AAPT_FRIENDLY_MERGED_MANIFESTS)) {
+                        artifacts.getFinalArtifactFiles(InternalArtifactType.AAPT_FRIENDLY_MERGED_MANIFESTS)
+                    } else if (variantScope.globalScope.projectOptions.get(BooleanOption.DEPLOY_AS_INSTANT_APP)) {
+                        artifacts.getFinalArtifactFiles(InternalArtifactType.INSTANT_APP_MANIFEST)
                     } else {
-                        scope.getOutput(TaskOutputHolder.TaskOutputType.MERGED_MANIFESTS)
+                        artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_MANIFESTS)
                     }
-            task.thisSubProjectStaticLibrary = scope.getOutput(TaskOutputHolder.TaskOutputType.RES_STATIC_LIBRARY)
+            task.thisSubProjectStaticLibrary = variantScope.artifacts.getFinalArtifactFiles(
+                InternalArtifactType.RES_STATIC_LIBRARY)
             task.libraryDependencies =
-                    scope.getArtifactFileCollection(
+                    variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
                             AndroidArtifacts.ArtifactScope.ALL,
                             AndroidArtifacts.ArtifactType.RES_STATIC_LIBRARY)
+            if (variantScope.globalScope.extension.aaptOptions.namespaced &&
+                variantScope.globalScope.projectOptions.get(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES)) {
+                task.convertedLibraryDependencies =
+                        variantScope
+                            .artifacts
+                            .getArtifactFiles(
+                                InternalArtifactType.RES_CONVERTED_NON_NAMESPACED_REMOTE_DEPENDENCIES)
+            }
             task.sharedLibraryDependencies =
-                    scope.getArtifactFileCollection(
+                    variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
                             AndroidArtifacts.ArtifactScope.ALL,
                             AndroidArtifacts.ArtifactType.RES_SHARED_STATIC_LIBRARY)
 
-            task.outputScope = scope.outputScope
+            task.outputScope = variantScope.outputScope
             task.aaptIntermediateDir =
                     FileUtils.join(
-                            scope.globalScope.intermediatesDir, "res-process-intermediate", scope.variantConfiguration.dirName)
+                            variantScope.globalScope.intermediatesDir, "res-process-intermediate", variantScope.variantConfiguration.dirName)
             task.rClassSource = rClassSource
             task.resourceApUnderscore = resourceApUnderscore
-            task.setAndroidBuilder(scope.globalScope.androidBuilder)
+            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
+            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
         }
     }
 

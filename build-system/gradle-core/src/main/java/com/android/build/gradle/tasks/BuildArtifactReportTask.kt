@@ -16,74 +16,50 @@
 
 package com.android.build.gradle.tasks
 
-import com.android.build.api.artifact.ArtifactType
-import com.android.build.api.artifact.BuildArtifactType
-import com.android.build.api.artifact.BuildableArtifact
-import com.android.build.gradle.internal.scope.BuildArtifactHolder
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.gradle.internal.api.DefaultAndroidSourceSet
+import com.android.build.gradle.internal.scope.GlobalScope
+import com.android.build.gradle.internal.scope.Report
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction
 import com.android.build.gradle.options.StringOption
 import com.google.gson.GsonBuilder
-import com.google.gson.JsonElement
-import com.google.gson.JsonParser
-import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
-import org.gradle.api.Task
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.Optional
-import org.gradle.api.tasks.OutputFile
+import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.TaskAction
 import java.io.File
-import java.io.FileReader
 import java.io.FileWriter
 
 /**
  * Task to report information about build artifacts transformations.
  */
-private typealias Report = Map<ArtifactType, List<BuildArtifactReportTask.BuildableArtifactData>>
-
-open class BuildArtifactReportTask : AndroidBuilderTask() {
-    private lateinit var buildArtifactHolder : BuildArtifactHolder
-
-    @get:Input
-    private lateinit var types : Collection<ArtifactType>
+open class BuildArtifactReportTask : DefaultTask() {
+    private lateinit var reportSupplier: () -> Report
 
     /**
      * Output file is optional.  If one is specified, the task will output to the file in JSON
      * format.  Otherwise, it will output to stdout in a more human-readable format.
      */
-    @get:Optional
-    @get:OutputFile
     private var outputFile : File? = null
 
-    //FIXME: VisibleForTesting.  Make this internal when bazel supports it for tests (b/71602857)
-    fun init(
-            buildArtifactHolder : BuildArtifactHolder,
-            types : Collection<ArtifactType>,
-            outputFile : File? = null) {
-        this.buildArtifactHolder = buildArtifactHolder
-        this.types = types
+    internal fun init(report: () -> Report, outputFile : File? = null) {
+        this.reportSupplier = report
         this.outputFile = outputFile
     }
 
     @TaskAction
     fun report() {
-        val reports : Report =
-                types.associate {
-                    it to buildArtifactHolder.getHistory(it).map(this::newArtifact) }
-
+        val report = reportSupplier()
         if (outputFile != null) {
             val gson = GsonBuilder().setPrettyPrinting().create()
             FileWriter(outputFile).use { writer ->
                 val reportType = object : TypeToken<Report>() {}.type
-                gson.toJson(reports, reportType, writer)
+                gson.toJson(report, reportType, writer)
             }
         }
-        for ((type, report) in reports.entries) {
+        for ((type, data) in report.entries) {
             println(type.name())
             println("-".repeat(type.name().length))
-            for ((index, artifact) in report.withIndex()) {
+            for ((index, artifact) in data.withIndex()) {
                 println("BuildableArtifact $index")
                 println("files: ${artifact.files}")
                 println("builtBy: ${artifact.builtBy}")
@@ -92,59 +68,44 @@ open class BuildArtifactReportTask : AndroidBuilderTask() {
         }
     }
 
-    class ConfigAction(val scope : VariantScope) : TaskConfigAction<BuildArtifactReportTask> {
-        override fun getName() = scope.getTaskName("reportBuildArtifacts")
+    class SourceSetReportCreationAction(
+        val globalScope: GlobalScope,
+        val sourceSet: DefaultAndroidSourceSet
+    ) :
+        TaskCreationAction<BuildArtifactReportTask>() {
 
-        override fun getType() = BuildArtifactReportTask::class.java
+        override val name: String
+            get() = "reportSourceSetTransform" + sourceSet.name.capitalize()
+        override val type: Class<BuildArtifactReportTask>
+            get() = BuildArtifactReportTask::class.java
 
-        override fun execute(task: BuildArtifactReportTask) {
-            task.variantName = scope.fullVariantName
+        override fun configure(task: BuildArtifactReportTask) {
+            task.reportSupplier = sourceSet::buildArtifactsReport
+            val outputFile = globalScope.projectOptions.get(StringOption.BUILD_ARTIFACT_REPORT_FILE)
+            if (outputFile != null) {
+                task.outputFile = globalScope.project.file(outputFile)
+            }
+        }
+    }
+
+    class BuildArtifactReportCreationAction(val scope: VariantScope) :
+        TaskCreationAction<BuildArtifactReportTask>() {
+
+        override val name: String
+            get() = scope.getTaskName("reportBuildArtifacts")
+        override val type: Class<BuildArtifactReportTask>
+            get() = BuildArtifactReportTask::class.java
+
+        override fun configure(task: BuildArtifactReportTask) {
             val outputFileName =
                     scope.globalScope.projectOptions.get(StringOption.BUILD_ARTIFACT_REPORT_FILE)
             val outputFile : File? =
                     if (outputFileName == null) null
                     else scope.globalScope.project.file(outputFileName)
 
-             // TODO: populate 'types' with all ArtifactType in buildArtifactHolder.
             task.init(
-                    buildArtifactHolder = scope.buildArtifactHolder,
-                    types = listOf(),
+                    report = scope.artifacts::createReport,
                     outputFile = outputFile)
-        }
-    }
-
-    data class BuildableArtifactData(
-            @SerializedName("files") var files : Collection<File>,
-            @SerializedName("builtBy") var builtBy : List<String>)
-
-    /** Create [BuildableArtifactData] from [BuildableArtifact]. */
-    private fun newArtifact(artifact : BuildableArtifact) =
-            // getDependencies accepts null.
-            @Suppress("NULLABILITY_MISMATCH_BASED_ON_JAVA_ANNOTATIONS")
-            BuildableArtifactData(
-                    artifact.files,
-                    artifact.buildDependencies.getDependencies(null).map(Task::getPath))
-
-
-    companion object {
-        fun parseReport(file : File) : Report {
-            val result = mutableMapOf<ArtifactType, List<BuildableArtifactData>>()
-            val parser = JsonParser()
-            FileReader(file).use { reader ->
-                for ((key, value) in parser.parse(reader).asJsonObject.entrySet()) {
-                    val history =
-                            value.asJsonArray.map {
-                                val obj = it.asJsonObject
-                                BuildableArtifactData(
-                                        obj.getAsJsonArray("files").map {
-                                            File(it.asJsonObject.get("path").asString)
-                                        },
-                                        obj.getAsJsonArray("builtBy").map(JsonElement::getAsString))
-                            }
-                    result.put(BuildArtifactType.valueOf(key), history)
-                }
-            }
-            return result
         }
     }
 }

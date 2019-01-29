@@ -13,13 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.android.ide.common.rendering.api;
 
+import com.android.annotations.Nullable;
 import com.android.ide.common.rendering.api.SessionParams.Key;
 import com.android.resources.Density;
 import com.android.resources.ScreenSize;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -28,7 +27,6 @@ import java.util.Map;
  * to be rendered or additional parameters.
  */
 public abstract class RenderParams {
-
     public static final long DEFAULT_TIMEOUT = 250; //ms
 
     private final Object mProjectKey;
@@ -46,7 +44,7 @@ public abstract class RenderParams {
     private AssetRepository mAssetRepository;
     private IImageFactory mImageFactory;
 
-    private String mAppIcon;
+    private ResourceValue mAppIcon;
     private String mAppLabel;
     private String mLocale;
     private String mActivityName;
@@ -58,6 +56,7 @@ public abstract class RenderParams {
      * doesn't recognize.
      */
     private Map<Key, Object> mFlags;
+    private boolean mEnableQuickStep;
 
     /**
      * @param projectKey An Object identifying the project. This is used for the cache mechanism.
@@ -110,8 +109,9 @@ public abstract class RenderParams {
         mForceNoDecor = params.mForceNoDecor;
         mSupportsRtl = params.mSupportsRtl;
         if (params.mFlags != null) {
-            mFlags = new HashMap<Key, Object>(params.mFlags);
+            mFlags = new HashMap<>(params.mFlags);
         }
+        mEnableQuickStep = params.mEnableQuickStep;
     }
 
     public void setOverrideBgColor(int color) {
@@ -127,11 +127,16 @@ public abstract class RenderParams {
         mImageFactory = imageFactory;
     }
 
-    public void setAppIcon(String appIcon) {
+    /** Sets the application icon resource, or null if there is no icon. */
+    public void setAppIcon(@Nullable ResourceValue appIcon) {
         mAppIcon = appIcon;
     }
 
-    public void setAppLabel(String appLabel) {
+    /**
+     * Sets the application label, or null if there is no label. The label string has to be resolved
+     * and should not require further resource resolution.
+     */
+    public void setAppLabel(@Nullable String appLabel) {
         mAppLabel = appLabel;
     }
 
@@ -153,6 +158,14 @@ public abstract class RenderParams {
 
     public void setAssetRepository(AssetRepository assetRepository) {
         mAssetRepository = assetRepository;
+    }
+
+    /**
+     * Enables/disables the quick step mode in the device. When enabled, this will hide the recents
+     * button and show the quick step home button.
+     */
+    public void setQuickStep(boolean quickStep) {
+        mEnableQuickStep = quickStep;
     }
 
     public Object getProjectKey() {
@@ -219,12 +232,6 @@ public abstract class RenderParams {
         return mAssetRepository;
     }
 
-    /** @deprecated use {@link #getLayoutlibCallback()} */
-    @Deprecated
-    public IProjectCallback getProjectCallback() {
-        return getLayoutlibCallback();
-    }
-
     public LayoutlibCallback getLayoutlibCallback() {
         return mLayoutlibCallback;
     }
@@ -257,39 +264,49 @@ public abstract class RenderParams {
         return mHardwareConfig.getScreenSize();
     }
 
-    public String getAppIcon() {
+    /** Returns the application icon resource, or null if there is no icon. */
+    @Nullable
+    public final ResourceValue getAppIcon() {
         return mAppIcon;
     }
 
-    public String getAppLabel() {
+    /**
+     * Returns the application label, or null if there is no label. The label is already resolved
+     * and does not require further resource resolution.
+     */
+    @Nullable
+    public final String getAppLabel() {
         return mAppLabel;
     }
 
-    public String getLocale() {
+    public final String getLocale() {
         return mLocale;
     }
 
-    public String getActivityName() {
+    public final String getActivityName() {
         return mActivityName;
     }
 
-    public boolean isForceNoDecor() {
+    public final boolean isForceNoDecor() {
         return mForceNoDecor;
     }
 
-    public boolean isRtlSupported() {
+    public final boolean isRtlSupported() {
         return mSupportsRtl;
+    }
+
+    public final boolean isQuickStepEnabled() {
+        return mEnableQuickStep;
     }
 
     public <T> void setFlag(Key<T> key, T value) {
         if (mFlags == null) {
-            mFlags = new HashMap<Key, Object>();
+            mFlags = new HashMap<>();
         }
         mFlags.put(key, value);
     }
 
     public <T> T getFlag(Key<T> key) {
-
         // noinspection since the values in the map can be added only by setFlag which ensures that
         // the types match.
         //noinspection unchecked

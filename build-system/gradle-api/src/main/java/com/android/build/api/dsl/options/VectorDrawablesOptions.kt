@@ -19,11 +19,14 @@ package com.android.build.api.dsl.options
 import com.android.build.api.dsl.Initializable
 import org.gradle.api.Incubating
 
-/** Options for build-time support for vector drawables.  */
+/** Options for build-time support for vector drawables.
+ *
+ * This interface is not currently usable. It is a work in progress.
+ */
 @Incubating
 interface VectorDrawablesOptions : Initializable<VectorDrawablesOptions> {
 
-    val generatedDensities: Set<String>?
+    var generatedDensities: MutableSet<String>
 
-    val useSupportLibrary: Boolean?
+    var useSupportLibrary: Boolean
 }

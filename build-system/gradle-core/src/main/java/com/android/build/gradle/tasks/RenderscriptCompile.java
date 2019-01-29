@@ -19,14 +19,16 @@ package com.android.build.gradle.tasks;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.RENDERSCRIPT;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
+import static com.android.build.gradle.internal.scope.InternalArtifactType.RENDERSCRIPT_SOURCE_OUTPUT_DIR;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.NdkTask;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.builder.internal.compiler.DirectoryWalker;
 import com.android.ide.common.process.LoggedProcessOutputHandler;
 import com.android.ide.common.process.ProcessException;
@@ -37,6 +39,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.CacheableTask;
@@ -46,6 +49,7 @@ import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 /** Task to compile Renderscript files. Supports incremental update. */
 @CacheableTask
@@ -71,6 +75,8 @@ public class RenderscriptCompile extends NdkTask {
     private Supplier<Integer> targetApi;
 
     private boolean supportMode;
+
+    private boolean useAndroidX;
 
     private int optimLevel;
 
@@ -150,6 +156,11 @@ public class RenderscriptCompile extends NdkTask {
     }
 
     @Input
+    public boolean useAndroidX() {
+        return useAndroidX;
+    }
+
+    @Input
     public int getOptimLevel() {
         return optimLevel;
     }
@@ -206,6 +217,7 @@ public class RenderscriptCompile extends NdkTask {
                         getOptimLevel(),
                         isNdkMode(),
                         isSupportMode(),
+                        useAndroidX(),
                         getNdkConfig() == null ? null : getNdkConfig().getAbiFilters(),
                         new LoggedProcessOutputHandler(getILogger()));
     }
@@ -233,21 +245,20 @@ public class RenderscriptCompile extends NdkTask {
         return results;
     }
 
-    // ----- ConfigAction -----
+    // ----- CreationAction -----
 
-    public static class ConfigAction implements TaskConfigAction<RenderscriptCompile> {
+    public static class CreationAction extends VariantTaskCreationAction<RenderscriptCompile> {
 
-        @NonNull
-        private final VariantScope scope;
+        private File sourceOutputDir;
 
-        public ConfigAction(@NonNull VariantScope scope) {
-            this.scope = scope;
+        public CreationAction(@NonNull VariantScope scope) {
+            super(scope);
         }
 
         @NonNull
         @Override
         public String getName() {
-            return scope.getTaskName("compile", "Renderscript");
+            return getVariantScope().getTaskName("compile", "Renderscript");
         }
 
         @NonNull
@@ -257,18 +268,37 @@ public class RenderscriptCompile extends NdkTask {
         }
 
         @Override
-        public void execute(@NonNull RenderscriptCompile renderscriptTask) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+
+            sourceOutputDir =
+                    getVariantScope()
+                            .getArtifacts()
+                            .appendArtifact(RENDERSCRIPT_SOURCE_OUTPUT_DIR, taskName, "out");
+        }
+
+        @Override
+        public void handleProvider(
+                @NonNull TaskProvider<? extends RenderscriptCompile> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setRenderscriptCompileTask(taskProvider);
+        }
+
+        @Override
+        public void configure(@NonNull RenderscriptCompile renderscriptTask) {
+            super.configure(renderscriptTask);
+            VariantScope scope = getVariantScope();
+
             BaseVariantData variantData = scope.getVariantData();
             final GradleVariantConfiguration config = variantData.getVariantConfiguration();
 
-            variantData.renderscriptCompileTask = renderscriptTask;
             boolean ndkMode = config.getRenderscriptNdkModeEnabled();
-            renderscriptTask.setAndroidBuilder(scope.getGlobalScope().getAndroidBuilder());
-            renderscriptTask.setVariantName(config.getFullName());
 
             renderscriptTask.targetApi = TaskInputHelper.memoize(config::getRenderscriptTarget);
 
             renderscriptTask.supportMode = config.getRenderscriptSupportModeEnabled();
+            renderscriptTask.useAndroidX =
+                    scope.getGlobalScope().getProjectOptions().get(BooleanOption.USE_ANDROID_X);
             renderscriptTask.ndkMode = ndkMode;
             renderscriptTask.debugBuild = config.getBuildType().isRenderscriptDebuggable();
             renderscriptTask.optimLevel = config.getBuildType().getRenderscriptOptimLevel();
@@ -276,18 +306,20 @@ public class RenderscriptCompile extends NdkTask {
             renderscriptTask.sourceDirs =
                     scope.getGlobalScope()
                             .getProject()
-                            .files(
-                                    TaskInputHelper.bypassFileCallable(
-                                            config::getRenderscriptSourceList));
+                            .files((Callable<Collection<File>>) config::getRenderscriptSourceList);
             renderscriptTask.importDirs = scope.getArtifactFileCollection(
                     COMPILE_CLASSPATH, ALL, RENDERSCRIPT);
 
-            renderscriptTask.setSourceOutputDir(scope.getRenderscriptSourceOutputDir());
+            renderscriptTask.setSourceOutputDir(sourceOutputDir);
             renderscriptTask.setResOutputDir(scope.getRenderscriptResOutputDir());
             renderscriptTask.setObjOutputDir(scope.getRenderscriptObjOutputDir());
             renderscriptTask.setLibOutputDir(scope.getRenderscriptLibOutputDir());
 
             renderscriptTask.setNdkConfig(config.getNdkConfig());
+
+            if (config.getType().isTestComponent()) {
+                renderscriptTask.dependsOn(scope.getTaskContainer().getProcessManifestTask());
+            }
         }
     }
 }

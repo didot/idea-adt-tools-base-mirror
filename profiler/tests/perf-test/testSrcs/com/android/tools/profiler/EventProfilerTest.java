@@ -18,54 +18,81 @@ package com.android.tools.profiler;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.android.tools.fakeandroid.FakeAndroidDriver;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.regex.Pattern;
+import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
 @RunWith(Parameterized.class)
 public class EventProfilerTest {
+
+    private static final String ACTIVITY_CLASS = "com.activity.event.EventActivity";
+
     @Parameterized.Parameters
-    public static Collection<Boolean> data() {
-        return Arrays.asList(new Boolean[] {false, true});
+    public static Collection<Integer> data() {
+        return Arrays.asList(24, 26);
     }
 
-    private boolean myIsOPlusDevice;
+    private FakeAndroidDriver myAndroidDriver;
 
-    public EventProfilerTest(boolean isOPlusDevice) {
-        myIsOPlusDevice = isOPlusDevice;
+    @Rule public final PerfDriver myPerfDriver;
+
+    public EventProfilerTest(int sdkLevel) {
+        myPerfDriver = new PerfDriver(ACTIVITY_CLASS, sdkLevel);
+    }
+
+    @Before
+    public void setup() throws Exception {
+        myAndroidDriver = myPerfDriver.getFakeAndroidDriver();
     }
 
     @Test
     public void testInputMethodManagerDoesntLeakInputConnection() throws Exception {
-        PerfDriver driver = new PerfDriver(myIsOPlusDevice);
-        FakeAndroidDriver android = driver.getFakeAndroidDriver();
-        //Start the test driver.
-        driver.start("com.activity.event.EventActivity");
-        GrpcUtils grpc = driver.getGrpc();
-
         // Capture initial handle to InputConnection
-        android.triggerMethod("com.activity.event.EventActivity", "printConnection");
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "printConnection");
         String connection =
-                android.waitForInput(Pattern.compile("(.*)(Connection\\:)(?<result>.*)")).trim();
+                myAndroidDriver
+                        .waitForInput(Pattern.compile("(.*)(Connection\\:)(?<result>.*)"))
+                        .trim();
         // Accept input and wait for the input thread to loop around capturing required input.
-        android.triggerMethod("com.activity.event.EventActivity", "acceptInput");
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "acceptInput");
         Thread.sleep(1000);
 
         // Verify that we have captured input and our wrapper captures the expected InputConnection
-        android.triggerMethod("com.activity.event.EventActivity", "printConnection");
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "printConnection");
         String wrappedConnection =
-                android.waitForInput(Pattern.compile("(.*)(WrapperConnection\\:)(?<result>.*)"))
+                myAndroidDriver
+                        .waitForInput(Pattern.compile("(.*)(WrapperConnection\\:)(?<result>.*)"))
                         .trim();
         assertThat(wrappedConnection).matches(connection);
 
         // Disable capturing input and verify the inner connection has been set back to null.
-        android.triggerMethod("com.activity.event.EventActivity", "blockInput");
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "blockInput");
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "clearConnection");
         Thread.sleep(1000);
-        android.triggerMethod("com.activity.event.EventActivity", "printConnection");
-        assertThat(android.waitForInput("WrapperConnection: null")).isTrue();
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "printConnection");
+        assertThat(myAndroidDriver.waitForInput("WrapperConnection: null")).isTrue();
+    }
+
+    @Test
+    public void testNoRecursionOnWeakReferenceApis() throws Exception {
+        // Accept input and wait for the input thread to loop around capturing required input.
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "acceptInput");
+        // Wait a little, we should have the same wrapped connection we initially had.
+        Thread.sleep(500);
+        myAndroidDriver.triggerMethod(ACTIVITY_CLASS, "printInputConnectionTreeDepth");
+        String depth =
+                myAndroidDriver
+                        .waitForInput(
+                                Pattern.compile("(.*)(InputConnectionTree Depth\\: )(?<result>.*)"))
+                        .trim();
+        // 1 Is the wrapper, 1 is the underlaying connection.
+        assertThat(Integer.parseInt(depth)).isEqualTo(2);
     }
 
     @Test

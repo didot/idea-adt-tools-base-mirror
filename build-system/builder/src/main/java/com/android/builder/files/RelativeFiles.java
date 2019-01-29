@@ -17,9 +17,10 @@
 package com.android.builder.files;
 
 import com.android.annotations.NonNull;
-import com.android.apkzlib.zip.StoredEntry;
-import com.android.apkzlib.zip.StoredEntryType;
-import com.android.apkzlib.zip.ZFile;
+import com.android.tools.build.apkzlib.zip.StoredEntry;
+import com.android.tools.build.apkzlib.zip.StoredEntryType;
+import com.android.tools.build.apkzlib.zip.ZFile;
+import com.android.tools.build.apkzlib.zip.ZFileOptions;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
 import com.google.common.collect.ImmutableSet;
@@ -112,11 +113,11 @@ public final class RelativeFiles {
      */
     @NonNull
     public static ImmutableSet<RelativeFile> fromZip(@NonNull File zip) throws IOException {
-        Preconditions.checkArgument(zip.isFile(), "!zip.isFile()");
+        Preconditions.checkArgument(zip.isFile(), "!zip.isFile(): %s", zip);
 
         Set<RelativeFile> files = Sets.newHashSet();
 
-        try (ZFile zipReader = new ZFile(zip)) {
+        try (ZFile zipReader = new ZFile(zip, new ZFileOptions(), true)) {
             for (StoredEntry entry : zipReader.entries()) {
                 if (entry.getType() == StoredEntryType.FILE) {
                     files.add(new RelativeFile(zip, entry.getCentralDirectoryHeader().getName()));

@@ -39,9 +39,10 @@ import static com.android.utils.CharSequences.indexOf;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
+import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.rendering.api.ResourceValue;
-import com.android.ide.common.res2.AbstractResourceRepository;
-import com.android.ide.common.res2.ResourceItem;
+import com.android.ide.common.resources.ResourceItem;
+import com.android.ide.common.resources.ResourceRepository;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.resources.ResourceUrl;
@@ -52,7 +53,7 @@ import com.android.tools.lint.detector.api.Context;
 import com.android.tools.lint.detector.api.Implementation;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
-import com.android.tools.lint.detector.api.LintUtils;
+import com.android.tools.lint.detector.api.Lint;
 import com.android.tools.lint.detector.api.Location;
 import com.android.tools.lint.detector.api.Location.Handle;
 import com.android.tools.lint.detector.api.Position;
@@ -98,131 +99,126 @@ import org.w3c.dom.NodeList;
 /**
  * Check which looks for problems with formatting strings such as inconsistencies between
  * translations or between string declaration and string usage in Java.
- * <p>
- * TODO: Handle Resources.getQuantityString as well
+ *
+ * <p>TODO: Handle Resources.getQuantityString as well
  */
 public class StringFormatDetector extends ResourceXmlDetector implements SourceCodeScanner {
-    private static final Implementation IMPLEMENTATION_XML = new Implementation(
-            StringFormatDetector.class,
-            Scope.ALL_RESOURCES_SCOPE);
+    private static final Implementation IMPLEMENTATION_XML =
+            new Implementation(StringFormatDetector.class, Scope.ALL_RESOURCES_SCOPE);
 
     @SuppressWarnings("unchecked")
-    private static final Implementation IMPLEMENTATION_XML_AND_JAVA = new Implementation(
-            StringFormatDetector.class,
-            EnumSet.of(Scope.ALL_RESOURCE_FILES, Scope.JAVA_FILE),
-            Scope.JAVA_FILE_SCOPE);
-
+    private static final Implementation IMPLEMENTATION_XML_AND_JAVA =
+            new Implementation(
+                    StringFormatDetector.class,
+                    EnumSet.of(Scope.ALL_RESOURCE_FILES, Scope.JAVA_FILE),
+                    Scope.JAVA_FILE_SCOPE);
 
     /** Whether formatting strings are invalid */
-    public static final Issue INVALID = Issue.create(
-            "StringFormatInvalid",
-            "Invalid format string",
-
-            "If a string contains a '%' character, then the string may be a formatting string " +
-            "which will be passed to `String.format` from Java code to replace each '%' " +
-            "occurrence with specific values.\n" +
-            "\n" +
-            "This lint warning checks for two related problems:\n" +
-            "(1) Formatting strings that are invalid, meaning that `String.format` will throw " +
-            "exceptions at runtime when attempting to use the format string.\n" +
-            "(2) Strings containing '%' that are not formatting strings getting passed to " +
-            "a `String.format` call. In this case the '%' will need to be escaped as '%%'.\n" +
-            "\n" +
-            "NOTE: Not all Strings which look like formatting strings are intended for " +
-            "use by `String.format`; for example, they may contain date formats intended " +
-            "for `android.text.format.Time#format()`. Lint cannot always figure out that " +
-            "a String is a date format, so you may get false warnings in those scenarios. " +
-            "See the suppress help topic for information on how to suppress errors in " +
-            "that case.",
-
-            Category.MESSAGES,
-            9,
-            Severity.ERROR,
-            IMPLEMENTATION_XML);
+    public static final Issue INVALID =
+            Issue.create(
+                    "StringFormatInvalid",
+                    "Invalid format string",
+                    "If a string contains a '%' character, then the string may be a formatting string "
+                            + "which will be passed to `String.format` from Java code to replace each '%' "
+                            + "occurrence with specific values.\n"
+                            + "\n"
+                            + "This lint warning checks for two related problems:\n"
+                            + "(1) Formatting strings that are invalid, meaning that `String.format` will throw "
+                            + "exceptions at runtime when attempting to use the format string.\n"
+                            + "(2) Strings containing '%' that are not formatting strings getting passed to "
+                            + "a `String.format` call. In this case the '%' will need to be escaped as '%%'.\n"
+                            + "\n"
+                            + "NOTE: Not all Strings which look like formatting strings are intended for "
+                            + "use by `String.format`; for example, they may contain date formats intended "
+                            + "for `android.text.format.Time#format()`. Lint cannot always figure out that "
+                            + "a String is a date format, so you may get false warnings in those scenarios. "
+                            + "See the suppress help topic for information on how to suppress errors in "
+                            + "that case.",
+                    Category.MESSAGES,
+                    9,
+                    Severity.ERROR,
+                    IMPLEMENTATION_XML);
 
     /** Whether formatting argument types are consistent across translations */
-    public static final Issue ARG_COUNT = Issue.create(
-            "StringFormatCount",
-            "Formatting argument types incomplete or inconsistent",
-
-            "When a formatted string takes arguments, it usually needs to reference the " +
-            "same arguments in all translations (or all arguments if there are no " +
-            "translations.\n" +
-            "\n" +
-            "There are cases where this is not the case, so this issue is a warning rather " +
-            "than an error by default. However, this usually happens when a language is not " +
-            "translated or updated correctly.",
-            Category.MESSAGES,
-            5,
-            Severity.WARNING,
-            IMPLEMENTATION_XML);
+    public static final Issue ARG_COUNT =
+            Issue.create(
+                    "StringFormatCount",
+                    "Formatting argument types incomplete or inconsistent",
+                    "When a formatted string takes arguments, it usually needs to reference the "
+                            + "same arguments in all translations (or all arguments if there are no "
+                            + "translations.\n"
+                            + "\n"
+                            + "There are cases where this is not the case, so this issue is a warning rather "
+                            + "than an error by default. However, this usually happens when a language is not "
+                            + "translated or updated correctly.",
+                    Category.MESSAGES,
+                    5,
+                    Severity.WARNING,
+                    IMPLEMENTATION_XML);
 
     /** Whether the string format supplied in a call to String.format matches the format string */
-    public static final Issue ARG_TYPES = Issue.create(
-            "StringFormatMatches",
-            "`String.format` string doesn't match the XML format string",
-
-            "This lint check ensures the following:\n" +
-            "(1) If there are multiple translations of the format string, then all translations " +
-            "use the same type for the same numbered arguments\n" +
-            "(2) The usage of the format string in Java is consistent with the format string, " +
-            "meaning that the parameter types passed to String.format matches those in the " +
-            "format string.",
-            Category.MESSAGES,
-            9,
-            Severity.ERROR,
-            IMPLEMENTATION_XML_AND_JAVA);
+    public static final Issue ARG_TYPES =
+            Issue.create(
+                    "StringFormatMatches",
+                    "`String.format` string doesn't match the XML format string",
+                    "This lint check ensures the following:\n"
+                            + "(1) If there are multiple translations of the format string, then all translations "
+                            + "use the same type for the same numbered arguments\n"
+                            + "(2) The usage of the format string in Java is consistent with the format string, "
+                            + "meaning that the parameter types passed to String.format matches those in the "
+                            + "format string.",
+                    Category.MESSAGES,
+                    9,
+                    Severity.ERROR,
+                    IMPLEMENTATION_XML_AND_JAVA);
 
     /** This plural does not use the quantity value */
-    public static final Issue POTENTIAL_PLURAL = Issue.create(
-            "PluralsCandidate",
-            "Potential Plurals",
-
-            "This lint check looks for potential errors in internationalization where you have " +
-            "translated a message which involves a quantity and it looks like other parts of " +
-            "the string may need grammatical changes.\n" +
-            "\n" +
-            "For example, rather than something like this:\n" +
-            "  <string name=\"try_again\">Try again in %d seconds.</string>\n" +
-            "you should be using a plural:\n" +
-            "   <plurals name=\"try_again\">\n" +
-            "        <item quantity=\"one\">Try again in %d second</item>\n" +
-            "        <item quantity=\"other\">Try again in %d seconds</item>\n" +
-            "    </plurals>\n" +
-            "This will ensure that in other languages the right set of translations are " +
-            "provided for the different quantity classes.\n" +
-            "\n" +
-            "(This check depends on some heuristics, so it may not accurately determine whether " +
-            "a string really should be a quantity. You can use tools:ignore to filter out false " +
-            "positives.",
-
-            Category.MESSAGES,
-            5,
-            Severity.WARNING,
-            IMPLEMENTATION_XML).addMoreInfo(
-            "http://developer.android.com/guide/topics/resources/string-resource.html#Plurals");
+    public static final Issue POTENTIAL_PLURAL =
+            Issue.create(
+                            "PluralsCandidate",
+                            "Potential Plurals",
+                            "This lint check looks for potential errors in internationalization where you have "
+                                    + "translated a message which involves a quantity and it looks like other parts of "
+                                    + "the string may need grammatical changes.\n"
+                                    + "\n"
+                                    + "For example, rather than something like this:\n"
+                                    + "  <string name=\"try_again\">Try again in %d seconds.</string>\n"
+                                    + "you should be using a plural:\n"
+                                    + "   <plurals name=\"try_again\">\n"
+                                    + "        <item quantity=\"one\">Try again in %d second</item>\n"
+                                    + "        <item quantity=\"other\">Try again in %d seconds</item>\n"
+                                    + "    </plurals>\n"
+                                    + "This will ensure that in other languages the right set of translations are "
+                                    + "provided for the different quantity classes.\n"
+                                    + "\n"
+                                    + "(This check depends on some heuristics, so it may not accurately determine whether "
+                                    + "a string really should be a quantity. You can use tools:ignore to filter out false "
+                                    + "positives.",
+                            Category.MESSAGES,
+                            5,
+                            Severity.WARNING,
+                            IMPLEMENTATION_XML)
+                    .addMoreInfo(
+                            "http://developer.android.com/guide/topics/resources/string-resource.html#Plurals");
 
     /**
-     * Map from a format string name to a list of declaration file and actual
-     * formatting string content. We're using a list since a format string can be
-     * defined multiple times, usually for different translations.
+     * Map from a format string name to a list of declaration file and actual formatting string
+     * content. We're using a list since a format string can be defined multiple times, usually for
+     * different translations.
      */
     private Map<String, List<Pair<Handle, String>>> mFormatStrings;
 
-    /**
-     * Map of strings that do not contain any formatting.
-     */
+    /** Map of strings that do not contain any formatting. */
     private final Map<String, Handle> mNotFormatStrings = new HashMap<>();
 
     /**
-     * Set of strings that have an unknown format such as date formatting; we should not
-     * flag these as invalid when used from a String#format call
+     * Set of strings that have an unknown format such as date formatting; we should not flag these
+     * as invalid when used from a String#format call
      */
     private Set<String> mIgnoreStrings;
 
     /** Constructs a new {@link StringFormatDetector} check */
-    public StringFormatDetector() {
-    }
+    public StringFormatDetector() {}
 
     @Override
     public boolean appliesTo(@NonNull ResourceFolderType folderType) {
@@ -257,7 +253,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
         }
     }
 
-    private static void addText(StringBuilder sb, Node node) {
+    static void addText(StringBuilder sb, Node node) {
         if (node.getNodeType() == Node.TEXT_NODE) {
             sb.append(stripQuotes(node.getNodeValue().trim()));
         } else {
@@ -269,10 +265,10 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     /**
-     * Removes all the unescaped quotes. See
-     * <a href="http://developer.android.com/guide/topics/resources/string-resource.html#FormattingAndStyling">Escaping apostrophes and quotes</a>
+     * Removes all the unescaped quotes. See <a
+     * href="http://developer.android.com/guide/topics/resources/string-resource.html#FormattingAndStyling">Escaping
+     * apostrophes and quotes</a>
      */
-    @VisibleForTesting
     static String stripQuotes(String s) {
         StringBuilder sb = new StringBuilder();
         boolean isEscaped = false;
@@ -410,11 +406,11 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     /**
-     * Checks whether the text begins with a non-unit word, pointing to a string
-     * that should probably be a plural instead. This
+     * Checks whether the text begins with a non-unit word, pointing to a string that should
+     * probably be a plural instead. This
      */
-    private static boolean checkPotentialPlural(XmlContext context, Element element, String text,
-            int wordBegin) {
+    private static boolean checkPotentialPlural(
+            XmlContext context, Element element, String text, int wordBegin) {
         // This method should only be called if the text is known to start with a word
         assert Character.isLetter(text.charAt(wordBegin));
 
@@ -465,12 +461,13 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
         }
 
         // This heuristic only works in English!
-        if (LintUtils.isEnglishResource(context, true)) {
-            String message = String.format("Formatting %%d followed by words (\"%1$s\"): "
-                            + "This should probably be a plural rather than a string", word);
-            context.report(POTENTIAL_PLURAL, element,
-                    context.getLocation(element),
-                    message);
+        if (Lint.isEnglishResource(context, true)) {
+            String message =
+                    String.format(
+                            "Formatting %%d followed by words (\"%1$s\"): "
+                                    + "This should probably be a plural rather than a string",
+                            word);
+            context.report(POTENTIAL_PLURAL, element, context.getLocation(element), message);
             // Avoid reporting multiple errors on the same string
             // (if it contains more than one %d)
             return true;
@@ -480,7 +477,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     @Override
-    public void afterCheckProject(@NonNull Context context) {
+    public void afterCheckRootProject(@NonNull Context context) {
         if (mFormatStrings != null) {
             boolean checkCount = context.isEnabled(ARG_COUNT);
             boolean checkValid = context.isEnabled(INVALID);
@@ -497,8 +494,11 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 if (checkCount) {
                     Handle notFormatted = mNotFormatStrings.get(name);
                     if (notFormatted != null) {
-                        list = ImmutableList.<Pair<Handle, String>>builder()
-                                .add(Pair.of(notFormatted, name)).addAll(list).build();
+                        list =
+                                ImmutableList.<Pair<Handle, String>>builder()
+                                        .add(Pair.of(notFormatted, name))
+                                        .addAll(list)
+                                        .build();
                     }
                     checkArity(context, name, list);
                 }
@@ -511,8 +511,12 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
         }
     }
 
-    private static void checkTypes(Context context, boolean checkValid,
-            boolean checkTypes, String name, List<Pair<Handle, String>> list) {
+    private static void checkTypes(
+            Context context,
+            boolean checkValid,
+            boolean checkTypes,
+            String name,
+            List<Pair<Handle, String>> list) {
         Map<Integer, String> types = new HashMap<>();
         Map<Integer, Handle> typeDefinition = new HashMap<>();
         for (Pair<Handle, String> pair : list) {
@@ -562,16 +566,18 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                             if (last != 'd' && last != 'o' && last != 'x' && last != 'X') {
                                 Object clientData = handle.getClientData();
                                 if (clientData instanceof Node) {
-                                    if (context.getDriver().isSuppressed(null, INVALID,
-                                            (Node) clientData)) {
+                                    if (context.getDriver()
+                                            .isSuppressed(null, INVALID, (Node) clientData)) {
                                         return;
                                     }
                                 }
 
                                 Location location = handle.resolve();
-                                String message = String.format(
-                                        "Incorrect formatting string `%1$s`; missing conversion " +
-                                        "character in '`%2$s`' ?", name, str);
+                                String message =
+                                        String.format(
+                                                "Incorrect formatting string `%1$s`; missing conversion "
+                                                        + "character in '`%2$s`' ?",
+                                                name, str);
                                 context.report(INVALID, location, message);
                                 //warned = true;
                                 continue;
@@ -605,8 +611,8 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
 
                         Object clientData = handle.getClientData();
                         if (clientData instanceof Node) {
-                            if (context.getDriver().isSuppressed(null, ARG_TYPES,
-                                    (Node) clientData)) {
+                            if (context.getDriver()
+                                    .isSuppressed(null, ARG_TYPES, (Node) clientData)) {
                                 return;
                             }
                         }
@@ -614,20 +620,28 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                         Location location = handle.resolve();
                         // Attempt to limit the location range to just the formatting
                         // string in question
-                        location = refineLocation(context, location, formatString,
-                                matcher.start(), matcher.end());
+                        location =
+                                refineLocation(
+                                        context,
+                                        location,
+                                        formatString,
+                                        matcher.start(),
+                                        matcher.end());
                         Location otherLocation = typeDefinition.get(number).resolve();
                         otherLocation.setMessage("Conflicting argument type here");
                         location.setSecondary(otherLocation);
                         File f = otherLocation.getFile();
-                        String message = String.format(
-                                "Inconsistent formatting types for argument #%1$d in " +
-                                "format string `%2$s` ('%3$s'): Found both '`%4$s`' and '`%5$s`' " +
-                                "(in %6$s)",
-                                number, name,
-                                str,
-                                currentFormat, format,
-                                LintUtils.getFileNameWithParent(context.getClient(), f));
+                        String message =
+                                String.format(
+                                        "Inconsistent formatting types for argument #%1$d in "
+                                                + "format string `%2$s` ('%3$s'): Found both '`%4$s`' and '`%5$s`' "
+                                                + "(in %6$s)",
+                                        number,
+                                        name,
+                                        str,
+                                        currentFormat,
+                                        format,
+                                        Lint.getFileNameWithParent(context.getClient(), f));
                         //warned = true;
                         context.report(ARG_TYPES, location, message);
                         break;
@@ -666,12 +680,10 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     /**
-     * Returns true if two String.format conversions are "incompatible" (meaning
-     * that using these two for the same argument across different translations
-     * is more likely an error than intentional. Some conversions are
-     * incompatible, e.g. "d" and "s" where one is a number and string, whereas
-     * others may work (e.g. float versus integer) but are probably not
-     * intentional.
+     * Returns true if two String.format conversions are "incompatible" (meaning that using these
+     * two for the same argument across different translations is more likely an error than
+     * intentional. Some conversions are incompatible, e.g. "d" and "s" where one is a number and
+     * string, whereas others may work (e.g. float versus integer) but are probably not intentional.
      */
     private static boolean isIncompatible(char conversion1, char conversion2) {
         int class1 = getConversionClass(conversion1);
@@ -695,45 +707,49 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     private static int getConversionClass(char conversion) {
         // See http://developer.android.com/reference/java/util/Formatter.html
         switch (conversion) {
-            case 't':   // Time/date conversion
+            case 't': // Time/date conversion
             case 'T':
                 return CONVERSION_CLASS_DATETIME;
-            case 's':   // string
-            case 'S':   // Uppercase string
+            case 's': // string
+            case 'S': // Uppercase string
                 return CONVERSION_CLASS_STRING;
-            case 'c':   // character
-            case 'C':   // Uppercase character
+            case 'c': // character
+            case 'C': // Uppercase character
                 return CONVERSION_CLASS_CHARACTER;
-            case 'd':   // decimal
-            case 'o':   // octal
-            case 'x':   // hex
+            case 'd': // decimal
+            case 'o': // octal
+            case 'x': // hex
             case 'X':
                 return CONVERSION_CLASS_INTEGER;
-            case 'f':   // decimal float
-            case 'e':   // exponential float
+            case 'f': // decimal float
+            case 'e': // exponential float
             case 'E':
-            case 'g':   // decimal or exponential depending on size
+            case 'g': // decimal or exponential depending on size
             case 'G':
-            case 'a':   // hex float
+            case 'a': // hex float
             case 'A':
                 return CONVERSION_CLASS_FLOAT;
-            case 'b':   // boolean
+            case 'b': // boolean
             case 'B':
                 return CONVERSION_CLASS_BOOLEAN;
-            case 'h':   // boolean
+            case 'h': // boolean
             case 'H':
                 return CONVERSION_CLASS_HASHCODE;
-            case '%':   // literal
+            case '%': // literal
                 return CONVERSION_CLASS_PERCENT;
-            case 'n':   // literal
+            case 'n': // literal
                 return CONVERSION_CLASS_NEWLINE;
         }
 
         return CONVERSION_CLASS_UNKNOWN;
     }
 
-    private static Location refineLocation(Context context, Location location,
-            String formatString, int substringStart, int substringEnd) {
+    private static Location refineLocation(
+            Context context,
+            Location location,
+            String formatString,
+            int substringStart,
+            int substringEnd) {
         Position startLocation = location.getStart();
         Position endLocation = location.getEnd();
         if (startLocation != null && endLocation != null) {
@@ -744,8 +760,11 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 if (endOffset <= contents.length() && startOffset < endOffset) {
                     int formatOffset = indexOf(contents, formatString, startOffset);
                     if (formatOffset != -1 && formatOffset <= endOffset) {
-                        return Location.create(location.getFile(), contents,
-                                formatOffset + substringStart, formatOffset + substringEnd);
+                        return Location.create(
+                                location.getFile(),
+                                contents,
+                                formatOffset + substringStart,
+                                formatOffset + substringEnd);
                     }
                 }
             }
@@ -755,8 +774,8 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     /**
-     * Check that the number of arguments in the format string is consistent
-     * across translations, and that all arguments are used
+     * Check that the number of arguments in the format string is consistent across translations,
+     * and that all arguments are used
      */
     private static void checkArity(Context context, String name, List<Pair<Handle, String>> list) {
         // Check to make sure that the argument counts and types are consistent
@@ -776,9 +795,11 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 Location secondary = list.get(0).getFirst().resolve();
                 secondary.setMessage("Conflicting number of arguments here");
                 location.setSecondary(secondary);
-                String message = String.format(
-                        "Inconsistent number of arguments in formatting string `%1$s`; " +
-                        "found both %2$d and %3$d", name, prevCount, count);
+                String message =
+                        String.format(
+                                "Inconsistent number of arguments in formatting string `%1$s`; "
+                                        + "found both %2$d and %3$d",
+                                name, prevCount, count);
                 context.report(ARG_COUNT, location, message);
                 break;
             }
@@ -787,8 +808,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 if (!indices.contains(i)) {
                     Object clientData = handle.getClientData();
                     if (clientData instanceof Node) {
-                        if (context.getDriver().isSuppressed(null, ARG_COUNT,
-                                (Node) clientData)) {
+                        if (context.getDriver().isSuppressed(null, ARG_COUNT, (Node) clientData)) {
                             return;
                         }
                     }
@@ -801,9 +821,10 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                     List<Integer> sorted = new ArrayList<>(all);
                     Collections.sort(sorted);
                     Location location = handle.resolve();
-                    String message = String.format(
-                            "Formatting string '`%1$s`' is not referencing numbered arguments %2$s",
-                            name, sorted);
+                    String message =
+                            String.format(
+                                    "Formatting string '`%1$s`' is not referencing numbered arguments %2$s",
+                                    name, sorted);
                     context.report(ARG_COUNT, location, message);
                     break;
                 }
@@ -814,28 +835,35 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     // See java.util.Formatter docs
-    public static final Pattern FORMAT = Pattern.compile(
-            // Generic format:
-            //   %[argument_index$][flags][width][.precision]conversion
-            //
-            "%" +
-            // Argument Index
-            "(\\d+\\$)?" +
-            // Flags
-            "([-+#, 0(<]*)?" +
-            // Width
-            "(\\d+)?" +
-            // Precision
-            "(\\.\\d+)?" +
-            // Conversion. These are all a single character, except date/time conversions
-            // which take a prefix of t/T:
-            "([tT])?" +
-            // The current set of conversion characters are
-            // b,h,s,c,d,o,x,e,f,g,a,t (as well as all those as upper-case characters), plus
-            // n for newlines and % as a literal %. And then there are all the time/date
-            // characters: HIKLm etc. Just match on all characters here since there should
-            // be at least one.
-            "([a-zA-Z%])");
+    public static final Pattern FORMAT =
+            Pattern.compile(
+                    // Generic format:
+                    //   %[argument_index$][flags][width][.precision]conversion
+                    //
+                    "%"
+                            +
+                            // Argument Index
+                            "(\\d+\\$)?"
+                            +
+                            // Flags
+                            "([-+#, 0(<]*)?"
+                            +
+                            // Width
+                            "(\\d+)?"
+                            +
+                            // Precision
+                            "(\\.\\d+)?"
+                            +
+                            // Conversion. These are all a single character, except date/time conversions
+                            // which take a prefix of t/T:
+                            "([tT])?"
+                            +
+                            // The current set of conversion characters are
+                            // b,h,s,c,d,o,x,e,f,g,a,t (as well as all those as upper-case characters), plus
+                            // n for newlines and % as a literal %. And then there are all the time/date
+                            // characters: HIKLm etc. Just match on all characters here since there should
+                            // be at least one.
+                            "([a-zA-Z%])");
 
     /** Given a format string returns the format type of the given argument */
     @VisibleForTesting
@@ -892,9 +920,8 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     /**
-     * Given a format string returns the number of required arguments. If the
-     * {@code seenArguments} parameter is not null, put the indices of any
-     * observed arguments into it.
+     * Given a format string returns the number of required arguments. If the {@code seenArguments}
+     * parameter is not null, put the indices of any observed arguments into it.
      */
     static int getFormatArgumentCount(@NonNull String s, @Nullable Set<Integer> seenArguments) {
         Matcher matcher = FORMAT.matcher(s);
@@ -953,10 +980,9 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     /**
-     * Determines whether the given {@link String#format(String, Object...)}
-     * formatting string is "locale dependent", meaning that its output depends
-     * on the locale. This is the case if it for example references decimal
-     * numbers of dates and times.
+     * Determines whether the given {@link String#format(String, Object...)} formatting string is
+     * "locale dependent", meaning that its output depends on the locale. This is the case if it for
+     * example references decimal numbers of dates and times.
      *
      * @param format the format string
      * @return true if the format is locale sensitive, false otherwise
@@ -1017,7 +1043,9 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
     }
 
     @Override
-    public void visitMethod(@NonNull JavaContext context, @NonNull UCallExpression node,
+    public void visitMethodCall(
+            @NonNull JavaContext context,
+            @NonNull UCallExpression node,
             @NonNull PsiMethod method) {
         if (mFormatStrings == null && !context.getClient().supportsProjectResources()) {
             return;
@@ -1030,8 +1058,8 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 // Check formatting parameters for
                 //   java.lang.String#format(String format, Object... formatArgs)
                 //   java.lang.String#format(Locale locale, String format, Object... formatArgs)
-                checkStringFormatCall(context, method, node,
-                        method.getParameterList().getParametersCount() == 3);
+                checkStringFormatCall(
+                        context, method, node, method.getParameterList().getParametersCount() == 3);
 
                 // TODO: Consider also enforcing
                 // java.util.Formatter#format(String string, Object... formatArgs)
@@ -1053,10 +1081,11 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 return;
             }
 
-            if (evaluator.isMemberInSubClassOf(method, CLASS_RESOURCES, false) ||
-                    evaluator.isMemberInSubClassOf(method, CLASS_CONTEXT, false) ||
-                    evaluator.isMemberInSubClassOf(method, CLASS_FRAGMENT, false) ||
-                    evaluator.isMemberInSubClassOf(method, CLASS_V4_FRAGMENT, false)) {
+            if (evaluator.isMemberInSubClassOf(method, CLASS_RESOURCES, false)
+                    || evaluator.isMemberInSubClassOf(method, CLASS_CONTEXT, false)
+                    || evaluator.isMemberInSubClassOf(method, CLASS_FRAGMENT, false)
+                    || evaluator.isMemberInSubClassOf(method, CLASS_V4_FRAGMENT.oldName(), false)
+                    || evaluator.isMemberInSubClassOf(method, CLASS_V4_FRAGMENT.newName(), false)) {
                 checkStringFormatCall(context, method, node, false);
             }
 
@@ -1070,16 +1099,14 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
 
     /**
      * Checks a String.format call that is using a string that doesn't contain format placeholders.
+     *
      * @param context the context to report errors to
      * @param call the AST node for the {@link String#format}
      * @param name the string name
      * @param handle the string location
      */
     private static void checkNotFormattedHandle(
-            JavaContext context,
-            UCallExpression call,
-            String name,
-            Handle handle) {
+            JavaContext context, UCallExpression call, String name, Handle handle) {
         Object clientData = handle.getClientData();
         if (clientData instanceof Node) {
             if (context.getDriver().isSuppressed(null, INVALID, (Node) clientData)) {
@@ -1090,20 +1117,22 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
         Location secondary = handle.resolve();
         secondary.setMessage("This definition does not require arguments");
         location.setSecondary(secondary);
-        String message = String.format(
-                "Format string '`%1$s`' is not a valid format string so it should not be " +
-                        "passed to `String.format`",
-                name);
+        String message =
+                String.format(
+                        "Format string '`%1$s`' is not a valid format string so it should not be "
+                                + "passed to `String.format`",
+                        name);
         context.report(INVALID, call, location, message);
     }
 
     /**
      * Check the given String.format call (with the given arguments) to see if the string format is
      * being used correctly
-     *  @param context           the context to report errors to
-     * @param calledMethod      the method being called
-     * @param call              the AST node for the {@link String#format}
-     * @param specifiesLocale   whether the first parameter is a locale string, shifting the
+     *
+     * @param context the context to report errors to
+     * @param calledMethod the method being called
+     * @param call the AST node for the {@link String#format}
+     * @param specifiesLocale whether the first parameter is a locale string, shifting the
      */
     private void checkStringFormatCall(
             JavaContext context,
@@ -1119,9 +1148,8 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
         }
 
         UExpression argument = args.get(argIndex);
-        ResourceUrl resource = ResourceEvaluator.getResource(context.getEvaluator(),
-                argument);
-        if (resource == null || resource.framework || resource.type != ResourceType.STRING) {
+        ResourceUrl resource = ResourceEvaluator.getResource(context.getEvaluator(), argument);
+        if (resource == null || resource.isFramework() || resource.type != ResourceType.STRING) {
             return;
         }
 
@@ -1144,18 +1172,19 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
             UExpression lastArg = args.get(args.size() - 1);
             PsiParameterList parameterList = calledMethod.getParameterList();
             int parameterCount = parameterList.getParametersCount();
-            if (parameterCount > 0 && parameterList.getParameters()[parameterCount - 1].isVarArgs()) {
+            if (parameterCount > 0
+                    && parameterList.getParameters()[parameterCount - 1].isVarArgs()) {
                 boolean knownArity = false;
 
                 boolean argWasReference = false;
                 if (lastArg instanceof UReferenceExpression) {
                     PsiElement resolved = ((UReferenceExpression) lastArg).resolve();
                     if (resolved instanceof PsiVariable) {
-                        UExpression initializer = context.getUastContext().getInitializerBody(
-                                (PsiVariable) resolved);
-                        if (initializer != null &&
-                                (UastExpressionUtils.isNewArray(initializer) ||
-                                        UastExpressionUtils.isArrayInitializer(initializer))) {
+                        UExpression initializer =
+                                context.getUastContext().getInitializerBody((PsiVariable) resolved);
+                        if (initializer != null
+                                && (UastExpressionUtils.isNewArray(initializer)
+                                        || UastExpressionUtils.isArrayInitializer(initializer))) {
                             argWasReference = true;
                             // Now handled by check below
                             lastArg = initializer;
@@ -1163,12 +1192,12 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                     }
                 }
 
-                if (UastExpressionUtils.isNewArray(lastArg) ||
-                        UastExpressionUtils.isArrayInitializer(lastArg)) {
+                if (UastExpressionUtils.isNewArray(lastArg)
+                        || UastExpressionUtils.isArrayInitializer(lastArg)) {
                     UCallExpression arrayInitializer = (UCallExpression) lastArg;
 
-                    if (UastExpressionUtils.isNewArrayWithInitializer(lastArg) ||
-                            UastExpressionUtils.isArrayInitializer(lastArg)) {
+                    if (UastExpressionUtils.isNewArrayWithInitializer(lastArg)
+                            || UastExpressionUtils.isArrayInitializer(lastArg)) {
                         callCount = arrayInitializer.getValueArgumentCount();
                         knownArity = true;
                     } else if (UastExpressionUtils.isNewArrayWithDimensions(lastArg)) {
@@ -1178,7 +1207,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                             if (first instanceof ULiteralExpression) {
                                 Object o = ((ULiteralExpression) first).getValue();
                                 if (o instanceof Integer) {
-                                    callCount = (Integer)o;
+                                    callCount = (Integer) o;
                                     knownArity = true;
                                 }
                             }
@@ -1203,20 +1232,22 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
         List<Pair<Handle, String>> list = mFormatStrings != null ? mFormatStrings.get(name) : null;
         if (list == null) {
             LintClient client = context.getClient();
-            if (client.supportsProjectResources() &&
-                    !context.getScope().contains(Scope.RESOURCE_FILE)) {
-                AbstractResourceRepository resources = client
-                        .getResourceRepository(context.getMainProject(), true, false);
+            if (client.supportsProjectResources()
+                    && !context.getScope().contains(Scope.RESOURCE_FILE)) {
+                ResourceRepository resources =
+                        client.getResourceRepository(context.getMainProject(), true, false);
                 List<ResourceItem> items;
                 if (resources != null) {
-                    items = resources.getResourceItem(ResourceType.STRING, name);
+                    items =
+                            resources.getResources(
+                                    ResourceNamespace.TODO(), ResourceType.STRING, name);
                 } else {
                     // Must be a non-Android module
                     items = null;
                 }
                 if (items != null) {
                     for (final ResourceItem item : items) {
-                        ResourceValue v = item.getResourceValue(false);
+                        ResourceValue v = item.getResourceValue();
                         if (v != null) {
                             String value = v.getRawXmlValue();
                             // Attempt to resolve indirection
@@ -1227,13 +1258,14 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                                 // Only resolve a few indirections
                                 for (int i = 0; i < 3; i++) {
                                     ResourceUrl url = ResourceUrl.parse(value);
-                                    if (url == null || url.framework) {
+                                    if (url == null || url.isFramework()) {
                                         break;
                                     }
-                                    List<ResourceItem> l = resources.getResourceItem(url.type,
-                                            url.name);
+                                    List<ResourceItem> l =
+                                            resources.getResources(
+                                                    ResourceNamespace.TODO(), url.type, url.name);
                                     if (l != null && !l.isEmpty()) {
-                                        v = l.get(0).getResourceValue(false);
+                                        v = l.get(0).getResourceValue();
                                         if (v != null) {
                                             value = v.getValue();
                                             if (value == null || !isReference(value)) {
@@ -1264,8 +1296,8 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                                             isFormattingString = false;
                                         } else {
                                             String conversion = matcher.group(6);
-                                            int conversionClass = getConversionClass(
-                                                    conversion.charAt(0));
+                                            int conversionClass =
+                                                    getConversionClass(conversion.charAt(0));
                                             if (conversionClass == CONVERSION_CLASS_UNKNOWN
                                                     || matcher.group(5) != null) {
                                                 // Some date format etc - don't process
@@ -1311,13 +1343,14 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 if (count != callCount) {
                     Location location = context.getLocation(call);
                     Location secondary = handle.resolve();
-                    secondary.setMessage(String.format("This definition requires %1$d arguments",
-                            count));
+                    secondary.setMessage(
+                            String.format("This definition requires %1$d arguments", count));
                     location.setSecondary(secondary);
-                    String message = String.format(
-                            "Wrong argument count, format string `%1$s` requires `%2$d` but format " +
-                            "call supplies `%3$d`",
-                            name, count, callCount);
+                    String message =
+                            String.format(
+                                    "Wrong argument count, format string `%1$s` requires `%2$d` but format "
+                                            + "call supplies `%3$d`",
+                                    name, count, callCount);
                     context.report(ARG_TYPES, call, location, message);
                     if (reported == null) {
                         reported = Sets.newHashSet();
@@ -1339,23 +1372,24 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                                 continue;
                             }
                             char last = formatType.charAt(formatType.length() - 1);
-                            if (formatType.length() >= 2 &&
-                                    Character.toLowerCase(
-                                            formatType.charAt(formatType.length() - 2)) == 't') {
+                            if (formatType.length() >= 2
+                                    && Character.toLowerCase(
+                                                    formatType.charAt(formatType.length() - 2))
+                                            == 't') {
                                 // Date time conversion.
                                 // TODO
                                 continue;
                             }
                             switch (last) {
-                                // Booleans. It's okay to pass objects to these;
-                                // it will print "true" if non-null, but it's
-                                // unusual and probably not intended.
+                                    // Booleans. It's okay to pass objects to these;
+                                    // it will print "true" if non-null, but it's
+                                    // unusual and probably not intended.
                                 case 'b':
                                 case 'B':
                                     valid = isBooleanType(type);
                                     break;
 
-                                // Numeric: integer and floats in various formats
+                                    // Numeric: integer and floats in various formats
                                 case 'x':
                                 case 'X':
                                 case 'd':
@@ -1389,8 +1423,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                                     // numbers since you may have meant more
                                     // specific formatting. Use special issue
                                     // explanation for this?
-                                    valid = !isBooleanType(type) &&
-                                            !isNumericType(type, false);
+                                    valid = !isBooleanType(type) && !isNumericType(type, false);
                                     break;
                             }
 
@@ -1405,9 +1438,9 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                                 } else if (isCharacterType(type)) {
                                     suggestion = "'c'";
                                 } else if (PsiType.INT.equals(type)
-                                            || PsiType.LONG.equals(type)
-                                            || PsiType.BYTE.equals(type)
-                                            || PsiType.SHORT.equals(type)) {
+                                        || PsiType.LONG.equals(type)
+                                        || PsiType.BYTE.equals(type)
+                                        || PsiType.SHORT.equals(type)) {
                                     suggestion = "`d`, 'o' or `x`";
                                 } else if (PsiType.FLOAT.equals(type)
                                         || PsiType.DOUBLE.equals(type)) {
@@ -1428,30 +1461,42 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                                 }
 
                                 if (suggestion != null) {
-                                    suggestion = " (Did you mean formatting character "
-                                            + suggestion + "?)";
+                                    suggestion =
+                                            " (Did you mean formatting character "
+                                                    + suggestion
+                                                    + "?)";
                                 } else {
                                     suggestion = "";
                                 }
 
                                 String canonicalText = type.getCanonicalText();
-                                canonicalText = canonicalText.substring(
-                                        canonicalText.lastIndexOf('.') + 1);
+                                canonicalText =
+                                        canonicalText.substring(canonicalText.lastIndexOf('.') + 1);
 
-                                String message = String.format(
-                                        "Wrong argument type for formatting argument '#%1$d' " +
-                                        "in `%2$s`: conversion is '`%3$s`', received `%4$s` " +
-                                        "(argument #%5$d in method call)%6$s",
-                                        i, name, formatType, canonicalText,
-                                        argumentIndex + 1, suggestion);
+                                String message =
+                                        String.format(
+                                                "Wrong argument type for formatting argument '#%1$d' "
+                                                        + "in `%2$s`: conversion is '`%3$s`', received `%4$s` "
+                                                        + "(argument #%5$d in method call)%6$s",
+                                                i,
+                                                name,
+                                                formatType,
+                                                canonicalText,
+                                                argumentIndex + 1,
+                                                suggestion);
 
                                 if ((last == 's' || last == 'S') && isNumericType(type, false)) {
-                                    message = String.format(
-                                        "Suspicious argument type for formatting argument #%1$d " +
-                                        "in `%2$s`: conversion is `%3$s`, received `%4$s` " +
-                                        "(argument #%5$d in method call)%6$s",
-                                        i, name, formatType, canonicalText,
-                                        argumentIndex + 1, suggestion);
+                                    message =
+                                            String.format(
+                                                    "Suspicious argument type for formatting argument #%1$d "
+                                                            + "in `%2$s`: conversion is `%3$s`, received `%4$s` "
+                                                            + "(argument #%5$d in method call)%6$s",
+                                                    i,
+                                                    name,
+                                                    formatType,
+                                                    canonicalText,
+                                                    argumentIndex + 1,
+                                                    suggestion);
                                 }
 
                                 context.report(ARG_TYPES, call, location, message);
@@ -1515,8 +1560,7 @@ public class StringFormatDetector extends ResourceXmlDetector implements SourceC
                 return true;
             }
             if (allowBigNumbers) {
-                if ("java.math.BigInteger".equals(fqn) ||
-                        "java.math.BigDecimal".equals(fqn)) {
+                if ("java.math.BigInteger".equals(fqn) || "java.math.BigDecimal".equals(fqn)) {
                     return true;
                 }
             }

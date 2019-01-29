@@ -5,13 +5,15 @@ apply plugin: 'com.android.feature'
 <#else>
   <#if isLibraryProject>
 apply plugin: 'com.android.library'
+  <#elseif isDynamicFeature>
+apply plugin: 'com.andorid.dynamic-feature'
   <#else>
 apply plugin: 'com.android.application'
   </#if>
 </#if>
 <@kt.addKotlinPlugins />
 
-<@shared.androidConfig hasApplicationId=isApplicationProject applicationId=packageName isBaseFeature=isBaseFeature hasTests=true canHaveCpp=true/>
+<@shared.androidConfig hasApplicationId=isApplicationProject applicationId=packageName isBaseFeature=isBaseFeature hasTests=true canHaveCpp=true canUseProguard=isApplicationProject||isBaseFeature||(isLibraryProject&&!isInstantApp)/>
 
 dependencies {
     ${getConfigurationName("compile")} fileTree(dir: 'libs', include: ['*.jar'])
@@ -21,7 +23,7 @@ dependencies {
     })
     </#if>
     <@kt.addKotlinDependencies />
-<#if isInstantApp>
+<#if isInstantApp||isDynamicFeature>
   <#if isBaseFeature>
     <#if monolithicModuleName?has_content>
     application project(':${monolithicModuleName}')

@@ -16,10 +16,10 @@
 
 package com.android.builder.internal.aapt.v2
 
-import com.android.builder.core.VariantType
+import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.ide.common.res2.CompileResourceRequest
+import com.android.ide.common.resources.CompileResourceRequest
 import com.android.testutils.NoErrorsOrWarningsLogger
 import com.android.utils.ILogger
 import com.google.common.base.Ticker
@@ -96,7 +96,8 @@ class Aapt2DaemonManagerTest {
                             manifestFile = File(""),
                             androidJarPath = "",
                             options = AaptOptions(),
-                            variantType = VariantType.DEFAULT),
+                            variantType = VariantTypeImpl.BASE_APK
+                    ),
                     NoErrorsOrWarningsLogger()
             )
             manager.maintain()

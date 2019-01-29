@@ -24,7 +24,6 @@ import com.android.build.gradle.integration.common.truth.ApkSubject;
 import com.android.testutils.apk.Apk;
 import java.io.File;
 import org.junit.AfterClass;
-import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Test;
 
@@ -34,9 +33,6 @@ public class SingleFeatureTest {
     public static GradleTestProject sProject =
             GradleTestProject.builder().fromTestProject("singleFeature").withoutNdk().create();
 
-    @BeforeClass
-    public static void setUp() throws Exception {}
-
     @AfterClass
     public static void cleanUp() {
         sProject = null;
@@ -45,22 +41,24 @@ public class SingleFeatureTest {
     @Test
     public void build() throws Exception {
         // Build all the things.
-        sProject.executor()
-                .withEnabledAapt2(true)
-                .run("assemble");
+        sProject.executor().run("assemble");
 
         // Check the feature module output contents.
         GradleTestProject featureProject = sProject.getSubproject(":feature");
         checkManifestContents(
                 featureProject.getIntermediateFile(
-                        "manifests", "full", "feature", "debug", "AndroidManifest.xml"));
+                        "merged_manifests",
+                        "debugFeature",
+                        "AndroidManifest.xml"));
         checkApkContents(featureProject.getFeatureApk(GradleTestProject.ApkType.DEBUG));
 
         // Check the app module output contents.
         GradleTestProject appProject = sProject.getSubproject(":app");
         checkManifestContents(
                 appProject.getIntermediateFile(
-                        "manifests", "full", "debug", "AndroidManifest.xml"));
+                        "merged_manifests",
+                        "debug",
+                        "AndroidManifest.xml"));
         checkApkContents(appProject.getApk(GradleTestProject.ApkType.DEBUG));
     }
 

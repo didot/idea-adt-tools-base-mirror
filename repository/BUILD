@@ -1,18 +1,19 @@
+load("//tools/base/bazel:bazel.bzl", "fileset")
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 load("//tools/base/bazel:kotlin.bzl", "kotlin_library")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.repository",
+    name = "studio.android.sdktools.repository",
     srcs = ["src/main/java"],
-    iml_files = ["repository.iml"],
-    tags = ["managed"],
+    iml_files = ["android.sdktools.repository.iml"],
     test_resources = ["src/test/resources"],
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     deps = [
-        "//tools/base/annotations:studio.android-annotations[module]",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/idea/.idea/libraries:Guava",
         "//tools/idea/.idea/libraries:JUnit4[test]",
         "//tools/idea/.idea/libraries:commons-compress",
@@ -23,18 +24,29 @@ iml_module(
     ],
 )
 
-kotlin_library(
-    name = "tools.repository",
+fileset(
+    name = "tools.resources",
     # TODO: Why are the xml files not under resources?
-    srcs = ["src/main/java"],
-    pom = ":pom",
-    resources = glob(
-        include = ["src/main/java/**"],
+    srcs = glob(
+        include = [
+            "src/main/java/**",
+        ],
         exclude = [
-            "src/main/java/**/*.java",
-            "src/main/java/**/*.kt",
+            "**/*.java",
+            "**/*.kt",
         ],
     ),
+    mappings = {
+        "src/main/java/": "",
+    },
+)
+
+kotlin_library(
+    name = "tools.repository",
+    srcs = ["src/main/java"],
+    pom = ":pom",
+    resource_strip_prefix = "tools/base/repository",
+    resources = [":tools.resources"],
     visibility = ["//visibility:public"],
     # TODO: Why is MockFileOp in main sources?
     deps = [

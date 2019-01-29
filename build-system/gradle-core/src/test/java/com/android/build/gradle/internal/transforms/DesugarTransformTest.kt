@@ -19,6 +19,7 @@ package com.android.build.gradle.internal.transforms
 import com.android.build.api.transform.Status
 import com.android.build.api.transform.TransformInvocation
 import com.android.build.api.transform.TransformOutputProvider
+import com.android.build.gradle.internal.fixtures.FakeFileCollection
 import com.android.ide.common.internal.WaitableExecutor
 import com.android.ide.common.process.JavaProcessExecutor
 import com.android.testutils.truth.PathSubject.assertThat
@@ -31,7 +32,6 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.function.Supplier
 import kotlin.streams.toList
 
 class DesugarTransformTest {
@@ -324,17 +324,17 @@ class DesugarTransformTest {
             additionalPaths: Set<File> = setOf()): DesugarTransform {
         val executor = WaitableExecutor.useDirectExecutor()
         val transform = DesugarTransform(
-                Supplier<List<File>> { listOf() },
-                "",
-                null,
-                19,
-                processExecutor,
-                true,
-                false,
-                tmp.newFolder().toPath(),
-                "debug",
-                true,
-                executor)
+            FakeFileCollection(),
+            null,
+            19,
+            processExecutor,
+            true,
+            false,
+            tmp.newFolder().toPath(),
+            "debug",
+            executor,
+            true
+        )
         transform.processInputs(invocation, additionalPaths)
         executor.waitForTasksWithQuickFail<Any>(true)
         return transform

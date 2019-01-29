@@ -21,6 +21,7 @@ import org.gradle.api.Action
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.ConfigurationPublications
 import org.gradle.api.artifacts.Dependency
+import org.gradle.api.artifacts.DependencyConstraintSet
 import org.gradle.api.artifacts.DependencySet
 import org.gradle.api.artifacts.ExcludeRule
 import org.gradle.api.artifacts.PublishArtifactSet
@@ -65,6 +66,8 @@ class FakeConfiguration(private val name: String): Configuration {
     }
 
     override fun getAllDependencies() = dependencySet
+
+    override fun getDependencies() = dependencySet
 
     override fun extendsFrom(vararg p0: Configuration): Configuration {
         extendsConfigs.addAll(p0.asList())
@@ -295,15 +298,19 @@ class FakeConfiguration(private val name: String): Configuration {
         TODO("not implemented")
     }
 
-    override fun getDependencies(): DependencySet {
-        TODO("not implemented")
-    }
-
     override fun plus(p0: FileCollection?): FileCollection {
         TODO("not implemented")
     }
 
     override fun withDependencies(p0: Action<in DependencySet>?): Configuration {
-        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+        TODO("not implemented")
+    }
+
+    override fun getAllDependencyConstraints(): DependencyConstraintSet {
+        TODO("not implemented")
+    }
+
+    override fun getDependencyConstraints(): DependencyConstraintSet {
+        TODO("not implemented")
     }
 }

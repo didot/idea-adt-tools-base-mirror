@@ -47,6 +47,8 @@ public class CmakeTargetsTest {
                     .addFile(HelloWorldJniApp.cmakeListsMultiModule("."))
                     .addFile(HelloWorldJniApp.libraryCpp("src/main/cpp/library1", "library1.cpp"))
                     .addFile(HelloWorldJniApp.libraryCpp("src/main/cpp/library2", "library2.cpp"))
+                    .setCmakeVersion("3.10.4819442")
+                    .setWithCmakeDirInLocalProp(true)
                     .create();
 
     @Before
@@ -85,7 +87,7 @@ public class CmakeTargetsTest {
         assertThatApk(apk).contains("lib/x86_64/liblibrary2.so");
 
         project.model().fetchAndroidProjects(); // Make sure we can successfully get AndroidProject
-        assertModel(project.model().fetch(NativeAndroidProject.class));
+        assertModel(project, project.model().fetch(NativeAndroidProject.class));
     }
 
     @Test
@@ -115,15 +117,16 @@ public class CmakeTargetsTest {
         assertThatApk(apk).contains("lib/x86_64/liblibrary2.so");
 
         project.model().fetchAndroidProjects(); // Make sure we can successfully get AndroidProject
-        assertModel(project.model().fetch(NativeAndroidProject.class));
+        assertModel(project, project.model().fetch(NativeAndroidProject.class));
     }
 
-    private static void assertModel(NativeAndroidProject model) throws IOException {
+    private static void assertModel(GradleTestProject project, NativeAndroidProject model)
+            throws IOException {
         assertThat(model.getBuildSystems()).containsExactly(NativeBuildSystem.CMAKE.getName());
-        assertThat(model.getBuildFiles()).hasSize(1);
+        assertThat(model.getBuildFiles()).hasSize(2);
         assertThat(model.getName()).isEqualTo("project");
         assertThat(model.getArtifacts())
-                .hasSize(NdkHelper.getNdkInfo().getDefaultAbis().size() * 4);
+                .hasSize(NdkHelper.getNdkInfo(project).getDefaultAbis().size() * 4);
         assertThat(model.getFileExtensions()).hasSize(1);
 
         for (File file : model.getBuildFiles()) {
@@ -141,6 +144,6 @@ public class CmakeTargetsTest {
 
         assertThat(model).hasArtifactGroupsNamed("debug", "release");
         assertThat(model)
-                .hasArtifactGroupsOfSize(NdkHelper.getNdkInfo().getDefaultAbis().size() * 2);
+                .hasArtifactGroupsOfSize(NdkHelper.getNdkInfo(project).getDefaultAbis().size() * 2);
     }
 }

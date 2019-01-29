@@ -17,10 +17,15 @@
 package com.android.build.gradle.integration.desugar;
 
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
-import static com.android.testutils.truth.PathSubject.assertThat;
+import static com.android.build.gradle.integration.desugar.DesugaringProjectConfigurator.configureR8Desugaring;
+import static com.android.build.gradle.internal.scope.VariantScope.Java8LangSupport.D8;
+import static com.android.build.gradle.internal.scope.VariantScope.Java8LangSupport.DESUGAR;
+import static com.android.build.gradle.internal.scope.VariantScope.Java8LangSupport.R8;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
+import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.ide.common.process.ProcessException;
 import com.android.testutils.apk.Apk;
 import com.google.common.collect.ImmutableList;
@@ -30,9 +35,20 @@ import java.nio.file.Path;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 /** Checks that app depending on library module using Java 8 language builds. */
+@RunWith(Parameterized.class)
 public class DesugarAppWithLibraryTest {
+
+    @Parameterized.Parameters(name = "tool = {0}")
+    public static Object[] getParameters() {
+        // noinspection unchecked
+        return new Object[] {D8, DESUGAR, R8};
+    }
+
+    @Parameterized.Parameter public VariantScope.Java8LangSupport java8LangSupport;
 
     @Rule
     public GradleTestProject project =
@@ -79,8 +95,15 @@ public class DesugarAppWithLibraryTest {
                         "         Runnable r = () -> {};",
                         "    }",
                         "}"));
-        project.executor().run(":app:assembleDebug");
-        Apk apk = project.getSubproject("app").getApk("debug");
+        if (java8LangSupport == R8) {
+            configureR8Desugaring(project.getSubproject("app"));
+        }
+        project.executor()
+                .with(BooleanOption.ENABLE_D8_DESUGARING, java8LangSupport == D8)
+                .with(BooleanOption.ENABLE_R8, java8LangSupport == R8)
+                .with(BooleanOption.ENABLE_R8_DESUGARING, java8LangSupport == R8)
+                .run(":app:assembleDebug");
+        Apk apk = project.getSubproject("app").getApk(GradleTestProject.ApkType.DEBUG);
         assertThat(apk).containsClass("Lcom/example/Data;");
     }
 }

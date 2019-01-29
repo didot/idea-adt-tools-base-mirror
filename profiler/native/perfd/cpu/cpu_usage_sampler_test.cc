@@ -21,17 +21,24 @@
 #include <string>
 #include <vector>
 #include "perfd/cpu/cpu_cache.h"
-#include "perfd/cpu/procfs_files.h"
 #include "perfd/daemon.h"
 #include "test/utils.h"
+#include "utils/fake_clock.h"
+#include "utils/fs/memory_file_system.h"
+#include "utils/procfs_files.h"
 
-using std::vector;
+using profiler::Clock;
+using profiler::CpuCache;
+using profiler::CpuUsageSampler;
+using profiler::Daemon;
+using profiler::FileSystem;
+using profiler::ProcfsFiles;
+using profiler::TestUtils;
 using std::string;
 using std::unique_ptr;
+using std::vector;
 
-namespace profiler {
-
-// Tests in this file assume a time unit in /proc files is 10 milliseconds.
+namespace {
 
 // A test-use-only class that uses checked-in files as test data to mock /proc
 // files.
@@ -40,9 +47,16 @@ class MockProcfsFiles final : public ProcfsFiles {
   std::string GetSystemStatFilePath() const override {
     return TestUtils::getCpuTestData("proc_stat_1.txt");
   }
+
   std::string GetProcessStatFilePath(int32_t pid) const override {
     std::ostringstream os;
     os << "pid_stat_" << pid << ".txt";
+    return TestUtils::getCpuTestData(os.str());
+  }
+
+  std::string GetSystemCurrentCpuFrequencyPath(int32_t cpu) const override {
+    std::ostringstream os;
+    os << "cpu" << cpu << "_scaling_cur_freq.txt";
     return TestUtils::getCpuTestData(os.str());
   }
 };
@@ -51,11 +65,17 @@ class CpuUsageSamplerToTest final : public CpuUsageSampler {
  public:
   // Replace the real procfs by a mock one for testing, making it possible
   // to run this test on systems that do not have /proc such as Mac.
-  CpuUsageSamplerToTest(Daemon::Utilities* utilities, CpuCache* cpu_cache)
-      : CpuUsageSampler(utilities, cpu_cache) {
+  CpuUsageSamplerToTest(Clock* clock, CpuCache* cpu_cache)
+      : CpuUsageSampler(clock, cpu_cache) {
     ResetUsageFiles(std::unique_ptr<ProcfsFiles>(new MockProcfsFiles()));
   }
 };
+
+}  // namespace
+
+namespace profiler {
+
+// Tests in this file assume a time unit in /proc files is 10 milliseconds.
 
 TEST(CpuUsageSamplerTest, SampleOneApp) {
   const int32_t kMockAppPid = 100;
@@ -65,11 +85,16 @@ TEST(CpuUsageSamplerTest, SampleOneApp) {
   const int64_t kSystemCpuTime = 25299780;
   const int64_t kElapsedTime = 1175801430;
 
-  Daemon::Utilities utilities("", "");
-  CpuCache cache{100};
+  FakeClock clock;
+  FileCache file_cache(
+      std::unique_ptr<profiler::FileSystem>(new profiler::MemoryFileSystem()),
+      "/");
+  CpuCache cache(100, &clock, &file_cache);
   cache.AllocateAppCache(kMockAppPid);
-  CpuUsageSamplerToTest sampler{&utilities, &cache};
+  CpuUsageSamplerToTest sampler(&clock, &cache);
   sampler.AddProcess(kMockAppPid);
+
+  clock.Elapse(10);
   bool sample_result = sampler.Sample();
   ASSERT_TRUE(sample_result);
 
@@ -77,10 +102,21 @@ TEST(CpuUsageSamplerTest, SampleOneApp) {
   auto samples = cache.Retrieve(kMockAppPid, INT64_MIN, INT64_MAX);
   ASSERT_EQ(1, samples.size());
   auto sample = samples[0];
-  EXPECT_LT(0, sample.end_timestamp());
+  EXPECT_EQ(10, sample.end_timestamp());
   EXPECT_EQ(kAppCpuTime, sample.app_cpu_time_in_millisec());
   EXPECT_EQ(kSystemCpuTime, sample.system_cpu_time_in_millisec());
   EXPECT_EQ(kElapsedTime, sample.elapsed_time_in_millisec());
+
+  ASSERT_EQ(2, sample.cores_size());
+  auto core = sample.cores(0);
+  EXPECT_EQ(0, core.core());
+  EXPECT_EQ(360, core.elapsed_time_in_millisec());
+  EXPECT_EQ(270, core.system_cpu_time_in_millisec());
+  EXPECT_EQ(0, core.frequency_in_khz());
+
+  core = sample.cores(1);
+  EXPECT_EQ(1, core.core());
+  EXPECT_EQ(1234, core.frequency_in_khz());
 }
 
 TEST(CpuUsageSamplerTest, SampleTwoApps) {
@@ -91,11 +127,14 @@ TEST(CpuUsageSamplerTest, SampleTwoApps) {
   const int64_t kAppCpuTime_1 = 13780;
   const int64_t kAppCpuTime_2 = 140;
 
-  Daemon::Utilities utilities("", "");
-  CpuCache cache{100};
+  FakeClock clock;
+  FileCache file_cache(
+      std::unique_ptr<profiler::FileSystem>(new profiler::MemoryFileSystem()),
+      "/");
+  CpuCache cache(100, &clock, &file_cache);
   cache.AllocateAppCache(kMockAppPid_1);
   cache.AllocateAppCache(kMockAppPid_2);
-  CpuUsageSamplerToTest sampler{&utilities, &cache};
+  CpuUsageSamplerToTest sampler(&clock, &cache);
   sampler.AddProcess(kMockAppPid_1);
   sampler.AddProcess(kMockAppPid_2);
   bool sample_result = sampler.Sample();

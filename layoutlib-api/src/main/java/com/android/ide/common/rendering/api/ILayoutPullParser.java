@@ -16,6 +16,8 @@
 
 package com.android.ide.common.rendering.api;
 
+import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
 import org.xmlpull.v1.XmlPullParser;
 
 /**
@@ -26,21 +28,24 @@ public interface ILayoutPullParser extends XmlPullParser {
 
     /**
      * Returns a cookie for the current XML node.
-     * <p>This cookie will be passed back in the {@link ViewInfo} objects, allowing association
-     * of a particular XML node with its result from the layout computation.
+     *
+     * <p>This cookie will be passed back in the {@link ViewInfo} objects, allowing association of a
+     * particular XML node with its result from the layout computation.
      *
      * @see ViewInfo#getCookie()
      */
+    @Nullable
     Object getViewCookie();
 
     /**
-     * Returns a custom parser for the layout of the given name.
-     * @param layoutName the name of the layout.
-     * @return returns a custom parser or null if no custom parsers are needed.
+     * Returns the aapt {@link ResourceNamespace} of the layout being parsed, that is of the module
+     * from which this layout comes from.
      *
-     * @deprecated use {@link LayoutlibCallback#getParser(String)} instead
+     * <p>This namespace is used to resolve "relative" resource references within the layout, that
+     * is strings like {@code @string/foo}, which don't explicitly specify the namespace of {@code
+     * foo}.
      */
-    @Deprecated
-    ILayoutPullParser getParser(String layoutName);
+    @NonNull
+    ResourceNamespace getLayoutNamespace();
 }
 

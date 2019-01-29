@@ -30,7 +30,6 @@ import com.android.build.gradle.internal.dsl.BuildType;
 import com.android.build.gradle.internal.dsl.ProductFlavor;
 import com.android.build.gradle.internal.dsl.SigningConfig;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.VariantType;
 import com.android.builder.profile.Recorder;
 import com.google.common.collect.ImmutableList;
@@ -39,11 +38,14 @@ import org.gradle.api.NamedDomainObjectContainer;
 
 public class FeatureVariantFactory extends BaseVariantFactory {
 
+    @NonNull private final VariantType variantType;
+
     public FeatureVariantFactory(
             @NonNull GlobalScope globalScope,
-            @NonNull AndroidBuilder androidBuilder,
-            @NonNull AndroidConfig extension) {
-        super(globalScope, androidBuilder, extension);
+            @NonNull AndroidConfig extension,
+            @NonNull VariantType variantType) {
+        super(globalScope, extension);
+        this.variantType = variantType;
     }
 
     @NonNull
@@ -70,7 +72,7 @@ public class FeatureVariantFactory extends BaseVariantFactory {
     @NonNull
     @Override
     public Collection<VariantType> getVariantConfigurationTypes() {
-        return ImmutableList.of(VariantType.FEATURE);
+        return ImmutableList.of(variantType);
     }
 
     @Override

@@ -16,6 +16,7 @@
 
 package com.android.ddmlib.testrunner;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import junit.framework.TestCase;
@@ -35,6 +36,8 @@ public class InstrumentationResultParserTest extends TestCase {
     private static final String CLASS_NAME = "com.test.FooTest";
     private static final String TEST_NAME = "testFoo";
     private static final String STACK_TRACE = "java.lang.AssertionFailedException";
+    private static final String ON_ERROR =
+            "onError: commandError=false message=" + "INSTRUMENTATION_ABORTED: System has crashed.";
     private static final TestIdentifier TEST_ID = new TestIdentifier(CLASS_NAME, TEST_NAME);
 
     /**
@@ -81,6 +84,32 @@ public class InstrumentationResultParserTest extends TestCase {
         mMockListener.testRunEnded(1, Collections.EMPTY_MAP);
 
         injectAndVerifyTestString(output.toString());
+    }
+
+    /** Ensure that all reporters receive the same events. */
+    public void testParse_multiReceiver() {
+        ITestRunListener mMockListener = EasyMock.createStrictMock(ITestRunListener.class);
+        ITestRunListener mMockListener2 = EasyMock.createStrictMock(ITestRunListener.class);
+        mParser =
+                new InstrumentationResultParser(
+                        RUN_NAME, Arrays.asList(mMockListener, mMockListener2));
+        mParser.setEnforceTimeStamp(true);
+        StringBuilder output = new StringBuilder();
+        addLine(output, "INSTRUMENTATION_RESULT: com.android.cts.launcherapps:other=true");
+        addLine(output, "INSTRUMENTATION_CODE: -1");
+
+        mMockListener.testRunStarted(RUN_NAME, 0);
+        mMockListener2.testRunStarted(RUN_NAME, 0);
+        mMockListener.testRunFailed(InstrumentationResultParser.INVALID_OUTPUT_ERR_MSG);
+        mMockListener2.testRunFailed(InstrumentationResultParser.INVALID_OUTPUT_ERR_MSG);
+        mMockListener.testRunEnded(EasyMock.anyLong(), EasyMock.anyObject());
+        mMockListener2.testRunEnded(EasyMock.anyLong(), EasyMock.anyObject());
+
+        EasyMock.replay(mMockListener, mMockListener2);
+        byte[] data = output.toString().getBytes();
+        mParser.addOutput(data, 0, data.length);
+        mParser.flush();
+        EasyMock.verify(mMockListener, mMockListener2);
     }
 
     /**
@@ -181,6 +210,32 @@ public class InstrumentationResultParserTest extends TestCase {
         injectAndVerifyTestString(output.toString());
     }
 
+    /**
+     * Tests parsing the fatal error output of an instrumentation invoked with "-e log true". Since
+     * it is log only, it will not report directly the failure, but the stream should still be
+     * populated.
+     */
+    public void testParse_directFailure() {
+        mParser.setEnforceTimeStamp(false);
+        StringBuilder output = new StringBuilder();
+        addLine(output, "INSTRUMENTATION_RESULT: stream=");
+        addLine(output, "Time: 0");
+        addLine(output, "There was 1 failure:");
+        addLine(output, "1) Fatal exception when running tests");
+        addLine(output, "java.lang.RuntimeException: it failed super fast.");
+        addLine(output, "at stackstack");
+        addLine(output, "INSTRUMENTATION_CODE: -1");
+
+        Capture<String> capture = new Capture<>();
+        mMockListener.testRunStarted(RUN_NAME, 0);
+        mMockListener.testRunFailed(EasyMock.capture(capture));
+        mMockListener.testRunEnded(0, Collections.EMPTY_MAP);
+
+        injectAndVerifyTestString(output.toString());
+        String error = capture.getValue();
+        assertTrue(error.contains("java.lang.RuntimeException: it failed super fast."));
+    }
+
     /** Tests parsing output for a single successful test execution. */
     public void testParse_singleTest() {
         StringBuilder output = createSuccessTest();
@@ -264,6 +319,37 @@ public class InstrumentationResultParserTest extends TestCase {
         mMockListener.testFailed(TEST_ID, STACK_TRACE);
         mMockListener.testEnded(TEST_ID, Collections.EMPTY_MAP);
         mMockListener.testRunEnded(0, Collections.EMPTY_MAP);
+
+        injectAndVerifyTestString(output.toString());
+    }
+
+    /**
+     * Ensure that when onError message is available, we do not consider it as part of the class
+     * name but as a stand alone entity.
+     */
+    public void testParse_onError() {
+        StringBuilder output = new StringBuilder();
+        addLine(output, "INSTRUMENTATION_STATUS: class=" + CLASS_NAME);
+        addLine(output, ON_ERROR);
+        addLine(output, "INSTRUMENTATION_STATUS: current=1");
+        addLine(output, "INSTRUMENTATION_ABORTED: System has crashed.");
+        addLine(output, "INSTRUMENTATION_STATUS: id=AndroidJUnitRunner");
+        addLine(output, "INSTRUMENTATION_STATUS: numtests=1");
+        addLine(output, "INSTRUMENTATION_STATUS: stream=");
+        addLine(output, "INSTRUMENTATION_STATUS: test=" + TEST_NAME);
+        addLine(output, "INSTRUMENTATION_STATUS_CODE: 1");
+
+        mMockListener.testRunStarted(RUN_NAME, 1);
+        mMockListener.testStarted(TEST_ID);
+        mMockListener.testFailed(
+                TEST_ID,
+                "Test failed to run to completion. Reason: "
+                        + "'Test run failed to complete. Expected 1 tests, received 0'. "
+                        + "Check device logcat for details");
+        mMockListener.testEnded(TEST_ID, Collections.emptyMap());
+        mMockListener.testRunFailed(
+                "Test run failed to complete. Expected 1 tests, received 0. " + ON_ERROR);
+        mMockListener.testRunEnded(0L, Collections.emptyMap());
 
         injectAndVerifyTestString(output.toString());
     }
@@ -522,7 +608,7 @@ public class InstrumentationResultParserTest extends TestCase {
         mMockListener.testRunEnded(EasyMock.eq(676L), EasyMock.anyObject());
 
         injectAndVerifyTestString(output.toString());
-}
+    }
 
     /**
      * Builds a common test result using TEST_NAME and TEST_CLASS.

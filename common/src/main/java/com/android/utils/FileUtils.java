@@ -24,6 +24,7 @@ import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.FluentIterable;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
@@ -40,6 +41,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @SuppressWarnings("WeakerAccess") // These are utility methods, meant to be public.
 public final class FileUtils {
@@ -56,17 +58,7 @@ public final class FileUtils {
      * @throws IOException failed to delete the file / directory
      */
     public static void deletePath(@NonNull final File path) throws IOException {
-        if (!path.exists()) {
-            return;
-        }
-
-        if (path.isDirectory()) {
-            deleteDirectoryContents(path);
-        }
-
-        if (!path.delete()) {
-            throw new IOException(String.format("Could not delete path '%s'.", path));
-        }
+        deleteRecursivelyIfExists(path);
     }
 
     /**
@@ -218,23 +210,34 @@ public final class FileUtils {
     }
 
     /**
-     * Deletes a file.
+     * Deletes an existing file or an existing empty directory.
      *
-     * @param file the file to delete; the file must exist
-     * @throws IOException failed to delete the file
+     * @param file the file or directory to delete. The file/directory must exist, if the directory
+     *     exists, it must be empty.
      */
     public static void delete(@NonNull File file) throws IOException {
-        boolean result = file.delete();
-        if (!result) {
-            throw new IOException("Failed to delete " + file.getAbsolutePath());
-        }
+        java.nio.file.Files.delete(file.toPath());
     }
 
+    /**
+     * Deletes a file or an empty directory if it exists.
+     *
+     * @param file the file or directory to delete. The file/directory may not exist; if the
+     *     directory exists, it must be empty.
+     */
     public static void deleteIfExists(@NonNull File file) throws IOException {
-        boolean result = file.delete();
-        if (!result && file.exists()) {
-            throw new IOException("Failed to delete " + file.getAbsolutePath());
-        }
+        java.nio.file.Files.deleteIfExists(file.toPath());
+    }
+
+    /**
+     * Deletes a file or a directory if it exists. If the directory is not empty, its contents will
+     * be deleted recursively.
+     *
+     * @param file the file or directory to delete. The file/directory may not exist; if the
+     *     directory exists, it may be non-empty.
+     */
+    public static void deleteRecursivelyIfExists(@NonNull File file) throws IOException {
+        PathUtils.deleteRecursivelyIfExists(file.toPath());
     }
 
     public static void renameTo(@NonNull File file, @NonNull File to) throws IOException {
@@ -269,7 +272,7 @@ public final class FileUtils {
      */
     @NonNull
     public static File join(@NonNull File dir, @NonNull Iterable<String> paths) {
-        return new File(dir, PATH_JOINER.join(paths));
+        return new File(dir, PATH_JOINER.join(removeEmpty(paths)));
     }
 
     /**
@@ -281,7 +284,7 @@ public final class FileUtils {
      */
     @NonNull
     public static String join(@NonNull String... paths) {
-        return PATH_JOINER.join(paths);
+        return PATH_JOINER.join(removeEmpty(Lists.newArrayList(paths)));
     }
 
     /**
@@ -296,6 +299,13 @@ public final class FileUtils {
         return PATH_JOINER.join(paths);
     }
 
+
+    private static Iterable<String> removeEmpty(Iterable<String> input) {
+        return Lists.newArrayList(input)
+                .stream()
+                .filter(it -> !it.isEmpty())
+                .collect(Collectors.toList());
+    }
     /**
      * Loads a text file forcing the line separator to be of Unix style '\n' rather than being
      * Windows style '\r\n'.
@@ -390,12 +400,23 @@ public final class FileUtils {
 
     @NonNull
     public static FluentIterable<File> getAllFiles(@NonNull File dir) {
-        return Files.fileTreeTraverser().preOrderTraversal(dir).filter(Files.isFile());
+        return FluentIterable.from(Files.fileTraverser().depthFirstPreOrder(dir))
+                .filter(Files.isFile());
     }
 
     @NonNull
     public static String getNamesAsCommaSeparatedList(@NonNull Iterable<File> files) {
         return COMMA_SEPARATED_JOINER.join(Iterables.transform(files, File::getName));
+    }
+
+    /**
+     * Replace all unsafe characters for a file name (OS independent) with an underscore
+     * @param input an potentially unsafe file name
+     * @return a safe file name
+     */
+    @NonNull
+    public static String sanitizeFileName(String input) {
+        return input.replaceAll("[:\\\\/*\"?|<>']", "_");
     }
 
     /**
@@ -450,10 +471,11 @@ public final class FileUtils {
      */
     public static List<File> find(@NonNull File base, @NonNull final Pattern pattern) {
         checkArgument(base.isDirectory(), "'%s' must be a directory.", base.getAbsolutePath());
-        return Files.fileTreeTraverser()
-                .preOrderTraversal(base)
-                .filter(file -> pattern.matcher(
-                        FileUtils.toSystemIndependentPath(file.getPath())).find())
+        return FluentIterable.from(Files.fileTraverser().depthFirstPreOrder(base))
+                .filter(
+                        file ->
+                                pattern.matcher(FileUtils.toSystemIndependentPath(file.getPath()))
+                                        .find())
                 .toList();
     }
 
@@ -462,8 +484,7 @@ public final class FileUtils {
      */
     public static Optional<File> find(@NonNull File base, @NonNull final String name) {
         checkArgument(base.isDirectory(), "'%s' must be a directory.", base.getAbsolutePath());
-        return Files.fileTreeTraverser()
-                .preOrderTraversal(base)
+        return FluentIterable.from(Files.fileTraverser().depthFirstPreOrder(base))
                 .filter(file -> name.equals(file.getName()))
                 .last();
     }

@@ -55,12 +55,14 @@ open class LintStandaloneTask : DefaultTask() {
     @get:Classpath
     var lintChecks: Configuration? = null
 
+    var autoFix: Boolean = false
+
     /** This resolves the dependency of the lintChecks configuration */
     private fun computeLocalChecks(): List<File> {
         val configuration = lintChecks ?: return emptyList()
         val attributes = Action { container: AttributeContainer ->
-            container.attribute(
-                    ARTIFACT_TYPE, AndroidArtifacts.ArtifactType.JAR.type)
+            // Query for JAR instead of PROCESSED_JAR as this task is executed without the AGP
+            container.attribute(ARTIFACT_TYPE, AndroidArtifacts.ArtifactType.JAR.type)
         }
 
         return configuration

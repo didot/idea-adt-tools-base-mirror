@@ -27,6 +27,7 @@ import com.android.build.gradle.internal.SdkHandler;
 import com.android.build.gradle.internal.core.Abi;
 import com.android.build.gradle.internal.core.Toolchain;
 import com.android.repository.Revision;
+import com.android.sdklib.AndroidVersion;
 import com.android.utils.Pair;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
@@ -45,30 +46,38 @@ import org.gradle.api.logging.Logging;
  */
 public class NdkHandler {
 
-    @Nullable
-    private String platformVersion;
+    @NonNull private final File projectDir;
+    @Nullable private String platformVersion;
     @Nullable
     private String compileSdkVersion;
     private final Toolchain toolchain;
     private final String toolchainVersion;
-    private final File ndkDirectory;
-    private final boolean useUnifiedHeaders;
-    @Nullable
-    private final NdkInfo ndkInfo;
-    @Nullable
-    private final Revision revision;
+    private File ndkDirectory;
+    @Nullable private final Boolean requestUseUnifiedHeaders;
+    private boolean useUnifiedHeaders;
+    @Nullable private NdkInfo ndkInfo;
+    @Nullable private Revision revision;
 
     private static final int LATEST_SUPPORTED_VERSION = 14;
 
     public NdkHandler(
+            @Nullable String ndkVersionFromDsl,
             @NonNull File projectDir,
             @Nullable String platformVersion,
             @NonNull String toolchainName,
             @NonNull String toolchainVersion,
             @Nullable Boolean useUnifiedHeaders) {
+        // TODO: Consume ndkVersionFromDsl here
+        this.projectDir = projectDir;
         this.toolchain = Toolchain.getByName(toolchainName);
         this.toolchainVersion = toolchainVersion;
         this.platformVersion = platformVersion;
+        this.requestUseUnifiedHeaders = useUnifiedHeaders;
+        relocateNdkFolder();
+    }
+
+    /** Attempts to search again for the Ndk directory. */
+    public void relocateNdkFolder() {
         ndkDirectory = findNdkDirectory(projectDir);
 
         if (ndkDirectory == null || !ndkDirectory.exists()) {
@@ -102,8 +111,8 @@ public class NdkHandler {
 
         // useUnifiedHeaders defaults to true for r15 and above.
         this.useUnifiedHeaders =
-                useUnifiedHeaders != null
-                        ? useUnifiedHeaders
+                requestUseUnifiedHeaders != null
+                        ? requestUseUnifiedHeaders
                         : revision != null && revision.getMajor() > 14;
 
         if (this.useUnifiedHeaders && (revision == null || revision.getMajor() < 14)) {
@@ -473,8 +482,11 @@ public class NdkHandler {
         return ndkInfo.getStlNativeToolSpecification(stl, stlVersion, abi);
     }
 
-    public int findSuitablePlatformVersion(String abi, int minSdkVersion) {
+    public int findSuitablePlatformVersion(
+            @NonNull String abi,
+            @NonNull String variantName,
+            @Nullable AndroidVersion androidVersion) {
         checkNotNull(ndkInfo);
-        return ndkInfo.findSuitablePlatformVersion(abi, minSdkVersion);
+        return ndkInfo.findSuitablePlatformVersion(abi, variantName, androidVersion);
     }
 }

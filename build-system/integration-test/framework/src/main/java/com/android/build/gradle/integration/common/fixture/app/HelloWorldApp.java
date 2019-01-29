@@ -19,11 +19,13 @@
 package com.android.build.gradle.integration.common.fixture.app;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.build.gradle.integration.common.fixture.TestVersions;
 
 /**
  * Simple test application that prints "hello world!".
  *
  * <p>Using this in a test application as a rule is usually done as:
+ *
  * <pre>
  * {@literal @}Rule
  * public GradleTestProject project = GradleTestProject.builder()
@@ -31,7 +33,7 @@ import com.android.build.gradle.integration.common.fixture.GradleTestProject;
  *     .create();
  * </pre>
  */
-public class HelloWorldApp extends AbstractAndroidTestApp implements AndroidTestApp {
+public class HelloWorldApp extends AbstractAndroidTestModule implements AndroidTestModule {
 
     public static final String APP_ID = "com.example.helloworld";
 
@@ -94,7 +96,6 @@ public class HelloWorldApp extends AbstractAndroidTestApp implements AndroidTest
                         + "      android:versionCode=\"1\"\n"
                         + "      android:versionName=\"1.0\">\n"
                         + "\n"
-                        + "    <uses-sdk android:minSdkVersion=\"3\" />\n"
                         + "    <application android:label=\"@string/app_name\">\n"
                         + "        <activity android:name=\".HelloWorld\"\n"
                         + "                  android:label=\"@string/app_name\">\n"
@@ -151,11 +152,14 @@ public class HelloWorldApp extends AbstractAndroidTestApp implements AndroidTest
     }
 
     protected HelloWorldApp(String plugin) {
+        this(plugin, TestVersions.SUPPORT_LIB_MIN_SDK);
+    }
+
+    protected HelloWorldApp(String plugin, int minSdkVersion) {
         this();
 
         TestSourceFile buildFile =
                 new TestSourceFile(
-                        "",
                         "build.gradle",
                         ""
                                 + "apply plugin: '"
@@ -163,6 +167,9 @@ public class HelloWorldApp extends AbstractAndroidTestApp implements AndroidTest
                                 + "'\n"
                                 + "\n"
                                 + "android {\n"
+                                + "    defaultConfig.minSdkVersion "
+                                + minSdkVersion
+                                + "\n"
                                 + "    compileSdkVersion "
                                 + GradleTestProject.DEFAULT_COMPILE_SDK_VERSION
                                 + "\n"
@@ -178,5 +185,9 @@ public class HelloWorldApp extends AbstractAndroidTestApp implements AndroidTest
 
     public static HelloWorldApp forPlugin(String plugin) {
         return new HelloWorldApp(plugin);
+    }
+
+    public static HelloWorldApp forPluginWithMinSdkVersion(String plugin, int minSdkVersion) {
+        return new HelloWorldApp(plugin, minSdkVersion);
     }
 }

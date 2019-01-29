@@ -25,6 +25,7 @@ android {
 
     defaultConfig {
         minSdkVersion 15
+        //noinspection ExpiringTargetSdkVersion,ExpiredTargetSdkVersion
         targetSdkVersion rootProject.latestCompileSdk
     }
 
@@ -34,5 +35,6 @@ android {
 }
 
 dependencies {
+    api 'com.android.support:appcompat-v7:' + rootProject.supportLibVersion
     api "org.jetbrains.kotlin:kotlin-stdlib:$rootProject.kotlinVersion"
 }

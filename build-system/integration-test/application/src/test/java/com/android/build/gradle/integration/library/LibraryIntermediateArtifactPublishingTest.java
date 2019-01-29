@@ -25,6 +25,7 @@ import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldLibraryApp;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.utils.FileUtils;
 import java.io.File;
 import java.io.IOException;
@@ -47,9 +48,21 @@ public class LibraryIntermediateArtifactPublishingTest {
 
     @Test
     public void fullJarArtifactIsNotNormallyCreated() throws IOException, InterruptedException {
-        GradleBuildResult result = project.executor().run(":app:assembleDebug");
+        GradleBuildResult result =
+                project.executor()
+                        .with(BooleanOption.ENABLE_DEXING_ARTIFACT_TRANSFORM, false)
+                        .run(":app:assembleDebug");
         assertThat(result.getTask(":lib:createFullJarDebug")).wasNotExecuted();
         assertThat(getJar("full.jar")).doesNotExist();
+    }
+
+    @Test
+    public void testFullJarUpToDate() throws IOException, InterruptedException {
+        GradleBuildResult result = project.executor().run(":lib:createFullJarDebug");
+        assertThat(result.getTask(":lib:createFullJarDebug")).wasExecuted();
+
+        result = project.executor().run(":lib:createFullJarDebug");
+        assertThat(result.getTask(":lib:createFullJarDebug")).wasUpToDate();
     }
 
     @Test
@@ -84,17 +97,23 @@ public class LibraryIntermediateArtifactPublishingTest {
         assertThatZip(fullJar).contains("com/example/helloworld/HelloWorld.class");
         assertThatZip(fullJar).contains("foo.txt");
 
-        File classesJar = getJar("classes.jar");
+        File classesJar = getOldLocationJar("classes.jar");
         assertThatZip(classesJar).contains("com/example/helloworld/HelloWorld.class");
         assertThatZip(classesJar).doesNotContain("foo.txt");
 
-        File resJar = getJar("res.jar");
+        File resJar = getOldLocationJar("res.jar");
         assertThatZip(resJar).doesNotContain("com/example/helloworld/HelloWorld.class");
         assertThatZip(resJar).contains("foo.txt");
     }
 
-    private File getJar(String fileName) {
+    // use the "old" location until everything is moved to BuildArtifact.
+    private File getOldLocationJar(String fileName) {
         return project.getSubproject(":lib")
                 .file("build/intermediates/intermediate-jars/debug/" + fileName);
+    }
+
+    private File getJar(String fileName) {
+        return project.getSubproject(":lib")
+                .file("build/intermediates/full_jar/debug/createFullJarDebug/" + fileName);
     }
 }

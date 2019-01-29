@@ -40,12 +40,15 @@ import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.wireless.android.sdk.stats.ApiVersion;
 import com.google.wireless.android.sdk.stats.DeviceInfo;
+import com.google.wireless.android.sdk.stats.GradleBuildProject;
 import com.google.wireless.android.sdk.stats.GradleBuildSplits;
 import com.google.wireless.android.sdk.stats.GradleBuildVariant;
 import com.google.wireless.android.sdk.stats.GradleIntegerOptionEntry;
 import com.google.wireless.android.sdk.stats.GradleProjectOptionsSettings;
 import com.google.wireless.android.sdk.stats.TestRun;
 import java.util.Locale;
+import org.gradle.api.Plugin;
+import org.gradle.api.logging.Logging;
 
 /**
  * Utilities to map internal representations of types to analytics.
@@ -117,7 +120,6 @@ public class AnalyticsUtil {
         GradleBuildSplits.Builder builder = GradleBuildSplits.newBuilder();
         if (splits.getDensity().isEnable()) {
             builder.setDensityEnabled(true);
-            builder.setDensityAuto(splits.getDensity().isAuto());
 
             for (String compatibleScreen : splits.getDensity().getCompatibleScreens()) {
                 builder.addDensityCompatibleScreens(getCompatibleScreen(compatibleScreen));
@@ -131,7 +133,7 @@ public class AnalyticsUtil {
 
         if (splits.getLanguage().isEnable()) {
             builder.setLanguageEnabled(true);
-            builder.setLanguageAuto(splits.getLanguage().isAuto());
+
             for (String split : splits.getLanguage().getApplicationFilters()) {
                 builder.addLanguageIncludes(split != null ? split : "null");
             }
@@ -159,6 +161,8 @@ public class AnalyticsUtil {
                 return GradleBuildVariant.Java8LangSupport.RETROLAMBDA;
             case DESUGAR:
                 return GradleBuildVariant.Java8LangSupport.INTERNAL;
+            case R8:
+                return GradleBuildVariant.Java8LangSupport.R8_DESUGARING;
             case D8:
                 return GradleBuildVariant.Java8LangSupport.D8;
             case INVALID:
@@ -196,8 +200,8 @@ public class AnalyticsUtil {
         switch (codeShrinker) {
             case PROGUARD:
                 return GradleBuildVariant.CodeShrinkerTool.PROGUARD;
-            case ANDROID_GRADLE:
-                return GradleBuildVariant.CodeShrinkerTool.ANDROID_GRADLE_SHRINKER;
+            case R8:
+                return GradleBuildVariant.CodeShrinkerTool.R8;
         }
         throw new AssertionError("Unrecognized type " + codeShrinker);
     }
@@ -208,6 +212,7 @@ public class AnalyticsUtil {
             case HOST:
                 return TestRun.TestExecution.HOST;
             case ANDROID_TEST_ORCHESTRATOR:
+            case ANDROIDX_TEST_ORCHESTRATOR:
                 return TestRun.TestExecution.ANDROID_TEST_ORCHESTRATOR;
         }
         throw new AssertionError("Unrecognized type " + execution);
@@ -365,4 +370,32 @@ public class AnalyticsUtil {
 
         return builder.build();
     }
+
+    @NonNull
+    public static GradleBuildProject.GradlePlugin toProto(@NonNull Plugin<?> plugin) {
+        return otherPluginToProto(plugin.getClass().getName());
+    }
+
+    @VisibleForTesting
+    static GradleBuildProject.GradlePlugin otherPluginToProto(@NonNull String pluginClassName) {
+        String enumName = getOtherPluginEnumName(pluginClassName);
+
+        try {
+            return GradleBuildProject.GradlePlugin.valueOf(enumName);
+        } catch (IllegalArgumentException e) {
+            Logging.getLogger(AnalyticsUtil.class)
+                    .info(
+                            "Analytics other plugin to proto: Unknown plugin type {} expected enum {}",
+                            pluginClassName,
+                            enumName);
+            return GradleBuildProject.GradlePlugin.UNKNOWN_GRADLE_PLUGIN;
+        }
+    }
+
+    @VisibleForTesting
+    @NonNull
+    static String getOtherPluginEnumName(@NonNull String pluginClassName) {
+        return pluginClassName.replace(".", "_").toUpperCase(Locale.US);
+    }
+
 }

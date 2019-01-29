@@ -1,19 +1,22 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module", "fileset")
-load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
+load("//tools/base/bazel:maven.bzl", "maven_pom")
+load("//tools/base/bazel:kotlin.bzl", "kotlin_library", "kotlin_test")
 
+# managed by go/iml_to_build
 iml_module(
-    name = "studio.java-lib-model-builder",
+    name = "studio.android.sdktools.java-lib-model-builder",
     srcs = ["src/main/java"],
-    iml_files = ["java-lib-model-builder.iml"],
+    iml_files = ["android.sdktools.java-lib-model-builder.iml"],
     resources = ["src/main/resources"],
-    tags = ["managed"],
     test_srcs = ["src/test/java"],
+    test_tags = ["manual"],  # Test is below, due to needing runtime version of gradle API
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     deps = [
-        "//tools/idea/.idea/libraries:gradle-api",
-        "//tools/base/build-system/java-lib-plugin/java-lib-model:studio.java-lib-model[module]",
-        "//tools/base/annotations:studio.android-annotations[module]",
+        "//tools/idea/.idea/libraries:Gradle",
+        "//tools/idea/.idea/libraries:javax-inject",
+        "//tools/base/build-system/java-lib-plugin/java-lib-model:studio.android.sdktools.java-lib-model[module]",
+        "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/idea/.idea/libraries:equalsverifier[test]",
         "//tools/idea/.idea/libraries:JUnit4[test]",
         "//tools/idea/.idea/libraries:KotlinJavaRuntime",
@@ -28,11 +31,9 @@ fileset(
     },
 )
 
-maven_java_library(
+kotlin_library(
     name = "java-lib-model-builder",
-    srcs = glob([
-        "src/main/java/**/*.java",
-    ]),
+    srcs = ["src/main/java"],
     pom = ":pom",
     resource_strip_prefix = "tools/base/build-system/java-lib-plugin/java-lib-model-builder",
     resources = [":resources"],
@@ -51,9 +52,9 @@ maven_pom(
     source = "//tools/buildSrc/base:build_version",
 )
 
-java_test(
+kotlin_test(
     name = "builder_tests",
-    srcs = glob(["src/test/java/**/*.java"]),
+    srcs = ["src/test/java"],
     jvm_flags = ["-Dtest.suite.jar=builder_tests.jar"],
     test_class = "com.android.testutils.JarTestSuite",
     deps = [

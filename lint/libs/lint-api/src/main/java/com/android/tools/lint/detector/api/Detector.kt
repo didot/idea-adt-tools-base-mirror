@@ -135,12 +135,115 @@ abstract class Detector {
     fun appliesTo(context: Context, file: File): Boolean = false
 
     /**
-     * Analysis is about to begin, perform any setup steps.
+     * Analysis is about to begin for the given root project; perform any setup steps.
+     *
+     * A root project that is not being depended on by any other project.
+     * For example, in a Gradle tree that has two app modules, and five libraries,
+     * where each of the apps depend on one ore more libraries, all seven Gradle
+     * modules are lint projects, and the two app modules are lint root projects.
+     *
+     * You typically place your analysis where you want to consult not just data
+     * from a given module, but data gathered during analysis of all the dependent
+     * library modules as well, in [afterCheckRootProject]. For analysis that
+     * is local to a given module, just place it in [afterCheckEachProject].
+     *
+     * @param context the context for the check referencing the project, lint
+     * client, etc
+     * @deprecated This method is deprecated because the semantics of
+     *  [beforeCheckLibraryProject] was unfortunate (it included all libraries
+     *  *except* the root project, and typically you want to either act
+     *  on each and every project, or just the root projects. Therefore,
+     *  there is a new method, [beforeCheckEachProject], which applies to each
+     *  project and [beforeCheckRootProject] which applies to just the root
+     *  projects; [beforeCheckProject] has a name that sounds like
+     *  [beforeCheckEachProject] but just reusing that name would have been
+     *  an incompatible change.
+     */
+    open fun beforeCheckRootProject(context: Context) {
+        // Backwards compatibility for a while
+        @Suppress("DEPRECATION")
+        beforeCheckProject(context)
+    }
+
+    /**
+     * Analysis is about to begin for the given project (which may be a root
+     * project or a library project). Perform any setup steps.
      *
      * @param context the context for the check referencing the project, lint
      * client, etc
      */
-    open fun beforeCheckProject(context: Context) {}
+    open fun beforeCheckEachProject(context: Context) {
+        // preserve old semantics of afterCheckLibraryProject
+        if (context.project != context.mainProject) {
+            @Suppress("DEPRECATION")
+            beforeCheckLibraryProject(context)
+        }
+    }
+
+    /**
+     * Analysis has just been finished for the given root project; perform any
+     * cleanup or report issues that require project-wide analysis (including
+     * its dependencies).
+     *
+     * A root project that is not being depended on by any other project.
+     * For example, in a Gradle tree that has two app modules, and five libraries,
+     * where each of the apps depend on one ore more libraries, all seven Gradle
+     * modules are lint projects, and the two app modules are lint root projects.
+     *
+     * You typically place your analysis where you want to consult not just data
+     * from a given module, but data gathered during analysis of all the dependent
+     * library modules as well, in [afterCheckRootProject]. For analysis that
+     * is local to a given module, just place it in [afterCheckEachProject].
+     *
+     * @param context the context for the check referencing the project, lint
+     * client, etc
+     */
+    open fun afterCheckRootProject(context: Context) {
+        // Backwards compatibility for a while
+        @Suppress("DEPRECATION")
+        afterCheckProject(context)
+    }
+
+    /**
+     * Analysis has just been finished for the given project (which may
+     * be a root project or a library project); perform any
+     * cleanup or report issues that require library-project-wide analysis.
+     *
+     * @param context the context for the check referencing the project, lint
+     * client, etc
+     */
+    open fun afterCheckEachProject(context: Context) {
+        // preserve old semantics of afterCheckLibraryProject
+        if (context.project != context.mainProject) {
+            @Suppress("DEPRECATION")
+            afterCheckLibraryProject(context)
+        }
+    }
+
+    /**
+     * Analysis is about to begin, perform any setup steps.
+     *
+     * @param context the context for the check referencing the project, lint
+     * client, etc
+     * @deprecated This method is deprecated because the semantics of
+     *  [beforeCheckLibraryProject] was unfortunate (it included all libraries
+     *  *except* the root project, and typically you want to either act
+     *  on each and every project, or just the root projects. Therefore,
+     *  there is a new method, [beforeCheckEachProject], which applies to each
+     *  project and [beforeCheckRootProject] which applies to just the root
+     *  projects; [beforeCheckProject] has a name that sounds like
+     *  [beforeCheckEachProject] but just reusing that name would have been
+     *  an incompatible change.
+     */
+    @Deprecated(
+        "If you want to override the event that each root project is about " +
+                "to be analyzed, override beforeCheckRootProject; if you want to override the event " +
+                "that each project (both root projects and their dependencies, override " +
+                "beforeCheckEachProject",
+        replaceWith = ReplaceWith("beforeCheckRootProject(context)")
+    )
+    open fun beforeCheckProject(context: Context) {
+    }
 
     /**
      * Analysis has just been finished for the whole project, perform any
@@ -148,16 +251,46 @@ abstract class Detector {
      *
      * @param context the context for the check referencing the project, lint
      * client, etc
+     * @deprecated This method is deprecated because the semantics of
+     *  [afterCheckLibraryProject] was unfortunate (it included all libraries
+     *  *except* the root project, and typically you want to either act
+     *  on each and every project, or just the root projects. Therefore,
+     *  there is a new method, [afterCheckEachProject], which applies to each
+     *  project and [afterCheckRootProject] which applies to just the root
+     *  projects; [afterCheckProject] has a name that sounds like
+     *  [afterCheckEachProject] but just reusing that name would have been
+     *  an incompatible change.
      */
-    open fun afterCheckProject(context: Context) {}
+    @Deprecated(
+        "If you want to override the event that each root project is about " +
+                "to be analyzed, override afterCheckRootProject; if you want to override the event " +
+                "that each project (both root projects and their dependencies, override " +
+                "afterCheckEachProject", replaceWith = ReplaceWith("afterCheckRootProject(context)")
+    )
+    open fun afterCheckProject(context: Context) {
+    }
 
     /**
      * Analysis is about to begin for the given library project, perform any setup steps.
      *
      * @param context the context for the check referencing the project, lint
      * client, etc
+     * @deprecated This method is deprecated because the semantics of
+     *  [beforeCheckLibraryProject] was unfortunate (it included all libraries
+     *  *except* the root project, and typically you want to either act
+     *  on each and every project, or just the root projects. Therefore,
+     *  there is a new method, [beforeCheckEachProject], which applies to each
+     *  project and [beforeCheckRootProject] which applies to just the root
+     *  projects; [beforeCheckProject] has a name that sounds like
+     *  [beforeCheckEachProject] but just reusing that name would have been
+     *  an incompatible change.
      */
-    open fun beforeCheckLibraryProject(context: Context) {}
+    @Deprecated(
+        "Use beforeCheckEachProject instead (which now includes the root projects too)",
+        replaceWith = ReplaceWith("beforeCheckEachProject(context)")
+    )
+    open fun beforeCheckLibraryProject(context: Context) {
+    }
 
     /**
      * Analysis has just been finished for the given library project, perform any
@@ -165,13 +298,26 @@ abstract class Detector {
      *
      * @param context the context for the check referencing the project, lint
      * client, etc
+     * @deprecated This method is deprecated because the semantics of
+     *  [afterCheckLibraryProject] was unfortunate (it included all libraries
+     *  *except* the root project, and typically you want to either act
+     *  on each and every project, or just the root projects. Therefore,
+     *  there is a new method, [afterCheckEachProject], which applies to each
+     *  project and [afterCheckRootProject] which applies to just the root
+     *  projects; [afterCheckProject] has a name that sounds like
+     *  [afterCheckEachProject] but just reusing that name would have been
+     *  an incompatible change.
      */
-    open fun afterCheckLibraryProject(context: Context) {}
+    @Deprecated(
+        "Use afterCheckEachProject instead (which now includes the root projects too)",
+        replaceWith = ReplaceWith("afterCheckEachProject(context)")
+    )
+    open fun afterCheckLibraryProject(context: Context) {
+    }
 
     /**
      * Analysis is about to be performed on a specific file, perform any setup
      * steps.
-     *
      *
      * Note: When this method is called at the beginning of checking an XML
      * file, the context is guaranteed to be an instance of [XmlContext],
@@ -239,17 +385,48 @@ abstract class Detector {
 
     open fun checkClass(context: ClassContext, classNode: ClassNode) {}
 
-    open fun checkCall(context: ClassContext, classNode: ClassNode,
-            method: MethodNode, call: MethodInsnNode) {
+    open fun checkCall(
+        context: ClassContext,
+        classNode: ClassNode,
+        method: MethodNode,
+        call: MethodInsnNode
+    ) {
     }
 
-    open fun checkInstruction(context: ClassContext, classNode: ClassNode,
-            method: MethodNode, instruction: AbstractInsnNode) {
+    open fun checkInstruction(
+        context: ClassContext,
+        classNode: ClassNode,
+        method: MethodNode,
+        instruction: AbstractInsnNode
+    ) {
     }
 
     // ---- Dummy implementations to make implementing an GradleScanner easier: ----
 
+    open val customVisitor: Boolean = false
+
     open fun visitBuildScript(context: Context) {}
+
+    open fun checkDslPropertyAssignment(
+        context: GradleContext,
+        property: String,
+        value: String,
+        parent: String,
+        parentParent: String?,
+        valueCookie: Any,
+        statementCookie: Any
+    ) {
+    }
+
+    open fun checkMethodCall(
+        context: GradleContext,
+        statement: String,
+        parent: String?,
+        namedArguments: Map<String, String>,
+        unnamedArguments: List<String>,
+        cookie: Any
+    ) {
+    }
 
     // ---- Dummy implementations to make implementing a resource folder scanner easier: ----
 
@@ -265,20 +442,30 @@ abstract class Detector {
 
     open fun applicableSuperClasses(): List<String>? = null
 
-    open fun visitMethod(context: JavaContext, visitor: JavaElementVisitor?,
-            call: PsiMethodCallExpression, method: PsiMethod) {
+    open fun visitMethod(
+        context: JavaContext,
+        visitor: JavaElementVisitor?,
+        call: PsiMethodCallExpression,
+        method: PsiMethod
+    ) {
     }
 
     open fun visitConstructor(
-            context: JavaContext,
-            visitor: JavaElementVisitor?,
-            node: PsiNewExpression,
-            constructor: PsiMethod) {
+        context: JavaContext,
+        visitor: JavaElementVisitor?,
+        node: PsiNewExpression,
+        constructor: PsiMethod
+    ) {
     }
 
-    open fun visitResourceReference(context: JavaContext,
-            visitor: JavaElementVisitor?, node: PsiElement,
-            type: ResourceType, name: String, isFramework: Boolean) {
+    open fun visitResourceReference(
+        context: JavaContext,
+        visitor: JavaElementVisitor?,
+        node: PsiElement,
+        type: ResourceType,
+        name: String,
+        isFramework: Boolean
+    ) {
     }
 
     open fun checkClass(context: JavaContext, declaration: PsiClass) {}
@@ -286,10 +473,11 @@ abstract class Detector {
     open fun createPsiVisitor(context: JavaContext): JavaElementVisitor? = null
 
     open fun visitReference(
-            context: JavaContext,
-            visitor: JavaElementVisitor?,
-            reference: PsiJavaCodeReferenceElement,
-            referenced: PsiElement) {
+        context: JavaContext,
+        visitor: JavaElementVisitor?,
+        reference: PsiJavaCodeReferenceElement,
+        referenced: PsiElement
+    ) {
     }
 
     // ---- Dummy implementation to make implementing UastScanner easier: ----
@@ -299,44 +487,78 @@ abstract class Detector {
     open fun visitClass(context: JavaContext, lambda: ULambdaExpression) {}
 
     open fun visitReference(
-            context: JavaContext,
-            reference: UReferenceExpression,
-            referenced: PsiElement) {
+        context: JavaContext,
+        reference: UReferenceExpression,
+        referenced: PsiElement
+    ) {
     }
 
     open fun visitConstructor(
-            context: JavaContext,
-            node: UCallExpression,
-            constructor: PsiMethod) {
+        context: JavaContext,
+        node: UCallExpression,
+        constructor: PsiMethod
+    ) {
     }
 
+    @Deprecated("Rename to visitMethodCall instead when targeting 3.3+")
     open fun visitMethod(
-            context: JavaContext,
-            node: UCallExpression,
-            method: PsiMethod) {
+        context: JavaContext,
+        node: UCallExpression,
+        method: PsiMethod
+    ) {
+    }
+
+    open fun visitMethodCall(
+        context: JavaContext,
+        node: UCallExpression,
+        method: PsiMethod
+    ) {
+        // Backwards compatibility
+        @Suppress("DEPRECATION")
+        visitMethod(context, node, method)
     }
 
     open fun createUastHandler(context: JavaContext): UElementHandler? = null
 
     open fun visitResourceReference(
-            context: JavaContext,
-            node: UElement,
-            type: ResourceType,
-            name: String,
-            isFramework: Boolean) {
+        context: JavaContext,
+        node: UElement,
+        type: ResourceType,
+        name: String,
+        isFramework: Boolean
+    ) {
     }
 
     open fun visitAnnotationUsage(
-            context: JavaContext,
-            usage: UElement,
-            type: AnnotationUsageType,
-            annotation: UAnnotation,
-            qualifiedName: String,
-            method: PsiMethod?,
-            annotations: List<UAnnotation>,
-            allMemberAnnotations: List<UAnnotation>,
-            allClassAnnotations: List<UAnnotation>,
-            allPackageAnnotations: List<UAnnotation>) {
+        context: JavaContext,
+        usage: UElement,
+        type: AnnotationUsageType,
+        annotation: UAnnotation,
+        qualifiedName: String,
+        method: PsiMethod?,
+        annotations: List<UAnnotation>,
+        allMemberAnnotations: List<UAnnotation>,
+        allClassAnnotations: List<UAnnotation>,
+        allPackageAnnotations: List<UAnnotation>
+    ) {
+    }
+
+    open fun visitAnnotationUsage(
+        context: JavaContext,
+        usage: UElement,
+        type: AnnotationUsageType,
+        annotation: UAnnotation,
+        qualifiedName: String,
+        method: PsiMethod?,
+        referenced: PsiElement?,
+        annotations: List<UAnnotation>,
+        allMemberAnnotations: List<UAnnotation>,
+        allClassAnnotations: List<UAnnotation>,
+        allPackageAnnotations: List<UAnnotation>
+    ) {
+        // Backwards compatibility
+        visitAnnotationUsage(context, usage, type, annotation, qualifiedName, method,
+            annotations, allMemberAnnotations, allClassAnnotations, allPackageAnnotations)
     }
 
     open fun applicableAnnotations(): List<String>? = null

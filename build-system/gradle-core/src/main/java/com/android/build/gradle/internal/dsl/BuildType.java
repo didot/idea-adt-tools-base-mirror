@@ -24,6 +24,7 @@ import com.android.build.gradle.internal.errors.DeprecationReporter;
 import com.android.build.gradle.internal.scope.CodeShrinker;
 import com.android.builder.core.BuilderConstants;
 import com.android.builder.core.DefaultBuildType;
+import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.internal.ClassFieldImpl;
@@ -226,16 +227,26 @@ public class BuildType extends DefaultBuildType implements CoreBuildType, Serial
     }
 
     /**
-     * Initialize the DSL object. Not meant to be used from the build scripts.
+     * Initialize the DSL object with the debug signingConfig. Not meant to be used from the build
+     * scripts.
      */
     public void init(SigningConfig debugSigningConfig) {
+        init();
+        if (BuilderConstants.DEBUG.equals(getName())) {
+            assert debugSigningConfig != null;
+            setSigningConfig(debugSigningConfig);
+        }
+    }
+
+    /**
+     * Initialize the DSL object without the signingConfig. Not meant to be used from the build
+     * scripts.
+     */
+    public void init() {
         if (BuilderConstants.DEBUG.equals(getName())) {
             setDebuggable(true);
             setEmbedMicroApp(false);
             isCrunchPngsDefault = false;
-
-            assert debugSigningConfig != null;
-            setSigningConfig(debugSigningConfig);
         }
     }
 
@@ -557,14 +568,8 @@ public class BuildType extends DefaultBuildType implements CoreBuildType, Serial
      *
      * <p>By default, when you enable code shrinking by setting <a
      * href="com.android.build.gradle.internal.dsl.BuildType.html#com.android.build.gradle.internal.dsl.BuildType:minifyEnabled">
-     * <code>minifyEnabled</code></a> to <code>true</code>, the Android plugin uses ProGuard.
-     * However while deploying your app using Android Studio's <a
-     * href="https://developer.android.com/studio/run/index.html#instant-run">Instant Run</a>
-     * feature, which doesn't support ProGuard, the plugin switches to using a custom experimental
-     * code shrinker.
-     *
-     * <p>If you experience issues using the experimental code shrinker, you can disable code
-     * shrinking while using Instant Run by setting this property to <code>true</code>.
+     * <code>minifyEnabled</code></a> to <code>true</code>, the Android plugin uses ProGuard. If you
+     * set this property to <code>false</code>, the Android plugin will use R8.
      *
      * <p>To learn more, read <a
      * href="https://developer.android.com/studio/build/shrink-code.html">Shrink Your Code and
@@ -668,7 +673,7 @@ public class BuildType extends DefaultBuildType implements CoreBuildType, Serial
                 default:
                     throw new AssertionError("Unknown value " + used);
             }
-            issueReporter.reportError(Type.GENERIC, message, methodName);
+            issueReporter.reportError(Type.GENERIC, new EvalIssueException(message, methodName));
         }
     }
 

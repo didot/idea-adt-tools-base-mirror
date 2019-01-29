@@ -15,20 +15,28 @@
  */
 package com.android.build.gradle.internal.res.namespaced
 
-import com.android.build.gradle.internal.scope.TaskConfigAction
+import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.IncrementalTask
-import com.android.ide.common.res2.CompileResourceRequest
-import com.android.ide.common.res2.FileStatus
+import com.android.build.gradle.internal.tasks.Workers
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
+import com.android.builder.internal.aapt.v2.Aapt2RenamingConventions
+import com.android.ide.common.resources.CompileResourceRequest
+import com.android.ide.common.resources.FileStatus
 import com.android.utils.FileUtils
+import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.SkipWhenEmpty
-import org.gradle.workers.IsolationMode
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.Path
 import javax.inject.Inject
 
 /**
@@ -37,36 +45,71 @@ import javax.inject.Inject
  * The link step handles resource overlays.
  */
 open class CompileSourceSetResources
-@Inject constructor(private val workerExecutor: WorkerExecutor) : IncrementalTask() {
+@Inject constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    lateinit var aapt2FromMaven: FileCollection
+        private set
 
-    @get:InputFiles @get:SkipWhenEmpty lateinit var inputDirectory: File private set
-    @get:Input var isPngCrunching: Boolean = false; private set
-    @get:Input var isPseudoLocalize: Boolean = false; private set
-    @get:OutputDirectory lateinit var outputDirectory: File private set
-    @get:OutputDirectory lateinit var aaptIntermediateDirectory: File private set
+    @get:InputFiles
+    @get:SkipWhenEmpty
+    lateinit var inputDirectories: BuildableArtifact
+        private set
+    @get:Input
+    var isPngCrunching: Boolean = false
+        private set
+    @get:Input
+    var isPseudoLocalize: Boolean = false
+        private set
+    @get:OutputDirectory
+    lateinit var outputDirectory: File
+        private set
+    @get:OutputDirectory
+    lateinit var partialRDirectory: File
+        private set
+
+    private val workers = Workers.getWorker(workerExecutor)
 
     override fun isIncremental() = true
 
     override fun doFullTaskAction() {
         FileUtils.cleanOutputDir(outputDirectory)
-        if (!inputDirectory.isDirectory) {
-            // This should be covered by the @SkipWhenEmpty above.
-            return
-        }
         val requests = mutableListOf<CompileResourceRequest>()
+        val addedFiles = mutableMapOf<Path, Path>()
+        for (inputDirectory in inputDirectories) {
+            if (!inputDirectory.isDirectory) {
+                continue
+            }
 
-        /** Only look at files in first level subdirectories of the input directory */
-        Files.list(inputDirectory.toPath()).forEach { subDir ->
-            if (Files.isDirectory(subDir)) {
-                Files.list(subDir).forEach { resFile ->
-                    if (Files.isRegularFile(resFile)) {
-                        requests.add(compileRequest(resFile.toFile()))
+            /** Only look at files in first level subdirectories of the input directory */
+            Files.list(inputDirectory.toPath()).use { fstLevel ->
+                fstLevel.forEach { subDir ->
+                    if (Files.isDirectory(subDir)) {
+                        Files.list(subDir).use {
+                            it.forEach { resFile ->
+                                if (Files.isRegularFile(resFile)) {
+                                    val relativePath = inputDirectory.toPath().relativize(resFile)
+                                    if (addedFiles.contains(relativePath)) {
+                                        throw RuntimeException(
+                                                "Duplicated resource '$relativePath' found in a " +
+                                                        "source set:\n" +
+                                                        "    - ${addedFiles[relativePath]}\n" +
+                                                        "    - $resFile"
+                                        )
+                                    }
+                                    requests.add(compileRequest(resFile.toFile()))
+                                    addedFiles[relativePath] = resFile
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
-        submit(requests)
+        workers.use {
+            submit(requests)
+        }
     }
 
     override fun doIncrementalTaskAction(changedInputs: MutableMap<File, FileStatus>) {
@@ -74,7 +117,7 @@ open class CompileSourceSetResources
         val deletes = mutableListOf<File>()
         /** Only consider at files in first level subdirectories of the input directory */
         changedInputs.forEach { file, status ->
-            if (willCompile(file) && (inputDirectory == file.parentFile.parentFile)) {
+            if (willCompile(file) && (inputDirectories.any { it == file.parentFile.parentFile })) {
                 when (status) {
                     FileStatus.NEW, FileStatus.CHANGED -> {
                         requests.add(compileRequest(file))
@@ -85,15 +128,18 @@ open class CompileSourceSetResources
                 }
             }
         }
-        if (!deletes.isEmpty()) {
-            workerExecutor.submit(Aapt2CompileDeleteRunnable::class.java) {
-                it.isolationMode = IsolationMode.NONE
-                it.setParams(Aapt2CompileDeleteRunnable.Params(
+        workers.use {
+            if (!deletes.isEmpty()) {
+                workers.submit(Aapt2CompileDeleteRunnable::class.java,
+                    Aapt2CompileDeleteRunnable.Params(
                         outputDirectory = outputDirectory,
-                        deletedInputs = deletes))
+                        deletedInputs = deletes,
+                        partialRDirectory = partialRDirectory
+                    )
+                )
             }
+            submit(requests)
         }
-        submit(requests)
     }
 
     private fun compileRequest(file: File, inputDirectoryName: String = file.parentFile.name) =
@@ -102,44 +148,66 @@ open class CompileSourceSetResources
                     outputDirectory = outputDirectory,
                     inputDirectoryName = inputDirectoryName,
                     isPseudoLocalize = isPseudoLocalize,
-                    isPngCrunching = isPngCrunching)
+                    isPngCrunching = isPngCrunching,
+                    partialRFile = getPartialR(file))
+
+    private fun getPartialR(file: File) =
+        File(partialRDirectory, "${Aapt2RenamingConventions.compilationRename(file)}-R.txt")
 
     private fun submit(requests: List<CompileResourceRequest>) {
         if (requests.isEmpty()) {
             return
         }
+        val aapt2ServiceKey = registerAaptService(
+            aapt2FromMaven = aapt2FromMaven,
+            logger = iLogger
+        )
         for (request in requests) {
-            workerExecutor.submit(Aapt2CompileRunnable::class.java) {
-                it.isolationMode = IsolationMode.NONE
-                it.setParams(Aapt2CompileRunnable.Params(
-                        revision = builder.buildToolInfo.revision,
-                        requests = listOf(request),
-                        outputDirectory = outputDirectory))
-            }
+            workers.submit(Aapt2CompileRunnable::class.java,
+                Aapt2CompileRunnable.Params(
+                    aapt2ServiceKey = aapt2ServiceKey,
+                    requests = listOf(request)
+                )
+            )
         }
     }
 
     // TODO: filtering using same logic as DataSet.isIgnored.
     private fun willCompile(file: File) = !file.name.startsWith(".") && !file.isDirectory
 
-    class ConfigAction(
-            private val name: String,
-            private val inputDirectory: File,
-            private val outputDirectory: File,
-            private val variantScope: VariantScope,
-            private val aaptIntermediateDirectory: File) : TaskConfigAction<CompileSourceSetResources> {
-        override fun getName() = name
-        override fun getType() = CompileSourceSetResources::class.java
-        override fun execute(task: CompileSourceSetResources) {
-            task.inputDirectory = inputDirectory
+    class CreationAction(
+        override val name: String,
+        private val inputDirectories: BuildableArtifact,
+        variantScope: VariantScope
+    ) : VariantTaskCreationAction<CompileSourceSetResources>(variantScope) {
+
+        override val type: Class<CompileSourceSetResources>
+            get() = CompileSourceSetResources::class.java
+
+        private lateinit var outputDirectory: File
+
+        private lateinit var partialRDirectory: File
+
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            outputDirectory = variantScope.artifacts
+                .appendArtifact(InternalArtifactType.RES_COMPILED_FLAT_FILES, taskName)
+            partialRDirectory = variantScope.artifacts
+                .appendArtifact(InternalArtifactType.PARTIAL_R_FILES, taskName)
+        }
+
+        override fun configure(task: CompileSourceSetResources) {
+            super.configure(task)
+
+            task.inputDirectories = inputDirectories
             task.outputDirectory = outputDirectory
-            task.variantName = variantScope.fullVariantName
+            task.partialRDirectory = partialRDirectory
             task.isPngCrunching = variantScope.isCrunchPngs
-            task.isPseudoLocalize = variantScope.variantData.variantConfiguration.buildType.isPseudoLocalesEnabled
-            task.aaptIntermediateDirectory = aaptIntermediateDirectory
-            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
+            task.isPseudoLocalize =
+                    variantScope.variantData.variantConfiguration.buildType.isPseudoLocalesEnabled
+            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+
+            task.dependsOn(variantScope.taskContainer.resourceGenTask)
         }
     }
-
-
 }

@@ -1,13 +1,26 @@
 package android.com.java.profilertester;
 
-import android.com.java.profilertester.cpu.CpuAsyncTask;
-import android.com.java.profilertester.event.EmptyActivity;
-import android.com.java.profilertester.event.EventConfigurations;
-import android.com.java.profilertester.memory.MemoryAsyncTask;
-import android.com.java.profilertester.network.NetworkAsyncTask;
+import android.app.Activity;
+import android.com.java.profilertester.taskcategory.AudioTaskCategory;
+import android.com.java.profilertester.taskcategory.BackgroundTaskCategory;
+import android.com.java.profilertester.taskcategory.BluetoothTaskCategory;
+import android.com.java.profilertester.taskcategory.CameraTaskCategory;
+import android.com.java.profilertester.taskcategory.CpuTaskCategory;
+import android.com.java.profilertester.taskcategory.EventTaskCategory;
+import android.com.java.profilertester.taskcategory.FeedbackTaskCategory;
+import android.com.java.profilertester.taskcategory.LocationTaskCategory;
+import android.com.java.profilertester.taskcategory.MemoryTaskCategory;
+import android.com.java.profilertester.taskcategory.NetworkTaskCategory;
+import android.com.java.profilertester.taskcategory.ScreenBrightnessTaskCategory;
+import android.com.java.profilertester.taskcategory.TaskCategory;
 import android.content.Intent;
-import android.support.v4.app.Fragment;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
+import android.support.v4.app.Fragment;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -16,62 +29,98 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.Spinner;
-
+import android.widget.Toast;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
 
 /**
- *  This is a placeholder view which contains two Spinners to decide the scenario
- *  mCategorySpinner specifies the category of scenario
- *  mActionSpinner specifies descriptions of scenario
+ * This is a placeholder view which contains two Spinners to decide the scenario
+ * mCategorySpinner specifies the category of scenario
+ * mTaskSpinner specifies descriptions of scenario
  */
 
 public class MainActivityFragment extends Fragment {
-
     final static String TAG = MainActivityFragment.class.getName();
-    final static int CPU_CATEGORY_NUMBER = 0;
-    final static int MEMORY_CATEGORY_NUMBER = 1;
-    final static int NETWORK_CATEGORY_NUMBER = 2;
-    final static int EVENT_CATEGORY_NUMBER = 3;
 
-    private View myFragmentView;
-    private Spinner mActionSpinner, mCategorySpinner;
-    private ArrayList<ArrayAdapter<CharSequence> > mAdaptorList;
+    private View mFragmentView;
+    private MainLooperThread mMainLooperThread;
 
+    private Spinner mCategorySpinner, mTaskSpinner;
+    private TaskCategory[] mTaskCategories;
+    private List<ArrayAdapter<? extends TaskCategory.Task>> mTaskAdapters;
+
+    private final List<TaskCategory.Task.SelectionListener> mSelectionListeners = new ArrayList<>();
+    /**
+     * Tasks waiting for permission request results to run, see {@link
+     * #onRequestPermissionsResult(int, String[], int[])}.
+     */
+    private final List<PendingPermissionTask> mPendingPermissionTasks = new ArrayList<>();
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
-        myFragmentView =  inflater.inflate(R.layout.fragment_main, container, false);
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
 
-        mCategorySpinner = (Spinner)myFragmentView.findViewById(R.id.category_spinner);
+        mMainLooperThread = new MainLooperThread();
+        mMainLooperThread.start();
+    }
 
-        ArrayAdapter<CharSequence> adapter = ArrayAdapter.createFromResource(myFragmentView.getContext(),
-                R.array.category_array, android.R.layout.simple_spinner_item);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        mCategorySpinner.setAdapter(adapter);
+    @Override
+    public View onCreateView(
+            LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        mFragmentView = inflater.inflate(R.layout.fragment_main, container, false);
 
-        mActionSpinner = (Spinner)myFragmentView.findViewById(R.id.action_spinner);
-
+        mCategorySpinner = (Spinner) mFragmentView.findViewById(R.id.category_spinner);
+        final Activity host = getActivity();
+        mTaskCategories =
+                new TaskCategory[] {
+                    new CpuTaskCategory(host.getFilesDir()),
+                    new MemoryTaskCategory(),
+                    new NetworkTaskCategory(host),
+                    new EventTaskCategory(
+                            new Callable<Activity>() {
+                                @Override
+                                public Activity call() {
+                                    return host;
+                                }
+                            },
+                            (EditText) mFragmentView.findViewById(R.id.section_editor)),
+                    new BluetoothTaskCategory(host),
+                    new LocationTaskCategory(host, mMainLooperThread.getLooper()),
+                    new ScreenBrightnessTaskCategory(host),
+                    new CameraTaskCategory(host),
+                    new AudioTaskCategory(host),
+                    new FeedbackTaskCategory(host),
+                    new BackgroundTaskCategory(host)
+                };
+        ArrayAdapter<TaskCategory> categoryAdapters =
+                new ArrayAdapter<>(
+                        mFragmentView.getContext(),
+                        android.R.layout.simple_spinner_item,
+                        mTaskCategories);
+        categoryAdapters.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        mCategorySpinner.setAdapter(categoryAdapters);
+        mTaskSpinner = (Spinner) mFragmentView.findViewById(R.id.task_spinner);
         // create an adaptor for each category
-        mAdaptorList = new ArrayList<>();
-        mAdaptorList.add(ArrayAdapter.createFromResource(myFragmentView.getContext(),
-                R.array.cpu_array, android.R.layout.simple_spinner_item));
-        mAdaptorList.add(ArrayAdapter.createFromResource(myFragmentView.getContext(),
-                R.array.memory_array, android.R.layout.simple_spinner_item));
-        mAdaptorList.add(ArrayAdapter.createFromResource(myFragmentView.getContext(),
-                R.array.network_array, android.R.layout.simple_spinner_item));
-        mAdaptorList.add(ArrayAdapter.createFromResource(myFragmentView.getContext(),
-                R.array.event_array, android.R.layout.simple_spinner_item));
-        for (ArrayAdapter<CharSequence> actionAdapter : mAdaptorList) {
-            actionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        mTaskAdapters = new ArrayList<>();
+        for (TaskCategory taskCategory : mTaskCategories) {
+            ArrayAdapter<? extends TaskCategory.Task> taskAdapter = new ArrayAdapter<>(
+                    mFragmentView.getContext(),
+                    android.R.layout.simple_spinner_item,
+                    taskCategory.getTasks());
+            taskAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            mTaskAdapters.add(taskAdapter);
+            mSelectionListeners.addAll(taskCategory.getTaskSelectionListeners());
         }
 
         mCategorySpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parentView, View selectedItemView, int position, long id) {
-                if (mActionSpinner.getAdapter() != mAdaptorList.get(position)) {
-                    mActionSpinner.setAdapter(mAdaptorList.get(position));
-                    mAdaptorList.get(position).notifyDataSetChanged();
+                if (mTaskSpinner.getAdapter() != mTaskAdapters.get(position)) {
+                    mTaskSpinner.setAdapter(mTaskAdapters.get(position));
+
+                    Object selectedTaskItem = mTaskSpinner.getSelectedItem();
+                    notifySelection(selectedTaskItem);
                 }
             }
 
@@ -81,100 +130,186 @@ public class MainActivityFragment extends Fragment {
             }
         });
 
-        mActionSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+        mTaskSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parentView, View selectedItemView, int position, long id) {
-                resetScenario();
+                Object selectedTaskItem = parentView.getItemAtPosition(position);
+                notifySelection(selectedTaskItem);
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parentView) {
-                Log.i(TAG, "mActionSpinner: nothing selected");
+                Log.i(TAG, "mTaskSpinner: nothing selected");
             }
         });
 
-        return myFragmentView;
+        return mFragmentView;
     }
 
-    private void setScenario(int category, int action) {
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        mMainLooperThread.quit();
+    }
+
+    private void notifySelection(@Nullable Object selectedItem) {
+        if (selectedItem != null) {
+            for (TaskCategory.Task.SelectionListener listener : mSelectionListeners) {
+                listener.onSelection(selectedItem);
+            }
+        }
+    }
+
+    private void setScenario(int category, int task) {
         if (category != mCategorySpinner.getSelectedItemPosition()) {
             mCategorySpinner.setSelection(category);
-            mActionSpinner.setAdapter(mAdaptorList.get(category));
+            mTaskSpinner.setAdapter(mTaskAdapters.get(category));
         }
-        mActionSpinner.setSelection(action);
+        mTaskSpinner.setSelection(task);
     }
 
     public boolean scenarioMoveBack() {
         int category = mCategorySpinner.getSelectedItemPosition();
-        int action = mActionSpinner.getSelectedItemPosition();
-        --action;
-        if (action == -1) {
+        int task = mTaskSpinner.getSelectedItemPosition();
+        --task;
+        if (task == -1) {
             --category;
             if (category == -1) {
                 return false;
             }
-            action = mAdaptorList.get(category).getCount() - 1;
+            task = mTaskAdapters.get(category).getCount() - 1;
         }
-        setScenario(category, action);
+        setScenario(category, task);
         return true;
     }
 
     public boolean scenarioMoveForward() {
         int category = mCategorySpinner.getSelectedItemPosition();
-        int action = mActionSpinner.getSelectedItemPosition();
-        ++action;
-        if (action == mAdaptorList.get(category).getCount()) {
+        int task = mTaskSpinner.getSelectedItemPosition();
+        ++task;
+        if (task == mTaskAdapters.get(category).getCount()) {
             ++category;
-            if (category > EVENT_CATEGORY_NUMBER) {
+            if (category >= mCategorySpinner.getAdapter().getCount()) {
                 return false;
             }
-            action = 0;
+            task = 0;
         }
-        setScenario(category, action);
+        setScenario(category, task);
         return true;
     }
 
-    private void resetScenario() {
-        int categoryNumber = mCategorySpinner.getSelectedItemPosition();
-        int actionNumber = mActionSpinner.getSelectedItemPosition();
+    public void testScenario() {
+        Object categoryObject = mCategorySpinner.getSelectedItem();
+        if (categoryObject == null) {
+            return;
+        }
+        if (!(categoryObject instanceof TaskCategory)) {
+            Log.e("ProfilerTester", "Invalid category spinner selection!");
+            return;
+        }
+        final TaskCategory taskCategory = (TaskCategory) categoryObject;
 
-        // enable editor field for 'type words' scenario
-        EditText editorText = (EditText) myFragmentView.findViewById(R.id.section_editor);
-        if (categoryNumber == EVENT_CATEGORY_NUMBER && actionNumber == EventConfigurations.ActionNumber.TYPE_WORDS.ordinal()) {
-            editorText.setVisibility(View.VISIBLE);
+        Object taskObject = mTaskSpinner.getSelectedItem();
+        if (taskObject == null) {
+            return;
+        }
+        if (!(taskObject instanceof TaskCategory.Task)) {
+            Log.e("ProfilerTester", "Invalid task spinner selection!");
+            return;
+        }
+        final TaskCategory.Task task = (TaskCategory.Task) taskObject;
+
+        TaskCategory.RequestCodePermissions permissions = taskCategory.getPermissionsRequired(task);
+        Runnable taskRunnable =
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        taskCategory.executeTask(
+                                task,
+                                new TaskCategory.PostExecuteRunner() {
+                                    @Override
+                                    public void accept(@Nullable String s) {
+                                        View view = getView();
+                                        if (view != null && s != null) {
+                                            Toast.makeText(getActivity(), s, Toast.LENGTH_LONG)
+                                                    .show();
+                                        }
+                                    }
+                                });
+                    }
+                };
+        if (hasAllPermissions(permissions)) {
+            taskRunnable.run();
         } else {
-            editorText.setVisibility(View.INVISIBLE);
+            mPendingPermissionTasks.add(new PendingPermissionTask(permissions, taskRunnable));
         }
     }
 
-    public void testScenario() {
-        int categoryNumber = mCategorySpinner.getSelectedItemPosition();
-        int actionNumber = mActionSpinner.getSelectedItemPosition();
-        if (categoryNumber == -1) {
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (mTaskCategories == null) {
             return;
         }
 
-        // cpu scenario
-        if (categoryNumber == CPU_CATEGORY_NUMBER) {
-            new CpuAsyncTask(getActivity()).execute(actionNumber);
+        for (TaskCategory taskCategory : mTaskCategories) {
+            taskCategory.onActivityResult(requestCode, resultCode, data);
         }
+    }
 
-        // memory scenario
-        if (categoryNumber == MEMORY_CATEGORY_NUMBER) {
-            new MemoryAsyncTask().execute(actionNumber);
+
+    @Override
+    public void onRequestPermissionsResult(
+            int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (grantResults.length == 0) {
+            return;
         }
-
-        // network scenarios
-        if (categoryNumber == NETWORK_CATEGORY_NUMBER) {
-            new NetworkAsyncTask().execute(actionNumber);
-        }
-
-        // event scenarios
-        if (categoryNumber == EVENT_CATEGORY_NUMBER) {
-            if (actionNumber == EventConfigurations.ActionNumber.SWITCH_ACTIVITY.ordinal()) {
-                Intent intent = new Intent(getActivity(), EmptyActivity.class);
-                startActivity(intent);
+        boolean isGranted = true;
+        for (int grantResult : grantResults) {
+            if (grantResult != PackageManager.PERMISSION_GRANTED) {
+                isGranted = false;
+                break;
             }
+        }
+        for (PendingPermissionTask task : mPendingPermissionTasks) {
+            if (requestCode == task.mPermissions.getRequestCode().ordinal()) {
+                if (isGranted) {
+                    task.mTaskRunnable.run();
+                }
+                mPendingPermissionTasks.remove(task);
+                break;
+            }
+        }
+    }
+
+    private boolean hasAllPermissions(TaskCategory.RequestCodePermissions codePermissions) {
+        boolean hasAllPermissions = true;
+        String[] permissions = codePermissions.getPermissions();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            for (String p : permissions) {
+                if (ActivityCompat.checkSelfPermission(getActivity().getApplicationContext(), p)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    hasAllPermissions = false;
+                    break;
+                }
+            }
+        }
+        if (!hasAllPermissions) {
+            ActivityCompat.requestPermissions(
+                    getActivity(), permissions, codePermissions.getRequestCode().ordinal());
+        }
+        return hasAllPermissions;
+    }
+
+    private static final class PendingPermissionTask {
+        @NonNull private final TaskCategory.RequestCodePermissions mPermissions;
+        @NonNull private final Runnable mTaskRunnable;
+
+        PendingPermissionTask(
+                @NonNull TaskCategory.RequestCodePermissions permissions,
+                @NonNull Runnable runnable) {
+            mPermissions = permissions;
+            mTaskRunnable = runnable;
         }
     }
 }

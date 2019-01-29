@@ -108,9 +108,23 @@ public class ModuleLibraryStub extends BaseStub implements Library {
 
     @Override
     @NonNull
+    public String getCompileJarFile() {
+        throw new UnsupportedOperationException(
+                "getCompileJarFile() cannot be called when getType() returns LIBRARY_MODULE");
+    }
+
+    @Override
+    @NonNull
     public String getResFolder() {
         throw new UnsupportedOperationException(
                 "getResFolder() cannot be called when getType() returns LIBRARY_MODULE");
+    }
+
+    @Override
+    @NonNull
+    public File getResStaticLibrary() {
+        throw new UnsupportedOperationException(
+                "getResStaticLibrary() cannot be called when getType() returns LIBRARY_MODULE");
     }
 
     @Override

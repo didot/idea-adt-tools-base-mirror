@@ -13,7 +13,9 @@ cygdrive
 .idea/google-java-format.xml
 .idea/saveactions_settings.xml
 .idea/shelf
+.idea/usage.statistics.xml
 .idea/workspace.xml
+.idea/usage.statistics.xml
 misc/distrib_plugins/build
 misc/distrib_plugins/buildSrc/build
 misc/distrib_plugins/buildSrc/out

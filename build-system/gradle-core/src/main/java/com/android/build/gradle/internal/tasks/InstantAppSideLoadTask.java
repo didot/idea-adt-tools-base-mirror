@@ -18,13 +18,15 @@ package com.android.build.gradle.internal.tasks;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.TaskManager;
+import com.android.build.gradle.internal.api.artifact.BuildableArtifactUtil;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InstantAppOutputScope;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.builder.sdk.SdkInfo;
 import com.android.builder.testing.ConnectedDevice;
 import com.android.builder.testing.ConnectedDeviceProvider;
@@ -42,7 +44,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import org.gradle.api.GradleException;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.PathSensitive;
@@ -57,7 +58,7 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
 
     private Supplier<File> adbExe;
 
-    private FileCollection bundleDir;
+    private BuildableArtifact bundleDir;
 
     public InstantAppSideLoadTask() {
         this.getOutputs()
@@ -74,12 +75,13 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
             throw new GradleException("No adb file found.");
         }
 
-        InstantAppOutputScope outputScope = InstantAppOutputScope.load(bundleDir.getSingleFile());
+        InstantAppOutputScope outputScope =
+                InstantAppOutputScope.load(BuildableArtifactUtil.singleFile(bundleDir));
 
         if (outputScope == null) {
             throw new GradleException(
                     "Instant app outputs not found in "
-                            + bundleDir.getSingleFile().getAbsolutePath()
+                            + BuildableArtifactUtil.singleFile(bundleDir).getAbsolutePath()
                             + ".");
         }
 
@@ -113,37 +115,37 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
                 };
 
         String appId = outputScope.getApplicationId();
-
         File bundleFile = outputScope.getInstantAppBundle();
-        // FIXME: due to http://b/64504250, bundleFile.getAbsolutePath() is returning
-        // the wrong value, then the bellow hack is necessary
-        bundleFile = new File(bundleFile.getPath());
 
         deviceProvider.init();
 
-        List<? extends DeviceConnector> devices = deviceProvider.getDevices();
-        for (DeviceConnector device : devices) {
-            if (device instanceof ConnectedDevice) {
-                IDevice iDevice = ((ConnectedDevice) device).getIDevice();
+        try {
+            List<? extends DeviceConnector> devices = deviceProvider.getDevices();
+            for (DeviceConnector device : devices) {
+                if (device instanceof ConnectedDevice) {
+                    IDevice iDevice = ((ConnectedDevice) device).getIDevice();
 
-                InstantAppSideLoader sideLoader;
-                if (iDevice.getVersion().isGreaterOrEqualThan(AndroidVersion.VersionCodes.O)) {
-                    // List of apks to install in postO rather than unzipping the bundle
-                    // It will be computed only if there's at least one device postO
-                    final List<File> apks = new ArrayList<>();
-                    for (File apkDirectory : outputScope.getApkDirectories()) {
-                        for (BuildOutput buildOutput :
-                                ExistingBuildElements.from(
-                                        TaskOutputHolder.TaskOutputType.APK, apkDirectory)) {
-                            apks.add(buildOutput.getOutputFile());
+                    InstantAppSideLoader sideLoader;
+                    if (iDevice.getVersion().isGreaterOrEqualThan(AndroidVersion.VersionCodes.O)) {
+                        // List of apks to install in postO rather than unzipping the bundle
+                        // It will be computed only if there's at least one device postO
+                        final List<File> apks = new ArrayList<>();
+                        for (File apkDirectory : outputScope.getApkDirectories()) {
+                            for (BuildOutput buildOutput :
+                                    ExistingBuildElements.from(
+                                            InternalArtifactType.APK, apkDirectory)) {
+                                apks.add(buildOutput.getOutputFile());
+                            }
                         }
+                        sideLoader = new InstantAppSideLoader(appId, apks, runListener);
+                    } else {
+                        sideLoader = new InstantAppSideLoader(appId, bundleFile, runListener);
                     }
-                    sideLoader = new InstantAppSideLoader(appId, apks, runListener);
-                } else {
-                    sideLoader = new InstantAppSideLoader(appId, bundleFile, runListener);
+                    sideLoader.install(iDevice);
                 }
-                sideLoader.install(iDevice);
             }
+        } finally {
+            deviceProvider.terminate();
         }
     }
 
@@ -156,15 +158,15 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
     @InputFiles
     @NonNull
     @PathSensitive(PathSensitivity.RELATIVE)
-    public FileCollection getBundleDir() {
+    public BuildableArtifact getBundleDir() {
         return bundleDir;
     }
 
-    public static class ConfigAction implements TaskConfigAction<InstantAppSideLoadTask> {
+    public static class CreationAction extends TaskCreationAction<InstantAppSideLoadTask> {
 
         @NonNull private final VariantScope scope;
 
-        public ConfigAction(@NonNull VariantScope scope) {
+        public CreationAction(@NonNull VariantScope scope) {
             this.scope = scope;
         }
 
@@ -181,7 +183,7 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
         }
 
         @Override
-        public void execute(@NonNull InstantAppSideLoadTask task) {
+        public void configure(@NonNull InstantAppSideLoadTask task) {
             task.setDescription("Side loads the " + scope.getVariantData().getDescription() + ".");
             task.setVariantName(scope.getFullVariantName());
 
@@ -193,7 +195,9 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
                                 SdkInfo info = scope.getGlobalScope().getSdkHandler().getSdkInfo();
                                 return (info == null ? null : info.getAdb());
                             });
-            task.bundleDir = scope.getOutput(TaskOutputHolder.TaskOutputType.INSTANTAPP_BUNDLE);
+            task.bundleDir =
+                    scope.getArtifacts()
+                            .getFinalArtifactFiles(InternalArtifactType.INSTANTAPP_BUNDLE);
         }
     }
 }

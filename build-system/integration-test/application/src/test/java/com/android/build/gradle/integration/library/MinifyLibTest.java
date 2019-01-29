@@ -19,23 +19,25 @@ package com.android.build.gradle.integration.library;
 import static com.android.build.gradle.integration.common.fixture.GradleTestProject.ApkType.ANDROIDTEST_DEBUG;
 import static com.android.build.gradle.integration.common.fixture.GradleTestProject.ApkType.DEBUG;
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
-import static com.android.testutils.truth.PathSubject.assertThat;
+import static com.android.testutils.truth.FileSubject.assertThat;
 
+import com.android.annotations.NonNull;
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
+import com.android.build.gradle.integration.common.fixture.GradleTaskExecutor;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
 import com.android.build.gradle.integration.common.truth.TruthHelper;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
-import com.android.build.gradle.integration.shrinker.ShrinkerTestUtils;
+import com.android.build.gradle.internal.scope.CodeShrinker;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.SyncIssue;
 import com.android.testutils.apk.Apk;
 import com.android.utils.FileUtils;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import java.io.File;
 import java.io.IOException;
-import java.util.Collection;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -44,12 +46,20 @@ import org.junit.runners.Parameterized;
 /** Assemble tests for minifyLib. */
 @RunWith(FilterableParameterized.class)
 public class MinifyLibTest {
-    @Parameterized.Parameters(name = "useProguard = {0}")
-    public static Collection<Boolean> data() {
-        return ImmutableList.of(true, false);
+    @Parameterized.Parameters(name = "codeShrinker = {0}")
+    public static List<Object[]> data() {
+        return Arrays.asList(
+                new Object[][] {
+                    {CodeShrinker.PROGUARD, false},
+                    {CodeShrinker.PROGUARD, true},
+                    {CodeShrinker.R8, false},
+                    {CodeShrinker.R8, true},
+                });
     }
 
-    @Parameterized.Parameter public Boolean useProguard;
+    @Parameterized.Parameter public CodeShrinker codeShrinker;
+    @Parameterized.Parameter(1)
+    public boolean separateRClass;
 
     @Rule
     public GradleTestProject project =
@@ -57,14 +67,21 @@ public class MinifyLibTest {
 
     @Test
     public void consumerProguardFile() throws Exception {
-        if (!useProguard) {
-            ShrinkerTestUtils.enableShrinker(project.getSubproject(":app"), "debug");
-        }
-
-        project.executor().run(":app:assembleDebug");
+        getExecutor().run(":app:assembleDebug");
         Apk apk = project.getSubproject(":app").getApk(DEBUG);
         TruthHelper.assertThatApk(apk).containsClass("Lcom/android/tests/basic/StringProvider;");
         TruthHelper.assertThatApk(apk).containsClass("Lcom/android/tests/basic/UnusedClass;");
+    }
+
+    @Test
+    public void checkDefaultRulesExtraction() throws Exception {
+        TestFileUtils.appendToFile(
+                project.getSubproject(":app").getBuildFile(),
+                "\nandroid.buildTypes.debug.minifyEnabled true");
+        getExecutor().run(":app:assembleDebug");
+
+        assertThat(project.getIntermediateFile("proguard-files")).doesNotExist();
+        assertThat(project.getSubproject("app").getIntermediateFile("proguard-files")).exists();
     }
 
     @Test
@@ -77,13 +94,15 @@ public class MinifyLibTest {
 
         AndroidProject model =
                 project.model()
+                        .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
                         .ignoreSyncIssues()
                         .fetchAndroidProjects()
                         .getOnlyModelMap()
                         .get(":lib");
-        assertThat(model).hasSingleIssue(SyncIssue.SEVERITY_ERROR, SyncIssue.TYPE_GENERIC);
-        assertThat(Iterables.getOnlyElement(model.getSyncIssues()).getMessage())
-                .contains(
+        assertThat(model)
+                .hasSingleError(SyncIssue.TYPE_GENERIC)
+                .that()
+                .hasMessageThatContains(
                         "proguard-android.txt should not be used as a consumer configuration file");
     }
 
@@ -91,10 +110,16 @@ public class MinifyLibTest {
     public void shrinkingTheLibrary() throws Exception {
         enableLibShrinking();
 
-        GradleBuildResult result = project.executor().run(":app:assembleDebug");
+        GradleBuildResult result = getExecutor().run(":app:assembleDebug");
 
-        assertThat(result.getTask(":app:transformClassesAndResourcesWithProguardForDebug"))
-                .wasExecuted();
+
+        if (codeShrinker == CodeShrinker.R8) {
+            assertThat(result.getTask(":app:transformClassesAndResourcesWithR8ForDebug"))
+                    .wasExecuted();
+        } else {
+            assertThat(result.getTask(":app:transformClassesAndResourcesWithProguardForDebug"))
+                    .wasExecuted();
+        }
 
         Apk apk = project.getSubproject(":app").getApk(DEBUG);
         assertThat(apk).containsClass("Lcom/android/tests/basic/StringProvider;");
@@ -118,16 +143,24 @@ public class MinifyLibTest {
         // compile time.
         TestFileUtils.searchAndReplace(
                 project.getSubproject(":app").getBuildFile(),
-                "api project\\(':lib'\\)",
+                "api project(':lib')",
                 "androidTestImplementation project\\(':lib'\\)");
-        GradleBuildResult result = project.executor().run(":app:assembleAndroidTest");
+        GradleBuildResult result = getExecutor().run(":app:assembleAndroidTest");
 
-        assertThat(result.getTask(":app:transformClassesAndResourcesWithProguardForDebug"))
-                .wasExecuted();
-        assertThat(
-                        result.getTask(
-                                ":app:transformClassesAndResourcesWithProguardForDebugAndroidTest"))
-                .wasExecuted();
+        if (codeShrinker == CodeShrinker.R8) {
+            assertThat(result.getTask(":app:transformClassesAndResourcesWithR8ForDebug"))
+                    .wasExecuted();
+            assertThat(result.getTask(":app:transformClassesAndResourcesWithR8ForDebugAndroidTest"))
+                    .wasExecuted();
+        } else {
+            assertThat(result.getTask(":app:transformClassesAndResourcesWithProguardForDebug"))
+                    .wasExecuted();
+            assertThat(
+                            result.getTask(
+                                    ":app:transformClassesAndResourcesWithProguardForDebugAndroidTest"))
+                    .wasExecuted();
+        }
+
 
         Apk apk = project.getSubproject(":app").getApk(ANDROIDTEST_DEBUG);
         assertThat(apk).exists();
@@ -144,7 +177,7 @@ public class MinifyLibTest {
         File config = project.getSubproject(":lib").file("config.pro");
         FileUtils.deleteIfExists(config);
         TestFileUtils.appendToFile(config, "");
-        project.executor().run(":lib:assembleDebug");
+        getExecutor().run(":lib:assembleDebug");
     }
 
     private void enableLibShrinking() throws IOException {
@@ -165,9 +198,12 @@ public class MinifyLibTest {
                         + "        proguardFiles getDefaultProguardFile('proguard-android.txt')\n"
                         + "    }\n"
                         + "}\n");
+    }
 
-        if (!useProguard) {
-            ShrinkerTestUtils.enableShrinker(project.getSubproject(":lib"), "release");
-        }
+    @NonNull
+    private GradleTaskExecutor getExecutor() {
+        return project.executor()
+                .with(BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION, separateRClass)
+                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8);
     }
 }

@@ -17,11 +17,12 @@
 package com.android.builder.files;
 
 import com.android.annotations.NonNull;
-import com.android.apkzlib.utils.IOExceptionRunnable;
-import com.android.apkzlib.zip.StoredEntry;
-import com.android.apkzlib.zip.StoredEntryType;
-import com.android.apkzlib.zip.ZFile;
-import com.android.ide.common.res2.FileStatus;
+import com.android.ide.common.resources.FileStatus;
+import com.android.tools.build.apkzlib.utils.IOExceptionRunnable;
+import com.android.tools.build.apkzlib.zip.StoredEntry;
+import com.android.tools.build.apkzlib.zip.StoredEntryType;
+import com.android.tools.build.apkzlib.zip.ZFile;
+import com.android.tools.build.apkzlib.zip.ZFileOptions;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -93,7 +94,7 @@ public final class IncrementalRelativeFileSets {
             @NonNull File zip,
             FileStatus status)
             throws IOException {
-        Preconditions.checkArgument(zip.isFile(), "!zip.isFile()");
+        Preconditions.checkArgument(zip.isFile(), "!zip.isFile(): %s", zip);
 
         return ImmutableMap.<RelativeFile, FileStatus>builder()
                 .putAll(
@@ -143,7 +144,7 @@ public final class IncrementalRelativeFileSets {
 
             ImmutableMap.Builder<RelativeFile, FileStatus> builder = ImmutableMap.builder();
 
-            try (ZFile zipReader = new ZFile(oldFile)) {
+            try (ZFile zipReader = new ZFile(oldFile, new ZFileOptions(), true)) {
                 for (StoredEntry entry : zipReader.entries()) {
                     if (entry.getType() == StoredEntryType.FILE) {
                         builder.put(
@@ -165,8 +166,8 @@ public final class IncrementalRelativeFileSets {
 
         Closer closer = Closer.create();
         try {
-            ZFile newZipReader = closer.register(new ZFile(zip));
-            ZFile oldZipReader = closer.register(new ZFile(oldFile));
+            ZFile newZipReader = closer.register(new ZFile(zip, new ZFileOptions(), true));
+            ZFile oldZipReader = closer.register(new ZFile(oldFile, new ZFileOptions(), true));
 
             /*
              * Search for new and modified files.

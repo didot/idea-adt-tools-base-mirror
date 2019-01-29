@@ -18,148 +18,164 @@ package com.android.build.gradle.internal.api.artifact
 
 import com.android.build.api.artifact.ArtifactType
 import com.android.build.api.artifact.BuildArtifactTransformBuilder
-import com.android.build.api.artifact.BuildArtifactTransformBuilder.OperationType
+import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.api.artifact.InputArtifactProvider
 import com.android.build.api.artifact.OutputFileProvider
+import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.build.gradle.internal.api.dsl.sealing.SealableObject
-import com.android.build.gradle.internal.scope.BuildArtifactHolder
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
+import com.android.build.gradle.internal.scope.DelayedActionsExecutor
+import com.android.builder.errors.EvalIssueException
 import com.android.builder.errors.EvalIssueReporter
-import com.google.common.collect.HashMultimap
 import org.gradle.api.Project
 import org.gradle.api.Task
+import java.io.File
 
 /**
  * Implementation of VariantTaskBuilder.
  */
 class BuildArtifactTransformBuilderImpl<out T : Task>(
         private val project: Project,
-        private val artifactHolder: BuildArtifactHolder,
+        private val artifactsHolder: BuildArtifactsHolder,
+        private val artifactsActionsExecutor: DelayedActionsExecutor,
         private val taskNamePrefix: String,
         private val taskType: Class<T>,
-        issueReporter: EvalIssueReporter)
-    : SealableObject(issueReporter), BuildArtifactTransformBuilder<T> {
+        dslScope: DslScope)
+    : SealableObject(dslScope), BuildArtifactTransformBuilder<T> {
 
-    private val inputs = mutableListOf<ArtifactType>()
-    private val outputFiles = HashMultimap.create<ArtifactType, String>()
+    private val finalInputs = mutableListOf<ArtifactType>()
     private val replacedOutput = mutableListOf<ArtifactType>()
     private val appendedOutput = mutableListOf<ArtifactType>()
-    private val unassociatedFiles = mutableListOf<String>() // files that do not have an ArtifactType
 
-    override fun output(artifactType: ArtifactType, operationType : OperationType)
-            : BuildArtifactTransformBuilder<T> {
+    override fun append(artifactType: ArtifactType): BuildArtifactTransformBuilderImpl<T> {
         if (!checkSeal()) {
             return this
         }
-        if (replacedOutput.contains(artifactType) || appendedOutput.contains(artifactType)) {
-            issueReporter.reportError(
-                    EvalIssueReporter.Type.GENERIC,
-                    "Output type '$artifactType' was already specified as an output.")
+
+        if (replacedOutput.contains(artifactType)) {
+            dslScope.issueReporter.reportError(
+                EvalIssueReporter.Type.GENERIC,
+                EvalIssueException("""Output type '$artifactType' has already been specified to be
+                    replaced with the replace() API"""))
             return this
         }
         val spec = BuildArtifactSpec.get(artifactType)
-        when (operationType) {
-            OperationType.REPLACE -> {
-                if (!spec.replaceable) {
-                    issueReporter.reportError(
-                            EvalIssueReporter.Type.GENERIC,
-                            "Replacing ArtifactType '$artifactType' is not allowed.")
-                    return this
-                }
-                replacedOutput.add(artifactType)
-            }
-            OperationType.APPEND -> {
-                if (!spec.appendable) {
-                    issueReporter.reportError(
-                            EvalIssueReporter.Type.GENERIC,
-                            "Append to ArtifactType '$artifactType' is not allowed.")
-                    return this
-                }
-                appendedOutput.add(artifactType)
-            }
+        if (!spec.appendable) {
+            dslScope.issueReporter.reportError(
+                EvalIssueReporter.Type.GENERIC,
+                EvalIssueException("Appending to ArtifactType '$artifactType' is not allowed."))
+            return this
         }
+        appendedOutput.add(artifactType)
         return this
     }
 
-    override fun input(artifactType: ArtifactType)  : BuildArtifactTransformBuilder<T> {
+    override fun replace(artifactType: ArtifactType): BuildArtifactTransformBuilderImpl<T> {
         if (!checkSeal()) {
             return this
         }
-        if (inputs.contains(artifactType)) {
-            issueReporter.reportError(
-                    EvalIssueReporter.Type.GENERIC,
-                    "Output type '$artifactType' was already specified as an input.")
+
+        if (appendedOutput.contains(artifactType)) {
+            dslScope.issueReporter.reportError(
+                EvalIssueReporter.Type.GENERIC,
+                EvalIssueException(
+                """Output type '$artifactType' has already been specified to be
+                    appended with the append() API"""))
             return this
         }
-        inputs.add(artifactType)
+        val spec = BuildArtifactSpec.get(artifactType)
+        if (!spec.replaceable) {
+            dslScope.issueReporter.reportError(
+                EvalIssueReporter.Type.GENERIC,
+                EvalIssueException("Replacing ArtifactType '$artifactType' is not allowed."))
+            return this
+        }
+        replacedOutput.add(artifactType)
         return this
     }
 
-    override fun outputFile(filename : String, vararg consumers : ArtifactType)
-            : BuildArtifactTransformBuilder<T> {
+    override fun input(artifactType: ArtifactType)  : BuildArtifactTransformBuilderImpl<T> {
         if (!checkSeal()) {
             return this
         }
-        if (outputFiles.containsValue(filename)) {
-            issueReporter.reportError(
+        if (finalInputs.contains(artifactType)) {
+            dslScope.issueReporter.reportError(
                     EvalIssueReporter.Type.GENERIC,
-                    "Output file '$filename' was already created.")
+                    EvalIssueException("Output type '$artifactType' was already specified as an input."))
             return this
         }
-        if (consumers.isEmpty()) {
-            unassociatedFiles.add(filename)
-        } else {
-            for (consumer in consumers) {
-                outputFiles.put(consumer, filename)
-
-                val spec = BuildArtifactSpec.get(consumer)
-                if (spec.singleFile && outputFiles[consumer].size > 1) {
-                    issueReporter.reportError(
-                            EvalIssueReporter.Type.GENERIC,
-                            "OutputType '$consumer' does not support multiple output files.")
-                }
-            }
-        }
+        finalInputs.add(artifactType)
         return this
     }
 
-    override fun create(action : BuildArtifactTransformBuilder.ConfigurationAction<T>) : T {
-        return create(action, null)
+    override fun create(action : BuildArtifactTransformBuilder.ConfigurationAction<T>) {
+        create(action, null)
     }
 
-    override fun create(function: T.(InputArtifactProvider, OutputFileProvider) -> Unit): T {
-        return create(null, function)
+    override fun create(function: T.(InputArtifactProvider, OutputFileProvider) -> Unit) {
+        create(null, function)
     }
 
     private fun create(
             action : BuildArtifactTransformBuilder.ConfigurationAction<T>?,
             function : ((T, InputArtifactProvider, OutputFileProvider) -> Unit)?) : T {
-        val taskName = artifactHolder.getTaskName(taskNamePrefix)
+        val taskName = artifactsHolder.getTaskName(taskNamePrefix)
         val task = project.tasks.create(taskName, taskType)
         if (!checkSeal()) {
             return task
         }
-        val inputProvider = InputArtifactProviderImpl(artifactHolder, inputs, issueReporter)
+        val chainInputs = appendedOutput.plus(replacedOutput)
+        val inputProvider = InputArtifactProviderImpl(
+            artifactsHolder,
+            finalInputs,
+            chainInputs,
+            project.files(),
+            dslScope)
         val outputProvider =
                 OutputFileProviderImpl(
-                        artifactHolder,
+                        artifactsHolder,
                         replacedOutput,
                         appendedOutput,
-                        outputFiles,
-                        unassociatedFiles,
-                        taskName,
-                        issueReporter)
-        try {
-            when {
-                action != null -> action.accept(task, inputProvider, outputProvider)
-                function != null -> function(task, inputProvider, outputProvider)
-            }
-        } catch (e : Exception) {
-            issueReporter.reportError(
+                        task)
+
+        artifactsActionsExecutor.addAction {
+            try {
+                when {
+                    action != null -> action.accept(task, inputProvider, outputProvider)
+                    function != null -> function(task, inputProvider, outputProvider)
+                }
+                // once the config action has run, the outputProvider should have been used
+                // to declare the output files, it's time to use this information to
+                // append or replace the current BuildableArtifact with it.
+                outputProvider.commit()
+            } catch (e: Exception) {
+                dslScope.issueReporter.reportError(
                     EvalIssueReporter.Type.GENERIC,
-                    """Exception thrown while configuring task '$taskName'.
+                    EvalIssueException(
+                        """Exception thrown while configuring task '$taskName'.
                             |Type: ${e.javaClass.name}
-                            |Message: ${e.message}""".trimMargin())
+                            |Message: ${e.message}""".trimMargin(),
+                        null,
+                        e
+                    )
+                )
+            }
         }
         return task
+    }
+
+    /**
+     * Convert function that is used in the simple transform case to function that is used in the
+     * generic case.
+     */
+    private inline fun <T>convertFunction(
+            crossinline function : T.(input: BuildableArtifact, output: File) -> Unit) :
+            T.(InputArtifactProvider, OutputFileProvider) -> Unit {
+        return { input, output -> function(this, input.artifact, output.file) }
+    }
+
+    @JvmName("simpleCreate")
+    fun create(function : T.(BuildableArtifact, File) -> Unit) {
+        create(convertFunction(function))
     }
 }

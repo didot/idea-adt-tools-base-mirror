@@ -19,6 +19,7 @@ package com.android.tools.lint.checks;
 import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
 import com.android.tools.lint.client.api.IssueRegistry;
+import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.detector.api.ApiKt;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.Scope;
@@ -31,12 +32,13 @@ import java.util.List;
 public class BuiltinIssueRegistry extends IssueRegistry {
     private static final List<Issue> sIssues;
 
-    static final int INITIAL_CAPACITY = 315;
+    public static final int INITIAL_CAPACITY = 344;
 
     static {
         List<Issue> issues = new ArrayList<>(INITIAL_CAPACITY);
 
         issues.add(AccessibilityDetector.ISSUE);
+        issues.add(ActionsXmlDetector.ISSUE);
         issues.add(AddJavascriptInterfaceDetector.ISSUE);
         issues.add(AlarmDetector.ISSUE);
         issues.add(AllCapsDetector.ISSUE);
@@ -73,20 +75,25 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(AppLinksValidDetector.VALIDATION);
         issues.add(ArraySizeDetector.INCONSISTENT);
         issues.add(AssertDetector.ISSUE);
+        issues.add(AutofillDetector.ISSUE);
         issues.add(BadHostnameVerifierDetector.ISSUE);
         issues.add(BatteryDetector.ISSUE);
+        issues.add(BottomAppBarDetector.ISSUE);
         issues.add(ButtonDetector.BACK_BUTTON);
         issues.add(ButtonDetector.CASE);
         issues.add(ButtonDetector.ORDER);
         issues.add(ButtonDetector.STYLE);
         issues.add(ByteOrderMarkDetector.BOM);
         issues.add(CallSuperDetector.ISSUE);
+        issues.add(C2dmDetector.ISSUE);
+        issues.add(CanvasSizeDetector.ISSUE);
         issues.add(CheckResultDetector.CHECK_RESULT);
         issues.add(ChildCountDetector.ADAPTER_VIEW_ISSUE);
         issues.add(ChildCountDetector.SCROLLVIEW_ISSUE);
         issues.add(ChromeOsDetector.PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE);
         issues.add(ChromeOsDetector.UNSUPPORTED_CHROME_OS_HARDWARE);
         issues.add(CipherGetInstanceDetector.ISSUE);
+        issues.add(CipherGetInstanceDetector.DEPRECATED_PROVIDER);
         issues.add(CleanupDetector.APPLY_SHARED_PREF);
         issues.add(CleanupDetector.COMMIT_FRAGMENT);
         issues.add(CleanupDetector.RECYCLE_RESOURCE);
@@ -99,6 +106,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(CustomViewDetector.ISSUE);
         issues.add(CutPasteDetector.ISSUE);
         issues.add(DateFormatDetector.DATE_FORMAT);
+        issues.add(DeletedProviderDetector.ISSUE);
         issues.add(DeprecationDetector.ISSUE);
         issues.add(DetectMissingPrefix.MISSING_NAMESPACE);
         issues.add(DosLineEndingDetector.ISSUE);
@@ -124,8 +132,11 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(GradleDetector.COMPATIBILITY);
         issues.add(GradleDetector.DEPENDENCY);
         issues.add(GradleDetector.DEPRECATED);
+        issues.add(GradleDetector.DEPRECATED_LIBRARY);
         issues.add(GradleDetector.DEV_MODE_OBSOLETE);
         issues.add(GradleDetector.DUPLICATE_CLASSES);
+        issues.add(GradleDetector.EXPIRED_TARGET_SDK_VERSION);
+        issues.add(GradleDetector.EXPIRING_TARGET_SDK_VERSION);
         issues.add(GradleDetector.GRADLE_GETTER);
         issues.add(GradleDetector.GRADLE_PLUGIN_COMPATIBILITY);
         issues.add(GradleDetector.HIGH_APP_VERSION_CODE);
@@ -135,6 +146,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(GradleDetector.PATH);
         issues.add(GradleDetector.PLUS);
         issues.add(GradleDetector.REMOTE_VERSION);
+        issues.add(GradleDetector.RISKY_LIBRARY);
         issues.add(GradleDetector.STRING_INTEGER);
         issues.add(GridLayoutDetector.ISSUE);
         issues.add(HandlerDetector.ISSUE);
@@ -155,6 +167,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(IconDetector.ICON_MIX_9PNG);
         issues.add(IconDetector.ICON_NODPI);
         issues.add(IconDetector.ICON_XML_AND_PNG);
+        issues.add(IconDetector.NOTIFICATION_ICON_COMPATIBILITY);
         issues.add(IconDetector.WEBP_ELIGIBLE);
         issues.add(IconDetector.WEBP_UNSUPPORTED);
         issues.add(IncludeDetector.ISSUE);
@@ -163,6 +176,11 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(InefficientWeightDetector.NESTED_WEIGHTS);
         issues.add(InefficientWeightDetector.ORIENTATION);
         issues.add(InefficientWeightDetector.WRONG_0DP);
+        issues.add(IntentDetector.ISSUE);
+        issues.add(InteroperabilityDetector.KOTLIN_PROPERTY);
+        issues.add(InteroperabilityDetector.LAMBDA_LAST);
+        issues.add(InteroperabilityDetector.NO_HARD_KOTLIN_KEYWORDS);
+        issues.add(InteroperabilityDetector.PLATFORM_NULLNESS);
         issues.add(InstantAppDetector.ISSUE);
         issues.add(InvalidImeActionIdDetector.ISSUE);
         issues.add(InvalidPackageDetector.ISSUE);
@@ -177,6 +195,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(LayoutConsistencyDetector.INCONSISTENT_IDS);
         issues.add(LayoutInflationDetector.ISSUE);
         issues.add(LeakDetector.ISSUE);
+        issues.add(LocaleDetector.FINAL_LOCALE);
         issues.add(LocaleDetector.STRING_LOCALE);
         issues.add(LocaleFolderDetector.DEPRECATED_CODE);
         issues.add(LocaleFolderDetector.GET_LOCALES);
@@ -239,6 +258,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(PluralsDetector.EXTRA);
         issues.add(PluralsDetector.IMPLIED_QUANTITY);
         issues.add(PluralsDetector.MISSING);
+        issues.add(PowerManagerDetector.INVALID_WAKE_LOCK_TAG);
         issues.add(PreferenceActivityDetector.ISSUE);
         issues.add(PrivateApiDetector.ISSUE);
         issues.add(PrivateKeyDetector.ISSUE);
@@ -247,6 +267,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(ProguardDetector.WRONG_KEEP);
         issues.add(PropertyFileDetector.ESCAPE);
         issues.add(PropertyFileDetector.HTTP);
+        issues.add(PropertyFileDetector.PROXY_PASSWORD);
         issues.add(PxUsageDetector.DP_ISSUE);
         issues.add(PxUsageDetector.IN_MM_ISSUE);
         issues.add(PxUsageDetector.PX_ISSUE);
@@ -258,6 +279,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(RegistrationDetector.ISSUE);
         issues.add(RelativeOverlapDetector.ISSUE);
         issues.add(RequiredAttributeDetector.ISSUE);
+        issues.add(RequiresFeatureDetector.REQUIRES_FEATURE);
         issues.add(ResourceCycleDetector.CRASH);
         issues.add(ResourceCycleDetector.CYCLE);
         issues.add(ResourcePrefixDetector.ISSUE);
@@ -290,14 +312,18 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(SetJavaScriptEnabledDetector.ISSUE);
         issues.add(SetTextDetector.SET_TEXT_I18N);
         issues.add(SignatureOrSystemDetector.ISSUE);
+        issues.add(SliceDetector.ISSUE);
         issues.add(SslCertificateSocketFactoryDetector.CREATE_SOCKET);
         issues.add(SslCertificateSocketFactoryDetector.GET_INSECURE);
+        issues.add(StartDestinationDetector.ISSUE);
         issues.add(StateListDetector.ISSUE);
         issues.add(StringAuthLeakDetector.AUTH_LEAK);
+        issues.add(StringCasingDetector.DUPLICATE_STRINGS);
         issues.add(StringFormatDetector.ARG_COUNT);
         issues.add(StringFormatDetector.ARG_TYPES);
         issues.add(StringFormatDetector.INVALID);
         issues.add(StringFormatDetector.POTENTIAL_PLURAL);
+        issues.add(SyntheticAccessorDetector.ISSUE);
         issues.add(SystemPermissionsDetector.ISSUE);
         issues.add(TextFieldDetector.ISSUE);
         issues.add(TextViewDetector.ISSUE);
@@ -309,6 +335,9 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(TooManyViewsDetector.TOO_MANY);
         issues.add(TranslationDetector.EXTRA);
         issues.add(TranslationDetector.MISSING);
+        issues.add(TranslationDetector.MISSING_BASE);
+        issues.add(TranslationDetector.TRANSLATED_UNTRANSLATABLE);
+        issues.add(TranslucentViewDetector.ISSUE);
         issues.add(TrustAllX509TrustManagerDetector.ISSUE);
         issues.add(TypedefDetector.TYPE_DEF);
         issues.add(TypoDetector.ISSUE);
@@ -342,6 +371,7 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         issues.add(WearStandaloneAppDetector.INVALID_WEAR_FEATURE_ATTRIBUTE);
         issues.add(WearStandaloneAppDetector.WEAR_STANDALONE_APP_ISSUE);
         issues.add(WebViewDetector.ISSUE);
+        issues.add(WorkManagerDetector.ISSUE);
         issues.add(WrongCallDetector.ISSUE);
         issues.add(WrongCaseDetector.WRONG_CASE);
         issues.add(WrongIdDetector.INVALID);
@@ -355,10 +385,16 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         sIssues = Collections.unmodifiableList(issues);
     }
 
-    /**
-     * Constructs a new {@link BuiltinIssueRegistry}
-     */
-    public BuiltinIssueRegistry() {
+    /** Constructs a new {@link BuiltinIssueRegistry} */
+    public BuiltinIssueRegistry() {}
+
+    @Override
+    public boolean cacheable() {
+        // In the IDE, cache across incremental runs; here, lint is never run in parallel
+        // Outside of the IDE, typically in Gradle, we don't want this caching since
+        // lint can run in parallel and this caching can be incorrect;
+        // see for example issue 77891711
+        return LintClient.Companion.isStudio();
     }
 
     @NonNull
@@ -374,13 +410,13 @@ public class BuiltinIssueRegistry extends IssueRegistry {
         } else {
             int initialSize = 12;
             if (scope.contains(Scope.RESOURCE_FILE)) {
-                initialSize += 101;
+                initialSize += 102;
             } else if (scope.contains(Scope.ALL_RESOURCE_FILES)) {
                 initialSize += 12;
             }
 
             if (scope.contains(Scope.JAVA_FILE)) {
-                initialSize += 101;
+                initialSize += 120;
             } else if (scope.contains(Scope.CLASS_FILE)) {
                 initialSize += 16;
             } else if (scope.contains(Scope.MANIFEST)) {
@@ -399,8 +435,8 @@ public class BuiltinIssueRegistry extends IssueRegistry {
 
     /**
      * Reset the registry such that it recomputes its available issues.
-     * <p>
-     * NOTE: This is only intended for testing purposes.
+     *
+     * <p>NOTE: This is only intended for testing purposes.
      */
     @VisibleForTesting
     public static void reset() {

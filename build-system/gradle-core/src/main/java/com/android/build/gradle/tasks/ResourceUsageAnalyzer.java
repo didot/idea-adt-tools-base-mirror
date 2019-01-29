@@ -20,6 +20,7 @@ import static com.android.SdkConstants.ATTR_NAME;
 import static com.android.SdkConstants.ATTR_TYPE;
 import static com.android.SdkConstants.DOT_9PNG;
 import static com.android.SdkConstants.DOT_CLASS;
+import static com.android.SdkConstants.DOT_DEX;
 import static com.android.SdkConstants.DOT_JAR;
 import static com.android.SdkConstants.DOT_PNG;
 import static com.android.SdkConstants.DOT_XML;
@@ -35,6 +36,9 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
 import com.android.build.gradle.internal.incremental.ByteCodeUtils;
+import com.android.builder.dexing.AnalysisCallback;
+import com.android.builder.dexing.R8ResourceShrinker;
+import com.android.builder.utils.ZipEntryUtils;
 import com.android.ide.common.resources.usage.ResourceUsageModel;
 import com.android.ide.common.resources.usage.ResourceUsageModel.Resource;
 import com.android.ide.common.xml.XmlPrettyPrinter;
@@ -59,6 +63,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -125,6 +130,8 @@ import org.xml.sax.SAXException;
  * (e.g. by concatenating individual characters or taking substrings of strings that do not look
  * like resource names), but that seems extremely unlikely to be a real-world scenario.
  *
+ * <p>Analyzing dex files is also supported. It follows the same rules as analyzing class files.
+ *
  * <p>For now, for reasons detailed in the code, this only applies to file-based resources like
  * layouts, menus and drawables, not value-based resources like strings and dimensions.
  */
@@ -190,6 +197,7 @@ public class ResourceUsageAnalyzer {
 
     private final File mResourceClassDir;
     private final File mProguardMapping;
+    /** These can be class or dex files. */
     private final Iterable<File> mClasses;
     private final File mMergedManifest;
     private final File mMergedResourceDir;
@@ -197,6 +205,7 @@ public class ResourceUsageAnalyzer {
     private final File mReportFile;
     private final StringWriter mDebugOutput;
     private final PrintWriter mDebugPrinter;
+    private final ApkFormat format;
 
     private boolean mVerbose;
     private boolean mDebug;
@@ -225,7 +234,8 @@ public class ResourceUsageAnalyzer {
             @NonNull File manifest,
             @Nullable File mapping,
             @NonNull File resources,
-            @Nullable File reportFile) {
+            @Nullable File reportFile,
+            @NonNull ApkFormat format) {
         mResourceClassDir = rDir;
         mProguardMapping = mapping;
         mClasses = classes;
@@ -240,6 +250,12 @@ public class ResourceUsageAnalyzer {
             mDebugOutput = null;
             mDebugPrinter = null;
         }
+        this.format = format;
+    }
+
+    public enum ApkFormat {
+        BINARY,
+        PROTO,
     }
 
     public void dispose() {
@@ -343,28 +359,34 @@ public class ResourceUsageAnalyzer {
     public static final long TINY_9PNG_CRC = 0x1148f987L;
 
     // The XML document <x/> as binary-packed with AAPT
-    public static final byte[] TINY_XML = new byte[] {
-            (byte)   3, (byte)   0, (byte)   8, (byte)   0, (byte) 104, (byte)   0,
-            (byte)   0, (byte)   0, (byte)   1, (byte)   0, (byte)  28, (byte)   0,
-            (byte)  36, (byte)   0, (byte)   0, (byte)   0, (byte)   1, (byte)   0,
-            (byte)   0, (byte)   0, (byte)   0, (byte)   0, (byte)   0, (byte)   0,
-            (byte)   0, (byte)   1, (byte)   0, (byte)   0, (byte)  32, (byte)   0,
-            (byte)   0, (byte)   0, (byte)   0, (byte)   0, (byte)   0, (byte)   0,
-            (byte)   0, (byte)   0, (byte)   0, (byte)   0, (byte)   1, (byte)   1,
-            (byte) 120, (byte)   0, (byte)   2, (byte)   1, (byte)  16, (byte)   0,
-            (byte)  36, (byte)   0, (byte)   0, (byte)   0, (byte)   1, (byte)   0,
-            (byte)   0, (byte)   0, (byte)  -1, (byte)  -1, (byte)  -1, (byte)  -1,
-            (byte)  -1, (byte)  -1, (byte)  -1, (byte)  -1, (byte)   0, (byte)   0,
-            (byte)   0, (byte)   0, (byte)  20, (byte)   0, (byte)  20, (byte)   0,
-            (byte)   0, (byte)   0, (byte)   0, (byte)   0, (byte)   0, (byte)   0,
-            (byte)   0, (byte)   0, (byte)   3, (byte)   1, (byte)  16, (byte)   0,
-            (byte)  24, (byte)   0, (byte)   0, (byte)   0, (byte)   1, (byte)   0,
-            (byte)   0, (byte)   0, (byte)  -1, (byte)  -1, (byte)  -1, (byte)  -1,
-            (byte)  -1, (byte)  -1, (byte)  -1, (byte)  -1, (byte)   0, (byte)   0,
-            (byte)   0, (byte)   0
-    };
+    public static final byte[] TINY_BINARY_XML =
+            new byte[] {
+                (byte) 3, (byte) 0, (byte) 8, (byte) 0, (byte) 104, (byte) 0,
+                (byte) 0, (byte) 0, (byte) 1, (byte) 0, (byte) 28, (byte) 0,
+                (byte) 36, (byte) 0, (byte) 0, (byte) 0, (byte) 1, (byte) 0,
+                (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0,
+                (byte) 0, (byte) 1, (byte) 0, (byte) 0, (byte) 32, (byte) 0,
+                (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0,
+                (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 1, (byte) 1,
+                (byte) 120, (byte) 0, (byte) 2, (byte) 1, (byte) 16, (byte) 0,
+                (byte) 36, (byte) 0, (byte) 0, (byte) 0, (byte) 1, (byte) 0,
+                (byte) 0, (byte) 0, (byte) -1, (byte) -1, (byte) -1, (byte) -1,
+                (byte) -1, (byte) -1, (byte) -1, (byte) -1, (byte) 0, (byte) 0,
+                (byte) 0, (byte) 0, (byte) 20, (byte) 0, (byte) 20, (byte) 0,
+                (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0, (byte) 0,
+                (byte) 0, (byte) 0, (byte) 3, (byte) 1, (byte) 16, (byte) 0,
+                (byte) 24, (byte) 0, (byte) 0, (byte) 0, (byte) 1, (byte) 0,
+                (byte) 0, (byte) 0, (byte) -1, (byte) -1, (byte) -1, (byte) -1,
+                (byte) -1, (byte) -1, (byte) -1, (byte) -1, (byte) 0, (byte) 0,
+                (byte) 0, (byte) 0
+            };
 
-    public static final long TINY_XML_CRC = 0xd7e65643L;
+    public static final long TINY_BINARY_XML_CRC = 0xd7e65643L;
+
+    // The XML document <x/> as a proto packed with AAPT2
+    public static final byte[] TINY_PROTO_XML =
+            new byte[] {0xa, 0x3, 0x1a, 0x1, 0x78, 0x1a, 0x2, 0x8, 0x1};
+    public static final long TINY_PROTO_XML_CRC = 3204905971L;
 
     /**
      * "Removes" resources from an .ap_ file by writing it out while filtering out
@@ -399,13 +421,13 @@ public class ResourceUsageAnalyzer {
                 String name = entry.getName();
                 boolean directory = entry.isDirectory();
                 Resource resource = getResourceByJarPath(name);
+                if (!ZipEntryUtils.isValidZipEntryName(entry)) {
+                    throw new InvalidPathException(
+                            entry.getName(), "Entry name contains invalid characters");
+                }
                 if (resource == null || resource.isReachable()) {
                     copyToOutput(zis, zos, entry, name, directory);
-
-                } else if (REPLACE_DELETED_WITH_EMPTY
-                        && !directory
-                        // Canonical name for resource file that only contains keep rules
-                        && !name.equals("res/raw/keep.xml")) {
+                } else if (REPLACE_DELETED_WITH_EMPTY && !directory) {
                     replaceWithDummyEntry(zos, entry, name);
                 } else if (isVerbose() || mDebugPrinter != null) {
                     String message =
@@ -460,8 +482,18 @@ public class ResourceUsageAnalyzer {
             bytes = TINY_PNG;
             crc = TINY_PNG_CRC;
         } else if (name.endsWith(DOT_XML)) {
-            bytes = TINY_XML;
-            crc = TINY_XML_CRC;
+            switch (format) {
+                case BINARY:
+                    bytes = TINY_BINARY_XML;
+                    crc = TINY_BINARY_XML_CRC;
+                    break;
+                case PROTO:
+                    bytes = TINY_PROTO_XML;
+                    crc = TINY_PROTO_XML_CRC;
+                    break;
+                default:
+                    throw new IllegalStateException("");
+            }
         } else {
             bytes = new byte[0];
             crc = 0L;
@@ -718,7 +750,7 @@ public class ResourceUsageAnalyzer {
 
     private void stripUnused(Element element, List<String> removed) {
         if (TWO_PASS_AAPT) {
-            ResourceType type = ResourceUsageModel.getResourceType(element);
+            ResourceType type = ResourceType.fromXmlTag(element);
             if (type == ResourceType.ATTR) {
                 // Not yet properly handled
                 return;
@@ -726,8 +758,7 @@ public class ResourceUsageAnalyzer {
 
             Resource resource = mModel.getResource(element);
             if (resource != null) {
-                if (resource.type == ResourceType.DECLARE_STYLEABLE ||
-                        resource.type == ResourceType.ATTR) {
+                if (resource.type == ResourceType.STYLEABLE || resource.type == ResourceType.ATTR) {
                     // Don't strip children of declare-styleable; we're not correctly
                     // tracking field references of the R_styleable_attr fields yet
                     return;
@@ -1008,7 +1039,7 @@ public class ResourceUsageAnalyzer {
                 if (slash > 0) {
                     int colon = string.indexOf(':');
                     String typeName = string.substring(colon != -1 ? colon + 1 : 0, slash);
-                    ResourceType type = ResourceType.getEnum(typeName);
+                    ResourceType type = ResourceType.fromClassName(typeName);
                     if (type == null) {
                         continue;
                     }
@@ -1304,7 +1335,7 @@ public class ResourceUsageAnalyzer {
                 continue;
             }
             String typeName = line.substring(index + RESOURCE.length(), arrow);
-            ResourceType type = ResourceType.getEnum(typeName);
+            ResourceType type = ResourceType.fromClassName(typeName);
             if (type == null) {
                 continue;
             }
@@ -1376,7 +1407,7 @@ public class ResourceUsageAnalyzer {
                 }
             }
         } else if (file.isFile()) {
-            if (file.getPath().endsWith(DOT_CLASS)) {
+            if (file.getPath().endsWith(DOT_CLASS) || file.getPath().endsWith(DOT_DEX)) {
                 byte[] bytes = Files.toByteArray(file);
                 recordClassUsages(file, file.getName(), bytes);
             } else if (file.getPath().endsWith(DOT_JAR)) {
@@ -1388,12 +1419,15 @@ public class ResourceUsageAnalyzer {
                         ZipEntry entry = zis.getNextEntry();
                         while (entry != null) {
                             String name = entry.getName();
-                            if (name.endsWith(DOT_CLASS) &&
-                                    // Skip resource type classes like R$drawable; they will
-                                    // reference the integer id's we're looking for, but these aren't
-                                    // actual usages we need to track; if somebody references the
-                                    // field elsewhere, we'll catch that
-                                    !isResourceClass(name)) {
+                            if ((name.endsWith(DOT_CLASS)
+                                            &&
+                                            // Skip resource type classes like R$drawable; they will
+                                            // reference the integer id's we're looking for, but
+                                            // these aren't actual usages we need to track;
+                                            // if somebody references the field elsewhere, we'll
+                                            // catch that
+                                            !isResourceClass(name))
+                                    || name.endsWith(DOT_DEX)) {
                                 byte[] bytes = ByteStreams.toByteArray(zis);
                                 if (bytes != null) {
                                     recordClassUsages(file, name, bytes);
@@ -1413,8 +1447,51 @@ public class ResourceUsageAnalyzer {
     }
 
     private void recordClassUsages(File file, String name, byte[] bytes) {
-        ClassReader classReader = new ClassReader(bytes);
-        classReader.accept(new UsageVisitor(file, name), SKIP_DEBUG | SKIP_FRAMES);
+        if (name.endsWith(DOT_CLASS)) {
+            ClassReader classReader = new ClassReader(bytes);
+            classReader.accept(new UsageVisitor(file, name), SKIP_DEBUG | SKIP_FRAMES);
+        } else {
+            assert name.endsWith(DOT_DEX);
+            AnalysisCallback callback =
+                    new AnalysisCallback() {
+                        @Override
+                        public boolean shouldProcess(@NonNull String internalName) {
+                            return !isResourceClass(internalName + DOT_CLASS);
+                        }
+
+                        @Override
+                        public void referencedInt(int value) {
+                            ResourceUsageAnalyzer.this.referencedInt("dex", value, file, name);
+                        }
+
+                        @Override
+                        public void referencedString(@NonNull String value) {
+                            ResourceUsageAnalyzer.this.referencedString(value);
+                        }
+
+                        @Override
+                        public void referencedStaticField(
+                                @NonNull String internalName, @NonNull String fieldName) {
+                            Resource resource = getResourceFromCode(internalName, fieldName);
+                            if (resource != null) {
+                                ResourceUsageModel.markReachable(resource);
+                            }
+                        }
+
+                        @Override
+                        public void referencedMethod(
+                                @NonNull String internalName,
+                                @NonNull String methodName,
+                                @NonNull String methodDescriptor) {
+                            ResourceUsageAnalyzer.this.referencedMethodInvocation(
+                                    internalName,
+                                    methodName,
+                                    methodDescriptor,
+                                    internalName + DOT_CLASS);
+                        }
+                    };
+            R8ResourceShrinker.runResourceShrinkerAnalysis(bytes, file, callback);
+        }
     }
 
     /** Returns whether the given class file name points to an aapt-generated compiled R class */
@@ -1427,7 +1504,7 @@ public class ResourceUsageAnalyzer {
         int index = name.lastIndexOf('/');
         if (index != -1 && name.startsWith("R$", index + 1)) {
             String typeName = name.substring(index + 3, name.length() - DOT_CLASS.length());
-            return ResourceType.getEnum(typeName) != null;
+            return ResourceType.fromClassName(typeName) != null;
         }
 
         return false;
@@ -1486,7 +1563,7 @@ public class ResourceUsageAnalyzer {
                 break;
             }
             String typeName = s.substring(start, end);
-            ResourceType type = ResourceType.getEnum(typeName);
+            ResourceType type = ResourceType.fromClassName(typeName);
             if (type == null) {
                 break;
             }
@@ -1540,7 +1617,6 @@ public class ResourceUsageAnalyzer {
                             end = s.indexOf('=', start);
                             assert end != -1;
                             String styleable = s.substring(start, end).trim();
-                            mModel.addResource(ResourceType.DECLARE_STYLEABLE, styleable, null);
                             mModel.addResource(ResourceType.STYLEABLE, styleable, null);
                             // TODO: Read in all the action bar ints!
                             // For now, we're simply treating all R.attr fields as used
@@ -1629,29 +1705,10 @@ public class ResourceUsageAnalyzer {
                 }
 
                 @Override
-                public void visitMethodInsn(int opcode, String owner, String name,
-                        String desc, boolean itf) {
+                public void visitMethodInsn(
+                        int opcode, String owner, String name, String desc, boolean itf) {
                     super.visitMethodInsn(opcode, owner, name, desc, itf);
-                    if (owner.equals("android/content/res/Resources")
-                            && name.equals("getIdentifier")
-                            && desc.equals(
-                            "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I")) {
-
-                        if (mCurrentClass.equals(mResourcesWrapper) ||
-                                mCurrentClass.equals(mSuggestionsAdapter)) {
-                            // "benign" usages: don't trigger reflection mode just because
-                            // the user has included appcompat
-                            return;
-                        }
-
-                        mFoundGetIdentifier = true;
-                        // TODO: Check previous instruction and see if we can find a literal
-                        // String; if so, we can more accurately dispatch the resource here
-                        // rather than having to check the whole string pool!
-                    }
-                    if (owner.equals("android/webkit/WebView") && name.startsWith("load")) {
-                        mFoundWebContent = true;
-                    }
+                    referencedMethodInvocation(owner, name, desc, mCurrentClass);
                 }
 
                 @Override
@@ -1665,8 +1722,8 @@ public class ResourceUsageAnalyzer {
                 }
 
                 @Override
-                public AnnotationVisitor visitParameterAnnotation(int parameter, String desc,
-                        boolean visible) {
+                public AnnotationVisitor visitParameterAnnotation(
+                        int parameter, String desc, boolean visible) {
                     return new AnnotationUsageVisitor();
                 }
             };
@@ -1715,26 +1772,58 @@ public class ResourceUsageAnalyzer {
         private void handleCodeConstant(@Nullable Object cst, @NonNull String context) {
             if (cst instanceof Integer) {
                 Integer value = (Integer) cst;
-                Resource resource = mModel.getResource(value);
-                if (ResourceUsageModel.markReachable(resource) && mDebug) {
-                    assert mDebugPrinter != null : "mDebug is true, but mDebugPrinter is null.";
-                    mDebugPrinter.println("Marking " + resource + " reachable: referenced from " +
-                            context + " in " + mJarFile + ":" + mCurrentClass);
-                }
+                referencedInt(context, value, mJarFile, mCurrentClass);
             } else if (cst instanceof int[]) {
                 int[] values = (int[]) cst;
                 for (int value : values) {
-                    Resource resource = mModel.getResource(value);
-                    if (ResourceUsageModel.markReachable(resource) && mDebug) {
-                        assert mDebugPrinter != null : "mDebug is true, but mDebugPrinter is null.";
-                        mDebugPrinter.println("Marking " + resource + " reachable: referenced from " +
-                                context + " in " + mJarFile + ":" + mCurrentClass);
-                    }
+                    referencedInt(context, value, mJarFile, mCurrentClass);
                 }
             } else if (cst instanceof String) {
                 String string = (String) cst;
                 referencedString(string);
             }
+        }
+    }
+
+    private void referencedInt(@NonNull String context, int value, File file, String currentClass) {
+        Resource resource = mModel.getResource(value);
+        if (ResourceUsageModel.markReachable(resource) && mDebug) {
+            assert mDebugPrinter != null : "mDebug is true, but mDebugPrinter is null.";
+            mDebugPrinter.println(
+                    "Marking "
+                            + resource
+                            + " reachable: referenced from "
+                            + context
+                            + " in "
+                            + file
+                            + ":"
+                            + currentClass);
+        }
+    }
+
+    private void referencedMethodInvocation(
+            @NonNull String owner,
+            @NonNull String name,
+            @NonNull String desc,
+            @NonNull String currentClass) {
+        if (owner.equals("android/content/res/Resources")
+                && name.equals("getIdentifier")
+                && desc.equals("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)I")) {
+
+            if (currentClass.equals(mResourcesWrapper)
+                    || currentClass.equals(mSuggestionsAdapter)) {
+                // "benign" usages: don't trigger reflection mode just because
+                // the user has included appcompat
+                return;
+            }
+
+            mFoundGetIdentifier = true;
+            // TODO: Check previous instruction and see if we can find a literal
+            // String; if so, we can more accurately dispatch the resource here
+            // rather than having to check the whole string pool!
+        }
+        if (owner.equals("android/webkit/WebView") && name.startsWith("load")) {
+            mFoundWebContent = true;
         }
     }
 

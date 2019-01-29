@@ -21,7 +21,7 @@ import static com.android.testutils.truth.PathSubject.assertThat;
 
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
-import com.android.build.gradle.integration.common.fixture.app.AndroidTestApp;
+import com.android.build.gradle.integration.common.fixture.app.AndroidTestModule;
 import com.android.build.gradle.integration.common.fixture.app.EmptyAndroidTestApp;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
@@ -43,17 +43,18 @@ import org.junit.Test;
 public class PackagingOptionsTest {
 
     // Projects to create jar files.
-    private static AndroidTestApp jarProject1 = new EmptyAndroidTestApp();
+    private static AndroidTestModule jarProject1 = new EmptyAndroidTestApp();
 
     static {
-        jarProject1.addFile(new TestSourceFile("", "build.gradle", "apply plugin: 'java'"));
+        jarProject1.addFile(new TestSourceFile("build.gradle", "apply plugin: 'java'"));
         jarProject1.addFile(new TestSourceFile("src/main/resources", "conflict.txt", "foo"));
+        jarProject1.addFile(new TestSourceFile("META-INF/proguard", "rules.pro", "# none"));
     }
 
-    private static AndroidTestApp jarProject2 = new EmptyAndroidTestApp();
+    private static AndroidTestModule jarProject2 = new EmptyAndroidTestApp();
 
     static {
-        jarProject2.addFile(new TestSourceFile("", "build.gradle", "apply plugin: 'java'"));
+        jarProject2.addFile(new TestSourceFile("build.gradle", "apply plugin: 'java'"));
         jarProject2.addFile(new TestSourceFile("src/main/resources", "conflict.txt", "foo"));
         // add an extra file so that jar1 is different from jar2.
         jarProject2.addFile(new TestSourceFile("src/main/resources", "dummy2.txt", "bar"));
@@ -97,6 +98,13 @@ public class PackagingOptionsTest {
                         + GradleTestProject.DEFAULT_BUILD_TOOL_VERSION
                         + "\"\n"
                         + "}\n");
+    }
+
+    @Test
+    public void metaInfProguardExcludedByDefault() throws IOException, InterruptedException {
+        project.execute("clean", "assembleDebug");
+        assertThat(project.getApk(GradleTestProject.ApkType.DEBUG))
+                .doesNotContain("META-INF/proguard/rules.pro");
     }
 
     @Test

@@ -17,13 +17,14 @@
 package com.android.build.gradle.integration.common.fixture.app;
 
 import com.android.annotations.NonNull;
+import java.io.File;
 
 /**
  * Simple test application that uses JNI to print a "hello world!".
  *
- * NOTE: Android project must create an NDK module named "hello-jni".
+ * <p>NOTE: Android project must create an NDK module named "hello-jni".
  */
-public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidTestApp {
+public class HelloWorldJniApp extends AbstractAndroidTestModule implements AndroidTestModule {
 
     private static final TestSourceFile javaSource = new TestSourceFile(
             "src/main/java/com/example/hellojni", "HelloJni.java",
@@ -110,7 +111,6 @@ public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidT
 "      android:versionCode=\"1\"\n" +
 "      android:versionName=\"1.0\">\n" +
 "\n" +
-"    <uses-sdk android:minSdkVersion=\"3\" />\n" +
 "    <application android:label=\"@string/app_name\">\n" +
 "        <activity android:name=\".HelloJni\"\n" +
 "                  android:label=\"@string/app_name\">\n" +
@@ -261,18 +261,22 @@ public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidT
     }
 
     public static TestSourceFile cmakeLists(String folder) {
+        String filePath =
+                (folder.isEmpty() || folder.equals("."))
+                        ? "CMakeLists.txt"
+                        : (folder + File.separatorChar + "CMakeLists.txt");
         return new TestSourceFile(
-                folder, "CMakeLists.txt",
-                "cmake_minimum_required(VERSION 3.4.1)\n" +
-                        "\n" +
-                        "# Compile all source files under this tree into a single shared library\n" +
-                        "file(GLOB_RECURSE SRC src/*.c src/*.cpp src/*.cc src/*.cxx src/*.c++ src/*.C)\n" +
-                        "message(\"${SRC}\")\n" +
-                        "set(CMAKE_VERBOSE_MAKEFILE ON)\n" +
-                        "add_library(hello-jni SHARED ${SRC})\n" +
-                        "\n" +
-                        "# Include a nice standard set of libraries to link against by default\n" +
-                        "target_link_libraries(hello-jni log)");
+                filePath,
+                "cmake_minimum_required(VERSION 3.4.1)\n"
+                        + "\n"
+                        + "# Compile all source files under this tree into a single shared library\n"
+                        + "file(GLOB_RECURSE SRC src/*.c src/*.cpp src/*.cc src/*.cxx src/*.c++ src/*.C)\n"
+                        + "message(\"${SRC}\")\n"
+                        + "set(CMAKE_VERBOSE_MAKEFILE ON)\n"
+                        + "add_library(hello-jni SHARED ${SRC})\n"
+                        + "\n"
+                        + "# Include a nice standard set of libraries to link against by default\n"
+                        + "target_link_libraries(hello-jni log)");
     }
 
     public static TestSourceFile cmakeListsWithExecutables(String folder) {
@@ -305,20 +309,24 @@ public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidT
     }
 
     public HelloWorldJniApp() {
-        this("jni", false);
+        this("jni", false /* useCppSource */, false /* withCmake */);
     }
 
-    HelloWorldJniApp(String jniDir, boolean useCppSource) {
+    HelloWorldJniApp(String jniDir, boolean useCppSource, boolean withCmake) {
         TestSourceFile jniSource =
                 useCppSource
                         ? cppSource("src/main/jni")
                         : cSource("src/main/jni");
         addFiles(
                 javaSource,
-                new TestSourceFile("src/main/" + jniDir, jniSource.getName(), jniSource.getContent()),
+                new TestSourceFile(
+                        "src/main/" + jniDir + "/" + jniSource.getName(), jniSource.getContent()),
                 resSource,
                 manifest,
                 androidTestSource);
+        if (withCmake) {
+            addFile(cmakeLists("."));
+        }
     }
 
     public static Builder builder() {
@@ -328,6 +336,7 @@ public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidT
     public static class Builder {
         private String jniDir = "jni";
         private boolean useCppSource = false;
+        private boolean withCmake = false;
 
         public Builder withNativeDir(@NonNull String jniDir) {
             this.jniDir = jniDir;
@@ -339,13 +348,18 @@ public class HelloWorldJniApp extends AbstractAndroidTestApp implements AndroidT
             return this;
         }
 
+        public Builder withCmake() {
+            this.withCmake = true;
+            return this;
+        }
+
         public Builder useCppSource(boolean useCppSource) {
             this.useCppSource = useCppSource;
             return this;
         }
 
         public HelloWorldJniApp build() {
-            return new HelloWorldJniApp(jniDir, useCppSource);
+            return new HelloWorldJniApp(jniDir, useCppSource, withCmake);
         }
     }
 }

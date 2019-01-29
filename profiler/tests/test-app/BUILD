@@ -15,7 +15,7 @@ java_binary(
         "//prebuilts/tools/common/m2/repository/com/squareup/okhttp/okhttp/2.5.0:jar",
         "//prebuilts/tools/common/m2/repository/com/squareup/okhttp3/okhttp/3.3.0:jar",
         "//prebuilts/tools/common/m2/repository/com/squareup/okio/okio/1.6.0:jar",
-        "//tools/base/profiler/tests/android-mock",
+        "//tools/base/fakeandroid:android-mock",
     ],
 )
 
@@ -25,8 +25,21 @@ dex_library(
 )
 
 cc_binary(
-    name = "libnativetest.so",
-    srcs = ["src/native/main.cpp"],
+    name = "libmemorynativetest.so",
+    srcs = ["src/native/jni_memory.cpp"],
+    copts = ANDROID_COPTS,
+    linkopts = ANDROID_LINKOPTS,
+    linkshared = 1,
+    tags = ["no_windows"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//prebuilts/studio/jdk:jni_headers",
+    ],
+)
+
+cc_binary(
+    name = "libjni.so",
+    srcs = ["src/native/jni.cpp"],
     copts = ANDROID_COPTS,
     linkopts = ANDROID_LINKOPTS,
     linkshared = 1,

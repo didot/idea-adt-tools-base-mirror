@@ -18,22 +18,25 @@ package com.android.build.gradle.tasks;
 
 import static com.android.SdkConstants.DOT_JAVA;
 import static com.android.SdkConstants.INT_DEF_ANNOTATION;
-import static com.android.SdkConstants.STRING_DEF_ANNOTATION;
 import static com.android.SdkConstants.LONG_DEF_ANNOTATION;
+import static com.android.SdkConstants.STRING_DEF_ANNOTATION;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.EXTERNAL;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.CLASSES;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
-import com.android.build.gradle.internal.scope.TaskConfigAction;
-import com.android.build.gradle.internal.scope.TaskOutputHolder;
+import com.android.build.gradle.internal.scope.AnchorOutputType;
+import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AbstractAndroidCompile;
-import com.android.build.gradle.internal.variant.LibraryVariantData;
+import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
+import com.android.build.gradle.internal.utils.AndroidXDependency;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.packaging.TypedefRemover;
 import com.android.tools.lint.gradle.api.ExtractAnnotationRequest;
@@ -44,6 +47,7 @@ import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -65,8 +69,8 @@ import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
-import org.gradle.api.tasks.SkipWhenEmpty;
 import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.TaskProvider;
 
 /**
  * Task which extracts annotations from the source files, and writes them to one of two possible
@@ -83,7 +87,13 @@ import org.gradle.api.tasks.TaskAction;
  * where ProGuarding is enabled.
  */
 @CacheableTask
-public class ExtractAnnotations extends AbstractAndroidCompile {
+public class ExtractAnnotations extends AndroidVariantTask {
+
+    @NonNull
+    private static final AndroidXDependency ANDROIDX_ANNOTATIONS =
+            AndroidXDependency.fromPreAndroidXDependency(
+                    "com.android.support", "support-annotations");
+
     private Supplier<List<String>> bootClasspath;
 
     private File typedefFile;
@@ -92,11 +102,15 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
 
     private String encoding;
 
-    private FileCollection classDir;
+    private BuildableArtifact classDir;
 
     private ArtifactCollection libraries;
 
     @Nullable FileCollection lintClassPath;
+
+    private final List<Object> sources = new ArrayList<>();
+
+    private FileCollection classpath;
 
     /** Lint classpath */
     @InputFiles
@@ -106,12 +120,21 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
     }
 
     @NonNull
-    @Override
     @PathSensitive(PathSensitivity.NAME_ONLY)
     @InputFiles
-    @SkipWhenEmpty
     public FileTree getSource() {
-        return super.getSource();
+        return getProject().files(sources).getAsFileTree();
+    }
+
+    @CompileClasspath
+    @PathSensitive(PathSensitivity.NONE)
+    public FileCollection getClasspath() {
+        return classpath;
+    }
+
+    /** Used by the variant API */
+    public void source(Object source) {
+        sources.add(source);
     }
 
     /** Boot classpath: typically android.jar */
@@ -170,15 +193,14 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
     @Optional
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
-    public FileCollection getClassDir() {
+    public BuildableArtifact getClassDir() {
         return classDir;
     }
 
-    public void setClassDir(FileCollection classDir) {
+    public void setClassDir(BuildableArtifact classDir) {
         this.classDir = classDir;
     }
 
-    @Override
     @TaskAction
     protected void compile() {
         SourceFileVisitor fileVisitor = new SourceFileVisitor();
@@ -201,9 +223,14 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
             roots.add(new File(path));
         }
 
-        ExtractAnnotationRequest request = new ExtractAnnotationRequest(
-                getTypedefFile(), getLogger(), getClassDir(), getOutput(),
-                sourceFiles, roots);
+        ExtractAnnotationRequest request =
+                new ExtractAnnotationRequest(
+                        getTypedefFile(),
+                        getLogger(),
+                        getClassDir().get(),
+                        getOutput(),
+                        sourceFiles,
+                        roots);
         FileCollection lintClassPath = getLintClassPath();
         if (lintClassPath != null) {
             new ReflectiveLintRunner().extractAnnotations(getProject().getGradle(),
@@ -247,11 +274,14 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
             // mapped buffers.
             try (Stream<String> lines = Files.asCharSource(file, UTF_8).lines()) {
                 return lines.anyMatch(
-                        line -> line.contains("Def") && (
-                                line.contains(INT_DEF_ANNOTATION) ||
-                                        line.contains(LONG_DEF_ANNOTATION) ||
-                                        line.contains(STRING_DEF_ANNOTATION))
-                );
+                        line ->
+                                line.contains("Def")
+                                        && (line.contains(INT_DEF_ANNOTATION.oldName())
+                                                || line.contains(INT_DEF_ANNOTATION.newName())
+                                                || line.contains(LONG_DEF_ANNOTATION.oldName())
+                                                || line.contains(LONG_DEF_ANNOTATION.newName())
+                                                || line.contains(STRING_DEF_ANNOTATION.oldName())
+                                                || line.contains(STRING_DEF_ANNOTATION.newName())));
             }
         } catch (IOException e) {
             return false;
@@ -268,8 +298,12 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
             if (id instanceof ModuleComponentIdentifier) {
                 ModuleComponentIdentifier moduleId = (ModuleComponentIdentifier) id;
 
-                if (moduleId.getModule().equals("support-annotations") &&
-                        moduleId.getGroup().equals("com.android.support")) {
+                // Search in both AndroidX and pre-AndroidX libraries
+                if (moduleId.getGroup().equals(ANDROIDX_ANNOTATIONS.getGroup())
+                                && moduleId.getModule().equals(ANDROIDX_ANNOTATIONS.getModule())
+                        || moduleId.getGroup().equals(ANDROIDX_ANNOTATIONS.getOldGroup())
+                                && moduleId.getModule()
+                                        .equals(ANDROIDX_ANNOTATIONS.getOldModule())) {
                     return true;
                 }
             }
@@ -278,22 +312,22 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
         return false;
     }
 
-    public static class ConfigAction implements TaskConfigAction<ExtractAnnotations> {
+    public static class CreationAction extends VariantTaskCreationAction<ExtractAnnotations> {
 
         @NonNull private final AndroidConfig extension;
-        @NonNull private final VariantScope variantScope;
+        private File output;
+        private File typedefFile;
 
-        public ConfigAction(
-                @NonNull AndroidConfig extension,
-                @NonNull VariantScope variantScope) {
+        public CreationAction(
+                @NonNull AndroidConfig extension, @NonNull VariantScope variantScope) {
+            super(variantScope);
             this.extension = extension;
-            this.variantScope = variantScope;
         }
 
         @NonNull
         @Override
         public String getName() {
-            return variantScope.getTaskName("extract", "Annotations");
+            return getVariantScope().getTaskName("extract", "Annotations");
         }
 
         @NonNull
@@ -303,7 +337,38 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
         }
 
         @Override
-        public void execute(@NonNull ExtractAnnotations task) {
+        public void preConfigure(@NonNull String taskName) {
+            super.preConfigure(taskName);
+
+            output =
+                    getVariantScope()
+                            .getArtifacts()
+                            .appendArtifact(
+                                    InternalArtifactType.ANNOTATIONS_ZIP,
+                                    taskName,
+                                    SdkConstants.FN_ANNOTATIONS_ZIP);
+
+            typedefFile =
+                    getVariantScope()
+                            .getArtifacts()
+                            .appendArtifact(
+                                    InternalArtifactType.ANNOTATIONS_TYPEDEF_FILE,
+                                    taskName,
+                                    "typedefs.txt");
+        }
+
+        @Override
+        public void handleProvider(
+                @NonNull TaskProvider<? extends ExtractAnnotations> taskProvider) {
+            super.handleProvider(taskProvider);
+            getVariantScope().getTaskContainer().setGenerateAnnotationsTask(taskProvider);
+        }
+
+        @Override
+        public void configure(@NonNull ExtractAnnotations task) {
+            super.configure(task);
+            VariantScope variantScope = getVariantScope();
+
             final GradleVariantConfiguration variantConfig = variantScope.getVariantConfiguration();
             final AndroidBuilder androidBuilder = variantScope.getGlobalScope().getAndroidBuilder();
 
@@ -313,28 +378,19 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
                             + " variant into the archive file");
             task.setGroup(BasePlugin.BUILD_GROUP);
 
-            File annotationsZip = variantScope.getAnnotationZipFile();
-
-            task.setDestinationDir(annotationsZip.getParentFile());
-            task.setOutput(annotationsZip);
             // publish intermediate annotation data
-            variantScope.addTaskOutput(
-                    TaskOutputHolder.TaskOutputType.ANNOTATIONS_ZIP, annotationsZip, getName());
+            task.setOutput(output);
 
-            File typeDefFile = variantScope.getTypedefFile();
-            task.typedefFile = typeDefFile;
-            variantScope.addTaskOutput(
-                    TaskOutputHolder.TaskOutputType.ANNOTATIONS_TYPEDEF_FILE,
-                    typeDefFile,
-                    getName());
+            task.typedefFile = typedefFile;
 
-            task.setClassDir(variantScope.getOutput(TaskOutputHolder.AnchorOutputType.ALL_CLASSES));
+            task.setClassDir(
+                    variantScope
+                            .getArtifacts()
+                            .getFinalArtifactFiles(AnchorOutputType.ALL_CLASSES));
 
-            task.setSource(variantScope.getVariantData().getJavaSources());
+            task.source(variantScope.getVariantData().getJavaSources());
             task.setEncoding(extension.getCompileOptions().getEncoding());
-            task.setSourceCompatibility(
-                    extension.getCompileOptions().getSourceCompatibility().toString());
-            task.setClasspath(variantScope.getJavaClasspath(COMPILE_CLASSPATH, CLASSES));
+            task.classpath = variantScope.getJavaClasspath(COMPILE_CLASSPATH, CLASSES);
 
             task.libraries = variantScope.getArtifactCollection(
                     COMPILE_CLASSPATH, EXTERNAL, CLASSES);
@@ -342,8 +398,6 @@ public class ExtractAnnotations extends AbstractAndroidCompile {
             // Setup the boot classpath just before the task actually runs since this will
             // force the sdk to be parsed. (Same as in compileTask)
             task.setBootClasspath(() -> androidBuilder.getBootClasspathAsStrings(false));
-
-            ((LibraryVariantData) variantScope.getVariantData()).generateAnnotationsTask = task;
 
             task.lintClassPath = variantScope.getGlobalScope().getProject().getConfigurations()
                     .getByName(LintBaseTask.LINT_CLASS_PATH);

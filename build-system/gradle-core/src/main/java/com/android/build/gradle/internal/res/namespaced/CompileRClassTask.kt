@@ -15,9 +15,12 @@
  */
 package com.android.build.gradle.internal.res.namespaced
 
-import com.android.build.gradle.internal.scope.TaskConfigAction
-import org.gradle.api.file.FileCollection
+import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.VariantAwareTask
+import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.compile.JavaCompile
 import java.io.File
 
@@ -30,21 +33,38 @@ import java.io.File
  * In the future, this might not call javac at all, but it needs to be profiled first.
  */
 @CacheableTask
-open class CompileRClassTask : JavaCompile() {
+open class CompileRClassTask : JavaCompile(), VariantAwareTask {
 
-    class ConfigAction(
-            private val name: String,
-            private val rClassSource: FileCollection,
-            private val rClassDir: File) : TaskConfigAction<CompileRClassTask> {
+    @Internal
+    override lateinit var variantName: String
 
-        override fun getName() = name
+    class CreationAction(variantScope: VariantScope) :
+        VariantTaskCreationAction<CompileRClassTask>(variantScope) {
 
-        override fun getType() = CompileRClassTask::class.java
+        override val name: String
+            get() = variantScope.getTaskName("compile", "FinalRClass")
+        override val type: Class<CompileRClassTask>
+            get() = CompileRClassTask::class.java
 
-        override fun execute(task: CompileRClassTask) {
+        private lateinit var destinationDir: File
+
+        override fun preConfigure(taskName: String) {
+            super.preConfigure(taskName)
+            destinationDir =
+                    variantScope.artifacts.appendArtifact(
+                        InternalArtifactType.RUNTIME_R_CLASS_CLASSES,
+                        taskName
+                    )
+        }
+
+        override fun configure(task: CompileRClassTask) {
+            super.configure(task)
+
+            val artifacts = variantScope.artifacts
             task.classpath = task.project.files()
-            task.source(rClassSource)
-            task.destinationDir = rClassDir
+            task.source(
+                artifacts.getFinalArtifactFiles(InternalArtifactType.RUNTIME_R_CLASS_SOURCES))
+            task.destinationDir = destinationDir
         }
     }
 
