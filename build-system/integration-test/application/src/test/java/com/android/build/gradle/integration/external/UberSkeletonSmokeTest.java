@@ -32,7 +32,7 @@ public class UberSkeletonSmokeTest {
     @Rule
     public GradleTestProject project =
             GradleTestProject.builder()
-                    .withHeap("10G")
+                    .withHeap("15G")
                     .fromExternalProject("android-studio-gradle-test")
                     .create();
 
@@ -43,6 +43,7 @@ public class UberSkeletonSmokeTest {
 
     @Test
     public void checkModel() throws Exception {
+        // zip is directly used in build.gradle which does not exist on Windows.
         AssumeUtil.assumeNotWindows(); // b/67975239
         ModelContainer<AndroidProject> modelContainer =
                 project.model()

@@ -27,7 +27,6 @@ import com.android.build.FilterData;
 import com.android.build.OutputFile;
 import com.android.build.VariantOutput;
 import com.android.build.api.artifact.BuildableArtifact;
-import com.android.build.gradle.AndroidGradleOptions;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.dsl.AbiSplitOptions;
 import com.android.build.gradle.internal.dsl.DslAdaptersKt;
@@ -54,6 +53,7 @@ import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.MultiOutputPolicy;
 import com.android.build.gradle.options.BooleanOption;
+import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
 import com.android.builder.files.FileCacheByPath;
@@ -245,6 +245,21 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
     protected FileCache fileCache;
 
     protected BuildableArtifact apkList;
+
+    protected boolean keepTimestampsInApk;
+
+    @Nullable protected Integer targetApi;
+
+    @Input
+    @Optional
+    public Integer getTargetApi() {
+        return targetApi;
+    }
+
+    @Input
+    public boolean getKeepTimestampsInApk() {
+        return keepTimestampsInApk;
+    }
 
     /** Desired output format. */
     protected IncrementalPackagerBuilder.ApkFormat apkFormat;
@@ -602,6 +617,7 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
         protected final boolean isDebuggableBuild;
         protected final boolean isJniDebuggableBuild;
         protected final boolean keepTimestampsInApk;
+        @Nullable protected final Integer targetApi;
 
         /**
          * This should only be used in instant run mode in incremental task action where parameters
@@ -645,7 +661,8 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
             isInInstantRunMode = task.isInInstantRunMode();
             isDebuggableBuild = task.getDebugBuild();
             isJniDebuggableBuild = task.getJniDebugBuild();
-            keepTimestampsInApk = AndroidGradleOptions.keepTimestampsInApk(task.getProject());
+            keepTimestampsInApk = task.getKeepTimestampsInApk();
+            targetApi = task.getTargetApi();
         }
 
         @NonNull
@@ -787,7 +804,8 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
                         .withOutputFile(outputFile)
                         .withSigning(
                                 SigningConfigMetadata.Companion.load(params.signingConfig),
-                                params.minSdkVersion)
+                                params.minSdkVersion,
+                                params.targetApi)
                         .withCreatedBy(params.createdBy)
                         // TODO: allow extra metadata to be saved in the split scope to avoid
                         // reparsing
@@ -1145,6 +1163,16 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
                             : projectOptions.get(BooleanOption.DEPLOYMENT_PROVIDES_LIST_OF_CHANGES)
                                     ? IncrementalPackagerBuilder.ApkFormat.FILE_WITH_LIST_OF_CHANGES
                                     : IncrementalPackagerBuilder.ApkFormat.FILE;
+
+            packageAndroidArtifact.keepTimestampsInApk =
+                    variantScope
+                            .getGlobalScope()
+                            .getProjectOptions()
+                            .get(BooleanOption.KEEP_TIMESTAMPS_IN_APK);
+
+            packageAndroidArtifact.targetApi =
+                    projectOptions.get(IntegerOption.IDE_TARGET_DEVICE_API);
+
             finalConfigure(packageAndroidArtifact);
         }
 
@@ -1152,8 +1180,6 @@ public abstract class PackageAndroidArtifact extends IncrementalTask {
             VariantScope variantScope = getVariantScope();
 
             GlobalScope globalScope = variantScope.getGlobalScope();
-            GradleVariantConfiguration variantConfiguration =
-                    variantScope.getVariantConfiguration();
             task.instantRunFileType = FileType.MAIN;
 
             task.dexFolders = getDexFolders();

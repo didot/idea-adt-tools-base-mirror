@@ -17,6 +17,7 @@ package com.android.tools.perflogger;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.android.SdkConstants;
 import com.android.tools.perflogger.Metric.MetricSample;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
@@ -67,11 +68,11 @@ public class MetricTest {
                 new MetricSample(3, 30));
         metric.commit();
 
-        File outputFile =
+        File jsonFile =
                 new File(
                         metric.getOutputDirectory(),
                         String.format("%s.json", metric.getMetricName()));
-        assertThat(outputFile.exists()).isTrue();
+        assertThat(jsonFile.exists()).isTrue();
         String expected =
                 "{\n"
                         + "  \"metric\": \""
@@ -79,7 +80,9 @@ public class MetricTest {
                         + "\",\n"
                         + "  \"benchmarks\": [\n"
                         + "    {\n"
-                        + "      \"benchmark\": \"AS Metric Test\",\n"
+                        + "      \"benchmark\": \"AS Metric Test"
+                        + hostSuffix()
+                        + "\",\n"
                         + "      \"project\": \"Perfgate for Android Studio\",\n"
                         + "      \"data\": {\n"
                         + "        \"1\": 10,\n"
@@ -89,12 +92,17 @@ public class MetricTest {
                         + "    }\n"
                         + "  ]\n"
                         + "}";
-        InputStream outputStream = new FileInputStream(outputFile);
-        String output = CharStreams.toString(new InputStreamReader(outputStream, Charsets.UTF_8));
-        assertThat(output).isEqualTo(expected);
+        String jsonFileContents;
+        try (InputStream jsonFileStream = new FileInputStream(jsonFile)) {
+            jsonFileContents =
+                    CharStreams.toString(new InputStreamReader(jsonFileStream, Charsets.UTF_8));
+        }
+        assertThat(jsonFileContents).isEqualTo(expected);
 
         // Delete file to prevent it from being uploaded.
-        outputFile.delete();
+        assertThat(jsonFile.delete())
+                .named("Boolean indicating success of output file removal")
+                .isTrue();
     }
 
     @Test
@@ -103,19 +111,24 @@ public class MetricTest {
         Benchmark benchmark = new Benchmark.Builder("AS Metric Test").build();
         List<Analyzer> analyzers =
                 ImmutableList.of(
-                  new WindowDeviationAnalyzer.Builder()
-                                .addMeanTolerance(new WindowDeviationAnalyzer.MeanToleranceParams.Builder()
-                                        .setConstTerm(20.0)
-                                        .setMeanCoeff(0.1)
-                                        .setStddevCoeff(1.0)
-                                        .build()).
-                                build(),
-                  new WindowDeviationAnalyzer.Builder()
+                        new WindowDeviationAnalyzer.Builder()
+                                .addMeanTolerance(
+                                        new WindowDeviationAnalyzer.MeanToleranceParams.Builder()
+                                                .setConstTerm(20.0)
+                                                .setMeanCoeff(0.1)
+                                                .setStddevCoeff(1.0)
+                                                .build())
+                                .build(),
+                        new WindowDeviationAnalyzer.Builder()
                                 .setMetricAggregate(Analyzer.MetricAggregate.MEDIAN)
                                 .setRunInfoQueryLimit(24)
                                 .setRecentWindowSize(5)
-                                .addMeanTolerance(new WindowDeviationAnalyzer.MeanToleranceParams.Builder().build())
-                                .addMedianTolerance(new WindowDeviationAnalyzer.MedianToleranceParams.Builder().build())
+                                .addMeanTolerance(
+                                        new WindowDeviationAnalyzer.MeanToleranceParams.Builder()
+                                                .build())
+                                .addMedianTolerance(
+                                        new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
+                                                .build())
                                 .build());
         metric.setAnalyzers(benchmark, analyzers);
         metric.addSamples(
@@ -125,11 +138,11 @@ public class MetricTest {
                 new MetricSample(3, 30));
         metric.commit();
 
-        File outputFile =
+        File jsonFile =
                 new File(
                         metric.getOutputDirectory(),
                         String.format("%s.json", metric.getMetricName()));
-        assertThat(outputFile.exists()).isTrue();
+        assertThat(jsonFile.exists()).isTrue();
         String expected =
                 "{\n"
                         + "  \"metric\": \""
@@ -137,7 +150,9 @@ public class MetricTest {
                         + "\",\n"
                         + "  \"benchmarks\": [\n"
                         + "    {\n"
-                        + "      \"benchmark\": \"AS Metric Test\",\n"
+                        + "      \"benchmark\": \"AS Metric Test"
+                        + hostSuffix()
+                        + "\",\n"
                         + "      \"project\": \"Perfgate for Android Studio\",\n"
                         + "      \"data\": {\n"
                         + "        \"1\": 10,\n"
@@ -183,12 +198,17 @@ public class MetricTest {
                         + "    }\n"
                         + "  ]\n"
                         + "}";
-        InputStream outputStream = new FileInputStream(outputFile);
-        String output = CharStreams.toString(new InputStreamReader(outputStream, Charsets.UTF_8));
-        assertThat(output).isEqualTo(expected);
+        String jsonFileContents;
+        try (InputStream jsonFileStream = new FileInputStream(jsonFile)) {
+            jsonFileContents =
+                    CharStreams.toString(new InputStreamReader(jsonFileStream, Charsets.UTF_8));
+        }
+        assertThat(jsonFileContents).isEqualTo(expected);
 
         // Delete file to prevent it from being uploaded.
-        outputFile.delete();
+        assertThat(jsonFile.delete())
+                .named("Boolean indicating success of output file removal")
+                .isTrue();
     }
 
     @Test
@@ -215,7 +235,7 @@ public class MetricTest {
                 new MetricSample(9, 90));
         metric.commit();
 
-        File outputFile =
+        File jsonFile =
                 new File(
                         metric.getOutputDirectory(),
                         String.format("%s.json", metric.getMetricName()));
@@ -226,7 +246,9 @@ public class MetricTest {
                         + "\",\n"
                         + "  \"benchmarks\": [\n"
                         + "    {\n"
-                        + "      \"benchmark\": \"AS Metric Test1\",\n"
+                        + "      \"benchmark\": \"AS Metric Test1"
+                        + hostSuffix()
+                        + "\",\n"
                         + "      \"project\": \"Perfgate for Android Studio\",\n"
                         + "      \"data\": {\n"
                         + "        \"1\": 10,\n"
@@ -235,7 +257,9 @@ public class MetricTest {
                         + "      }\n"
                         + "    },\n"
                         + "    {\n"
-                        + "      \"benchmark\": \"AS Metric Test2\",\n"
+                        + "      \"benchmark\": \"AS Metric Test2"
+                        + hostSuffix()
+                        + "\",\n"
                         + "      \"project\": \"Perfgate for Android Studio\",\n"
                         + "      \"data\": {\n"
                         + "        \"4\": 40,\n"
@@ -244,7 +268,9 @@ public class MetricTest {
                         + "      }\n"
                         + "    },\n"
                         + "    {\n"
-                        + "      \"benchmark\": \"AS Metric Test2\",\n"
+                        + "      \"benchmark\": \"AS Metric Test2"
+                        + hostSuffix()
+                        + "\",\n"
                         + "      \"project\": \"Custom Project\",\n"
                         + "      \"data\": {\n"
                         + "        \"7\": 70,\n"
@@ -254,11 +280,28 @@ public class MetricTest {
                         + "    }\n"
                         + "  ]\n"
                         + "}";
-        InputStream outputStream = new FileInputStream(outputFile);
-        String output = CharStreams.toString(new InputStreamReader(outputStream, Charsets.UTF_8));
-        assertThat(output).isEqualTo(expected);
+
+        String jsonFileContents;
+        try (InputStream jsonFileStream = new FileInputStream(jsonFile)) {
+            jsonFileContents =
+                    CharStreams.toString(new InputStreamReader(jsonFileStream, Charsets.UTF_8));
+        }
+        assertThat(jsonFileContents).isEqualTo(expected);
 
         // Delete file to prevent it from being uploaded.
-        outputFile.delete();
+        assertThat(jsonFile.delete())
+                .named("Boolean indicating success of output file removal")
+                .isTrue();
+    }
+
+    private static String hostSuffix() {
+        if (SdkConstants.CURRENT_PLATFORM == SdkConstants.PLATFORM_WINDOWS) {
+            return "_windows";
+        }
+        if (SdkConstants.CURRENT_PLATFORM == SdkConstants.PLATFORM_DARWIN) {
+            return "_mac";
+        }
+
+        return "";
     }
 }

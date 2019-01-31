@@ -10,6 +10,10 @@ load("//tools/base/bazel:android.bzl", "ANDROID_COPTS", "ANDROID_LINKOPTS", "and
 cc_library(
     name = "daemon",
     srcs = [
+        "agent_service.cc",
+        "agent_service.h",
+        "commands/attach_agent.cc",
+        "commands/attach_agent.h",
         "commands/command.h",
         "connector.cc",
         "connector.h",
@@ -18,7 +22,11 @@ cc_library(
         "event_buffer.cc",
         "event_buffer.h",
         "event_writer.h",
-        "profiler_component.h",
+        "service_component.h",
+        "transport_component.cc",
+        "transport_component.h",
+        "transport_service.cc",
+        "transport_service.h",
     ],
     copts = ANDROID_COPTS + [
         "-Itools/base/transport",
@@ -36,8 +44,10 @@ cc_test(
     name = "daemon_test",
     srcs = [
         "event_buffer_test.cc",
+        "transport_service_test.cc",
     ],
     copts = [
+        "-Itools/base/profiler/native",
         "-Itools/base/transport",
         "-I$(GENDIR)/tools/base/transport",
     ],
@@ -46,6 +56,7 @@ cc_test(
     deps = [
         ":daemon",
         "//external:gmock_main",
+        "//tools/base/profiler/native/perfd",
         "//tools/base/transport/proto:cc_proto",
     ],
 )

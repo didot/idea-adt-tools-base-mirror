@@ -330,6 +330,7 @@ java_library(
         "//tools/analytics-library/shared:tools.analytics-shared",
         "//tools/base/annotations",
         "//tools/base/bazel:gradle",
+        "//tools/base/common:tools.common",
         "//tools/base/perf-logger:studio.perf-logger_testlib",
         "//tools/base/third_party:com.google.guava_guava",
     ],
@@ -356,6 +357,12 @@ config_setting(
 config_setting(
     name = "host_windows",
     values = {"host_cpu": "x64_windows"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "remote_windows",
+    values = {"define": "REMOTE_WINDOWS=true"},
     visibility = ["//visibility:public"],
 )
 
