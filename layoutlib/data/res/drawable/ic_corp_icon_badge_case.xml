@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <!--
 Copyright (C) 2016 The Android Open Source Project
 
@@ -14,17 +15,16 @@ Copyright (C) 2016 The Android Open Source Project
     limitations under the License.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-        android:width="64.0dp"
-        android:height="64.0dp"
-        android:viewportWidth="64.0"
-        android:viewportHeight="64.0">
+        android:width="64dp"
+        android:height="64dp"
+        android:viewportWidth="64"
+        android:viewportHeight="64">
+
     <path
-        android:pathData="M56.4,43.5L41.8,43.5c-0.7,0.0 -1.3,0.6 -1.3,1.3l0.0,4.0c0.0,0.7 0.6,1.3 1.3,1.3L47.0,50.1l0.0,-1.3l4.0,0.0l0.0,1.4l5.4,0.0c0.7,0.0 1.3,-0.6 1.3,-1.3l0.0,-4.0C57.6,44.1 57.0,43.5 56.4,43.5z"
-        android:fillColor="#FFFFFF"/>
+        android:pathData="M 42 42 L 58 42 L 58 58 L 42 58 L 42 42 Z" />
     <path
-        android:pathData="M47.1,52.8l0.0,-1.3l-6.0,0.0l0.0,3.3c0.0,0.7 0.6,1.3 1.3,1.3l13.2,0.0c0.7,0.0 1.3,-0.6 1.3,-1.3l0.0,-3.3l-6.0,0.0l0.0,1.3L47.1,52.8z"
-        android:fillColor="#FFFFFF"/>
+        android:fillColor="#1A73E8"
+        android:pathData="M55.33,46H52.67V44.67a1.33,1.33,0,0,0-1.33-1.33H48.67a1.33,1.33,0,0,0-1.33,1.33V46H44.67a1.32,1.32,0,0,0-1.33,1.33v7.33A1.33,1.33,0,0,0,44.67,56H55.33a1.33,1.33,0,0,0,1.33-1.33V47.33A1.33,1.33,0,0,0,55.33,46ZM50,52a1.33,1.33,0,1,1,1.33-1.33A1.34,1.34,0,0,1,50,52Zm1.33-6H48.67V44.67h2.67Z" />
     <path
-        android:pathData="M45.1,42.2l0.0,1.299999 1.300003,0.0 0.0,-1.299999 5.299999,0.0 0.0,1.299999 1.399998,0.0 0.0,-1.299999 -1.399998,-1.299999 -5.299999,0.0z"
-        android:fillColor="#FFFFFF"/>
+        android:pathData="M 0 0 H 64 V 64 H 0 V 0 Z" />
 </vector>

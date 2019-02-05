@@ -322,6 +322,7 @@ please see styles_device_defaults.xml.
         <item name="scrollbars">vertical</item>
         <item name="fadingEdge">vertical</item>
         <item name="fastScrollStyle">?attr/fastScrollStyle</item>
+        <item name="defaultFocusHighlightEnabled">false</item>
     </style>
 
     <style name="Widget.GestureOverlayView">
@@ -510,6 +511,8 @@ please see styles_device_defaults.xml.
 
     <style name="Widget.CheckedTextView">
         <item name="textAlignment">viewStart</item>
+        <item name="breakStrategy">high_quality</item>
+        <item name="hyphenationFrequency">normal</item>
     </style>
 
     <style name="Widget.TextView.ListSeparator">
@@ -538,6 +541,7 @@ please see styles_device_defaults.xml.
         <item name="gravity">center_vertical</item>
         <item name="breakStrategy">simple</item>
         <item name="hyphenationFrequency">normal</item>
+        <item name="defaultFocusHighlightEnabled">false</item>
     </style>
 
     <style name="Widget.ExpandableListView" parent="Widget.ListView">
@@ -927,7 +931,7 @@ please see styles_device_defaults.xml.
          <item name="textStyle">normal</item>
          <item name="textColor">?textColorPrimaryInverse</item>
          <item name="textColorHint">?textColorHintInverse</item>
-     </style>	
+     </style>
 
      <!-- @hide -->
      <style name="TextAppearance.SearchResult.Title">
@@ -952,7 +956,8 @@ please see styles_device_defaults.xml.
     </style>
 
     <style name="TextAppearance.Toast">
-        <item name="fontFamily">sans-serif-condensed</item>
+        <item name="fontFamily">sans-serif</item>
+        <item name="textSize">14sp</item>
     </style>
 
     <style name="TextAppearance.Tooltip">
@@ -1480,6 +1485,41 @@ please see styles_device_defaults.xml.
         <item name="regularColor">@color/lock_pattern_view_regular_color</item>
         <item name="errorColor">?attr/colorError</item>
         <item name="successColor">@color/lock_pattern_view_success_color</item>
+    </style>
+
+    <!-- @hide Autofill background for popup window (not for fullscreen) -->
+    <style name="AutofillDatasetPicker">
+        <item name="elevation">4dp</item>
+        <item name="background">@drawable/autofill_dataset_picker_background</item>
+    </style>
+
+    <!-- @hide -->
+    <style name="AutofillHalfScreenAnimation">
+        <item name="android:windowEnterAnimation">@anim/slide_in_up</item>
+        <item name="android:windowExitAnimation">@anim/slide_out_down</item>
+    </style>
+
+    <!-- @hide -->
+    <style name="AutofillSaveAnimation">
+        <item name="android:windowEnterAnimation">@anim/slide_in_up</item>
+        <item name="android:windowExitAnimation">@anim/slide_out_down</item>
+    </style>
+
+    <!-- The style for the container of media actions in a notification. -->
+    <!-- @hide -->
+    <style name="NotificationMediaActionContainer">
+        <item name="layout_width">wrap_content</item>
+        <item name="layout_height">wrap_content</item>
+        <item name="layout_marginTop">-21dp</item>
+        <item name="paddingStart">8dp</item>
+        <item name="paddingBottom">@dimen/media_notification_actions_padding_bottom</item>
+        <item name="gravity">top</item>
+    </style>
+
+    <!-- Colored bordered ink button -->
+    <style name="NotificationEmphasizedAction" parent="Widget.Material.Button">
+        <item name="background">@drawable/btn_notification_emphasized</item>
+        <item name="stateListAnimator">@anim/flat_button_state_list_anim_material</item>
     </style>
 
 </resources>

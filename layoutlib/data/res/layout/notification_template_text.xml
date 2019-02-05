@@ -15,6 +15,7 @@
   ~ limitations under the License
   -->
 <com.android.internal.widget.ImageFloatingTextView xmlns:android="http://schemas.android.com/apk/res/android"
+    style="@style/Widget.Material.Notification.Text"
     android:id="@+id/text"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -24,5 +25,5 @@
     android:fadingEdge="horizontal"
     android:gravity="top"
     android:singleLine="true"
-    android:textAppearance="@style/TextAppearance.Material.Notification"
+    android:textAlignment="viewStart"
     />
