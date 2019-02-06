@@ -34,10 +34,7 @@ NotoSansChakma-Regular.ttf
 NotoSansCham-Bold.ttf
 NotoSansCham-Regular.ttf
 NotoSansCherokee-Regular.ttf
-NotoSansCJK-Regular-0.otf
-NotoSansCJK-Regular-1.otf
-NotoSansCJK-Regular-2.otf
-NotoSansCJK-Regular-3.otf
+NotoSansCJK-Regular.ttc
 NotoSansCoptic-Regular.ttf
 NotoSansCuneiform-Regular.ttf
 NotoSansCypriot-Regular.ttf
@@ -160,10 +157,6 @@ NotoSerifBengali-Bold.ttf
 NotoSerifBengali-Regular.ttf
 NotoSerif-BoldItalic.ttf
 NotoSerif-Bold.ttf
-NotoSerifCJK-Regular-0.otf
-NotoSerifCJK-Regular-1.otf
-NotoSerifCJK-Regular-2.otf
-NotoSerifCJK-Regular-3.otf
 NotoSerifDevanagari-Bold.ttf
 NotoSerifDevanagari-Regular.ttf
 NotoSerifGeorgian-Bold.ttf
