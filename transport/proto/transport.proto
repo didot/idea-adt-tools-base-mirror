@@ -20,6 +20,7 @@ option java_package = "com.android.tools.profiler.proto";
 option java_outer_classname = "Transport";
 
 import "common.proto";
+import "echo.proto";
 
 service TransportService {
   // Gets current timestamp that used in the device's data.
@@ -34,12 +35,12 @@ service TransportService {
   // return an ID which can be used to fetch data using this central cache.
   rpc GetBytes(BytesRequest) returns (BytesResponse) {}
 
-  // Gets the currently connected devices.
+  // Studio-side only: gets the currently connected devices.
   // TODO: replace with command in the new pipeline.
   // TODO: expand with timing information for historical requests.
   rpc GetDevices(GetDevicesRequest) returns (GetDevicesResponse) {}
 
-  // Gets the running processes of a given device
+  // Studio-side only: get the running processes of a given device
   // TODO: replace with command in the new pipeline.
   rpc GetProcesses(GetProcessesRequest) returns (GetProcessesResponse) {}
 
@@ -189,6 +190,9 @@ message Command {
     BEGIN_SESSION = 1;
     END_SESSION = 2;
     ATTACH_AGENT = 3;
+
+    // Sample echo Command
+    ECHO = 1000;
   }
 
   // A stream is an entity that provides data, such as a device or an imported
@@ -202,6 +206,10 @@ message Command {
     BeginSession begin_session = 4;
     EndSession end_session = 5;
     AttachAgent attach_agent = 6;
+
+
+    // Sample Echo Command starts at 1000;
+    echo.EchoData echo_data = 1000;
   }
 }
 

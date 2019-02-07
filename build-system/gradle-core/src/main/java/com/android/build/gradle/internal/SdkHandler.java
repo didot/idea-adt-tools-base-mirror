@@ -23,15 +23,10 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.concurrency.GuardedBy;
 import com.android.build.gradle.internal.ndk.NdkHandler;
-import com.android.build.gradle.options.ProjectOptions;
-import com.android.build.gradle.options.SyncOptions;
-import com.android.build.gradle.options.SyncOptions.EvaluationMode;
 import com.android.builder.core.AndroidBuilder;
-import com.android.builder.core.LibraryRequest;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.errors.EvalIssueReporter.Type;
-import com.android.builder.model.OptionalCompilationStep;
 import com.android.builder.model.Version;
 import com.android.builder.sdk.DefaultSdkLoader;
 import com.android.builder.sdk.InstallFailedException;
@@ -58,7 +53,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.Collection;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
@@ -97,19 +91,6 @@ public class SdkHandler {
         sTestSdkFolder = testSdkFolder;
     }
 
-    /**
-     * Returns true if we should use a cached SDK, false if we should force the re-parsing of the
-     * SDK components.
-     */
-    public static boolean useCachedSdk(ProjectOptions projectOptions) {
-        // only used cached version of the sdk when in instant run mode but not
-        // syncing.
-        return projectOptions
-                        .getOptionalCompilationSteps()
-                        .contains(OptionalCompilationStep.INSTANT_DEV)
-                && SyncOptions.getModelQueryMode(projectOptions) == EvaluationMode.STANDARD;
-    }
-
     public SdkHandler(@NonNull Project project,
                       @NonNull ILogger logger) {
         this.logger = logger;
@@ -130,30 +111,18 @@ public class SdkHandler {
     public boolean initTarget(
             @NonNull String targetHash,
             @NonNull Revision buildToolRevision,
-            @NonNull Collection<LibraryRequest> usedLibraries,
-            @NonNull AndroidBuilder androidBuilder,
-            boolean useCachedVersion) {
+            @NonNull EvalIssueReporter evalIssueReporter,
+            @NonNull AndroidBuilder androidBuilder) {
         Preconditions.checkNotNull(targetHash, "android.compileSdkVersion is missing!");
         Preconditions.checkNotNull(buildToolRevision, "android.buildToolsVersion is missing!");
 
         synchronized (LOCK_FOR_SDK_HANDLER) {
-            if (useCachedVersion) {
-                if (sSdkLoader == null) {
-                    logger.verbose("Parsing the Sdk");
-                    sSdkLoader = getSdkLoader();
-                } else {
-                    logger.verbose("Reusing the SdkLoader");
-                }
-            } else {
-                logger.verbose("Parsing the SDK, no caching allowed");
-                sSdkLoader = getSdkLoader();
-            }
-            sdkLoader = sSdkLoader;
+            logger.verbose("Parsing the SDK");
+            sSdkLoader = getSdkLoader();
         }
 
         if (buildToolRevision.compareTo(AndroidBuilder.MIN_BUILD_TOOLS_REV) < 0) {
-            androidBuilder
-                    .getIssueReporter()
+            evalIssueReporter
                     .reportWarning(
                             Type.BUILD_TOOLS_TOO_LOW,
                             String.format(
@@ -182,8 +151,7 @@ public class SdkHandler {
         try {
             targetInfo = sdkLoader.getTargetInfo(targetHash, buildToolRevision, logger, sdkLibData);
         } catch (LicenceNotAcceptedException e) {
-            androidBuilder
-                    .getIssueReporter()
+            evalIssueReporter
                     .reportError(
                             EvalIssueReporter.Type.MISSING_SDK_PACKAGE,
                             new EvalIssueException(
@@ -194,8 +162,7 @@ public class SdkHandler {
                                             .collect(Collectors.joining(" "))));
             return false;
         } catch (InstallFailedException e) {
-            androidBuilder
-                    .getIssueReporter()
+            evalIssueReporter
                     .reportError(
                             EvalIssueReporter.Type.MISSING_SDK_PACKAGE,
                             new EvalIssueException(
@@ -209,7 +176,6 @@ public class SdkHandler {
 
         androidBuilder.setSdkInfo(sdkInfo);
         androidBuilder.setTargetInfo(targetInfo);
-        androidBuilder.setLibraryRequests(usedLibraries);
 
         logger.verbose("SDK initialized in %1$d ms", stopwatch.elapsed(TimeUnit.MILLISECONDS));
         return true;

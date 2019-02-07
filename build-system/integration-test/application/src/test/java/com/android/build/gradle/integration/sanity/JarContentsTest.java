@@ -409,7 +409,6 @@ public class JarContentsTest {
                 "com/android/build/gradle/proguard-optimizations.txt",
                 "com/android/build/gradle/tasks/",
                 "com/android/build/gradle/tasks/factory/",
-                "com/android/build/gradle/tasks/ir/",
                 "com/android/tools/",
                 "com/android/tools/build/",
                 "com/android/tools/build/libraries/",
@@ -1117,7 +1116,9 @@ public class JarContentsTest {
                 "NOTICE.txt",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
+                "META-INF/gradle/",
                 "META-INF/services/",
+                "META-INF/gradle/incremental.annotation.processors",
                 "META-INF/services/javax.annotation.processing.Processor");
         expected.putAll( // kept for pre-android-x compatibility
                 "com/android/databinding/baseLibrary",

@@ -914,7 +914,11 @@ public abstract class BaseExtension implements AndroidConfig {
 
         boolean usingJava8 = compileOptions.getTargetCompatibility().isJava8Compatible();
         List<File> bootClasspath = Lists.newArrayListWithExpectedSize(usingJava8 ? 2 : 1);
-        bootClasspath.addAll(globalScope.getAndroidBuilder().getBootClasspath(false));
+        bootClasspath.addAll(
+                globalScope
+                        .getAndroidBuilder()
+                        .computeFilteredBootClasspath(
+                                globalScope.getExtension().getLibraryRequests()));
 
         if (usingJava8) {
             bootClasspath.add(
@@ -1036,9 +1040,8 @@ public abstract class BaseExtension implements AndroidConfig {
             return sdkHandler.initTarget(
                     getCompileSdkVersion(),
                     buildToolsRevision,
-                    libraryRequests,
-                    globalScope.getAndroidBuilder(),
-                    SdkHandler.useCachedSdk(projectOptions));
+                    globalScope.getErrorHandler(),
+                    globalScope.getAndroidBuilder());
         }
         return true;
     }

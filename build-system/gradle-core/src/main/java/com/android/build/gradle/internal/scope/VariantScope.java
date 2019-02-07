@@ -19,12 +19,10 @@ package com.android.build.gradle.internal.scope;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.api.artifact.BuildableArtifact;
-import com.android.build.gradle.internal.InstantRunTaskManager;
 import com.android.build.gradle.internal.PostprocessingFeatures;
 import com.android.build.gradle.internal.core.Abi;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.dependency.VariantDependencies;
-import com.android.build.gradle.internal.incremental.InstantRunBuildContext;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType;
@@ -47,10 +45,8 @@ import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.provider.Provider;
 
-/**
- * A scope containing data for a specific variant.
- */
-public interface VariantScope extends TransformVariantScope, InstantRunVariantScope {
+/** A scope containing data for a specific variant. */
+public interface VariantScope extends TransformVariantScope {
     @Override
     @NonNull
     GlobalScope getGlobalScope();
@@ -107,11 +103,13 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
 
     boolean consumesFeatureJars();
 
-    boolean getNeedsMainDexListForBundle();
+    /** Returns whether we need to create original java resource streams */
+    boolean getNeedsJavaResStreams();
 
-    @Override
-    @NonNull
-    InstantRunBuildContext getInstantRunBuildContext();
+    /** Returns whether we need to create a stream from the merged java resources */
+    boolean getNeedsMergedJavaResStream();
+
+    boolean getNeedsMainDexListForBundle();
 
     boolean isTestOnly();
 
@@ -278,19 +276,11 @@ public interface VariantScope extends TransformVariantScope, InstantRunVariantSc
     @NonNull
     File getMergedClassesJarFile();
 
-    @Override
     @NonNull
     MutableTaskContainer getTaskContainer();
 
-    @Nullable
-    InstantRunTaskManager getInstantRunTaskManager();
-    void setInstantRunTaskManager(InstantRunTaskManager taskManager);
-
     @NonNull
     VariantDependencies getVariantDependencies();
-
-    @NonNull
-    File getInstantRunResourceApkFolder();
 
     @NonNull
     File getIntermediateDir(@NonNull InternalArtifactType taskOutputType);

@@ -35,6 +35,7 @@ import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.Scanner;
 import org.apache.commons.io.Charsets;
 import org.apache.commons.io.FileUtils;
 import org.junit.Before;
@@ -98,11 +99,14 @@ public class DataBindingIncrementalTest {
         }
         String v2Prop = BooleanOption.ENABLE_DATA_BINDING_V2.getPropertyName() + "=" + enableV2;
         String androidXProp = BooleanOption.USE_ANDROID_X.getPropertyName() + "=" + useAndroidX;
+        String incrementalProp =
+                BooleanOption.ENABLE_INCREMENTAL_DATA_BINDING.getPropertyName() + "=true";
         project =
                 GradleTestProject.builder()
                         .fromTestProject("databindingIncremental")
                         .addGradleProperties(v2Prop)
                         .addGradleProperties(androidXProp)
+                        .addGradleProperties(incrementalProp)
                         .withKotlinGradlePlugin(withKotlin)
                         .create();
     }
@@ -258,8 +262,16 @@ public class DataBindingIncrementalTest {
             assertThat(stacktrace.contains("Execution failed for task ':kaptDebugKotlin'"));
             // The root cause could be printed out on stdout or stderr, possibly based on build bot
             // configurations.
-            assertThat(result.getStdout() + result.getStderr())
-                    .contains("Could not find accessor android.databinding.testapp.User.name");
+            try (Scanner stdout = result.getStdout();
+                    Scanner stderr = result.getStderr()) {
+                String stdoutPresent =
+                        stdout.findWithinHorizon(
+                                "Could not find accessor android.databinding.testapp.User.name", 0);
+                String stderrPresent =
+                        stderr.findWithinHorizon(
+                                "Could not find accessor android.databinding.testapp.User.name", 0);
+                assertThat(stdoutPresent != null || stderrPresent != null).isTrue();
+            }
         } else {
             assertThat(result.getTask(COMPILE_JAVA_TASK)).failed();
             assertThat(stacktrace)

@@ -23,9 +23,12 @@ import com.android.build.gradle.integration.common.truth.TaskStateList.Execution
 import com.android.build.gradle.integration.common.truth.TaskStateList.ExecutionState.FROM_CACHE
 import com.android.build.gradle.integration.common.truth.TaskStateList.ExecutionState.SKIPPED
 import com.android.build.gradle.integration.common.truth.TaskStateList.ExecutionState.UP_TO_DATE
+import com.android.build.gradle.integration.common.utils.TestFileUtils
+import com.android.build.gradle.options.BooleanOption
 import com.android.testutils.truth.FileSubject.assertThat
 import com.android.utils.FileUtils
 import com.google.common.truth.Expect
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -54,12 +57,14 @@ class CacheabilityTest {
                     ":app:clean",
                     ":app:preBuild",
                     ":app:generateDebugResources",
+                    ":app:generateDebugAssets",
                     ":app:compileDebugSources",
                     ":app:preDebugUnitTestBuild"
                 ),
                 FROM_CACHE to setOf(
                     ":app:preDebugBuild",
                     ":app:generateDebugBuildConfig",
+                    ":app:compileDebugShaders",
                     ":app:javaPreCompileDebug",
                     ":app:generateDebugResValues",
                     ":app:mergeDebugResources",
@@ -76,8 +81,11 @@ class CacheabilityTest {
                     ":app:signingConfigWriterDebug",
                     ":app:createDebugCompatibleScreenManifests",
                     ":app:javaPreCompileDebugUnitTest",
+                    ":app:generateDebugUnitTestConfig",
                     ":app:compileDebugUnitTestJavaWithJavac",
-                    ":app:testDebugUnitTest"
+                    ":app:packageDebugUnitTestForUnitTest",
+                    ":app:testDebugUnitTest",
+                    ":app:mergeDebugJavaResource"
                 ),
                 /*
                  * Tasks that should be cacheable but are not yet cacheable.
@@ -86,18 +94,15 @@ class CacheabilityTest {
                  */
                 DID_WORK to setOf(
                     ":app:checkDebugManifest" /* Bug 74595857 */,
-                    ":app:compileDebugShaders" /* Bug 120413401 */,
                     ":app:transformClassesWithDexBuilderForDebug" /* Bug 74595921 */,
                     ":app:mergeDexDebug" /* Bug 120413559 */,
                     ":app:transformNativeLibsWithMergeJniLibsForDebug" /* Bug 74595223 */,
                     ":app:transformNativeLibsWithStripDebugSymbolForDebug" /* Bug 120414535 */,
-                    ":app:transformResourcesWithMergeJavaResForDebug" /* Bug 74595224 */,
                     ":app:packageDebug" /* Bug 74595859 */
                 ),
                 SKIPPED to setOf(
                     ":app:compileDebugAidl",
                     ":app:compileDebugRenderscript",
-                    ":app:generateDebugAssets",
                     ":app:processDebugJavaRes",
                     ":app:assembleDebug",
                     ":app:processDebugUnitTestJavaRes"
@@ -119,6 +124,21 @@ class CacheabilityTest {
             useGradleBuildCache = true
             gradleBuildCacheDir = File("../$GRADLE_BUILD_CACHE_DIR")
             build()
+        }
+    }
+
+    @Before
+    fun setUp() {
+        for (project in listOf(projectCopy1, projectCopy2)) {
+            // Set up the project such that we can check the cacheability of AndroidUnitTest task
+            TestFileUtils.appendToFile(
+                project.getSubproject(":app").buildFile,
+                "android { testOptions { unitTests { includeAndroidResources = true } } }"
+            )
+            TestFileUtils.appendToFile(
+                project.gradlePropertiesFile,
+                "${BooleanOption.USE_RELATIVE_PATH_IN_TEST_CONFIG.propertyName}=true"
+            )
         }
     }
 

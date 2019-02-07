@@ -40,13 +40,19 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collections;
+import org.gradle.api.file.Directory;
+import org.gradle.api.provider.ListProperty;
+import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputFile;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskAction;
 
+@CacheableTask
 public class PackageForUnitTest extends AndroidVariantTask {
     BuildableArtifact resApk;
-    BuildableArtifact mergedAssets;
+    ListProperty<Directory> mergedAssets;
     File apkForUnitTest;
 
     @TaskAction
@@ -58,8 +64,8 @@ public class PackageForUnitTest extends AndroidVariantTask {
         URI uri = URI.create("jar:" + apkForUnitTest.toURI());
         try (FileSystem apkFs = FileSystems.newFileSystem(uri, Collections.emptyMap())) {
             Path apkAssetsPath = apkFs.getPath("/assets");
-            for (File mergedAssetsDir : mergedAssets.getFiles()) {
-                final Path mergedAssetsPath = mergedAssetsDir.toPath();
+            for (Directory mergedAsset : mergedAssets.get()) {
+                final Path mergedAssetsPath = mergedAsset.getAsFile().toPath();
                 Files.walkFileTree(mergedAssetsPath, new SimpleFileVisitor<Path>() {
                     @Override
                     public FileVisitResult visitFile(Path path,
@@ -78,12 +84,14 @@ public class PackageForUnitTest extends AndroidVariantTask {
     }
 
     @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
     public BuildableArtifact getResApk() {
         return resApk;
     }
 
     @InputFiles
-    public BuildableArtifact getMergedAssets() {
+    @PathSensitive(PathSensitivity.NONE)
+    public ListProperty<Directory> getMergedAssets() {
         return mergedAssets;
     }
 
@@ -133,7 +141,7 @@ public class PackageForUnitTest extends AndroidVariantTask {
 
             BuildArtifactsHolder artifacts = getVariantScope().getArtifacts();
             task.resApk = artifacts.getArtifactFiles(PROCESSED_RES);
-            task.mergedAssets = artifacts.getArtifactFiles(MERGED_ASSETS);
+            task.mergedAssets = artifacts.getFinalProducts(MERGED_ASSETS);
             task.apkForUnitTest = apkForUnitTest;
         }
     }
