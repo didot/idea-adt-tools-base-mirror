@@ -29,7 +29,7 @@ CALL :NORMALIZE_PATH "%SCRIPTDIR%..\..\.."
 set BASEDIR=%RETVAL%
 
 @rem Capture location of command.log  Will be out as unix filepath
-FOR /F "tokens=*" %%F IN ('%SCRIPTDIR%bazel.cmd info %CONFIGOPTIONS% %AUTHCREDS% command_log') DO (
+FOR /F "tokens=*" %%F IN ('%SCRIPTDIR%bazel.cmd info command_log') DO (
 SET COMMANDLOG=%%F
 )
 @rem convert unix path to windows path using cygpath.
@@ -54,6 +54,12 @@ FOR /F "tokens=*" %%F IN ('sed -n -e "s/.*invocation_id: //p" %COMMANDLOGLOC%') 
 SET UPSALITEID=%%F
 )
 echo "<meta http-equiv="refresh" content="0; URL='https://source.cloud.google.com/results/invocations/%UPSALITEID%" />" > %DISTDIR%\upsalite_test_results.html
+
+cd %BASEDIR%\bazel-testlogs
+
+FOR /F "tokens=*" %%F IN ('C:\cygwin64\bin\find.exe . -type f -name "*outputs.zip"') DO (
+  C:\cygwin64\bin\zip.exe -ur %DISTDIR%\perfgate_data.zip %%F
+)
 
 @rem Create profile html in %DISTDIR% so it ends up in Artifacts.
 CALL %SCRIPTDIR%bazel.cmd analyze-profile --html %DISTDIR%\prof

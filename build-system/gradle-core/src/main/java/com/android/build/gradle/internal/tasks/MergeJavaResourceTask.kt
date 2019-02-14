@@ -34,7 +34,6 @@ import com.android.builder.merge.IncrementalFileMergerInput
 import com.android.ide.common.resources.FileStatus
 import com.android.utils.FileUtils
 import org.gradle.api.file.FileCollection
-import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Nested
@@ -50,8 +49,11 @@ import javax.inject.Inject
 
 /**
  * Task to merge java resources from multiple modules
+ *
+ * TODO: Make task cacheable. Using @get:Classpath instead of @get:InputFiles would allow caching
+ * but leads to issues with incremental task action: https://github.com/gradle/gradle/issues/1931.
+ * We can make task cacheable after gradle implements https://github.com/gradle/gradle/issues/8491.
  */
-@CacheableTask
 open class MergeJavaResourceTask
 @Inject constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
 

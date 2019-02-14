@@ -257,9 +257,14 @@ bool Daemon::TryAttachAppAgent(int32_t app_pid, const std::string& app_name,
 grpc::Status Daemon::Execute(const proto::Command& command_data,
                              std::function<void(void)> post) {
   std::lock_guard<std::mutex> lock(mutex_);
-  std::unique_ptr<Command> command(
-      commands_[command_data.type()](command_data));
-  grpc::Status status = command->ExecuteOn(this);
+  grpc::Status status = grpc::Status::OK;
+
+  // If a handler for the command is registered in the daemon, handle it here.
+  auto search = commands_.find(command_data.type());
+  if (search != commands_.end()) {
+    std::unique_ptr<Command> command((search->second)(command_data));
+    status = command->ExecuteOn(this);
+  }
   post();
 
   // Forward every command to agent. It's up to the agent to decide whether to
@@ -344,15 +349,13 @@ void Daemon::SetHeartBeatTimestamp(int32_t app_pid, int64_t timestamp) {
       callback(app_pid);
     }
 
-    // Generate and send an Event for the new pipeline
-    if (config()->GetAgentConfig().unified_pipeline()) {
-      Event event;
-      event.set_pid(app_pid);
-      event.set_kind(Event::AGENT);
-      auto status = event.mutable_agent_data();
-      status->set_status(AgentData::ATTACHED);
-      buffer()->Add(event);
-    }
+    // Generate and send an Event for the new data pipeline
+    Event event;
+    event.set_pid(app_pid);
+    event.set_kind(Event::AGENT);
+    auto status = event.mutable_agent_data();
+    status->set_status(AgentData::ATTACHED);
+    buffer()->Add(event);
   }
   heartbeat_timestamp_map_[app_pid] = timestamp;
 }

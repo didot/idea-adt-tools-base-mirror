@@ -24,9 +24,12 @@ import com.android.utils.ILogger;
 import com.google.common.collect.ImmutableMap;
 import java.io.*;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 public class DeployerRunner implements UIService {
 
@@ -58,54 +61,74 @@ public class DeployerRunner implements UIService {
         this.db = db;
     }
 
-    public void run(String[] args) throws IOException {
+    public List<String> run(String[] args) {
         // Check that we have the parameters we need to run.
         if (args.length < 2) {
             printUsage();
-            return;
+            return Collections.emptyList();
         }
 
-        String command = args[0];
-        String packageName = args[1];
+        DeployRunnerParameters parameters = DeployRunnerParameters.parse(args);
+        String packageName = parameters.get(0);
+
         ArrayList<String> apks = new ArrayList<>();
-        for (int i = 2; i < args.length; i++) {
-            apks.add(args[i]);
+        for (int i = 1; i < parameters.size(); i++) {
+            apks.add(parameters.get(i));
         }
 
         Trace.begin("getDevice()");
         IDevice device = getDevice();
         if (device == null) {
             LOGGER.error(null, "%s", "No device found.");
-            return;
+            return Collections.emptyList();
         }
         Trace.end();
 
         // Run
         AdbClient adb = new AdbClient(device, LOGGER);
-        Installer installer = new AdbInstaller(adb, LOGGER);
+        Installer installer = new AdbInstaller(parameters.getInstallersPath(), adb, LOGGER);
         ExecutorService service = Executors.newFixedThreadPool(5);
         TaskRunner runner = new TaskRunner(service);
         Deployer deployer = new Deployer(adb, db, runner, installer, this, LOGGER);
+        List<String> metrics;
         try {
-            if (command.equals("install")) {
+            if (parameters.getCommand() == DeployRunnerParameters.Command.INSTALL) {
                 InstallOptions.Builder options = InstallOptions.builder().setAllowDebuggable();
                 if (device.supportsFeature(IDevice.HardwareFeature.EMBEDDED)) {
                     options.setGrantAllPermissions();
                 }
-                deployer.install(packageName, apks, options.build());
-            } else {
-                if (command.equals("fullswap")) {
-                    deployer.fullSwap(apks);
-                } else if (command.equals("codeswap")) {
-                    deployer.codeSwap(apks, ImmutableMap.of());
+
+                Deployer.InstallMode installMode = Deployer.InstallMode.FULL;
+                if (parameters.isDeltaInstall()) {
+                    installMode = Deployer.InstallMode.DELTA;
                 }
+                metrics =
+                        collectIds(
+                                deployer.install(packageName, apks, options.build(), installMode));
+            } else if (parameters.getCommand() == DeployRunnerParameters.Command.FULLSWAP) {
+                metrics = collectTaskIds(deployer.fullSwap(apks));
+            } else if (parameters.getCommand() == DeployRunnerParameters.Command.CODESWAP) {
+                metrics = collectTaskIds(deployer.codeSwap(apks, ImmutableMap.of()));
+            } else {
+                throw new RuntimeException("UNKNOWN command");
             }
             runner.run();
         } catch (DeployerException e) {
             e.printStackTrace(System.out);
             LOGGER.error(e, "Error executing the deployer");
+            return Collections.emptyList();
+        } finally {
+            service.shutdown();
         }
-        service.shutdown();
+        return metrics;
+    }
+
+    private List<String> collectTaskIds(List<TaskRunner.Task<?>> tasks) {
+        return tasks.stream().map(TaskRunner.Task::getName).collect(Collectors.toList());
+    }
+
+    private List<String> collectIds(List<InstallMetric> install) {
+        return install.stream().map(InstallMetric::getName).collect(Collectors.toList());
     }
 
     private IDevice getDevice() {

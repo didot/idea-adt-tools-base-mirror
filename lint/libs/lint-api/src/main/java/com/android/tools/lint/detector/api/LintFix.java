@@ -43,6 +43,9 @@ import org.jetbrains.annotations.Nls;
  * <p>The set of operations is quite limited at the moment; more will be added over time.
  */
 public class LintFix {
+    /** Marker inserted in various places to indicate that something is expected from the user */
+    public static final String TODO = "TODO";
+
     @Nls @Nullable protected final String displayName;
     @Nls @Nullable protected final String familyName;
 
@@ -702,8 +705,8 @@ public class LintFix {
         private String value = "";
         private int mark = Integer.MIN_VALUE;
         private int dot = Integer.MIN_VALUE;
-        private boolean robot = true;
-        private boolean independent = true;
+        private boolean robot;
+        private boolean independent;
         private Location range;
 
         /** Constructed from {@link Builder#set()} */
@@ -824,7 +827,7 @@ public class LintFix {
                 sb.append(prefix);
             }
             int start = sb.length();
-            sb.append("TODO");
+            sb.append(TODO);
             int end = sb.length();
             if (suffix != null) {
                 sb.append(suffix);
@@ -1160,6 +1163,14 @@ public class LintFix {
             }
 
             return displayName;
+        }
+
+        @Override
+        public LintFix autoFix(boolean robot, boolean independent) {
+            for (LintFix fix : fixes) {
+                fix.autoFix(robot, independent);
+            }
+            return super.autoFix(robot, independent);
         }
     }
 

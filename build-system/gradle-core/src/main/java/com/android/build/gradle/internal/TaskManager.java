@@ -171,6 +171,7 @@ import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
+import com.android.build.gradle.options.SyncOptions;
 import com.android.build.gradle.tasks.AidlCompile;
 import com.android.build.gradle.tasks.AndroidJavaCompile;
 import com.android.build.gradle.tasks.BuildArtifactReportTask;
@@ -588,9 +589,16 @@ public abstract class TaskManager {
                                         RUNTIME_CLASSPATH, EXTERNAL, CLASSES))
                         .build());
 
+        // We include RESOURCES in externalContentTypes if EXTERNAL_LIBRARIES isn't in the set of
+        // java res merging scopes.
+        final Set<QualifiedContent.ContentType> externalContentTypes =
+                getResMergingScopes(variantScope).contains(Scope.EXTERNAL_LIBRARIES)
+                        ? ImmutableSet.of(ExtendedContentType.NATIVE_LIBS)
+                        : ImmutableSet.of(
+                                ExtendedContentType.NATIVE_LIBS, DefaultContentType.RESOURCES);
         transformManager.addStream(
-                OriginalStream.builder(project, "ext-libs-native")
-                        .addContentTypes(ExtendedContentType.NATIVE_LIBS)
+                OriginalStream.builder(project, "ext-libs-res-plus-native")
+                        .addContentTypes(externalContentTypes)
                         .addScope(Scope.EXTERNAL_LIBRARIES)
                         .setArtifactCollection(
                                 variantScope.getArtifactCollection(
@@ -617,10 +625,17 @@ public abstract class TaskManager {
                                         RUNTIME_CLASSPATH, MODULE, CLASSES))
                         .build());
 
-        // same for the resources which can be java-res or jni
+        // same for the resources which can be java-res or jni.
+        // We include RESOURCES in subProjectContentTypes if SUB_PROJECTS isn't in the set of java
+        // res merging scopes.
+        final Set<QualifiedContent.ContentType> subProjectContentTypes =
+                getResMergingScopes(variantScope).contains(Scope.SUB_PROJECTS)
+                        ? ImmutableSet.of(ExtendedContentType.NATIVE_LIBS)
+                        : ImmutableSet.of(
+                                ExtendedContentType.NATIVE_LIBS, DefaultContentType.RESOURCES);
         transformManager.addStream(
-                OriginalStream.builder(project, "sub-projects-native")
-                        .addContentTypes(ExtendedContentType.NATIVE_LIBS)
+                OriginalStream.builder(project, "sub-projects-res-plus-native")
+                        .addContentTypes(subProjectContentTypes)
                         .addScope(Scope.SUB_PROJECTS)
                         .setArtifactCollection(
                                 variantScope.getArtifactCollection(
@@ -2349,6 +2364,9 @@ public abstract class TaskManager {
                                                         extension.getLibraryRequests()))
                         .setDexOptions(dexOptions)
                         .setMessageReceiver(variantScope.getGlobalScope().getMessageReceiver())
+                        .setErrorFormatMode(
+                                SyncOptions.getErrorFormatMode(
+                                        variantScope.getGlobalScope().getProjectOptions()))
                         .setUserLevelCache(userLevelCache)
                         .setMinSdkVersion(variantScope.getMinSdkVersion().getFeatureLevel())
                         .setDexer(variantScope.getDexer())
@@ -3414,9 +3432,15 @@ public abstract class TaskManager {
                                 .getArtifacts()
                                 .getFinalArtifactFiles(InternalArtifactType.APK_MAPPING)
                         : null;
+        BuildableArtifact mainDexList =
+                variantScope
+                        .getArtifacts()
+                        .getFinalArtifactFilesIfPresent(
+                                InternalArtifactType.MAIN_DEX_LIST_FOR_BUNDLE);
 
         DexSplitterTransform transform =
-                new DexSplitterTransform(dexSplitterOutput, featureJars, baseJars, mappingFileSrc);
+                new DexSplitterTransform(
+                        dexSplitterOutput, featureJars, baseJars, mappingFileSrc, mainDexList);
 
         Optional<TaskProvider<TransformTask>> transformTask =
                 variantScope

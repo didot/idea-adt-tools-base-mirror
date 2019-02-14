@@ -6,7 +6,7 @@ iml_module(
     name = "studio.android.sdktools.deployer",
     srcs = ["src/main/java"],
     bundle_data = [
-        "//tools/base/deploy/installer:android",
+        "//tools/base/deploy/installer:android-installer",
     ],
     iml_files = ["android.sdktools.deployer.iml"],
     test_data = glob(["src/test/resource/**"]),
@@ -33,6 +33,7 @@ iml_module(
         "//tools/idea/.idea/libraries:sqlite",
         "//tools/idea/.idea/libraries:mockito[test]",
         "//tools/base/tracer:studio.android.sdktools.tracer[module]",
+        "//tools/base/fakeadbserver:studio.android.sdktools.fakeadbserver[module, test]",
     ],
 )
 
@@ -40,28 +41,9 @@ java_library(
     name = "java_version",
     srcs = select({
         "//tools/base/bazel:remote_windows": ["src/windows/java/Version.java"],
-        "//conditions:default": [":Version.java"],
+        "//conditions:default": ["//tools/base/deploy/installer:Version.java"],
     }),
     visibility = ["//visibility:public"],
-)
-
-genrule(
-    name = "version",
-    srcs = [
-        "//tools/base/deploy/agent/native:android/arm64-v8a/libswap.so",
-        "//tools/base/deploy/installer:android-no-matryoshka/arm64-v8a/installer",
-    ],
-    outs = [
-        "Version.java",
-    ],
-    cmd = "$(location //tools/base/bazel:bin2c) -lang=java -embed=false -variable=com.android.tools.deployer.Version -output=$(location Version.java) " +
-          "$(location //tools/base/deploy/agent/native:android/arm64-v8a/libswap.so) " +
-          "$(location //tools/base/deploy/installer:android-no-matryoshka/arm64-v8a/installer) ",
-    tags = ["no_windows"],
-    tools = [
-        "//tools/base/bazel:bin2c",
-    ],
-    visibility = ["//visibility:private"],
 )
 
 java_library(
@@ -69,8 +51,8 @@ java_library(
     srcs = glob([
         "src/main/**/*.java",
     ]),
-    # Embed android installer in the jar (x86_64, arm7, arm64)
-    resources = ["//tools/base/deploy/installer:android"],
+    # Embed android installer in the jar (x86, x86_64, arm7, arm64)
+    resources = ["//tools/base/deploy/installer:android-installer"],
     tags = ["no_rbe_windows"],
     visibility = ["//visibility:public"],
     deps = [
@@ -116,8 +98,11 @@ coverage_java_test(
         ":tools.deployer",
         "//prebuilts/tools/common/m2/repository/com/google/guava/guava/23.0:jar",
         "//prebuilts/tools/common/m2/repository/com/google/protobuf/protobuf-java/3.4.0:jar",
+        "//tools/base/annotations",
         "//tools/base/common:tools.common",
+        "//tools/base/ddmlib:tools.ddmlib",
         "//tools/base/deploy/proto:deploy_java_proto",
+        "//tools/base/fakeadbserver:tools.fakeadbserver",
         "//tools/base/testutils:tools.testutils",
         "//tools/base/third_party:junit_junit",
         "//tools/base/third_party:org.mockito_mockito-core",
