@@ -38,9 +38,9 @@ import com.android.ide.common.resources.ResourceRepository
 import com.android.ide.common.util.PathString
 import com.android.manifmerger.Actions
 import com.android.prefs.AndroidLocation
+import com.android.repository.Revision
 import com.android.repository.api.ProgressIndicator
 import com.android.repository.api.ProgressIndicatorAdapter
-import com.android.sdklib.BuildToolInfo
 import com.android.sdklib.IAndroidTarget
 import com.android.sdklib.SdkVersionInfo
 import com.android.sdklib.repository.AndroidSdkHandler
@@ -963,7 +963,7 @@ abstract class LintClient {
      *
      * @return the build tools version in use by the project, or null if not known
      */
-    open fun getBuildTools(project: Project): BuildToolInfo? {
+    open fun getBuildToolsRevision(project: Project): Revision? {
         val sdk = getSdk()
         // Build systems like Eclipse and ant just use the latest available
         // build tools, regardless of project metadata. In Gradle, this
@@ -972,9 +972,9 @@ abstract class LintClient {
         if (sdk != null) {
             val compileTarget = getCompileTarget(project)
             if (compileTarget != null) {
-                return compileTarget.buildToolInfo
+                return compileTarget.buildToolInfo?.revision
             }
-            return sdk.getLatestBuildTool(getRepositoryLogger(), false)
+            return sdk.getLatestBuildTool(getRepositoryLogger(), false)?.revision
         }
 
         return null
@@ -1228,17 +1228,22 @@ abstract class LintClient {
             lintJars.add(lintJar)
         } else if (library.project != null) { // Local project: might have locally packaged lint jar
             // Temporary workaround for 66166521: Add lintChecks dependencies into the builder model
-            val path = library.folder.path
-            val index = path.indexOf("intermediate-jars")
-            if (index != -1) {
-                val manualPath = File(
-                    path.substring(
-                        0,
-                        index
-                    ) + "lint" + File.separator + SdkConstants.FN_LINT_JAR
+            val buildDir = library.folder.path.substringBefore("intermediates")
+            val lintPaths = arrayOf(
+                Paths.get(buildDir, "intermediates", "lint", SdkConstants.FN_LINT_JAR),
+                Paths.get(
+                    buildDir,
+                    "intermediates",
+                    "lint_publish_jar",
+                    "global",
+                    "prepareLintJarForPublish",
+                    SdkConstants.FN_LINT_JAR
                 )
-                if (manualPath.exists()) {
-                    lintJars.add(manualPath)
+            )
+            for (lintPath in lintPaths) {
+                val manualLintJar = lintPath.toFile()
+                if (manualLintJar.exists()) {
+                    lintJars.add(manualLintJar)
                 }
             }
         }

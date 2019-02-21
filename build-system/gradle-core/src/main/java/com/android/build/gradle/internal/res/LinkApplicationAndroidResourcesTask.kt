@@ -35,6 +35,7 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedCon
 import com.android.build.gradle.internal.res.namespaced.Aapt2ServiceKey
 import com.android.build.gradle.internal.res.namespaced.getAaptDaemon
 import com.android.build.gradle.internal.res.namespaced.registerAaptService
+import com.android.build.gradle.internal.scope.ApkData
 import com.android.build.gradle.internal.scope.BuildElements
 import com.android.build.gradle.internal.scope.BuildOutput
 import com.android.build.gradle.internal.scope.ExistingBuildElements
@@ -56,11 +57,10 @@ import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.builder.internal.aapt.v2.Aapt2Exception
 import com.android.ide.common.blame.MergingLog
-import com.android.build.gradle.internal.scope.ApkData
 import com.android.ide.common.process.ProcessException
 import com.android.ide.common.symbols.SymbolIo
-import com.android.ide.common.workers.WorkerExecutorException
 import com.android.ide.common.workers.WorkerExecutorFacade
+import com.android.sdklib.BuildToolInfo
 import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.base.Preconditions
@@ -68,10 +68,10 @@ import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableSet
 import org.gradle.api.file.FileCollection
 import org.gradle.api.logging.Logging
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
@@ -109,102 +109,125 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
     private var textSymbolOutputDir: Supplier<File?> = Supplier { null }
 
-    private var symbolsWithPackageNameOutputFile: File? = null
+    @get:org.gradle.api.tasks.OutputFile
+    @get:Optional
+    var symbolsWithPackageNameOutputFile: File? = null
+        private set
 
-    private var proguardOutputFile: File? = null
+    @get:org.gradle.api.tasks.OutputFile
+    @get:Optional
+    var proguardOutputFile: File? = null
 
-    private var mainDexListProguardOutputFile: File? = null
+    @get:org.gradle.api.tasks.OutputFile
+    @get:Optional
+    var mainDexListProguardOutputFile: File? = null
+        private set
 
-    private var dependenciesFileCollection: FileCollection? = null
-    private var sharedLibraryDependencies: FileCollection? = null
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    var dependenciesFileCollection: FileCollection? = null
+        private set
+
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.NONE)
+    var sharedLibraryDependencies: FileCollection? = null
+        private set
 
     private var resOffsetSupplier: (Supplier<Int>)? = null
 
-    private lateinit var multiOutputPolicy: MultiOutputPolicy
+    @get:Input
+    lateinit var multiOutputPolicy: MultiOutputPolicy
+        private set
 
     private lateinit var type: VariantType
 
-    private var aapt2FromMaven: FileCollection? = null
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    var aapt2FromMaven: FileCollection? = null
+        private set
 
     private var debuggable: Boolean = false
 
-    private lateinit var aaptOptions: AaptOptions
+    @get:Nested
+    lateinit var aaptOptions: AaptOptions
 
     private lateinit var mergeBlameLogFolder: File
 
-    private var featureResourcePackages: FileCollection? = null
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    var featureResourcePackages: FileCollection? = null
+        private set
 
     private lateinit var originalApplicationId: Supplier<String?>
 
-    private var buildTargetDensity: String? = null
+    @get:Input
+    @get:Optional
+    var buildTargetDensity: String? = null
+        private set
 
-    private var useConditionalKeepRules: Boolean = false
+    @get:Input
+    var useConditionalKeepRules: Boolean = false
+        private set
 
-    private lateinit var resPackageOutputFolder: File
+    @get:OutputDirectory
+    lateinit var resPackageOutputFolder: File
+        private set
 
-    private lateinit var projectBaseName: String
+    @get:Input
+    lateinit var projectBaseName: String
+        private set
 
-    private lateinit var taskInputType: InternalArtifactType
+    @get:Input
+    lateinit var taskInputType: InternalArtifactType
+        private set
 
-    private var isNamespaced = false
+    @get:Input
+    var isNamespaced = false
+        private set
 
-    private lateinit var splitList: SplitList
+    @get:Nested
+    @get:Optional
+    lateinit var splitList: SplitList
+        private set
 
     private lateinit var applicationId: Supplier<String?>
 
     private lateinit var supportDirectory: File
 
-    private lateinit var apkList: BuildableArtifact
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    lateinit var apkList: BuildableArtifact
+        private set
 
-    private var convertedLibraryDependencies: BuildableArtifact? = null
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    @get:Optional
+    var convertedLibraryDependencies: BuildableArtifact? = null
+        private set
 
-    private var inputResourcesDir: BuildableArtifact? = null
+    @get:InputFiles
+    @get:Optional
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    var inputResourcesDir: BuildableArtifact? = null
+        private set
 
     private lateinit var variantScope: VariantScope
 
-    private var isLibrary: Boolean = false
+    @get:Input
+    var isLibrary: Boolean = false
+        private set
+
+    private lateinit var androidTargetProvider: Provider<IAndroidTarget>
+
+    private lateinit var buildToolInfoProvider: Provider<BuildToolInfo>
 
     private val workers: WorkerExecutorFacade = Workers.getWorker(workerExecutor)
 
-    @Input
-    fun getTaskInputType(): InternalArtifactType? {
-        return taskInputType
-    }
-
-    @Input
-    fun getUseConditionalKeepRules(): Boolean {
-        return useConditionalKeepRules
-    }
-
-    @Input
-    fun getProjectBaseName(): String? {
-        return projectBaseName
-    }
-
-    @Input
-    fun canHaveSplits(): Boolean {
-        return variantScope.type.canHaveSplits
-    }
-
-    @Input
-    fun getApplicationId(): String? {
-        return applicationId.get()
-    }
-
-    @InputFiles
-    @PathSensitive(PathSensitivity.RELATIVE)
-    fun getApkList(): BuildableArtifact? {
-        return apkList
-    }
-
-    @InputFiles
-    @PathSensitive(PathSensitivity.NONE)
-    @Optional
-    fun getConvertedLibraryDependencies(): BuildableArtifact? {
-        return convertedLibraryDependencies
-    }
-
-    // FIX-ME : make me incremental !
+    // FIXME : make me incremental !
     override fun doFullTaskAction() {
         FileUtils.deleteDirectoryContents(resPackageOutputFolder)
 
@@ -223,39 +246,38 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
             sharedLibraryDependencies!!.files
         else
             emptySet()
-        run {
-            val aapt2ServiceKey = registerAaptService(
-                aapt2FromMaven, buildTools, iLogger
+        val aapt2ServiceKey = registerAaptService(
+            aapt2FromMaven, buildToolInfoProvider.get(), iLogger
+        )
+
+        // do a first pass at the list so we generate the code synchronously since it's required
+        // by the full splits asynchronous processing below.
+        val unprocessedManifest = manifestBuildElements.toMutableList()
+
+        val mainOutput = chooseOutput(manifestBuildElements)
+
+        unprocessedManifest.remove(mainOutput)
+        AaptSplitInvoker(
+            AaptSplitInvokerParams(
+                mainOutput,
+                dependencies,
+                imports,
+                splitList,
+                featureResourcePackages,
+                mainOutput.apkData,
+                true,
+                aapt2ServiceKey,
+                this
             )
+        ).run()
 
-            // do a first pass at the list so we generate the code synchronously since it's required
-            // by the full splits asynchronous processing below.
-            val unprocessedManifest = manifestBuildElements.toMutableList()
-
-            val mainOutput = chooseOutput(manifestBuildElements)
-
-            unprocessedManifest.remove(mainOutput)
-            AaptSplitInvoker(
-                AaptSplitInvokerParams(
-                    mainOutput,
-                    dependencies,
-                    imports,
-                    splitList,
-                    featureResourcePackages,
-                    mainOutput.apkData,
-                    true,
-                    aapt2ServiceKey,
-                    this
-                )
-            )
-                .run()
-
-            // now all remaining splits will be generated asynchronously.
-            if (variantScope.type.canHaveSplits) {
+        // now all remaining splits will be generated asynchronously.
+        if (variantScope.type.canHaveSplits) {
+            workers.use {
                 for (manifestBuildOutput in unprocessedManifest) {
                     val apkInfo = manifestBuildOutput.apkData
                     if (apkInfo.requiresAapt()) {
-                        workers.submit(
+                        it.submit(
                             AaptSplitInvoker::class.java,
                             AaptSplitInvokerParams(
                                 manifestBuildOutput,
@@ -272,18 +294,14 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
                     }
                 }
             }
-
-            try {
-                workers.await()
-            } catch (e: WorkerExecutorException) {
-                throw BuildException(e.message, e)
-            }
         }
 
         if (multiOutputPolicy === MultiOutputPolicy.SPLITS) {
-            val unprocessedManifest = manifestBuildElements.toList()
+            // The output of the worker runnables submitted before is used in this code block, so
+            // we have to make sure that all work is finished.
+            workers.await()
 
-            for (manifestBuildOutput in unprocessedManifest) {
+            for (manifestBuildOutput in manifestBuildElements.toList()) {
                 val apkInfo = manifestBuildOutput.apkData
                 if (apkInfo.filters
                         .stream()
@@ -459,7 +477,7 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
                 .getFinalArtifactFiles(InternalArtifactType.APK_LIST)
 
             if (ProcessAndroidResources.generatesProguardOutputFile(variantScope)) {
-                task.setProguardOutputFile(proguardOutputFile)
+                task.proguardOutputFile = proguardOutputFile
             }
 
             if (generateLegacyMultidexMainDexProguardRules) {
@@ -483,7 +501,7 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
             task.setType(config.type)
             task.setDebuggable(config.buildType.isDebuggable)
-            task.setAaptOptions(variantScope.globalScope.extension.aaptOptions)
+            task.aaptOptions = variantScope.globalScope.extension.aaptOptions
 
             task.buildTargetDensity = projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
 
@@ -511,6 +529,10 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
             task.projectBaseName = baseName!!
             task.isLibrary = isLibrary
             task.supportDirectory = File(variantScope.instantRunSplitApkOutputFolder, "resources")
+
+            task.androidTargetProvider = variantScope.globalScope.sdkComponents.targetProvider
+            task.buildToolInfoProvider =
+                variantScope.globalScope.sdkComponents.buildToolInfoProvider
         }
     }
 
@@ -622,7 +644,7 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
             }
 
             task.dependenciesFileCollection =
-                    variantScope.globalScope.project.files(dependencies)
+                variantScope.globalScope.project.files(dependencies)
 
             task.sharedLibraryDependencies = variantScope.getArtifactFileCollection(
                 AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
@@ -682,7 +704,7 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
             val resOutBaseNameFile =
                 getOutputBaseNameFile(params.apkData, params.resPackageOutputFolder)
-            var manifestFile = params.manifestOutput.outputFile
+            val manifestFile = params.manifestOutput.outputFile
 
             var packageForR: String? = null
             var srcOut: File? = null
@@ -693,11 +715,11 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
                 // workaround for b/74068247. Until that's fixed, if it's a namespaced feature,
                 // an extra empty dummy R.java file will be generated as well
                 packageForR =
-                        if (params.isNamespaced && params.variantDataType === VariantTypeImpl.FEATURE) {
-                            "dummy"
-                        } else {
-                            params.originalApplicationId
-                        }
+                    if (params.isNamespaced && params.variantDataType === VariantTypeImpl.FEATURE) {
+                        "dummy"
+                    } else {
+                        params.originalApplicationId
+                    }
 
                 // we have to clean the source folder output in case the package name changed.
                 srcOut = params.sourceOutputDir
@@ -839,40 +861,39 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
         val originalApplicationId: String? = task.originalApplicationId.get()
         val sourceOutputDir: File? = task.getSourceOutputDir()
         val textSymbolOutputDir: File? = task.textSymbolOutputDir.get()
-        val proguardOutputFile: File? = task.getProguardOutputFile()
-        val mainDexListProguardOutputFile: File? = task.getMainDexListProguardOutputFile()
+        val proguardOutputFile: File? = task.proguardOutputFile
+        val mainDexListProguardOutputFile: File? = task.mainDexListProguardOutputFile
         val buildTargetDensity: String? = task.buildTargetDensity
         val aaptOptions: com.android.builder.internal.aapt.AaptOptions = task.aaptOptions.convert()
-        val variantType: VariantType = task.getType()
+        val variantType: VariantType = task.type
         val debuggable: Boolean = task.getDebuggable()
         val packageId: Int? = task.getResOffset()
         val incrementalFolder: File = task.incrementalFolder
-        val androidJarPath: String = task.builder.target.getPath(IAndroidTarget.ANDROID_JAR)
-        val convertedLibraryDependenciesPath: Path? = if (task.convertedLibraryDependencies == null)
-            null
-        else
-            task.convertedLibraryDependencies!!.singleFile().toPath()
-        val inputResourcesDir: File? = if (task.getInputResourcesDir() == null)
-            null
-        else
-            task.inputResourcesDir!!.singleFile()
-        val mergeBlameFolder: File = task.getMergeBlameLogFolder()
+        val androidJarPath: String =
+            task.androidTargetProvider.get().getPath(IAndroidTarget.ANDROID_JAR)
+        val convertedLibraryDependenciesPath: Path? =
+            task.convertedLibraryDependencies?.singleFile()?.toPath()
+        val inputResourcesDir: File? = task.inputResourcesDir?.singleFile()
+        val mergeBlameFolder: File = task.mergeBlameLogFolder
         val isLibrary: Boolean = task.isLibrary
         val symbolsWithPackageNameOutputFile: File? = task.symbolsWithPackageNameOutputFile
         val useConditionalKeepRules: Boolean = task.useConditionalKeepRules
     }
 
+    @Input
+    fun canHaveSplits(): Boolean {
+        return variantScope.type.canHaveSplits
+    }
+
+    @Input
+    fun getApplicationId(): String? {
+        return applicationId.get()
+    }
+
     @Optional
     @Input
     fun getResOffset(): Int? {
-        return if (resOffsetSupplier != null) resOffsetSupplier!!.get() else null
-    }
-
-    @InputFiles
-    @Optional
-    @PathSensitive(PathSensitivity.RELATIVE)
-    fun getInputResourcesDir(): BuildableArtifact? {
-        return inputResourcesDir
+        return resOffsetSupplier?.get()
     }
 
     @OutputDirectory
@@ -891,59 +912,18 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
             null
     }
 
-    @org.gradle.api.tasks.OutputFile
-    @Optional
-    fun getSymbolsWithPackageNameOutputFile(): File? {
-        return symbolsWithPackageNameOutputFile
-    }
-
-    @org.gradle.api.tasks.OutputFile
-    @Optional
-    fun getProguardOutputFile(): File? {
-        return proguardOutputFile
-    }
-
-    fun setProguardOutputFile(proguardOutputFile: File) {
-        this.proguardOutputFile = proguardOutputFile
-    }
-
-    @org.gradle.api.tasks.OutputFile
-    @Optional
-    fun getMainDexListProguardOutputFile(): File? {
-        return mainDexListProguardOutputFile
-    }
-
     fun setAaptMainDexListProguardOutputFile(mainDexListProguardOutputFile: File) {
         this.mainDexListProguardOutputFile = mainDexListProguardOutputFile
     }
 
     @Input
     fun getBuildToolsVersion(): String {
-        return buildTools.revision.toString()
-    }
-
-    @InputFiles
-    @Optional
-    @PathSensitive(PathSensitivity.NONE)
-    fun getDependenciesFileCollection(): FileCollection? {
-        return dependenciesFileCollection
-    }
-
-    @InputFiles
-    @Optional
-    @PathSensitive(PathSensitivity.NONE)
-    fun getSharedLibraryDependencies(): FileCollection? {
-        return sharedLibraryDependencies
+        return buildToolInfoProvider.get().revision.toString()
     }
 
     @Input
     fun getTypeAsString(): String {
         return type.name
-    }
-
-    @Internal
-    fun getType(): VariantType {
-        return type
     }
 
     fun setType(type: VariantType) {
@@ -952,13 +932,6 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
     fun setSourceOutputDir(sourceOutputDir: File?) {
         this.sourceOutputDir = sourceOutputDir
-    }
-
-    @InputFiles
-    @Optional
-    @PathSensitive(PathSensitivity.RELATIVE)
-    fun getAapt2FromMaven(): FileCollection? {
-        return aapt2FromMaven
     }
 
     @Input
@@ -970,67 +943,13 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
         this.debuggable = debuggable
     }
 
-    @Nested
-    fun getAaptOptions(): AaptOptions {
-        return aaptOptions
-    }
-
-    fun setAaptOptions(aaptOptions: AaptOptions) {
-        this.aaptOptions = aaptOptions
-    }
-
-    /** Only used for rewriting error messages. Should not affect task result.  */
-    @Internal
-    fun getMergeBlameLogFolder(): File {
-        return mergeBlameLogFolder
-    }
-
     fun setMergeBlameLogFolder(mergeBlameLogFolder: File) {
         this.mergeBlameLogFolder = mergeBlameLogFolder
-    }
-
-    @InputFiles
-    @Optional
-    @PathSensitive(PathSensitivity.RELATIVE)
-    fun getFeatureResourcePackages(): FileCollection? {
-        return featureResourcePackages
-    }
-
-    @Input
-    fun getMultiOutputPolicy(): MultiOutputPolicy {
-        return multiOutputPolicy
     }
 
     @Input
     fun getOriginalApplicationId(): String? {
         return originalApplicationId.get()
-    }
-
-    @Nested
-    @Optional
-    fun getSplitListInput(): SplitList {
-        return splitList
-    }
-
-    @Input
-    @Optional
-    fun getBuildTargetDensity(): String? {
-        return buildTargetDensity
-    }
-
-    @OutputDirectory
-    fun getResPackageOutputFolder(): File {
-        return resPackageOutputFolder
-    }
-
-    @Input
-    fun isLibrary(): Boolean {
-        return isLibrary
-    }
-
-    @Input
-    fun isNamespaced(): Boolean {
-        return isNamespaced
     }
 
     private fun findPackagedResForSplit(outputFolder: File?, apkData: ApkData): File? {

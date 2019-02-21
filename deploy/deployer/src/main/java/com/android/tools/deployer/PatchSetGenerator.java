@@ -29,6 +29,12 @@ import java.util.Map;
 
 public class PatchSetGenerator {
 
+    // Maximum patchset size that can be pushed to the device to attempt a
+    // delta push. This value was chosen based on how much RAM is likely to
+    // be available on device as well as what percentage of a large app size
+    // (80 MiB) it represent (50%).
+    public static final int MAX_PATCHSET_SIZE = 40 * 1024 * 1024; // 40 MiB
+
     public List<Deploy.PatchInstruction> generateFromEntries(
             List<ApkEntry> localEntries, List<ApkEntry> remoteEntries) {
         // Build the list of local apks.
@@ -72,6 +78,9 @@ public class PatchSetGenerator {
         for (Pair<Apk, Apk> pair : pairs) {
             Apk localApk = pair.getFirst();
             Apk remoteApk = pair.getSecond();
+            if (remoteApk.checksum.equals(localApk.checksum)) {
+                continue;
+            }
             Deploy.PatchInstruction instruction = generateDelta(remoteApk, localApk);
             patches.add(instruction);
         }

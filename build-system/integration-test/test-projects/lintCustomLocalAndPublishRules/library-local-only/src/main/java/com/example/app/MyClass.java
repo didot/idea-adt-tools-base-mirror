@@ -13,13 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.android.tools.deployer;
 
-import com.android.utils.ILogger;
-import com.android.utils.StdLogger;
+package com.example.app;
 
-public class Logger {
-    public static ILogger getLogger() {
-        return new StdLogger(StdLogger.Level.VERBOSE);
-    }
-}
+public abstract class MyClass implements java.util.List {}

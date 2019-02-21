@@ -32,6 +32,7 @@ import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.AnchorOutputType;
+import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidVariantTask;
@@ -50,6 +51,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.gradle.api.artifacts.ArtifactCollection;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
@@ -395,18 +397,24 @@ public class ExtractAnnotations extends AndroidVariantTask {
             task.libraries = variantScope.getArtifactCollection(
                     COMPILE_CLASSPATH, EXTERNAL, CLASSES);
 
+            GlobalScope globalScope = variantScope.getGlobalScope();
+
             // Setup the boot classpath just before the task actually runs since this will
             // force the sdk to be parsed. (Same as in compileTask)
             task.setBootClasspath(
                     () ->
-                            androidBuilder.getFilteredBootClasspathAsStrings(
-                                    variantScope
-                                            .getGlobalScope()
-                                            .getExtension()
-                                            .getLibraryRequests()));
+                            globalScope
+                                    .getFilteredBootClasspathProvider()
+                                    .get()
+                                    .stream()
+                                    .map(c -> c.getAbsolutePath())
+                                    .collect(Collectors.toList()));
 
-            task.lintClassPath = variantScope.getGlobalScope().getProject().getConfigurations()
-                    .getByName(LintBaseTask.LINT_CLASS_PATH);
+            task.lintClassPath =
+                    globalScope
+                            .getProject()
+                            .getConfigurations()
+                            .getByName(LintBaseTask.LINT_CLASS_PATH);
         }
     }
 

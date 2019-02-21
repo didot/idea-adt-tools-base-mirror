@@ -53,6 +53,7 @@ public class AdbClient {
         MULTI_APKS_NO_SUPPORTED_BELOW21,
         INSTALL_FAILED_INSUFFICIENT_STORAGE,
         INSTALL_PARSE_FAILED_NO_CERTIFICATES,
+        SKIPPED_INSTALL, // no changes.
         ;
 
         private String reason = null;
@@ -70,7 +71,6 @@ public class AdbClient {
      * Executes the given command and sends {@code input} to stdin and returns stdout as a byte[]
      */
     public byte[] shell(String[] parameters, InputStream input) throws IOException {
-        logger.info("SHELL: " + String.join(" ", parameters));
         ByteArrayOutputReceiver receiver;
         try (Trace ignored = Trace.begin("adb shell" + Arrays.toString(parameters))) {
             receiver = new ByteArrayOutputReceiver();

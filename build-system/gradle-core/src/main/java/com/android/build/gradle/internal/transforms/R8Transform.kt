@@ -86,7 +86,7 @@ class R8Transform(
         outputProguardMapping: File
     ) :
             this(
-                lazy { scope.globalScope.androidBuilder.computeFullBootClasspath() },
+                lazy { scope.globalScope.fullBootClasspath },
                 scope.minSdkVersion.featureLevel,
                 scope.variantConfiguration.buildType.isDebuggable,
                 scope.java8LangSupportType,

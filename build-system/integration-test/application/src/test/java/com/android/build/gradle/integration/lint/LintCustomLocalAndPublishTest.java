@@ -16,9 +16,13 @@
 
 package com.android.build.gradle.integration.lint;
 
+import static com.android.SdkConstants.FN_LINT_JAR;
 import static com.android.testutils.truth.FileSubject.assertThat;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.testutils.apk.Aar;
 import java.io.File;
 import org.junit.Rule;
 import org.junit.Test;
@@ -34,7 +38,9 @@ public class LintCustomLocalAndPublishTest {
 
     @Test
     public void checkCustomLint() throws Exception {
-        project.executor().expectFailure().run("clean", ":library:lintDebug");
+        project.executor().run("clean");
+        project.executor().run(":library-remote:uploadArchives");
+        project.executor().expectFailure().run(":library:lintDebug");
         project.executor().expectFailure().run(":app:lintDebug");
         String appexpected =
                 "build.gradle:15: Error: Unknown issue id \"UnitTestLintCheck2\" [LintError]\n"
@@ -51,7 +57,14 @@ public class LintCustomLocalAndPublishTest {
                         + "   Explanation for issues of type \"UnitTestLintCheck\":\n"
                         + "   This app should not have any activities.\n"
                         + "\n"
-                        + "2 errors, 0 warnings";
+                        + "src/main/java/com/example/app/Util.java:5: Error: Do not implement java.util.Set directly [UnitTestLintCheck3]\n"
+                        + "public abstract class Util implements Set {}\n"
+                        + "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                        + "\n"
+                        + "   Explanation for issues of type \"UnitTestLintCheck3\":\n"
+                        + "   This app should not implement java.util.Set.\n"
+                        + "\n"
+                        + "3 errors, 0 warnings";
         String libexpected =
                 "build.gradle:16: Error: Unknown issue id \"UnitTestLintCheck\" [LintError]\n"
                         + "        check 'UnitTestLintCheck'\n"
@@ -83,5 +96,22 @@ public class LintCustomLocalAndPublishTest {
         assertThat(liblintfile).exists();
         assertThat(applintfile).contentWithUnixLineSeparatorsIsExactly(appexpected);
         assertThat(liblintfile).contentWithUnixLineSeparatorsIsExactly(libexpected);
+    }
+
+    @Test
+    public void checkAarHasLintJar() throws Exception {
+        project.executor().run("clean");
+        project.executor().run(":library:assembleDebug");
+        project.executor().run(":library-publish-only:assembleDebug");
+        project.executor().run(":library-local-only:assembleDebug");
+
+        Aar localAndPublish = project.getSubproject("library").getAar("debug");
+        assertNotNull(localAndPublish.getEntry(FN_LINT_JAR));
+
+        Aar publishOnly = project.getSubproject("library-publish-only").getAar("debug");
+        assertNotNull(publishOnly.getEntry(FN_LINT_JAR));
+
+        Aar localOnly = project.getSubproject("library-local-only").getAar("debug");
+        assertNull(localOnly.getEntry(FN_LINT_JAR));
     }
 }

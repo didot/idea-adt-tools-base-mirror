@@ -17,7 +17,7 @@ package com.android.tools.deployer;
 
 import static com.android.tools.deployer.AdbClient.InstallResult.INSTALL_PARSE_FAILED_NO_CERTIFICATES;
 import static com.android.tools.deployer.AdbClient.InstallResult.OK;
-import static com.android.tools.deployer.DeployerException.Error.INSTALL_FAILED;
+import static com.android.tools.deployer.AdbClient.InstallResult.SKIPPED_INSTALL;
 
 import com.android.ddmlib.InstallReceiver;
 import com.android.sdklib.AndroidVersion;
@@ -32,9 +32,16 @@ public class ApkInstaller {
 
     private enum DeltaInstallStatus {
         SUCCESS,
-        ERROR,
-        NOT_PATCHABLE, // Patch size would be beyond limit or app is not installed.
+        UNKNOWN,
+        DISABLED,
+        CANNOT_GENERATE_DELTA,
+        API_NOT_SUPPORTED,
+        DUMP_FAILED,
+        PATCH_SIZE_EXCEEDED,
+        NO_CHANGES,
     }
+
+    private enum DeltaInstallFailureReasons {}
 
     private class DeltaInstallResult {
         DeltaInstallStatus status = DeltaInstallStatus.SUCCESS;
@@ -59,7 +66,8 @@ public class ApkInstaller {
             InstallOptions options,
             Deployer.InstallMode installMode)
             throws DeployerException {
-        DeltaInstallResult deltaInstallResult = null;
+        DeltaInstallResult deltaInstallResult = new DeltaInstallResult();
+        deltaInstallResult.status = DeltaInstallStatus.UNKNOWN;
         List<InstallMetric> metrics = new ArrayList<>();
 
         // First attempt to delta install.
@@ -75,33 +83,63 @@ public class ApkInstaller {
         switch (deltaInstallResult.status) {
             case SUCCESS:
                 result = OK;
-                InstallMetric metric = new InstallMetric("DELTAINSTALL_SUCCESS", deltaInstallStart);
+                InstallMetric metric =
+                        new InstallMetric(
+                                "DELTAINSTALL",
+                                deltaInstallResult.status.name(),
+                                deltaInstallStart);
                 metric.finish(metrics);
                 break;
-            case ERROR:
+            case UNKNOWN:
                 InstallReceiver installReceiver = new InstallReceiver();
                 String[] lines = deltaInstallResult.packageManagerOutput.split("\\n");
                 installReceiver.processNewLines(lines);
                 result = parseInstallerResultErrorCode(installReceiver.getErrorCode());
-                boolean deltaInstallFailedOnCertificate =
-                        (result == INSTALL_PARSE_FAILED_NO_CERTIFICATES);
+
+                // Record metric for delta install.
+                InstallMetric deltaInstallMetric =
+                        new InstallMetric(
+                                "DELTAINSTALL",
+                                deltaInstallResult.status.name() + "." + result.name(),
+                                deltaInstallStart);
+                deltaInstallMetric.finish(metrics);
+
+                // Fallback
                 result = adb.install(apks, options.getFlags(), allowReinstall);
-                if (result == OK && deltaInstallFailedOnCertificate) {
-                    // ADB install succeeded where delta install failed. This may happen if there is a
-                    // CRC+size+compressed_size collision in the clear/dirty analysis when we build the
-                    // patch. It is extremely unlikely but we should try to keep track of it.
-                    InstallMetric deltaFailedMetric =
-                            new InstallMetric("DELTAINSTALL_FAILEDONCERTIF", deltaInstallStart);
-                    deltaFailedMetric.finish(metrics);
+                long installStartTime = System.currentTimeMillis();
+                InstallMetric installResult =
+                        new InstallMetric("INSTALL", result.name(), installStartTime);
+                installResult.finish(metrics);
+                break;
+            case DISABLED:
+            case CANNOT_GENERATE_DELTA:
+            case API_NOT_SUPPORTED:
+            case DUMP_FAILED:
+            case PATCH_SIZE_EXCEEDED:
+                {
+                    // Delta install could not be attempted (app not install or delta above limit or API
+                    // not supported),
+                    InstallMetric deltaNotPatchableMetric =
+                            new InstallMetric(
+                                    "DELTAINSTALL",
+                                    deltaInstallResult.status.name(),
+                                    deltaInstallStart);
+                    deltaNotPatchableMetric.finish(metrics);
+
+                    long installStarted = System.currentTimeMillis();
+                    result = adb.install(apks, options.getFlags(), allowReinstall);
+                    InstallMetric instalMetric =
+                            new InstallMetric("INSTALL", result.name(), installStarted);
+                    instalMetric.finish(metrics);
+                    break;
                 }
-                break;
-            case NOT_PATCHABLE:
-                // Delta install could not be attempted (app not install or delta above limit or API
-                // not supported),
-                InstallMetric instalMetric = new InstallMetric("INSTALL_SUCCESS");
-                result = adb.install(apks, options.getFlags(), allowReinstall);
-                instalMetric.finish(metrics);
-                break;
+            case NO_CHANGES:
+                {
+                    result = SKIPPED_INSTALL;
+                    InstallMetric instalMetric = new InstallMetric("INSTALL", result.name());
+                    instalMetric.finish(metrics);
+                    break;
+                }
         }
 
         String message = message(result);
@@ -126,8 +164,10 @@ public class ApkInstaller {
                 // Fall through
         }
 
-        if (result != OK) {
-            throw new DeployerException(INSTALL_FAILED, result, message, result.getReason());
+        if (result == SKIPPED_INSTALL) {
+            // TODO: Show a message saying nothing is installed.
+        } else if (result != OK) {
+            throw DeployerException.installFailed(result.name(), message);
         }
         return metrics;
     }
@@ -141,7 +181,7 @@ public class ApkInstaller {
         DeltaInstallResult deltaInstallResult = new DeltaInstallResult();
 
         if (installMode != Deployer.InstallMode.DELTA) {
-            deltaInstallResult.status = DeltaInstallStatus.NOT_PATCHABLE;
+            deltaInstallResult.status = DeltaInstallStatus.DISABLED;
             return deltaInstallResult;
         }
 
@@ -149,7 +189,7 @@ public class ApkInstaller {
         // Note that we also use "install-create" which was only added in Android LOLLIPOP (API 21)
         // so this check should factor in these limitations.
         if (!adb.getVersion().isGreaterOrEqualThan(AndroidVersion.VersionCodes.N)) {
-            deltaInstallResult.status = DeltaInstallStatus.NOT_PATCHABLE;
+            deltaInstallResult.status = DeltaInstallStatus.API_NOT_SUPPORTED;
             return deltaInstallResult;
         }
 
@@ -158,7 +198,7 @@ public class ApkInstaller {
         try {
             dump = new ApplicationDumper(installer).dump(localEntries);
         } catch (DeployerException e) {
-            deltaInstallResult.status = DeltaInstallStatus.NOT_PATCHABLE;
+            deltaInstallResult.status = DeltaInstallStatus.DUMP_FAILED;
             return deltaInstallResult;
         }
 
@@ -172,18 +212,28 @@ public class ApkInstaller {
         }
         List<Deploy.PatchInstruction> patches =
                 new PatchSetGenerator().generateFromEntries(localEntries, dump.apkEntries);
-        if (patches == null || patches.isEmpty()) {
-            deltaInstallResult.status = DeltaInstallStatus.NOT_PATCHABLE;
+        if (patches == null) {
+            deltaInstallResult.status = DeltaInstallStatus.CANNOT_GENERATE_DELTA;
+            return deltaInstallResult;
+        } else if (patches.isEmpty()) {
+            deltaInstallResult.status = DeltaInstallStatus.NO_CHANGES;
             return deltaInstallResult;
         }
         builder.addAllPatchInstructions(patches);
 
+        Deploy.DeltaInstallRequest request = builder.build();
+        // Check that size if not beyond the limit.
+        if (request.getSerializedSize() > PatchSetGenerator.MAX_PATCHSET_SIZE) {
+            deltaInstallResult.status = DeltaInstallStatus.PATCH_SIZE_EXCEEDED;
+            return deltaInstallResult;
+        }
+
         // Send delta install request.
         Deploy.DeltaInstallResponse res;
         try {
-            res = installer.deltaInstall(builder.build());
+            res = installer.deltaInstall(request);
         } catch (IOException e) {
-            deltaInstallResult.status = DeltaInstallStatus.ERROR;
+            deltaInstallResult.status = DeltaInstallStatus.UNKNOWN;
             return deltaInstallResult;
         }
 
@@ -191,7 +241,7 @@ public class ApkInstaller {
         if (res.getStatus() == Deploy.DeltaInstallResponse.Status.OK) {
             deltaInstallResult.status = DeltaInstallStatus.SUCCESS;
         } else {
-            deltaInstallResult.status = DeltaInstallStatus.ERROR;
+            deltaInstallResult.status = DeltaInstallStatus.UNKNOWN;
             deltaInstallResult.packageManagerOutput = res.getInstallOutput();
         }
         return deltaInstallResult;
@@ -212,12 +262,12 @@ public class ApkInstaller {
             case INSTALL_FAILED_VERSION_DOWNGRADE:
                 return "The device already has a newer version of this application.";
             case DEVICE_NOT_RESPONDING:
-                return "Device not responding";
+                return "Device not responding.";
             case INSTALL_FAILED_UPDATE_INCOMPATIBLE:
             case INCONSISTENT_CERTIFICATES:
                 return "The device already has an application with the same package but a different signature.";
             case INSTALL_FAILED_DEXOPT:
-                return "The device possibly has stale dexed jars that don't match the current version (dexopt error)";
+                return "The device might have stale dexed jars that don't match the current version (dexopt error).";
             case NO_CERTIFICATE:
                 return "The APK was either not signed, or signed incorrectly.";
             case INSTALL_FAILED_OLDER_SDK:

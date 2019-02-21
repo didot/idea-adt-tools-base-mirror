@@ -29,7 +29,7 @@ import com.android.annotations.Nullable;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.FeatureExtension;
 import com.android.build.gradle.internal.FeatureModelBuilder;
-import com.android.build.gradle.internal.SdkHandler;
+import com.android.build.gradle.internal.SdkComponents;
 import com.android.build.gradle.internal.api.dsl.DslScope;
 import com.android.build.gradle.internal.api.sourcesets.FilesProvider;
 import com.android.build.gradle.internal.dsl.BaseAppModuleExtension;
@@ -38,13 +38,15 @@ import com.android.build.gradle.internal.ndk.NdkHandler;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.builder.core.AndroidBuilder;
+import com.android.builder.core.BootClasspathBuilder;
 import com.android.builder.model.OptionalCompilationStep;
-import com.android.builder.sdk.TargetInfo;
 import com.android.builder.utils.FileCache;
 import com.android.ide.common.blame.MessageReceiver;
 import com.android.ide.common.process.ProcessExecutor;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import java.io.File;
+import java.util.List;
 import java.util.Set;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
@@ -52,6 +54,7 @@ import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.attributes.AttributeContainer;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.provider.Provider;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
 /** A scope containing data for the Android plugin. */
@@ -61,7 +64,7 @@ public class GlobalScope implements TransformGlobalScope {
     @NonNull private final FilesProvider filesProvider;
     @NonNull private final AndroidBuilder androidBuilder;
     @NonNull private AndroidConfig extension;
-    @NonNull private final SdkHandler sdkHandler;
+    @NonNull private final SdkComponents sdkComponents;
     @NonNull private NdkHandler ndkHandler;
     @NonNull private final ToolingModelBuilderRegistry toolingRegistry;
     @NonNull private final Set<OptionalCompilationStep> optionalCompilationSteps;
@@ -75,11 +78,13 @@ public class GlobalScope implements TransformGlobalScope {
 
     private Configuration androidJarConfig;
 
-    @Nullable private ConfigurableFileCollection java8LangSupportJar = null;
-
     @NonNull private final BuildArtifactsHolder globalArtifacts;
 
     @Nullable private ConfigurableFileCollection bootClasspath = null;
+
+    @Nullable private List<File> additionalAndRequestedOptionalLibraries = null;
+    @Nullable private List<File> filteredBootClasspath = null;
+    @Nullable private List<File> fullBootClasspath = null;
 
     public GlobalScope(
             @NonNull Project project,
@@ -87,7 +92,7 @@ public class GlobalScope implements TransformGlobalScope {
             @NonNull ProjectOptions projectOptions,
             @NonNull DslScope dslScope,
             @NonNull AndroidBuilder androidBuilder,
-            @NonNull SdkHandler sdkHandler,
+            @NonNull SdkComponents sdkComponents,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @Nullable FileCache buildCache) {
         // Attention: remember that this code runs early in the build lifecycle, project may not
@@ -96,7 +101,7 @@ public class GlobalScope implements TransformGlobalScope {
         this.dslScope = checkNotNull(dslScope);
         this.filesProvider = filesProvider;
         this.androidBuilder = checkNotNull(androidBuilder);
-        this.sdkHandler = checkNotNull(sdkHandler);
+        this.sdkComponents = checkNotNull(sdkComponents);
         this.toolingRegistry = checkNotNull(toolingRegistry);
         this.optionalCompilationSteps = checkNotNull(projectOptions.getOptionalCompilationSteps());
         this.projectOptions = checkNotNull(projectOptions);
@@ -134,13 +139,6 @@ public class GlobalScope implements TransformGlobalScope {
     }
 
     @NonNull
-    public TargetInfo getTargetInfo() {
-        // Workaround to give access to task that they need without knowing about the
-        // androidbuilder which will be removed in the long term.
-        return Preconditions.checkNotNull(androidBuilder.getTargetInfo(), "TargetInfo unavailable");
-    }
-
-    @NonNull
     public ProcessExecutor getProcessExecutor() {
         // Workaround to give access to task that they need without knowing about the
         // androidbuilder which will be removed in the long term.
@@ -153,8 +151,8 @@ public class GlobalScope implements TransformGlobalScope {
     }
 
     @NonNull
-    public SdkHandler getSdkHandler() {
-        return sdkHandler;
+    public SdkComponents getSdkComponents() {
+        return sdkComponents;
     }
 
     @NonNull
@@ -364,5 +362,96 @@ public class GlobalScope implements TransformGlobalScope {
         }
 
         return bootClasspath;
+    }
+
+    /**
+     * Returns the list of additional and requested optional library jar files
+     *
+     * @return the list of files from the additional and optional libraries which appear in the
+     *     filtered boot classpath
+     */
+    @NonNull
+    public Provider<List<File>> getAdditionalAndRequestedOptionalLibrariesProvider() {
+        return project.provider(this::getAdditionalAndRequestedOptionalLibraries);
+    }
+
+    /**
+     * Returns the list of additional and requested optional library jar files
+     *
+     * @return the list of files from the additional and optional libraries which appear in the
+     *     filtered boot classpath
+     */
+    @NonNull
+    public List<File> getAdditionalAndRequestedOptionalLibraries() {
+        if (additionalAndRequestedOptionalLibraries == null) {
+            additionalAndRequestedOptionalLibraries =
+                    BootClasspathBuilder.computeAdditionalAndRequestedOptionalLibraries(
+                            getSdkComponents().getTargetProvider().get(),
+                            ImmutableList.copyOf(getExtension().getLibraryRequests()),
+                            getDslScope().getIssueReporter());
+        }
+        return additionalAndRequestedOptionalLibraries;
+    }
+
+    /**
+     * Returns the boot classpath to be used during compilation with all available additional jars
+     * but only the requested optional ones.
+     *
+     * <p>Requested libraries not found will be reported to the issue handler.
+     *
+     * @return a list of jar files that forms the filtered classpath.
+     */
+    @NonNull
+    public Provider<List<File>> getFilteredBootClasspathProvider() {
+        return project.provider(this::getFilteredBootClasspath);
+    }
+
+    /**
+     * Returns the boot classpath to be used during compilation with all available additional jars
+     * but only the requested optional ones.
+     *
+     * <p>Requested libraries not found will be reported to the issue handler.
+     *
+     * @return a list of jar files that forms the filtered classpath.
+     */
+    @NonNull
+    public List<File> getFilteredBootClasspath() {
+        if (filteredBootClasspath == null) {
+            filteredBootClasspath =
+                    BootClasspathBuilder.computeFilteredClasspath(
+                            getSdkComponents().getTargetProvider().get(),
+                            ImmutableList.copyOf(getExtension().getLibraryRequests()),
+                            getDslScope().getIssueReporter(),
+                            getSdkComponents().getAnnotationsJarProvider().get());
+        }
+        return filteredBootClasspath;
+    }
+
+    /**
+     * Returns the boot classpath to be used during compilation with all available additional and
+     * optional jars (even those not requested).
+     *
+     * @return a list of jar files that forms the filtered classpath.
+     */
+    @NonNull
+    public Provider<List<File>> getFullBootClasspathProvider() {
+        return project.provider(this::getFullBootClasspath);
+    }
+
+    /**
+     * Returns the boot classpath to be used during compilation with all available additional and
+     * optional jars (even those not requested).
+     *
+     * @return a list of jar files that forms the filtered classpath.
+     */
+    @NonNull
+    public List<File> getFullBootClasspath() {
+        if (fullBootClasspath == null) {
+            fullBootClasspath =
+                    BootClasspathBuilder.computeFullBootClasspath(
+                            getSdkComponents().getTargetProvider().get(),
+                            getSdkComponents().getAnnotationsJarProvider().get());
+        }
+        return fullBootClasspath;
     }
 }

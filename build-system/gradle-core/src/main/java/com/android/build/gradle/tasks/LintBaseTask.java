@@ -39,12 +39,9 @@ import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.model.Version;
-import com.android.builder.sdk.TargetInfo;
-import com.android.sdklib.BuildToolInfo;
+import com.android.repository.Revision;
 import com.android.tools.lint.gradle.api.ReflectiveLintRunner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Streams;
 import java.io.File;
@@ -70,7 +67,7 @@ public abstract class LintBaseTask extends DefaultTask {
     protected static final Logger LOG = Logging.getLogger(LintBaseTask.class);
 
     @Nullable FileCollection lintClassPath;
-    protected AndroidBuilder androidBuilder;
+    protected Provider<Revision> buildToolsRevisionProvider;
 
     /** Lint classpath */
     @InputFiles
@@ -97,12 +94,10 @@ public abstract class LintBaseTask extends DefaultTask {
         }
     }
 
-    @Internal("No influence on output, this is to give access to the build tools")
-    private BuildToolInfo getBuildTools() {
-        TargetInfo targetInfo = androidBuilder.getTargetInfo();
-        Preconditions.checkState(
-                targetInfo != null, "androidBuilder.targetInfo required for task '%s'.", getName());
-        return targetInfo.getBuildTools();
+    @Internal("No influence on output, this is to give access to the build tools version")
+    @NonNull
+    private Revision getBuildToolsRevision() {
+        return buildToolsRevisionProvider.get();
     }
 
     protected abstract class LintBaseTaskDescriptor extends
@@ -139,8 +134,8 @@ public abstract class LintBaseTask extends DefaultTask {
 
         @NonNull
         @Override
-        public BuildToolInfo getBuildTools() {
-            return LintBaseTask.this.getBuildTools();
+        public Revision getBuildToolsRevision() {
+            return LintBaseTask.this.getBuildToolsRevision();
         }
 
         @Override
@@ -306,14 +301,15 @@ public abstract class LintBaseTask extends DefaultTask {
         public void configure(@NonNull T lintTask) {
             lintTask.setGroup(JavaBasePlugin.VERIFICATION_GROUP);
             lintTask.lintOptions = globalScope.getExtension().getLintOptions();
-            File sdkFolder = globalScope.getSdkHandler().getSdkFolder();
+            File sdkFolder = globalScope.getSdkComponents().getSdkFolder();
             if (sdkFolder != null) {
                 lintTask.sdkHome = sdkFolder;
             }
 
             lintTask.toolingRegistry = globalScope.getToolingRegistry();
             lintTask.reportsDir = globalScope.getReportsDir();
-            lintTask.androidBuilder = globalScope.getAndroidBuilder();
+            lintTask.buildToolsRevisionProvider =
+                    globalScope.getSdkComponents().getBuildToolsRevisionProvider();
 
             lintTask.lintClassPath = globalScope.getProject().getConfigurations()
                     .getByName(LINT_CLASS_PATH);

@@ -43,7 +43,6 @@ public class FeatureTaskManager extends ApplicationTaskManager {
             @NonNull ProjectOptions projectOptions,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
-            @NonNull SdkHandler sdkHandler,
             @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
@@ -53,7 +52,6 @@ public class FeatureTaskManager extends ApplicationTaskManager {
                 projectOptions,
                 dataBindingBuilder,
                 extension,
-                sdkHandler,
                 variantFactory,
                 toolingRegistry,
                 recorder);
@@ -135,7 +133,7 @@ public class FeatureTaskManager extends ApplicationTaskManager {
                                 + " gradle plugin version. Please switch to using dynamic-features or"
                                 + " libraries. For more information on converting your application to using"
                                 + " Android App Bundles, please visit"
-                                + " https://developer.android.com/studio/projects/dynamic-delivery.");
+                                + " https://developer.android.com/topic/google-play-instant/feature-module-migration");
     }
 
     @Override

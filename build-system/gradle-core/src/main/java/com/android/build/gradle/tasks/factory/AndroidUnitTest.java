@@ -173,8 +173,7 @@ public class AndroidUnitTest extends Test implements VariantAwareTask {
             // 1. the config file
             if (includeAndroidResources) {
                 collection.from(
-                        artifacts.getFinalArtifactFiles(
-                                InternalArtifactType.UNIT_TEST_CONFIG_DIRECTORY));
+                        artifacts.getFinalProduct(InternalArtifactType.UNIT_TEST_CONFIG_DIRECTORY));
             }
 
             // 2. the test component classes and java_res
@@ -210,11 +209,7 @@ public class AndroidUnitTest extends Test implements VariantAwareTask {
                             .getProject()
                             .files(
                                     scope.getGlobalScope()
-                                            .getAndroidBuilder()
-                                            .computeAdditionalAndRequestedOptionalLibraries(
-                                                    scope.getGlobalScope()
-                                                            .getExtension()
-                                                            .getLibraryRequests())));
+                                            .getAdditionalAndRequestedOptionalLibrariesProvider()));
 
             // 6. Mockable JAR is last, to make sure you can shadow the classes with
             // dependencies.
