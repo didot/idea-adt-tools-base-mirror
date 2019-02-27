@@ -44,7 +44,7 @@ repositories {
 
     ivy {
         name "Google Fonts"
-        url "http://themes.googleusercontent.com/static/fonts/"
+        url "https://themes.googleusercontent.com/static/fonts/"
         layout 'pattern', {
             artifact '[organisation]/v[revision](/[classifier])(.[ext])'
             ivy '[organisation]/v[revision]/ivy(.[ext])'
@@ -102,13 +102,13 @@ tasks.withType(Docbook2Xhtml) {
 tasks.withType(UserGuideTransformTask) {
     dependsOn dslDocbook
     linksFile = dslDocbook.linksFile
-    websiteUrl = 'http://www.gradle.org'
+    websiteUrl = 'https://www.gradle.org'
 
     if (name in ["pdfUserguideDocbook", "userguideFragmentSrc"]) {
         // These will only be valid for releases, but that's ok
-        javadocUrl = "http://www.gradle.org/docs/${->version}/javadoc"
-        groovydocUrl = "http://www.gradle.org/docs/${->version}/groovydoc"
-        dsldocUrl = "http://www.gradle.org/docs/${->version}/dsl"
+        javadocUrl = "https://www.gradle.org/docs/${->version}/javadoc"
+        groovydocUrl = "https://www.gradle.org/docs/${->version}/groovydoc"
+        dsldocUrl = "https://www.gradle.org/docs/${->version}/dsl"
     } else {
         javadocUrl = '../javadoc'
         groovydocUrl = '../groovydoc'
@@ -195,8 +195,8 @@ task dslHtmlZip(type: Zip) {
   baseName 'gradle-dsl'
 }
 
-def javaApiUrl = "http://docs.oracle.com/javase/8/docs/api/"
-def groovyApiUrl = "http://groovy.codehaus.org/gapi/"
+def javaApiUrl = "https://docs.oracle.com/javase/8/docs/api/"
+def groovyApiUrl = "https://groovy.codehaus.org/gapi/"
 def publicGroovyProjects = [
         project(":base:gradle-api"),
         project(":base:gradle-core"),
