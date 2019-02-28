@@ -1,55 +1,84 @@
-def _lint_project_impl(ctx):
-    content = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-    content += "<project>\n"
+script_template = """\
+#!/bin/bash
+flags=""
+if [ "$1" = "--wrapper_script_flag=--debug" ]; then
+    flags="--debug"
+fi
+{binary} $flags {xml}
+"""
+
+def _lint_test_impl(ctx):
+    classpath = depset()
+    for dep in ctx.attr.deps:
+        if JavaInfo in dep:
+            classpath += dep[JavaInfo].transitive_compile_time_jars
+
+    # Create project XML:
+    project_xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+    project_xml += "<project>\n"
 
     if ctx.file.baseline:
-        content += "<baseline file=\"{0}\" />".format(ctx.file.baseline.path)
+        project_xml += "<baseline file=\"{0}\" />\n".format(ctx.file.baseline.path)
 
-    content += "<module name=\"{0}\" android=\"false\" library=\"true\">\n".format(ctx.label.name)
+    for jar in ctx.files.custom_rules:
+        project_xml += "<lint-checks jar=\"{0}\" />\n".format(jar.short_path)
+
+    project_xml += "<module name=\"{0}\" android=\"false\" library=\"true\">\n".format(ctx.label.name)
+
     for file in ctx.files.srcs:
-        content += "  <src file=\"{0}\"/>\n".format(file.path)
-    content += "</module>\n"
-    content += "</project>\n"
+        project_xml += "  <src file=\"{0}\" />\n".format(file.path)
 
-    project_xml = ctx.outputs.xml
-    ctx.actions.write(output = project_xml, content = content)
+    for file in classpath:
+        project_xml += "  <classpath jar=\"{0}\" />\n".format(file.short_path)
 
-lint_project = rule(
-    attrs = {
-        "srcs": attr.label_list(
-            non_empty = True,
-            allow_files = FileType([
-                ".java",
-                ".kt",
-            ]),
+    project_xml += "</module>\n"
+    project_xml += "</project>\n"
+
+    ctx.actions.write(output = ctx.outputs.project_xml, content = project_xml)
+
+    # Create the launcher script:
+    ctx.actions.write(
+        output = ctx.outputs.launcher_script,
+        content = script_template.format(
+            binary = ctx.executable._binary.short_path,
+            xml = ctx.outputs.project_xml.short_path,
         ),
-        "baseline": attr.label(
-            allow_single_file = True,
+        is_executable = True,
+    )
+
+    # Compute runfiles:
+    runfiles = ctx.runfiles(
+        files = (
+            [ctx.outputs.project_xml, ctx.file.baseline] +
+            ctx.files.srcs +
+            ctx.files.custom_rules
+        ),
+        transitive_files = depset(
+            transitive = [
+                ctx.attr._binary[DefaultInfo].default_runfiles.files,
+                classpath,
+            ],
+        ),
+    )
+
+    return [DefaultInfo(executable = ctx.outputs.launcher_script, runfiles = runfiles)]
+
+lint_test = rule(
+    attrs = {
+        "srcs": attr.label_list(allow_files = True),
+        "custom_rules": attr.label_list(allow_files = True),
+        "deps": attr.label_list(allow_files = True),
+        "baseline": attr.label(allow_single_file = True),
+        "_binary": attr.label(
+            executable = True,
+            cfg = "target",
+            default = Label("//tools/base/bazel:BazelLintWrapper"),
         ),
     },
     outputs = {
-        "xml": "%{name}.xml",
+        "launcher_script": "%{name}.sh",
+        "project_xml": "%{name}_project.xml",
     },
-    implementation = _lint_project_impl,
+    implementation = _lint_test_impl,
+    test = True,
 )
-
-def lint_test(name, srcs, baseline = None):
-    project_rule_name = name + "_project"
-    lint_project(
-        name = project_rule_name,
-        srcs = srcs,
-        baseline = baseline,
-    )
-
-    data = [project_rule_name + ".xml"] + srcs
-    data = data if not baseline else [baseline] + data
-
-    native.java_test(
-        name = name,
-        main_class = "com.android.tools.binaries.BazelLintWrapper",
-        use_testrunner = False,
-        runtime_deps = ["//tools/base/bazel:BazelLintWrapper", "//tools/base/lint/cli"],
-        data = data,
-        args = ["$(rootpath " + project_rule_name + ".xml)"],
-        tags = ["no_windows"],
-    )

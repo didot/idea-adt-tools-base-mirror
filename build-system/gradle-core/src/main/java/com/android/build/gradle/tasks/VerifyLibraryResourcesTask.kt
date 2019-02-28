@@ -37,12 +37,8 @@ import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.builder.internal.aapt.v2.Aapt2RenamingConventions
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.ide.common.resources.FileStatus
-import com.android.ide.common.resources.QueueableResourceCompiler
 import com.android.ide.common.workers.WorkerExecutorFacade
-import com.android.sdklib.BuildToolInfo
-import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
-import com.google.common.base.Preconditions
 import com.google.common.collect.ImmutableSet
 import com.google.common.collect.Iterables
 import org.gradle.api.file.Directory
@@ -50,8 +46,8 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
@@ -88,16 +84,16 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
         private set
 
     @get:InputFiles
-    @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    var aapt2FromMaven: FileCollection? = null
+    lateinit var aapt2FromMaven: FileCollection
         private set
 
-    private lateinit var androidTargetProvider: Provider<IAndroidTarget>
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
 
-    private lateinit var buildToolInfoProvider: Provider<BuildToolInfo>
-
-    private val workers: WorkerExecutorFacade = Workers.getWorker(workerExecutor)
+    private val workers: WorkerExecutorFacade = Workers.getWorker(path, workerExecutor)
 
     override fun isIncremental(): Boolean {
         return true
@@ -133,13 +129,13 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
         val manifestsOutputs = ExistingBuildElements.from(taskInputType, manifestFiles.get().asFile)
         val manifestFile = Iterables.getOnlyElement(manifestsOutputs).outputFile
 
-        val aapt2ServiceKey = registerAaptService(aapt2FromMaven, buildToolInfoProvider.get(), iLogger)
+        val aapt2ServiceKey = registerAaptService(aapt2FromMaven, iLogger)
         // If we're using AAPT2 we need to compile the resources into the compiled directory
         // first as we need the .flat files for linking.
         workers.use { facade ->
             compileResources(
                     inputs,
-                    compiledDirectory, null,
+                    compiledDirectory,
                     facade,
                     aapt2ServiceKey,
                     inputDirectory.singleFile())
@@ -158,7 +154,7 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
                 .setLibrarySymbolTableFiles(ImmutableSet.of())
                 .setOptions(AaptOptions(failOnMissingConfigEntry = false))
                 .setVariantType(VariantTypeImpl.LIBRARY)
-                .setAndroidTarget(androidTargetProvider.get())
+                .setAndroidTarget(androidJar.get())
                 .build()
     }
 
@@ -194,8 +190,7 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
             task.manifestFiles = variantScope.artifacts
                     .getFinalProduct(task.taskInputType)
 
-            task.androidTargetProvider = variantScope.globalScope.sdkComponents.targetProvider
-            task.buildToolInfoProvider = variantScope.globalScope.sdkComponents.buildToolInfoProvider
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
         }
     }
 
@@ -219,14 +214,9 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
         fun compileResources(
                 inputs: Map<File, FileStatus>,
                 outDirectory: File,
-                aapt: QueueableResourceCompiler?,
-                workerExecutor: WorkerExecutorFacade?,
-                aapt2ServiceKey: Aapt2ServiceKey?,
+                workerExecutor: WorkerExecutorFacade,
+                aapt2ServiceKey: Aapt2ServiceKey,
                 mergedResDirectory: File) {
-
-            Preconditions.checkState(
-                    aapt != null || (workerExecutor != null && aapt2ServiceKey != null),
-                    "Either local AAPT or AAPT from Maven needs to be used, neither was set")
 
             val compiling = ArrayList<Future<File>>()
 
@@ -246,15 +236,9 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
                                     key.parent,
                                     false /* pseudo-localize */,
                                     false /* crunch PNGs */)
-                            if (aapt != null) {
-                                val result = aapt.compile(request)
-                                compiling.add(result)
-                            } else {
-                                workerExecutor!!.submit(
-                                        Aapt2CompileRunnable::class.java,
-                                        Aapt2CompileRunnable.Params(
-                                                aapt2ServiceKey!!, listOf(request)))
-                            }
+                            workerExecutor.submit(
+                                    Aapt2CompileRunnable::class.java,
+                                    Aapt2CompileRunnable.Params(aapt2ServiceKey, listOf(request)))
                         } catch (e: Exception) {
                             throw AaptException("Failed to compile file ${key.absolutePath}", e)
                         }
@@ -267,7 +251,7 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
                 }
             }
             // We need to wait for the files to finish compiling before we do the link.
-            workerExecutor?.await() ?: compiling.forEach { it.get() }
+            workerExecutor.await()
         }
     }
 }

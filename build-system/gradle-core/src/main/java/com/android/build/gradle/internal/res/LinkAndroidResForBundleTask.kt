@@ -35,8 +35,6 @@ import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.build.gradle.internal.scope.ApkData
 import com.android.sdklib.AndroidVersion
-import com.android.sdklib.BuildToolInfo
-import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableSet
@@ -44,6 +42,7 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
@@ -65,7 +64,7 @@ import javax.inject.Inject
 open class LinkAndroidResForBundleTask
 @Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.getWorker(path, workerExecutor)
 
     @get:Input
     var debuggable: Boolean = false
@@ -77,7 +76,10 @@ open class LinkAndroidResForBundleTask
 
     private var buildTargetDensity: String? = null
 
-    private lateinit var androidTargetProvider: Provider<IAndroidTarget>
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
 
     @get:OutputFile
     lateinit var bundledResFile: File
@@ -112,9 +114,8 @@ open class LinkAndroidResForBundleTask
         private set
 
     @get:InputFiles
-    @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    var aapt2FromMaven: FileCollection? = null
+    lateinit var aapt2FromMaven: FileCollection
         private set
 
     @TaskAction
@@ -139,7 +140,7 @@ open class LinkAndroidResForBundleTask
         }
 
         val config = AaptPackageConfig(
-                androidJarPath = androidTargetProvider.get().getPath(IAndroidTarget.ANDROID_JAR),
+                androidJarPath = androidJar.get()!!.absolutePath,
                 generateProtos = true,
                 manifestFile = manifestFile,
                 options = aaptOptions.convert(),
@@ -157,13 +158,14 @@ open class LinkAndroidResForBundleTask
 
         val aapt2ServiceKey = registerAaptService(
             aapt2FromMaven = aapt2FromMaven,
-            buildToolInfo = null,
             logger = builder.logger
         )
         //TODO: message rewriting.
         workers.use {
-            it.submit(Aapt2ProcessResourcesRunnable::class.java,
-                Aapt2ProcessResourcesRunnable.Params(aapt2ServiceKey, config))
+            it.submit(
+                Aapt2ProcessResourcesRunnable::class.java,
+                Aapt2ProcessResourcesRunnable.Params(aapt2ServiceKey, config)
+            )
         }
     }
 
@@ -183,13 +185,6 @@ open class LinkAndroidResForBundleTask
 
     @get:Input
     lateinit var resConfig: Collection<String> private set
-
-    private lateinit var buildToolInfoProvider: Provider<BuildToolInfo>
-
-    @Input
-    fun getBuildToolsVersion(): String {
-        return buildToolInfoProvider.get().revision.toString()
-    }
 
     @Nested
     fun getAaptOptions(): com.android.build.gradle.internal.dsl.AaptOptions? {
@@ -269,8 +264,7 @@ open class LinkAndroidResForBundleTask
             task.resConfig =
                     variantScope.variantConfiguration.mergedFlavor.resourceConfigurations
 
-            task.androidTargetProvider = variantScope.globalScope.sdkComponents.targetProvider
-            task.buildToolInfoProvider = variantScope.globalScope.sdkComponents.buildToolInfoProvider
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
         }
     }
 }

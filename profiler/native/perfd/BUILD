@@ -28,7 +28,6 @@ cc_library(
         "profiler_service.h",
         "sessions/session.h",
         "sessions/sessions_manager.h",
-        "termination_service.h",
         ":samplers_h",
     ],
     copts = [
@@ -36,6 +35,14 @@ cc_library(
         "-I$(GENDIR)/tools/base/profiler",
     ],
     tags = ["no_windows"],
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "perfd_commands",
+    hdrs = [
+        "commands/begin_session.h",
+    ],
     visibility = ["//visibility:public"],
 )
 
@@ -55,8 +62,6 @@ cc_library(
         "sessions/session.h",
         "sessions/sessions_manager.cc",
         "sessions/sessions_manager.h",
-        "termination_service.cc",
-        "termination_service.h",
         ":samplers_cc",
         ":samplers_h",
     ],

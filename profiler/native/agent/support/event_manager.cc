@@ -15,7 +15,7 @@
  */
 #include "event_manager.h"
 #include "agent/agent.h"
-#include "agent/support/jni_wrappers.h"
+#include "agent/jni_wrappers.h"
 
 namespace {
 using profiler::EventManager;
@@ -40,7 +40,7 @@ EventManager& EventManager::Instance() {
 }
 
 EventManager::EventManager() {
-  Agent::Instance().AddPerfdStatusChangedCallback(std::bind(
+  Agent::Instance().AddDaemonStatusChangedCallback(std::bind(
       &profiler::EventManager::PerfdStateChanged, this, std::placeholders::_1));
 }
 

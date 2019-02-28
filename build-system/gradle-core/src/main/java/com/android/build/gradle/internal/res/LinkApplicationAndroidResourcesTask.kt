@@ -60,8 +60,6 @@ import com.android.ide.common.blame.MergingLog
 import com.android.ide.common.process.ProcessException
 import com.android.ide.common.symbols.SymbolIo
 import com.android.ide.common.workers.WorkerExecutorFacade
-import com.android.sdklib.BuildToolInfo
-import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.base.Preconditions
 import com.google.common.collect.ImmutableList
@@ -71,6 +69,7 @@ import org.gradle.api.logging.Logging
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
@@ -144,9 +143,8 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
     private lateinit var type: VariantType
 
     @get:InputFiles
-    @get:Optional
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    var aapt2FromMaven: FileCollection? = null
+    lateinit var aapt2FromMaven: FileCollection
         private set
 
     private var debuggable: Boolean = false
@@ -221,11 +219,12 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
     var isLibrary: Boolean = false
         private set
 
-    private lateinit var androidTargetProvider: Provider<IAndroidTarget>
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
 
-    private lateinit var buildToolInfoProvider: Provider<BuildToolInfo>
-
-    private val workers: WorkerExecutorFacade = Workers.getWorker(workerExecutor)
+    private val workers: WorkerExecutorFacade = Workers.getWorker(path, workerExecutor)
 
     // FIXME : make me incremental !
     override fun doFullTaskAction() {
@@ -247,33 +246,35 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
         else
             emptySet()
         val aapt2ServiceKey = registerAaptService(
-            aapt2FromMaven, buildToolInfoProvider.get(), iLogger
+            aapt2FromMaven, iLogger
         )
 
-        // do a first pass at the list so we generate the code synchronously since it's required
-        // by the full splits asynchronous processing below.
-        val unprocessedManifest = manifestBuildElements.toMutableList()
+        workers.use {
+            val unprocessedManifest = manifestBuildElements.toMutableList()
+            val mainOutput = chooseOutput(manifestBuildElements)
 
-        val mainOutput = chooseOutput(manifestBuildElements)
+            unprocessedManifest.remove(mainOutput)
 
-        unprocessedManifest.remove(mainOutput)
-        AaptSplitInvoker(
-            AaptSplitInvokerParams(
-                mainOutput,
-                dependencies,
-                imports,
-                splitList,
-                featureResourcePackages,
-                mainOutput.apkData,
-                true,
-                aapt2ServiceKey,
-                this
+            it.submit(
+                AaptSplitInvoker::class.java,
+                AaptSplitInvokerParams(
+                    mainOutput,
+                    dependencies,
+                    imports,
+                    splitList,
+                    featureResourcePackages,
+                    mainOutput.apkData,
+                    true,
+                    aapt2ServiceKey,
+                    this
+                )
             )
-        ).run()
 
-        // now all remaining splits will be generated asynchronously.
-        if (variantScope.type.canHaveSplits) {
-            workers.use {
+            if (variantScope.type.canHaveSplits) {
+                // If there are remaining splits to be processed we await for the main split to
+                // finish since the output of the main split is used by the full splits bellow.
+                it.await()
+
                 for (manifestBuildOutput in unprocessedManifest) {
                     val apkInfo = manifestBuildOutput.apkData
                     if (apkInfo.requiresAapt()) {
@@ -528,11 +529,9 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
             task.projectBaseName = baseName!!
             task.isLibrary = isLibrary
-            task.supportDirectory = File(variantScope.instantRunSplitApkOutputFolder, "resources")
+            task.supportDirectory = File(variantScope.splitApkOutputFolder, "resources")
 
-            task.androidTargetProvider = variantScope.globalScope.sdkComponents.targetProvider
-            task.buildToolInfoProvider =
-                variantScope.globalScope.sdkComponents.buildToolInfoProvider
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
         }
     }
 
@@ -870,7 +869,7 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
         val packageId: Int? = task.getResOffset()
         val incrementalFolder: File = task.incrementalFolder
         val androidJarPath: String =
-            task.androidTargetProvider.get().getPath(IAndroidTarget.ANDROID_JAR)
+            task.androidJar.get().absolutePath
         val convertedLibraryDependenciesPath: Path? =
             task.convertedLibraryDependencies?.singleFile()?.toPath()
         val inputResourcesDir: File? = task.inputResourcesDir?.singleFile()
@@ -914,11 +913,6 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
     fun setAaptMainDexListProguardOutputFile(mainDexListProguardOutputFile: File) {
         this.mainDexListProguardOutputFile = mainDexListProguardOutputFile
-    }
-
-    @Input
-    fun getBuildToolsVersion(): String {
-        return buildToolInfoProvider.get().revision.toString()
     }
 
     @Input

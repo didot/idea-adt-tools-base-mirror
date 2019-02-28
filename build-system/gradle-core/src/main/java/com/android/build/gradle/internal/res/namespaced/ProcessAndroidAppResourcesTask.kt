@@ -33,11 +33,11 @@ import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
-import com.google.common.collect.Iterables
 import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
@@ -62,7 +62,7 @@ import javax.inject.Inject
 @CacheableTask
 open class ProcessAndroidAppResourcesTask
 @Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.getWorker(path, workerExecutor)
 
 
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var manifestFileDirectory: Provider<Directory> private set
@@ -74,9 +74,13 @@ open class ProcessAndroidAppResourcesTask
     var convertedLibraryDependencies: BuildableArtifact? = null
         private set
     @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) lateinit var sharedLibraryDependencies: FileCollection private set
-    @get:InputFiles @get:Optional @get:PathSensitive(PathSensitivity.RELATIVE)
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
     lateinit var aapt2FromMaven: FileCollection private set
-    private lateinit var androidJarSdkProvider: Provider<String>
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
 
     @get:OutputDirectory lateinit var aaptIntermediateDir: File private set
     @get:OutputDirectory lateinit var rClassSource: File private set
@@ -95,7 +99,7 @@ open class ProcessAndroidAppResourcesTask
         }
         staticLibraries.add(thisSubProjectStaticLibrary.single())
         val config = AaptPackageConfig(
-                androidJarPath = androidJarSdkProvider.get(),
+                androidJarPath = androidJar.get().absolutePath,
                 manifestFile = (File(manifestFileDirectory.get().asFile, SdkConstants.ANDROID_MANIFEST_XML)),
                 options = AaptOptions(null, false, null),
                 staticLibraryDependencies = staticLibraries.build(),
@@ -109,8 +113,10 @@ open class ProcessAndroidAppResourcesTask
             aapt2FromMaven = aapt2FromMaven, logger = iLogger
         )
         workers.use {
-            it.submit(Aapt2LinkRunnable::class.java,
-                Aapt2LinkRunnable.Params(aapt2ServiceKey, config))
+            it.submit(
+                Aapt2LinkRunnable::class.java,
+                Aapt2LinkRunnable.Params(aapt2ServiceKey, config)
+            )
         }
     }
 
@@ -183,7 +189,7 @@ open class ProcessAndroidAppResourcesTask
             task.resourceApUnderscore = resourceApUnderscore
             task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
             task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
-            task.androidJarSdkProvider = variantScope.globalScope.sdkComponents.getPathForTargetElementProvider(IAndroidTarget.ANDROID_JAR, task.project)
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
         }
     }
 

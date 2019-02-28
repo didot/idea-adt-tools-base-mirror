@@ -221,7 +221,6 @@ import com.android.builder.testing.api.TestServer;
 import com.android.builder.utils.FileCache;
 import com.android.ide.common.repository.GradleVersion;
 import com.android.sdklib.AndroidVersion;
-import com.android.sdklib.IAndroidTarget;
 import com.android.utils.FileUtils;
 import com.android.utils.StringHelper;
 import com.google.common.base.Joiner;
@@ -248,7 +247,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.gradle.api.Action;
 import org.gradle.api.DefaultTask;
-import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
@@ -550,13 +548,11 @@ public abstract class TaskManager {
                         CONFIG_NAME_ANDROID_APIS,
                         project.files(
                                 (Callable)
-                                        () -> {
-                                            IAndroidTarget target =
-                                                    globalScope.getSdkComponents().getTarget();
-                                            return target == null
-                                                    ? null
-                                                    : target.getPath(IAndroidTarget.ANDROID_JAR);
-                                        }));
+                                        () ->
+                                                globalScope
+                                                        .getSdkComponents()
+                                                        .getAndroidJarProvider()
+                                                        .getOrNull()));
 
         // Adding this task to help the IDE find the mockable JAR.
         createMockableJar = project.getTasks().register("createMockableJar");
@@ -977,37 +973,18 @@ public abstract class TaskManager {
                                     .getFinalArtifactFiles(RENDERSCRIPT_LIB)
                                     .get());
 
-            File rsLibs =
+            rsFileCollection.from(
                     variantScope
                             .getGlobalScope()
-                            .getAndroidBuilder()
-                            .getSupportNativeLibFolder(
-                                    variantScope
-                                            .getGlobalScope()
-                                            .getSdkComponents()
-                                            .getBuildToolsInfo());
-            if (rsLibs != null && rsLibs.isDirectory()) {
-                rsFileCollection.from(rsLibs);
-            }
+                            .getSdkComponents()
+                            .getSupportNativeLibFolderProvider());
+
             if (variantScope.getVariantConfiguration().getRenderscriptSupportModeBlasEnabled()) {
-                File rsBlasLib =
+                rsFileCollection.from(
                         variantScope
                                 .getGlobalScope()
-                                .getAndroidBuilder()
-                                .getSupportBlasLibFolder(
-                                        variantScope
-                                                .getGlobalScope()
-                                                .getSdkComponents()
-                                                .getBuildToolsInfo());
-
-                if (rsBlasLib == null || !rsBlasLib.isDirectory()) {
-                    throw new GradleException(
-                            "Renderscript BLAS support mode is not supported "
-                                    + "in BuildTools"
-                                    + rsBlasLib);
-                } else {
-                    rsFileCollection.from(rsBlasLib);
-                }
+                                .getSdkComponents()
+                                .getSupportBlasLibFolderProvider());
             }
 
             variantScope
@@ -2033,7 +2010,11 @@ public abstract class TaskManager {
                         new DeviceProviderInstrumentTestTask.CreationAction(
                                 testVariantScope,
                                 new ConnectedDeviceProvider(
-                                        () -> globalScope.getSdkComponents().getAdbExecutable(),
+                                        () ->
+                                                globalScope
+                                                        .getSdkComponents()
+                                                        .getAdbExecutableProvider()
+                                                        .get(),
                                         extension.getAdbOptions().getTimeOutInMs(),
                                         new LoggerWrapper(logger)),
                                 testData,

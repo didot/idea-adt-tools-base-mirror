@@ -20,6 +20,7 @@ import static com.android.build.gradle.internal.scope.InternalArtifactType.DATA_
 import static com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_PACKAGE;
 
 import android.databinding.tool.LayoutXmlProcessor;
+import android.databinding.tool.util.RelativizableFile;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.internal.LoggerWrapper;
@@ -55,7 +56,6 @@ import com.android.ide.common.resources.SingleFileProcessor;
 import com.android.ide.common.vectordrawable.ResourcesNotSupportedException;
 import com.android.ide.common.workers.WorkerExecutorFacade;
 import com.android.resources.Density;
-import com.android.sdklib.BuildToolInfo;
 import com.android.utils.FileUtils;
 import com.android.utils.ILogger;
 import com.google.common.collect.ImmutableSet;
@@ -72,7 +72,6 @@ import javax.inject.Inject;
 import javax.xml.bind.JAXBException;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
@@ -123,9 +122,7 @@ public class MergeResources extends ResourceAwareTask {
 
     private Supplier<Integer> minSdk;
 
-    private Provider<BuildToolInfo> buildToolInfoProvider;
-
-    @Nullable private FileCollection aapt2FromMaven;
+    private FileCollection aapt2FromMaven;
 
     @Nullable private SingleFileProcessor dataBindingLayoutProcessor;
 
@@ -141,7 +138,6 @@ public class MergeResources extends ResourceAwareTask {
     @NonNull
     private static ResourceCompilationService getResourceProcessor(
             @NonNull AndroidBuilder builder,
-            @NonNull BuildToolInfo buildToolInfo,
             @Nullable FileCollection aapt2FromMaven,
             @NonNull WorkerExecutorFacade workerExecutor,
             ImmutableSet<Flag> flags,
@@ -159,15 +155,9 @@ public class MergeResources extends ResourceAwareTask {
         }
 
         Aapt2ServiceKey aapt2ServiceKey =
-                Aapt2DaemonManagerService.registerAaptService(
-                        aapt2FromMaven, buildToolInfo, builder.getLogger());
+                Aapt2DaemonManagerService.registerAaptService(aapt2FromMaven, builder.getLogger());
 
         return new WorkerExecutorResourceCompilationService(workerExecutor, aapt2ServiceKey);
-    }
-
-    @Input
-    public String getBuildToolsVersion() {
-        return buildToolInfoProvider.get().getRevision().toString();
     }
 
     @Override
@@ -186,7 +176,7 @@ public class MergeResources extends ResourceAwareTask {
 
     @Inject
     public MergeResources(WorkerExecutor workerExecutor) {
-        this.workerExecutorFacade = Workers.INSTANCE.getWorker(workerExecutor);
+        this.workerExecutorFacade = Workers.INSTANCE.getWorker(getPath(), workerExecutor);
     }
 
     @Override
@@ -213,7 +203,6 @@ public class MergeResources extends ResourceAwareTask {
         try (ResourceCompilationService resourceCompiler =
                 getResourceProcessor(
                         getBuilder(),
-                        buildToolInfoProvider.get(),
                         aapt2FromMaven,
                         workerExecutorFacade,
                         flags,
@@ -312,7 +301,6 @@ public class MergeResources extends ResourceAwareTask {
             try (ResourceCompilationService resourceCompiler =
                     getResourceProcessor(
                             getBuilder(),
-                            buildToolInfoProvider.get(),
                             aapt2FromMaven,
                             workerExecutorFacade,
                             flags,
@@ -522,9 +510,7 @@ public class MergeResources extends ResourceAwareTask {
     }
 
     @InputFiles
-    @Optional
     @PathSensitive(PathSensitivity.RELATIVE)
-    @Nullable
     public FileCollection getAapt2FromMaven() {
         return aapt2FromMaven;
     }
@@ -696,7 +682,11 @@ public class MergeResources extends ResourceAwareTask {
 
                             @Override
                             public boolean processSingleFile(File file, File out) throws Exception {
-                                return getProcessor().processSingleFile(file, out);
+                                return getProcessor()
+                                        .processSingleFile(
+                                                RelativizableFile.Companion.fromAbsoluteFile(
+                                                        file, task.getProject().getProjectDir()),
+                                                out);
                             }
 
                             @Override
@@ -721,9 +711,6 @@ public class MergeResources extends ResourceAwareTask {
                             .getBuildType()
                             .isPseudoLocalesEnabled();
             task.flags = flags;
-
-            task.buildToolInfoProvider =
-                    variantScope.getGlobalScope().getSdkComponents().getBuildToolInfoProvider();
 
             task.dependsOn(variantScope.getTaskContainer().getResourceGenTask());
 

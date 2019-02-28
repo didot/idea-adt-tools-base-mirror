@@ -1,6 +1,7 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
 load("//tools/base/bazel:kotlin.bzl", "kotlin_library", "kotlin_test")
+load("//tools/base/bazel:utils.bzl", "replace_manifest")
 
 # managed by go/iml_to_build
 iml_module(
@@ -261,5 +262,39 @@ kotlin_test(
         "//tools/base/third_party:org.jetbrains.trove4j_trove4j",
         "//tools/base/third_party:org.jetbrains_annotations",
         "//tools/base/third_party:org.ow2.asm_asm-tree",
+    ],
+)
+
+kotlin_library(
+    name = "studio-checks",
+    srcs = ["studio-checks/src/main/java"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":tools.lint-api",
+        "//prebuilts/tools/common/lint-psi/uast",
+        "//tools/base/annotations",
+    ],
+)
+
+replace_manifest(
+    name = "studio-checks.lint-rules",
+    manifest = "studio-checks/MANIFEST.MF",
+    original_jar = ":studio-checks",
+    visibility = ["//visibility:public"],
+)
+
+kotlin_test(
+    name = "studio-checks-tests",
+    srcs = ["studio-checks/src/test/java"],
+    jvm_flags = [
+        "-Dtest.suite.jar=studio-checks-tests.jar",
+    ],
+    test_class = "com.android.testutils.JarTestSuite",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":studio-checks",
+        ":tools.lint-api",
+        "//tools/base/lint/libs/lint-tests",
+        "//tools/base/third_party:junit_junit",
     ],
 )

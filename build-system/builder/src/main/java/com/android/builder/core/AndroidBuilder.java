@@ -29,7 +29,7 @@ import com.android.annotations.Nullable;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.internal.TestManifestGenerator;
 import com.android.builder.internal.aapt.AaptPackageConfig;
-import com.android.builder.internal.aapt.BlockingResourceLinker;
+import com.android.builder.internal.aapt.v2.Aapt2;
 import com.android.builder.internal.aapt.v2.Aapt2Exception;
 import com.android.builder.internal.aapt.v2.Aapt2InternalException;
 import com.android.builder.internal.compiler.DirectoryWalker;
@@ -155,46 +155,6 @@ public class AndroidBuilder {
     @NonNull
     public MessageReceiver getMessageReceiver() {
         return messageReceiver;
-    }
-
-    /**
-     * Returns the jar file for the renderscript mode.
-     *
-     * <p>This may return null if the SDK has not been loaded yet.
-     *
-     * @param useAndroidX whether to use AndroidX dependencies
-     * @return the jar file, or null.
-     */
-    @Nullable
-    public File getRenderScriptSupportJar(BuildToolInfo buildTools, boolean useAndroidX) {
-        return RenderScriptProcessor.getSupportJar(
-                buildTools.getLocation().getAbsolutePath(), useAndroidX);
-    }
-
-    /**
-     * Returns the native lib folder for the renderscript mode.
-     *
-     * <p>This may return null if the SDK has not been loaded yet.
-     *
-     * @return the folder, or null.
-     */
-    @Nullable
-    public File getSupportNativeLibFolder(BuildToolInfo buildTools) {
-        return RenderScriptProcessor.getSupportNativeLibFolder(
-                buildTools.getLocation().getAbsolutePath());
-    }
-
-    /**
-     * Returns the BLAS lib folder for renderscript support mode.
-     *
-     * <p>This may return null if the SDK has not been loaded yet.
-     *
-     * @return the folder, or null.
-     */
-    @Nullable
-    public File getSupportBlasLibFolder(BuildToolInfo buildTools) {
-        return RenderScriptProcessor.getSupportBlasLibFolder(
-                buildTools.getLocation().getAbsolutePath());
     }
 
     @NonNull
@@ -580,9 +540,7 @@ public class AndroidBuilder {
     }
 
     public static void processResources(
-            @NonNull BlockingResourceLinker aapt,
-            @NonNull AaptPackageConfig aaptConfig,
-            @NonNull ILogger logger)
+            @NonNull Aapt2 aapt, @NonNull AaptPackageConfig aaptConfig, @NonNull ILogger logger)
             throws IOException, ProcessException {
 
         try {

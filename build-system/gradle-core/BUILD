@@ -9,12 +9,9 @@ fileset(
         "src/main/resources/**",
         "src/fromGradle/resources/**",
     ]) + [
-        # TODO: this jar needs to contain classes from instant-run-runtime as well.
-        "//tools/base/instant-run/instant-run-server:libinstant-run-server.jar",
         "//prebuilts/tools/common/aapt:aapt2_version.properties",
     ],
     mappings = {
-        "//tools/base/instant-run/instant-run-server:libinstant-run-server.jar": "instant-run/instant-run-server.jar",
         "src/main/resources/": "",
         "src/fromGradle/resources/": "",
         "//prebuilts/tools/common/aapt:aapt2_version.properties": "com/android/build/gradle/internal/res/aapt2_version.properties",
@@ -37,6 +34,7 @@ kotlin_library(
     bundled_deps = [
         ":proto",
     ],
+    lint_baseline = "lint_baseline.xml",
     pom = ":pom",
     resource_strip_prefix = "tools/base/build-system/gradle-core",
     resources = [":resources"],

@@ -35,6 +35,7 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
@@ -78,9 +79,12 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
     @get:OutputDirectory lateinit var aaptIntermediateDir: File private set
     @get:OutputFile lateinit var staticLibApk: File private set
 
-    private lateinit var androidJarPathProvider: Provider<String>
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.getWorker(path, workerExecutor)
 
     @TaskAction
     fun taskAction() {
@@ -94,7 +98,7 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
         imports.addAll(sharedLibraryDependencies.files)
 
         val request = AaptPackageConfig(
-                androidJarPath = androidJarPathProvider.get(),
+                androidJarPath = androidJar.get().absolutePath,
                 manifestFile = manifestFile.single(),
                 options = AaptOptions(null, false, null),
                 resourceDirs = ImmutableList.copyOf(inputResourcesDirectories.asIterable()),
@@ -110,8 +114,10 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
             logger = iLogger
         )
         workers.use {
-            it.submit(Aapt2LinkRunnable::class.java,
-                Aapt2LinkRunnable.Params(aapt2ServiceKey, request))
+            it.submit(
+                Aapt2LinkRunnable::class.java,
+                Aapt2LinkRunnable.Params(aapt2ServiceKey, request)
+            )
         }
     }
 
@@ -173,7 +179,7 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
             task.packageForRSupplier = Suppliers.memoize(variantScope.variantConfiguration::getOriginalApplicationId)
             task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
 
-            task.androidJarPathProvider = variantScope.globalScope.sdkComponents.getPathForTargetElementProvider(IAndroidTarget.ANDROID_JAR, task.project)
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
         }
     }
 

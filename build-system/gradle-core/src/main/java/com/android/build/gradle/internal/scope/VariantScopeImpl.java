@@ -90,6 +90,7 @@ import com.android.builder.dexing.DexingType;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.model.OptionalCompilationStep;
+import com.android.sdklib.AndroidTargetHash;
 import com.android.sdklib.AndroidVersion;
 import com.android.utils.FileUtils;
 import com.android.utils.ILogger;
@@ -505,9 +506,16 @@ public class VariantScopeImpl implements VariantScope {
         return !Strings.isNullOrEmpty(projectOptions.get(StringOption.IDE_BUILD_TARGET_ABI))
                 || !Strings.isNullOrEmpty(projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY))
                 || projectOptions.get(IntegerOption.IDE_TARGET_DEVICE_API) != null
-                || globalScope.getSdkComponents().getTarget().getVersion().isPreview()
+                || isPreviewTargetPlatform()
                 || getMinSdkVersion().getCodename() != null
                 || getVariantConfiguration().getTargetSdkVersion().getCodename() != null;
+    }
+
+    private boolean isPreviewTargetPlatform() {
+        AndroidVersion version =
+                AndroidTargetHash.getVersionFromHash(
+                        globalScope.getExtension().getCompileSdkVersion());
+        return version.isPreview();
     }
 
     @NonNull
@@ -587,14 +595,8 @@ public class VariantScopeImpl implements VariantScope {
 
     @NonNull
     @Override
-    public File getInstantRunSplitApkOutputFolder() {
+    public File getSplitApkOutputFolder() {
         return new File(globalScope.getIntermediatesDir(), "/split-apk/" + getDirName());
-    }
-
-    @NonNull
-    @Override
-    public File getDefaultInstantRunApkLocation() {
-        return FileUtils.join(globalScope.getIntermediatesDir(), "instant-run-apk");
     }
 
     // Precomputed file paths.
