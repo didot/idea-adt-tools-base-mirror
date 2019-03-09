@@ -19,14 +19,14 @@ import com.android.ddmlib.AndroidDebugBridge;
 import com.android.ddmlib.IDevice;
 import com.android.testutils.TestUtils;
 import com.android.tools.deploy.proto.Deploy;
+import com.android.tools.deploy.protobuf.ByteString;
+import com.android.tools.deploy.protobuf.CodedOutputStream;
 import com.android.tools.deployer.devices.FakeDevice;
 import com.android.tools.deployer.devices.FakeDeviceLibrary;
 import com.android.tools.deployer.devices.shell.Arguments;
 import com.android.tools.deployer.devices.shell.ShellCommand;
 import com.android.utils.FileUtils;
 import com.google.common.collect.Lists;
-import com.google.protobuf.ByteString;
-import com.google.protobuf.CodedOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -65,16 +65,21 @@ public class ApkInstallerTest extends FakeAdbTestBase {
 
         device.getShell().addCommand(new SkipInstallCommand());
 
-        apkInstaller.install(
-                "com.android.test.uibench",
-                Lists.newArrayList(
-                        TestUtils.getWorkspaceFile(BASE + "signed_app/base.apk").getAbsolutePath()),
-                InstallOptions.builder().build(),
-                Deployer.InstallMode.DELTA);
+        boolean installed =
+                apkInstaller.install(
+                        "com.android.test.uibench",
+                        Lists.newArrayList(
+                                TestUtils.getWorkspaceFile(BASE + "signed_app/base.apk")
+                                        .getAbsolutePath()),
+                        InstallOptions.builder().build(),
+                        Deployer.InstallMode.DELTA,
+                        Lists.newArrayList());
+
 
         List<String> history = device.getShell().getHistory();
         String lastCmd = history.get(history.size() - 1);
         if (device.apiLevelAtLeast(24)) {
+            Assert.assertFalse(installed);
             Assert.assertEquals("am force-stop com.android.test.uibench", lastCmd);
         } else if (device.apiLevelAtLeast(20)) {
             Assert.assertTrue(lastCmd.startsWith("pm install-commit"));

@@ -89,7 +89,12 @@ enum class RemovedOptions(
     SERIAL_AAPT2(
         "android.injected.aapt2.serial",
         "Invoking AAPT2 serially is no longer supported."
-    )
+    ),
+    ENABLE_DATA_BINDING_V2("android.databinding.enableV2", "Databinding v1 is removed."),
+    INJECT_SDK_MAVEN_REPOS(
+        "android.injectSdkMavenRepos",
+        "The ability to inject the Android SDK maven repos is removed in AGP 3.5"
+    ),
     ;
 
     override val status: Option.Status

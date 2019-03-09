@@ -79,6 +79,7 @@ enum class BooleanOption(
     ENFORCE_UNIQUE_PACKAGE_NAMES("android.uniquePackageNames", false, status = Option.Status.STABLE),
     USE_RELATIVE_PATH_IN_TEST_CONFIG("android.testConfig.useRelativePath", false),
     ENABLE_INCREMENTAL_DATA_BINDING("android.databinding.incremental", false, Option.Status.STABLE),
+    KEEP_SERVICES_BETWEEN_BUILDS("android.keepWorkerActionServicesBetweenBuilds", false),
 
     // ---------------
     // Lifecycle flags: Stable stage, Enabled by default, can be disabled
@@ -96,7 +97,6 @@ enum class BooleanOption(
     CONVERT_NON_NAMESPACED_DEPENDENCIES("android.convertNonNamespacedDependencies", true),
     /** Set to true to build native .so libraries only for the device it will be run on. */
     BUILD_ONLY_TARGET_ABI("android.buildOnlyTargetAbi", true),
-    ENABLE_DATA_BINDING_V2("android.databinding.enableV2", true),
     ENABLE_SEPARATE_APK_RESOURCES("android.enableSeparateApkRes", true),
     ENABLE_SEPARATE_R_CLASS_COMPILATION(AndroidProject.PROPERTY_SEPARATE_R_CLASS_COMPILATION, true),
     ENABLE_PARALLEL_NATIVE_JSON_GEN("android.enableParallelJsonGen", true),
@@ -114,10 +114,7 @@ enum class BooleanOption(
     ENABLE_DESUGAR(
         "android.enableDesugar", true, DeprecationReporter.DeprecationTarget.DESUGAR_TOOL),
     ENABLE_D8("android.enableD8", true, DeprecationReporter.DeprecationTarget.LEGACY_DEXER),
-    INJECT_SDK_MAVEN_REPOS(
-        "android.injectSdkMavenRepos",
-        false,
-        Option.Status.Deprecated(DeprecationReporter.DeprecationTarget.SDK_MAVEN_REPOS)),
+
     ;
     constructor(
         propertyName: String,

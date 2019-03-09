@@ -15,7 +15,6 @@
  */
 package com.android.tools.deployer;
 
-import static com.android.tools.deployer.AdbClient.InstallResult.INSTALL_PARSE_FAILED_NO_CERTIFICATES;
 import static com.android.tools.deployer.AdbClient.InstallResult.OK;
 import static com.android.tools.deployer.AdbClient.InstallResult.SKIPPED_INSTALL;
 
@@ -25,7 +24,7 @@ import com.android.tools.deploy.proto.Deploy;
 import com.android.tools.deployer.model.ApkEntry;
 import com.android.utils.ILogger;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 public class ApkInstaller {
@@ -60,15 +59,16 @@ public class ApkInstaller {
         this.logger = logger;
     }
 
-    public List<InstallMetric> install(
+    /** @return true if if installation happened. False if installation was skipped */
+    public boolean install(
             String packageName,
             List<String> apks,
             InstallOptions options,
-            Deployer.InstallMode installMode)
+            Deployer.InstallMode installMode,
+            Collection<DeployMetric> metrics)
             throws DeployerException {
         DeltaInstallResult deltaInstallResult = new DeltaInstallResult();
         deltaInstallResult.status = DeltaInstallStatus.UNKNOWN;
-        List<InstallMetric> metrics = new ArrayList<>();
 
         // First attempt to delta install.
         boolean allowReinstall = true;
@@ -76,19 +76,15 @@ public class ApkInstaller {
         try {
             deltaInstallResult = deltaInstall(apks, options, allowReinstall, installMode);
         } catch (DeployerException e) {
-            logger.error(e, "Unable to delta install");
+            logger.info("Unable to delta install: '%s'", e.getDetails());
         }
 
         AdbClient.InstallResult result = OK;
         switch (deltaInstallResult.status) {
             case SUCCESS:
                 result = OK;
-                InstallMetric metric =
-                        new InstallMetric(
-                                "DELTAINSTALL",
-                                deltaInstallResult.status.name(),
-                                deltaInstallStart);
-                metric.finish(metrics);
+                DeployMetric metric = new DeployMetric("DELTAINSTALL", deltaInstallStart);
+                metric.finish(deltaInstallResult.status.name(), metrics);
                 break;
             case UNKNOWN:
                 InstallReceiver installReceiver = new InstallReceiver();
@@ -97,19 +93,16 @@ public class ApkInstaller {
                 result = parseInstallerResultErrorCode(installReceiver.getErrorCode());
 
                 // Record metric for delta install.
-                InstallMetric deltaInstallMetric =
-                        new InstallMetric(
-                                "DELTAINSTALL",
-                                deltaInstallResult.status.name() + "." + result.name(),
-                                deltaInstallStart);
-                deltaInstallMetric.finish(metrics);
+                DeployMetric deltaInstallMetric =
+                        new DeployMetric("DELTAINSTALL", deltaInstallStart);
+                deltaInstallMetric.finish(
+                        deltaInstallResult.status.name() + "." + result.name(), metrics);
 
                 // Fallback
                 result = adb.install(apks, options.getFlags(), allowReinstall);
                 long installStartTime = System.currentTimeMillis();
-                InstallMetric installResult =
-                        new InstallMetric("INSTALL", result.name(), installStartTime);
-                installResult.finish(metrics);
+                DeployMetric installResult = new DeployMetric("INSTALL", installStartTime);
+                installResult.finish(result.name(), metrics);
                 break;
             case DISABLED:
             case CANNOT_GENERATE_DELTA:
@@ -119,25 +112,21 @@ public class ApkInstaller {
                 {
                     // Delta install could not be attempted (app not install or delta above limit or API
                     // not supported),
-                    InstallMetric deltaNotPatchableMetric =
-                            new InstallMetric(
-                                    "DELTAINSTALL",
-                                    deltaInstallResult.status.name(),
-                                    deltaInstallStart);
-                    deltaNotPatchableMetric.finish(metrics);
+                    DeployMetric deltaNotPatchableMetric =
+                            new DeployMetric("DELTAINSTALL", deltaInstallStart);
+                    deltaNotPatchableMetric.finish(deltaInstallResult.status.name(), metrics);
 
                     long installStarted = System.currentTimeMillis();
                     result = adb.install(apks, options.getFlags(), allowReinstall);
-                    InstallMetric instalMetric =
-                            new InstallMetric("INSTALL", result.name(), installStarted);
-                    instalMetric.finish(metrics);
+                    DeployMetric installMetric = new DeployMetric("INSTALL", installStarted);
+                    installMetric.finish(result.name(), metrics);
                     break;
                 }
             case NO_CHANGES:
                 {
                     result = SKIPPED_INSTALL;
-                    InstallMetric instalMetric = new InstallMetric("INSTALL", result.name());
-                    instalMetric.finish(metrics);
+                    DeployMetric installMetric = new DeployMetric("INSTALL");
+                    installMetric.finish(result.name(), metrics);
                     try {
                         adb.shell(new String[] {"am", "force-stop", packageName});
                     } catch (IOException e) {
@@ -170,12 +159,13 @@ public class ApkInstaller {
                 // Fall through
         }
 
+        boolean installed = true;
         if (result == SKIPPED_INSTALL) {
-            // TODO: Show a message saying nothing is installed.
+            installed = false;
         } else if (result != OK) {
             throw DeployerException.installFailed(result.name(), message);
         }
-        return metrics;
+        return installed;
     }
 
     DeltaInstallResult deltaInstall(

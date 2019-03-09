@@ -19,7 +19,6 @@ package com.android.build.gradle.internal.ide;
 import static com.android.SdkConstants.DIST_URI;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_BASE_CLASS_SOURCE_OUT;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.JAVAC;
-import static com.android.build.gradle.options.BooleanOption.ENABLE_DATA_BINDING_V2;
 import static com.android.builder.model.AndroidProject.ARTIFACT_MAIN;
 import static com.android.builder.model.AndroidProject.PROJECT_TYPE_APP;
 import static com.android.builder.model.AndroidProject.PROJECT_TYPE_DYNAMIC_FEATURE;
@@ -325,10 +324,10 @@ public class ModelBuilder<Extension extends AndroidConfig>
         if (globalScope.getSdkComponents().getSdkSetupCorrectly().get()) {
             bootClasspath =
                     globalScope
-                            .getFilteredBootClasspathProvider()
-                            .get()
+                            .getFilteredBootClasspath()
+                            .getFiles()
                             .stream()
-                            .map(c -> c.getAbsolutePath())
+                            .map(File::getAbsolutePath)
                             .collect(Collectors.toList());
         } else {
             // SDK not set up, error will be reported as a sync issue.
@@ -382,6 +381,7 @@ public class ModelBuilder<Extension extends AndroidConfig>
                     extraModelInfo.getExtraFlavorSourceProviders(pfData.getProductFlavor().getName())));
         }
 
+        String defaultVariant = variantManager.getDefaultVariant(syncIssues::add);
         for (VariantScope variantScope : variantManager.getVariantScopes()) {
             if (!variantScope.getVariantData().getType().isTestComponent()) {
                 variantNames.add(variantScope.getFullVariantName());
@@ -399,6 +399,7 @@ public class ModelBuilder<Extension extends AndroidConfig>
                 productFlavors,
                 variants,
                 variantNames,
+                defaultVariant,
                 globalScope.getExtension().getCompileSdkVersion(),
                 bootClasspath,
                 frameworkSource,
@@ -1138,10 +1139,8 @@ public class ModelBuilder<Extension extends AndroidConfig>
         BuildArtifactsHolder artifacts = scope.getArtifacts();
         GlobalScope globalScope = variantData.getScope().getGlobalScope();
 
-        boolean useDataBindingV2 = globalScope.getProjectOptions().get(ENABLE_DATA_BINDING_V2);
         boolean addDataBindingSources =
                 globalScope.getExtension().getDataBinding().isEnabled()
-                        && useDataBindingV2
                         && artifacts.hasArtifact(DATA_BINDING_BASE_CLASS_SOURCE_OUT);
         List<File> extraFolders = getGeneratedSourceFoldersForUnitTests(variantData);
 

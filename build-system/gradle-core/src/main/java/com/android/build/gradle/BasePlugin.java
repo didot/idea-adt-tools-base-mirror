@@ -248,7 +248,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
         ProfilerInitializer.init(project, projectOptions);
         threadRecorder = ThreadRecorder.get();
 
-        // initialize our workers using the project's options.
         Workers.INSTANCE.initFromProject(
                 projectOptions,
                 // possibly, in the future, consider using a pool with a dedicated size
@@ -422,15 +421,19 @@ public abstract class BasePlugin<E extends BaseExtension2>
                             return;
                         }
                         ModelBuilder.clearCaches();
+                        Workers.INSTANCE.shutdown();
                         sdkComponents.unload();
                         threadRecorder.record(
                                 ExecutionType.BASE_PLUGIN_BUILD_FINISHED,
                                 project.getPath(),
                                 null,
                                 () -> {
-                                    WorkerActionServiceRegistry.INSTANCE
-                                            .shutdownAllRegisteredServices(
-                                                    ForkJoinPool.commonPool());
+                                    if (!projectOptions.get(
+                                            BooleanOption.KEEP_SERVICES_BETWEEN_BUILDS)) {
+                                        WorkerActionServiceRegistry.INSTANCE
+                                                .shutdownAllRegisteredServices(
+                                                        ForkJoinPool.commonPool());
+                                    }
                                     Main.clearInternTables();
                                 });
                         DeprecationReporterImpl.Companion.clean();
@@ -458,7 +461,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
                         () -> getExtension().getCompileSdkVersion(),
                         () -> getExtension().getBuildToolsRevision(),
                         factory,
-                        projectOptions.get(BooleanOption.INJECT_SDK_MAVEN_REPOS),
                         projectOptions.get(BooleanOption.USE_ANDROID_X));
 
         return new SdkComponents(

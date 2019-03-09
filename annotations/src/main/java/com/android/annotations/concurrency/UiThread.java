@@ -24,6 +24,10 @@ import java.lang.annotation.Target;
 /**
  * Indicates that the target method should only be called on the UI thread. If the annotated element
  * is a class, then all methods in the class should be called on the UI thread.
+ *
+ * <p>Methods running on UI thread should not call {@link Slow} methods.
+ *
+ * @see AnyThread
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
