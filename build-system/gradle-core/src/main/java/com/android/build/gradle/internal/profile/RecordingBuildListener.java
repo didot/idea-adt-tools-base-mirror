@@ -19,6 +19,7 @@ package com.android.build.gradle.internal.profile;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.tasks.VariantAwareTask;
 import com.android.builder.profile.ProcessProfileWriter;
 import com.android.builder.profile.ProfileRecordWriter;
@@ -41,6 +42,9 @@ public class RecordingBuildListener implements TaskExecutionListener {
     @NonNull private final ProfileRecordWriter recordWriter;
     // map of outstanding tasks executing, keyed by their path.
     @NonNull private final Map<String, TaskProfilingRecord> taskRecords = new ConcurrentHashMap<>();
+    @NonNull
+    private static final LoggerWrapper logger =
+            LoggerWrapper.getLogger(RecordingBuildListener.class);
 
     RecordingBuildListener(@NonNull ProfileRecordWriter recorder) {
         recordWriter = recorder;
@@ -112,5 +116,14 @@ public class RecordingBuildListener implements TaskExecutionListener {
 
     public void closeTaskRecord(@NonNull String taskPath) {
         taskRecords.remove(taskPath);
+    }
+
+    @Nullable
+    public WorkerProfilingRecord getWorkerRecord(@NonNull String taskPath, @NonNull String worker) {
+        TaskProfilingRecord taskRecord = getTaskRecord(taskPath);
+        if (taskRecord == null) {
+            logger.warning("No task by the name " + taskPath);
+        }
+        return taskRecord.get(worker);
     }
 }

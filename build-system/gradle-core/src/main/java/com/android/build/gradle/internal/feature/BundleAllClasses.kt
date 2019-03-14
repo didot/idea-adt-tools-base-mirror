@@ -29,9 +29,11 @@ import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.ide.common.workers.WorkerExecutorFacade
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.FileVisitDetails
 import org.gradle.api.file.ReproducibleFileVisitor
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
@@ -51,14 +53,14 @@ import javax.inject.Inject
  */
 open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) : AndroidVariantTask() {
 
-    private val workers: WorkerExecutorFacade = Workers.getWorker(path, workerExecutor)
+    private val workers: WorkerExecutorFacade = Workers.getWorker(project.name, path, workerExecutor)
 
     @get:OutputFile
     lateinit var outputJar: File
         private set
 
     @get:InputFiles
-    lateinit var javacClasses: BuildableArtifact
+    lateinit var javacClasses: Provider<Directory>
         private set
 
     @get:InputFiles
@@ -94,7 +96,7 @@ open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) 
             override fun visitDir(fileVisitDetails: FileVisitDetails) {
             }
         }
-        (javacClasses as BuildableArtifactImpl).asFileTree.visit(collector)
+        javacClasses.get().asFileTree.visit(collector)
         preJavacClasses.asFileTree.visit(collector)
         postJavacClasses.asFileTree.visit(collector)
         thisRClassClasses?.get()?.asFileTree?.visit(collector)
@@ -128,8 +130,7 @@ open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) 
         override fun configure(task: BundleAllClasses) {
             super.configure(task)
             task.outputJar = outputJar
-            task.javacClasses =
-                    variantScope.artifacts.getArtifactFiles(InternalArtifactType.JAVAC)
+            task.javacClasses = variantScope.artifacts.getFinalProduct(InternalArtifactType.JAVAC)
             task.preJavacClasses = variantScope.variantData.allPreJavacGeneratedBytecode
             task.postJavacClasses = variantScope.variantData.allPostJavacGeneratedBytecode
             val globalScope = variantScope.globalScope

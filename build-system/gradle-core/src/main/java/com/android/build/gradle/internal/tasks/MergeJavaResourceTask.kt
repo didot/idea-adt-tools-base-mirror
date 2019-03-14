@@ -30,6 +30,7 @@ import com.android.build.gradle.internal.scope.InternalArtifactType.MERGED_JAVA_
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.ide.common.resources.FileStatus
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
@@ -97,7 +98,7 @@ open class MergeJavaResourceTask
     @get:OutputFile
     val outputFile: RegularFileProperty = objects.fileProperty()
 
-    private val workers = Workers.getWorker(path, workerExecutor)
+    private val workers = Workers.getWorker(project.name, path, workerExecutor)
 
     override fun isIncremental() = true
 
@@ -234,12 +235,12 @@ open class MergeJavaResourceTask
 
 fun getProjectJavaRes(scope: VariantScope): FileCollection {
     val javaRes = scope.globalScope.project.files()
-    javaRes.from(scope.artifacts.getFinalArtifactFiles(InternalArtifactType.JAVA_RES).get())
-    javaRes.from(scope.artifacts.getFinalArtifactFiles(InternalArtifactType.JAVAC).get())
+    javaRes.from(scope.artifacts.getFinalArtifactFiles(InternalArtifactType.JAVA_RES))
+    javaRes.from(scope.artifacts.getFinalProduct<Directory>(InternalArtifactType.JAVAC))
     javaRes.from(scope.variantData.allPreJavacGeneratedBytecode)
     javaRes.from(scope.variantData.allPostJavacGeneratedBytecode)
     javaRes.from(
-        scope.artifacts.getFinalArtifactFiles(InternalArtifactType.RUNTIME_R_CLASS_CLASSES).get()
+        scope.artifacts.getFinalArtifactFiles(InternalArtifactType.RUNTIME_R_CLASS_CLASSES)
     )
     return javaRes
 }

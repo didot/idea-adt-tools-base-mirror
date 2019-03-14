@@ -36,7 +36,6 @@
 #include "utils/tokenizer.h"
 #include "utils/trace.h"
 
-using profiler::proto::Device;
 using std::string;
 
 namespace profiler {
@@ -194,7 +193,7 @@ bool AtraceManager::StopProfiling(const std::string &app_pkg_name,
     // For pre O devices, simply stopping atrace doesn't always write a file.
     // As such we need to create the file first. This allows atrace to
     // properly modify the contents of the file.
-    if (DeviceInfo::feature_level() < Device::O) {
+    if (DeviceInfo::feature_level() < DeviceInfo::O) {
       DiskFileSystem fs;
       fs.CreateFile(path);
     }
@@ -224,6 +223,11 @@ void AtraceManager::Shutdown() {
     Log::D("Profiler:Shutdown atrace");
     is_profiling_ = false;
     atrace_->Stop();
+  }
+  // Ensure atrace dump thread exits when shutdown primarily for test.
+  if (atrace_thread_.joinable()) {
+    dump_data_condition_.notify_all();
+    atrace_thread_.join();
   }
 }
 

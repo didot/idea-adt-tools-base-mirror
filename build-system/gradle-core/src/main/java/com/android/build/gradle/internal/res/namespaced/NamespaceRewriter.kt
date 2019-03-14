@@ -224,12 +224,11 @@ class NamespaceRewriter(
     }
 
     private fun rewriteParent(element: Element, type: String) {
-        val name: String = element.attributes.getNamedItem("name")!!.nodeValue
-
         val originalParent: String? = element.attributes.getNamedItem("parent")?.nodeValue
         var parent: String? = null
         if (originalParent == null) {
             // Guess, maybe we have an implicit parent?
+            val name: String = element.attributes.getNamedItem("name")!!.nodeValue
             val possibleParent = name.substringBeforeLast('.', "")
             if (!possibleParent.isEmpty()) {
                 val possiblePackage = maybeFindPackage(
@@ -241,8 +240,9 @@ class NamespaceRewriter(
                     parent = "@*$possiblePackage:$type/$possibleParent"
                 }
             }
-        } else if (originalParent.isEmpty()) {
-            // leave it alone, there is explicitly no parent
+        } else if (originalParent.isEmpty() || (originalParent.contains(':'))) {
+            // leave it alone, there is explicitly no parent or we already have a namespace (most
+            // likely "android:").
         } else {
             // Rewrite explicitly included parents
             parent = originalParent
@@ -259,9 +259,14 @@ class NamespaceRewriter(
         }
     }
 
+    private fun removeParent(element: Element) {
+        element.removeAttribute("parent")
+    }
+
     private fun rewriteStyleableElement(element: Element) {
-        // Rewrite the parent, if it exists.
-        rewriteParent(element, "styleable")
+        // Remove the parent, if it exists. The 'parent' tag in a declare-styleable doesn't actually
+        // do anything, so it's okay to just remove them.
+        removeParent(element)
 
         // Take care of the styleable children.
         element.childNodes.forEach { child ->
@@ -791,7 +796,7 @@ class NamespaceRewriter(
         if (packages != null && !packages.isEmpty()) {
             // If we have found more than one fitting package, log a warning about which one we
             // chose (the closest one in the dependencies graph).
-            logger.warn(
+            logger.info(
                 "In package $localPackage multiple options found " +
                         "in its dependencies for resource $type $name. " +
                         "Using $result, other available: ${Joiner.on(", ").join(packages)}"

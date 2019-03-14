@@ -158,13 +158,14 @@ class NamespaceRewriterTest {
         )
             .rewriteClass(testClass.toPath(), testClass.toPath())
 
-        assertThat(logger.warnings).hasSize(2)
-        assertThat(logger.warnings[0]).contains(
+        assertThat(logger.warnings).hasSize(0)
+        assertThat(logger.infos).hasSize(2)
+        assertThat(logger.infos[0]).contains(
             "In package com.example.mymodule multiple options found in its dependencies for " +
                     "resource string s1. Using com.example.mymodule, other available: " +
                     "com.example.libB"
         )
-        assertThat(logger.warnings[1]).contains(
+        assertThat(logger.infos[1]).contains(
             "In package com.example.mymodule multiple options found in its dependencies for " +
                     "resource string s2. Using com.example.dependency, other available: " +
                     "com.example.libA, com.example.libB"
@@ -474,6 +475,12 @@ class NamespaceRewriterTest {
         </attr>
     </declare-styleable>
 
+    <declare-styleable name="NoParent" />
+
+    <declare-styleable name="UnnecessaryParent" parent="invalidParentReference" />
+
+    <style name="MyStyleFromAndroid" parent="android:Parent.Theme.Style"/>
+
 </resources>"""
         )
         val namespaced = File(temporaryFolder.newFolder("namespaced", "values"), "values.xml")
@@ -524,13 +531,20 @@ class NamespaceRewriterTest {
         <item name="*com.example.module:showText">true</item>
     </style>
 
-    <declare-styleable name="PieChart" parent="@*com.example.dependency:styleable/StyleableParent">
+    <declare-styleable name="PieChart">
         <attr name="*com.example.module:showText" format="boolean" />
         <attr name="*com.example.module:labelPosition" format="enum">
             <enum name="left" value="0" />
             <enum name="right" value="1" />
         </attr>
     </declare-styleable>
+
+    <declare-styleable name="NoParent" />
+
+    <declare-styleable name="UnnecessaryParent" />
+
+    <style name="MyStyleFromAndroid" parent="android:Parent.Theme.Style" />
+
 </resources>""".xmlFormat()
         )
     }

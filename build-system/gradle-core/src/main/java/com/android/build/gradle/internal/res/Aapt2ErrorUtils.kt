@@ -27,6 +27,7 @@ import com.android.ide.common.blame.parser.aapt.Aapt2OutputParser
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.utils.StdLogger
 import com.google.common.collect.ImmutableList
+import java.io.File
 
 /**
  * Rewrite exceptions to point to their original files.
@@ -36,7 +37,14 @@ import com.google.common.collect.ImmutableList
  * This is expensive, so should only be used if the build is going to fail anyway.
  * The merging log is used directly from memory, as this only is needed within the resource merger.
  */
-fun rewriteCompileException(e: Aapt2Exception, request: CompileResourceRequest): Aapt2Exception {
+fun rewriteCompileException(
+    e: Aapt2Exception,
+    request: CompileResourceRequest,
+    enableBlame: Boolean
+): Aapt2Exception {
+    if (!enableBlame) {
+        return e
+    }
     if (request.blameMap.isEmpty()) {
         return if (request.inputFile == request.originalInputFile) {
             e // Nothing to rewrite.
@@ -69,11 +77,18 @@ fun rewriteCompileException(e: Aapt2Exception, request: CompileResourceRequest):
  * This is expensive, so should only be used if the build is going to fail anyway.
  * The merging log is loaded from files lazily.
  */
-fun rewriteLinkException(e: Aapt2Exception, mergingLog: MergingLog): Aapt2Exception {
+fun rewriteLinkException(
+    e: Aapt2Exception,
+    mergeBlameFolder: File?
+): Aapt2Exception {
+    if (mergeBlameFolder == null) {
+        return e
+    }
+    val mergingLog = MergingLog(mergeBlameFolder)
     return rewriteException(e) { mergingLog.find(it) }
 }
 
-/** Attept to rewrite the given exception using the lookup function. */
+/** Attempt to rewrite the given exception using the lookup function. */
 private fun rewriteException(
     e: Aapt2Exception,
     blameLookup: (SourceFilePosition) -> SourceFilePosition

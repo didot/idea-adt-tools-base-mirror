@@ -72,8 +72,8 @@ import java.util.function.Supplier;
  * DefaultProductFlavor}s, {@link DefaultBuildType} and dependencies) and use them when doing
  * specific build steps.
  *
- * <p>To use: create a builder with {@link #AndroidBuilder(ProcessExecutor, JavaProcessExecutor,
- * EvalIssueReporter, MessageReceiver, ILogger)}
+ * <p>To use: create a builder with {@link #AndroidBuilder(String, ProcessExecutor,
+ * JavaProcessExecutor, EvalIssueReporter, MessageReceiver, ILogger)}
  *
  * <p>then build steps can be done with:
  *
@@ -188,11 +188,10 @@ public class AndroidBuilder {
             @Nullable Integer maxSdkVersion,
             @NonNull String outManifestLocation,
             @Nullable String outAaptSafeManifestLocation,
-            @Nullable String outInstantRunManifestLocation,
             @Nullable String outMetadataFeatureManifestLocation,
             @Nullable String outBundleManifestLocation,
             @Nullable String outInstantAppManifestLocation,
-            ManifestMerger2.MergeType mergeType,
+            @NonNull ManifestMerger2.MergeType mergeType,
             Map<String, Object> placeHolders,
             @NonNull Collection<Invoker.Feature> optionalFeatures,
             @Nullable File reportFile,
@@ -246,15 +245,6 @@ public class AndroidBuilder {
                                 mergingReport.getMergedDocument(
                                         MergingReport.MergedManifestKind.AAPT_SAFE),
                                 new File(outAaptSafeManifestLocation));
-                    }
-
-                    if (outInstantRunManifestLocation != null) {
-                        String instantRunMergedManifest =
-                                mergingReport.getMergedDocument(
-                                        MergingReport.MergedManifestKind.INSTANT_RUN);
-                        if (instantRunMergedManifest != null) {
-                            save(instantRunMergedManifest, new File(outInstantRunManifestLocation));
-                        }
                     }
 
                     if (outMetadataFeatureManifestLocation != null) {
@@ -572,10 +562,7 @@ public class AndroidBuilder {
                     SymbolUtils.loadDependenciesSymbolTables(
                             aaptConfig.getLibrarySymbolTableFiles());
 
-            boolean finalIds = true;
-            if (aaptConfig.getVariantType().isAar()) {
-                finalIds = false;
-            }
+            boolean finalIds = aaptConfig.getUseFinalIds();
 
             RGeneration.generateRForLibraries(mainSymbols, depSymbolTables, sourceOut, finalIds);
         }
@@ -622,9 +609,8 @@ public class AndroidBuilder {
                 .write(content);
     }
 
-    public void generateUnbundledWearApkData(
-            @NonNull File outResFolder,
-            @NonNull String mainPkgName) throws IOException {
+    public static void generateUnbundledWearApkData(
+            @NonNull File outResFolder, @NonNull String mainPkgName) throws IOException {
 
         String content = String.format(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
@@ -678,7 +664,7 @@ public class AndroidBuilder {
             @NonNull File outputDir,
             @NonNull List<String> defaultArgs,
             @NonNull Map<String, List<String>> scopedArgs,
-            @Nullable File nkdLocation,
+            @Nullable Supplier<File> ndkLocation,
             @NonNull ProcessOutputHandler processOutputHandler,
             @NonNull WorkerExecutorFacade workers)
             throws IOException {
@@ -688,7 +674,7 @@ public class AndroidBuilder {
         Supplier<ShaderProcessor> processor =
                 () ->
                         new ShaderProcessor(
-                                nkdLocation,
+                                ndkLocation,
                                 sourceFolder,
                                 outputDir,
                                 defaultArgs,

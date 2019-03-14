@@ -2141,6 +2141,8 @@ public final class SdkConstants {
     public static final String FN_RESOURCE_SHARED_STATIC_LIBRARY = "shared.apk";
     /** R class jar, used for resource static library */
     public static final String FN_R_CLASS_JAR = "R.jar";
+    /** R file containing only the local resources. */
+    public static final String FN_R_DEF_TXT = "R-def.txt";
     /** Generated manifest class name */
     public static final String FN_MANIFEST_BASE = "Manifest"; //$NON-NLS-1$
     /** Generated BuildConfig class name */
@@ -2608,7 +2610,7 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "5.2.1";
+    public static final String GRADLE_MINIMUM_VERSION = "5.3-rc-2";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
     public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";
@@ -2731,4 +2733,7 @@ public final class SdkConstants {
                 "The \"android\" command is no longer included in the SDK. Any references to it (e.g. "
                         + "by third-party plugins) should be removed.");
     }
+
+    /** Folder where proguard rules are located in jar, aar and project generated resources */
+    public static final String PROGUARD_RULES_FOLDER = "meta-inf/proguard";
 }

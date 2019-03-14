@@ -16,6 +16,7 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.res.Aapt2CompileRunnable
 import com.android.build.gradle.internal.res.getAapt2FromMaven
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
@@ -68,7 +69,7 @@ open class CompileSourceSetResources
     lateinit var partialRDirectory: File
         private set
 
-    private val workers = Workers.getWorker(path, workerExecutor)
+    private val workers = Workers.getWorker(project.name, path, workerExecutor)
 
     override fun isIncremental() = true
 
@@ -167,8 +168,8 @@ open class CompileSourceSetResources
             workers.submit(
                 Aapt2CompileRunnable::class.java,
                 Aapt2CompileRunnable.Params(
-                    aapt2ServiceKey = aapt2ServiceKey,
-                    requests = listOf(request)
+                    aapt2ServiceKey,
+                    listOf(request)
                 )
             )
         }

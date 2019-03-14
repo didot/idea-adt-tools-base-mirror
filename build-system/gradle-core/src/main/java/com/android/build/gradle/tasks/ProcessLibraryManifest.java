@@ -99,7 +99,8 @@ public class ProcessLibraryManifest extends ManifestProcessorTask {
 
     @Override
     protected void doFullTaskAction() {
-        try (WorkerExecutorFacade workers = Workers.INSTANCE.getWorker(getPath(), workerExecutor)) {
+        try (WorkerExecutorFacade workers =
+                Workers.INSTANCE.getWorker(getProject().getName(), getPath(), workerExecutor)) {
             DirectoryProperty manifestOutputDirectory = getManifestOutputDirectory();
             DirectoryProperty aaptFriendlyManifestOutputDirectory =
                     getAaptFriendlyManifestOutputDirectory();
@@ -222,7 +223,6 @@ public class ProcessLibraryManifest extends ManifestProcessorTask {
                                     : null,
                             null /* outInstantRunManifestLocation */,
                             null, /*outMetadataFeatureManifestLocation */
-                            null /* outBundleManifestLocation */,
                             null /* outInstantAppManifestLocation */,
                             ManifestMerger2.MergeType.LIBRARY,
                             params.manifestPlaceholders,

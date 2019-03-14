@@ -96,6 +96,8 @@ public enum InternalArtifactType implements ArtifactType {
     SYMBOL_LIST_WITH_PACKAGE_NAME,
     // Resources defined within the AAR.
     DEFINED_ONLY_SYMBOL_LIST,
+    //Resources defined within the current module.
+    LOCAL_ONLY_SYMBOL_LIST,
     // public.txt output
     PUBLIC_RES,
     SHRUNK_PROCESSED_RES,
@@ -174,7 +176,6 @@ public enum InternalArtifactType implements ArtifactType {
     // A directory of AAR manifests that have been auto-namespaced and are fully resource namespace aware.
     NAMESPACED_MANIFESTS,
     AAPT_FRIENDLY_MERGED_MANIFESTS,
-    INSTANT_RUN_MERGED_MANIFESTS,
     INSTANT_APP_MANIFEST,
     MANIFEST_METADATA,
     MANIFEST_MERGE_REPORT,
@@ -191,11 +192,11 @@ public enum InternalArtifactType implements ArtifactType {
     ANNOTATION_PROCESSOR_GENERATED_SOURCES_PUBLIC_USE(Category.GENERATED, Kind.DIRECTORY),
 
     // the file that consumers of an AAR can use for additional proguard rules.
-    CONSUMER_PROGUARD_FILE,
+    CONSUMER_PROGUARD_FILE(Kind.FILE),
     // the proguard rules produced by aapt.
-    AAPT_PROGUARD_FILE,
+    AAPT_PROGUARD_FILE(Kind.FILE),
     // the merger of a module's AAPT_PROGUARD_FILE and those of its feature(s)
-    MERGED_AAPT_PROGUARD_FILE,
+    MERGED_AAPT_PROGUARD_FILE(Kind.FILE),
 
     // the data binding artifact for a library that gets published with the aar
     DATA_BINDING_ARTIFACT,
@@ -314,7 +315,10 @@ public enum InternalArtifactType implements ArtifactType {
     INSTANT_RUN_APP_INFO_OUTPUT_FILE,
 
     // A dummy output (folder) result of CheckDuplicateClassesTask execution
-    DUPLICATE_CLASSES_CHECK;
+    DUPLICATE_CLASSES_CHECK,
+
+    // File containing all generated proguard rules from Javac (by e.g. dagger) merged together
+    GENERATED_PROGUARD_FILE(Kind.FILE);
 
     /**
      * Defines the kind of artifact type. this will be used to determine the output file location

@@ -14,9 +14,7 @@ iml_module(
     srcs = ["manifest-merger/src/main/java"],
     iml_files = ["manifest-merger/android.sdktools.manifest-merger.iml"],
     javacopts = ["-Xep:MissingCasesInEnumSwitch:WARN"],
-    tags = [
-        "no_test_windows",  # b/77288863
-    ],
+    test_coverage = True,
     test_srcs = ["manifest-merger/src/test/java"],
     visibility = ["//visibility:public"],
     exports = ["//tools/base/sdklib:studio.android.sdktools.sdklib"],
@@ -40,7 +38,6 @@ kotlin_library(
     pom = ":manifest-merger.pom",
     resource_strip_prefix = "tools/base/build-system/manifest-merger",
     resources = ["manifest-merger/NOTICE"],
-    tags = ["no_test_windows"],  # b/77288863
     visibility = ["//visibility:public"],
     deps = [
         "//tools/base/annotations",
@@ -65,6 +62,7 @@ kotlin_test(
     name = "tools.manifest-merger_tests",
     # TODO: Why are the xml files not under resources?
     srcs = ["manifest-merger/src/test/java"],
+    coverage = True,
     jvm_flags = ["-Dtest.suite.jar=tools.manifest-merger_tests.jar"],
     resources = glob(
         include = ["manifest-merger/src/test/java/**"],
@@ -107,7 +105,7 @@ maven_pom(
 )
 
 # The Gradle APIs to build against and run against.
-GRADLE_VERSION = "5.2.1"
+GRADLE_VERSION = "5.3-rc-2"
 
 filegroup(
     name = "gradle-distrib",

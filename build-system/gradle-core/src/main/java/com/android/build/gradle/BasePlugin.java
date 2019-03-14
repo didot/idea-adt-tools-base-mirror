@@ -60,7 +60,9 @@ import com.android.build.gradle.internal.plugin.TypedPluginDelegate;
 import com.android.build.gradle.internal.process.GradleJavaProcessExecutor;
 import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.profile.AnalyticsUtil;
+import com.android.build.gradle.internal.profile.ProfileAgent;
 import com.android.build.gradle.internal.profile.ProfilerInitializer;
+import com.android.build.gradle.internal.profile.RecordingBuildListener;
 import com.android.build.gradle.internal.scope.DelayedActionsExecutor;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.VariantScope;
@@ -102,7 +104,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
 import org.gradle.BuildListener;
 import org.gradle.BuildResult;
@@ -156,8 +157,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
     private Recorder threadRecorder;
 
     private boolean hasCreatedTasks = false;
-
-    private ExecutorService nativeJsonGenExecutor = null;
 
     BasePlugin(@NonNull ToolingModelBuilderRegistry registry) {
         ClasspathVerifier.checkClasspathSanity();
@@ -245,7 +244,8 @@ public abstract class BasePlugin<E extends BaseExtension2>
         checkModulesForErrors();
 
         PluginInitializer.initialize(project);
-        ProfilerInitializer.init(project, projectOptions);
+        RecordingBuildListener buildListener = ProfilerInitializer.init(project, projectOptions);
+        ProfileAgent.INSTANCE.register(project.getName(), buildListener);
         threadRecorder = ThreadRecorder.get();
 
         Workers.INSTANCE.initFromProject(
@@ -460,6 +460,7 @@ public abstract class BasePlugin<E extends BaseExtension2>
                 new SdkComponentsOptions(
                         () -> getExtension().getCompileSdkVersion(),
                         () -> getExtension().getBuildToolsRevision(),
+                        () -> getExtension().getNdkVersion(),
                         factory,
                         projectOptions.get(BooleanOption.USE_ANDROID_X));
 
@@ -688,8 +689,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
         checkState(extension.getBuildToolsRevision() != null,
                 "buildToolsVersion is not specified.");
         checkState(extension.getCompileSdkVersion() != null, "compileSdkVersion is not specified.");
-
-        globalScope.getNdkHandler().setCompileSdkVersion(extension.getCompileSdkVersion());
         extension
                 .getCompileOptions()
                 .setDefaultJavaVersion(

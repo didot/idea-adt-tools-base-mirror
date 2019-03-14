@@ -81,7 +81,8 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
 
     @Inject
     public GenerateSplitAbiRes(@NonNull WorkerExecutor workerExecutor) {
-        this.workers = Workers.INSTANCE.getWorker(getPath(), workerExecutor);
+        this.workers =
+                Workers.INSTANCE.getWorker(getProject().getName(), getPath(), workerExecutor);
     }
 
     private Supplier<String> applicationId;
@@ -103,6 +104,8 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
     @VisibleForTesting @Nullable Supplier<String> featureNameSupplier;
     @Nullable private FileCollection applicationIdOverride;
     private FileCollection aapt2FromMaven;
+
+    private File mergeBlameFolder;
 
     private Provider<File> androidJarProvider;
 
@@ -192,7 +195,8 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
                         Aapt2DaemonManagerService.registerAaptService(
                                 aapt2FromMaven, builder.getLogger());
                 Aapt2ProcessResourcesRunnable.Params params =
-                        new Aapt2ProcessResourcesRunnable.Params(aapt2ServiceKey, aaptConfig);
+                        new Aapt2ProcessResourcesRunnable.Params(
+                                aapt2ServiceKey, aaptConfig, mergeBlameFolder);
                 workerExecutor.submit(Aapt2ProcessResourcesRunnable.class, params);
 
                 buildOutputs.add(
@@ -358,6 +362,8 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
 
             task.androidJarProvider =
                     scope.getGlobalScope().getSdkComponents().getAndroidJarProvider();
+
+            task.mergeBlameFolder = scope.getResourceBlameLogDir();
 
             // if BASE_FEATURE get the app ID from the app module
             if (variantType.isBaseModule() && variantType.isHybrid()) {

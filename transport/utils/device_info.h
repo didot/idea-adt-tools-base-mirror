@@ -25,6 +25,7 @@ namespace profiler {
 
 // A singleton class containing information about the running device.
 class DeviceInfo {
+  friend class DeviceInfoHelper;
  public:
   static const std::string& serial() { return Instance()->serial_; }
   static const std::string& code_name() { return Instance()->code_name_; }
@@ -35,10 +36,12 @@ class DeviceInfo {
   static const bool is_user_build() { return Instance()->is_user_build_; }
   static const bool is_emulator() { return Instance()->is_emulator_; }
   static const int feature_level() { return Instance()->feature_level_; }
-  static const int O = 26;
-  static const int O_MR1 = 27;
-  static const int P = 28;
-  static const int Q = 29;
+
+  // Special Android API levels that the profiler cares about.
+  static constexpr int O = 26;  // First API where JVMTI is supported.
+  static constexpr int O_MR1 = 27;
+  static constexpr int P = 28;
+  static constexpr int Q = 29;  // First API where Statsd is supported.
 
  private:
   DeviceInfo();
@@ -57,7 +60,8 @@ class DeviceInfo {
   const int sdk_;
   const bool is_user_build_;
   const bool is_emulator_;
-  const int feature_level_;
+  // Mutable by test via DeviceInfoHelper.
+  int feature_level_;
 };
 
 }  // namespace profiler
