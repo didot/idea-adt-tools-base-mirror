@@ -22,7 +22,7 @@ import com.android.build.api.transform.TransformException
 import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.api.artifact.singleFile
 import com.android.build.gradle.internal.crash.PluginCrashReporter
-import com.android.build.gradle.internal.dependency.getAttributeMap
+import com.android.build.gradle.internal.dependency.getDexingArtifactConfiguration
 import com.android.build.gradle.internal.errors.MessageReceiverImpl
 import com.android.build.gradle.internal.pipeline.StreamFilter
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
@@ -45,8 +45,10 @@ import com.android.utils.FileUtils
 import com.android.utils.PathUtils.toSystemIndependentPath
 import com.google.common.annotations.VisibleForTesting
 import com.google.common.base.Throwables
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.logging.Logging
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -59,6 +61,8 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.io.Serializable
+import java.nio.file.Files
+import java.util.Collections
 import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -88,7 +92,7 @@ import javax.inject.Inject
 open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
     AndroidVariantTask() {
 
-    private val workers: WorkerExecutorFacade = Workers.getWorker(project.name, path, workerExecutor)
+    private val workers: WorkerExecutorFacade = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @get:Input
     lateinit var dexingType: DexingType
@@ -121,6 +125,12 @@ open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
     lateinit var dexFiles: FileCollection
         private set
 
+    @get:Optional
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    var fileDependencyDexFiles: Provider<Directory>? = null
+        private set
+
     // Dummy folder, used as a way to set up dependency
     @get:Optional
     @get:InputFiles
@@ -149,6 +159,7 @@ open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
                     mergingThreshold,
                     mainDexListFile?.singleFile(),
                     dexFiles.files,
+                    fileDependencyDexFiles?.get()?.asFile,
                     outputDir
                 )
             )
@@ -159,6 +170,7 @@ open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
         variantScope: VariantScope,
         private val action: DexMergingAction,
         private val dexingType: DexingType,
+        private val separateFileDependenciesDexingTask: Boolean = false,
         private val outputType: InternalArtifactType = InternalArtifactType.DEX
     ) : VariantTaskCreationAction<DexMergingTask>(variantScope) {
 
@@ -200,20 +212,29 @@ open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
                     InternalArtifactType.DUPLICATE_CLASSES_CHECK
                 )
             }
+            if (separateFileDependenciesDexingTask) {
+                task.fileDependencyDexFiles = variantScope.artifacts.getFinalProduct(
+                    InternalArtifactType.EXTERNAL_FILE_LIB_DEX_ARCHIVES
+                )
+            }
             task.outputDir = output
         }
 
         private fun getDexFiles(action: DexMergingAction): FileCollection {
-            val minSdk = variantScope.minSdkVersion.featureLevel
-            val isDebuggable = variantScope.variantConfiguration.buildType.isDebuggable
-            val attributes = getAttributeMap(minSdk, isDebuggable)
+            val attributes = getDexingArtifactConfiguration(variantScope).getAttributes()
 
             fun forAction(action: DexMergingAction): FileCollection {
                 when (action) {
                     DexMergingAction.MERGE_EXTERNAL_LIBS -> {
+                        // If the file dependencies are being dexed in a task, don't also include them here
+                        val artifactScope: AndroidArtifacts.ArtifactScope = if (separateFileDependenciesDexingTask) {
+                            AndroidArtifacts.ArtifactScope.REPOSITORY_MODULE
+                        } else {
+                            AndroidArtifacts.ArtifactScope.EXTERNAL
+                        }
                         return variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                            AndroidArtifacts.ArtifactScope.EXTERNAL,
+                            artifactScope,
                             AndroidArtifacts.ArtifactType.DEX,
                             attributes
                         )
@@ -221,7 +242,7 @@ open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
                     DexMergingAction.MERGE_LIBRARY_PROJECTS -> {
                         return variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                            AndroidArtifacts.ArtifactScope.MODULE,
+                            AndroidArtifacts.ArtifactScope.PROJECT,
                             AndroidArtifacts.ArtifactType.DEX,
                             attributes
                         )
@@ -298,7 +319,7 @@ open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
  * collection. In fact, sorting it means that artifact transform outputs for library projects will
  * not be consistent across builds. See http://b/119064593#comment11 for details.
  */
-private fun getAllRegularFiles(files: Set<File>): List<File> {
+private fun getAllRegularFiles(files: Iterable<File>): List<File> {
     return files.flatMap {
         if (it.isFile) listOf(it)
         else {
@@ -362,19 +383,20 @@ class DexMergingTaskRunnable @Inject constructor(
         var processOutput: ProcessOutput? = null
         try {
             processOutput = outputHandler.createOutput()
+            val dexFiles = params.getAllDexFiles()
             FileUtils.cleanOutputDir(params.outputDir)
 
-            if (params.dexFiles.isEmpty()) {
+            if (dexFiles.isEmpty()) {
                 return
             }
 
-            if (params.dexFiles.size >= params.mergingThreshold) {
+            if (dexFiles.size >= params.mergingThreshold) {
                 DexMergerTransformCallable(
                     messageReceiver,
                     params.dexingType,
                     processOutput,
                     params.outputDir,
-                    params.dexFiles.map { it.toPath() }.iterator(),
+                    dexFiles.map { it.toPath() }.iterator(),
                     params.mainDexListFile?.toPath(),
                     forkJoinPool,
                     params.dexMerger,
@@ -382,7 +404,7 @@ class DexMergingTaskRunnable @Inject constructor(
                     params.isDebuggable
                 ).call()
             } else {
-                for (file in getAllRegularFiles(params.dexFiles).withIndex()) {
+                for (file in getAllRegularFiles(dexFiles).withIndex()) {
                     file.value.copyTo(params.outputDir.resolve("classes_${file.index}.${SdkConstants.EXT_DEX}"))
                 }
             }
@@ -414,6 +436,21 @@ data class DexMergingParams(
     val isDebuggable: Boolean,
     val mergingThreshold: Int,
     val mainDexListFile: File?,
-    val dexFiles: Set<File>,
+    private val dexFiles: Set<File>,
+    private val fileDependencyDexFiles: File?,
     val outputDir: File
-) : Serializable
+) : Serializable {
+    fun getAllDexFiles(): List<File> {
+        val allDexFiles = ArrayList<File>(dexFiles)
+        fileDependencyDexFiles?.let {
+            Files.list(it.toPath()).use { files ->
+                files.forEach { file ->
+                    if (Files.isRegularFile(file) && file.toString().endsWith(".jar")) {
+                        allDexFiles.add(file.toFile())
+                    }
+                }
+            }
+        }
+        return Collections.unmodifiableList<File>(allDexFiles)
+    }
+}

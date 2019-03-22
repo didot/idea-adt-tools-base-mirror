@@ -18,7 +18,7 @@ package com.android.build.gradle.internal.res
 
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.dsl.convert
-import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE
+import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_RESOURCE_PKG
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH
 import com.android.build.gradle.internal.res.namespaced.registerAaptService
@@ -34,6 +34,8 @@ import com.android.build.gradle.options.StringOption
 import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.build.gradle.internal.scope.ApkData
+import com.android.build.gradle.options.SyncOptions
+import com.android.builder.internal.aapt.AaptOptions
 import com.android.sdklib.AndroidVersion
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
@@ -64,13 +66,15 @@ import javax.inject.Inject
 open class LinkAndroidResForBundleTask
 @Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
 
-    private val workers = Workers.getWorker(project.name, path, workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @get:Input
     var debuggable: Boolean = false
         private set
 
-    private lateinit var aaptOptions: com.android.build.gradle.internal.dsl.AaptOptions
+    private lateinit var aaptOptions: AaptOptions
+
+    private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
 
     private var mergeBlameLogFolder: File? = null
 
@@ -143,7 +147,7 @@ open class LinkAndroidResForBundleTask
             androidJarPath = androidJar.get().absolutePath,
             generateProtos = true,
             manifestFile = manifestFile,
-            options = aaptOptions.convert(),
+            options = aaptOptions,
             resourceOutputApk = bundledResFile,
             variantType = VariantTypeImpl.BASE_APK,
             debuggable = debuggable,
@@ -167,6 +171,7 @@ open class LinkAndroidResForBundleTask
                 Aapt2ProcessResourcesRunnable.Params(
                     aapt2ServiceKey,
                     config,
+                    errorFormatMode,
                     mergeBlameLogFolder
                 )
             )
@@ -191,8 +196,8 @@ open class LinkAndroidResForBundleTask
     lateinit var resConfig: Collection<String> private set
 
     @Nested
-    fun getAaptOptions(): com.android.build.gradle.internal.dsl.AaptOptions? {
-        return aaptOptions
+    fun getAaptOptionsInput(): LinkingTaskInputAaptOptions {
+        return LinkingTaskInputAaptOptions(aaptOptions)
     }
 
     @get:Input
@@ -246,7 +251,7 @@ open class LinkAndroidResForBundleTask
                     variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_RES)
 
             task.featureResourcePackages = variantScope.getArtifactFileCollection(
-                COMPILE_CLASSPATH, MODULE, FEATURE_RESOURCE_PKG)
+                COMPILE_CLASSPATH, PROJECT, FEATURE_RESOURCE_PKG)
 
             if (variantScope.type.isFeatureSplit) {
                 // get the res offset supplier
@@ -256,7 +261,7 @@ open class LinkAndroidResForBundleTask
             }
 
             task.debuggable = config.buildType.isDebuggable
-            task.aaptOptions = variantScope.globalScope.extension.aaptOptions
+            task.aaptOptions = variantScope.globalScope.extension.aaptOptions.convert()
 
             task.buildTargetDensity =
                     projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
@@ -269,6 +274,10 @@ open class LinkAndroidResForBundleTask
                     variantScope.variantConfiguration.mergedFlavor.resourceConfigurations
 
             task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
+
+            task.errorFormatMode = SyncOptions.getErrorFormatMode(
+                variantScope.globalScope.projectOptions
+            )
         }
     }
 }

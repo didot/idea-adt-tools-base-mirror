@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.internal;
 
+import static com.android.SdkConstants.CMAKE_DIR_PROPERTY;
 import static com.android.SdkConstants.FN_LOCAL_PROPERTIES;
 import static com.android.SdkConstants.NDK_SYMLINK_DIR;
 
@@ -386,7 +387,7 @@ public class SdkHandler {
 
         // Check if the user has specified a cmake directory in local properties and assign the
         // cmake folder.
-        String cmakeProperty = properties.getProperty("cmake.dir");
+        String cmakeProperty = properties.getProperty(CMAKE_DIR_PROPERTY);
         if (cmakeProperty != null) {
             // cmake.dir can be specified one of two ways
             // 1. cmake.dir="value"
@@ -414,12 +415,7 @@ public class SdkHandler {
         if (!sdkLibData.useSdkDownload()) {
             return;
         }
-        try {
-            sdkLoader.installSdkTool(sdkLibData, SdkConstants.FD_NDK);
-        } catch (LicenceNotAcceptedException | InstallFailedException e) {
-            throw new RuntimeException(e);
-        }
-        ndkHandler.relocateNdkFolder();
+        ndkHandler.installFromSdk(sdkLoader, sdkLibData);
     }
 
     /** Installs CMake. */

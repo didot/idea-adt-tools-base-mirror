@@ -24,11 +24,10 @@ import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.TaskManager
 import com.android.build.gradle.internal.api.artifact.singleFile
-import com.android.build.gradle.internal.dsl.AaptOptions
 import com.android.build.gradle.internal.dsl.convert
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL
-import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE
+import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_RESOURCE_PKG
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH
@@ -50,10 +49,12 @@ import com.android.build.gradle.internal.variant.BaseVariantData
 import com.android.build.gradle.internal.variant.MultiOutputPolicy
 import com.android.build.gradle.options.BooleanOption
 import com.android.build.gradle.options.StringOption
+import com.android.build.gradle.options.SyncOptions
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.android.builder.core.AndroidBuilder
 import com.android.builder.core.VariantType
 import com.android.builder.core.VariantTypeImpl
+import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.builder.internal.aapt.v2.Aapt2Exception
 import com.android.ide.common.process.ProcessException
@@ -82,7 +83,6 @@ import java.io.File
 import java.io.IOException
 import java.io.Serializable
 import java.nio.file.Files
-import java.nio.file.Path
 import java.util.ArrayList
 import java.util.function.Supplier
 import java.util.regex.Pattern
@@ -148,8 +148,10 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
     private var debuggable: Boolean = false
 
-    @get:Nested
-    lateinit var aaptOptions: AaptOptions
+    private lateinit var aaptOptions: AaptOptions
+
+    @Nested
+    fun getAaptOptionsInput() = LinkingTaskInputAaptOptions(aaptOptions)
 
     private lateinit var mergeBlameLogFolder: File
 
@@ -227,7 +229,9 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
     var useFinalIds: Boolean = true
         private set
 
-    private val workers: WorkerExecutorFacade = Workers.getWorker(project.name, path, workerExecutor)
+    private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
+
+    private val workers: WorkerExecutorFacade = Workers.preferWorkers(project.name, path, workerExecutor)
 
     // FIXME : make me incremental !
     override fun doFullTaskAction() {
@@ -505,7 +509,7 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
 
             task.setType(config.type)
             task.setDebuggable(config.buildType.isDebuggable)
-            task.aaptOptions = variantScope.globalScope.extension.aaptOptions
+            task.aaptOptions = variantScope.globalScope.extension.aaptOptions.convert()
 
             task.buildTargetDensity = projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
 
@@ -522,7 +526,7 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
                 null
             else
                 variantScope.getArtifactFileCollection(
-                    COMPILE_CLASSPATH, MODULE, FEATURE_RESOURCE_PKG
+                    COMPILE_CLASSPATH, PROJECT, FEATURE_RESOURCE_PKG
                 )
 
             if (variantType.isFeatureSplit) {
@@ -539,6 +543,10 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
             if (variantScope.type.isForTesting) {
                 task.useFinalIds = !projectOptions.get(BooleanOption.USE_NON_FINAL_RES_IDS_IN_TESTS)
             }
+
+            task.errorFormatMode = SyncOptions.getErrorFormatMode(
+                variantScope.globalScope.projectOptions
+            )
         }
     }
 
@@ -778,8 +786,8 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
                     if (params.isNamespaced) {
                         val packagedDependencies = ImmutableList.builder<File>()
                         packagedDependencies.addAll(params.dependencies)
-                        if (params.convertedLibraryDependenciesPath != null) {
-                            Files.list(params.convertedLibraryDependenciesPath).map { it.toFile() }
+                        if (params.convertedLibraryDependenciesFile != null) {
+                            Files.list(params.convertedLibraryDependenciesFile.toPath()).map { it.toFile() }
                                 .forEach { packagedDependencies.add(it) }
                         }
                         configBuilder.setStaticLibraryDependencies(packagedDependencies.build())
@@ -794,21 +802,20 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
                     Preconditions.checkNotNull<Aapt2ServiceKey>(
                         params.aapt2ServiceKey, "AAPT2 daemon manager service not initialized"
                     )
+                    val logger = Logging.getLogger(LinkApplicationAndroidResourcesTask::class.java)
                     try {
                         getAaptDaemon(params.aapt2ServiceKey!!).use { aaptDaemon ->
 
                             AndroidBuilder.processResources(
                                 aaptDaemon,
                                 configBuilder.build(),
-                                LoggerWrapper(
-                                    Logging.getLogger(
-                                        LinkApplicationAndroidResourcesTask::class.java
-                                    )
-                                )
+                                LoggerWrapper(logger)
                             )
                         }
                     } catch (e: Aapt2Exception) {
-                        throw rewriteLinkException(e, params.mergeBlameFolder)
+                        throw rewriteLinkException(
+                            e, params.errorFormatMode, params.mergeBlameFolder, logger
+                        )
                     }
 
                     if (LOG.isInfoEnabled) {
@@ -843,7 +850,6 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
                     "Failed to process resources, see aapt output above for details.", e
                 )
             }
-
         }
     }
 
@@ -870,21 +876,22 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(workerExecuto
         val proguardOutputFile: File? = task.proguardOutputFile
         val mainDexListProguardOutputFile: File? = task.mainDexListProguardOutputFile
         val buildTargetDensity: String? = task.buildTargetDensity
-        val aaptOptions: com.android.builder.internal.aapt.AaptOptions = task.aaptOptions.convert()
+        val aaptOptions: AaptOptions = task.aaptOptions
         val variantType: VariantType = task.type
         val debuggable: Boolean = task.getDebuggable()
         val packageId: Int? = task.getResOffset()
         val incrementalFolder: File = task.incrementalFolder
         val androidJarPath: String =
             task.androidJar.get().absolutePath
-        val convertedLibraryDependenciesPath: Path? =
-            task.convertedLibraryDependencies?.singleFile()?.toPath()
+        val convertedLibraryDependenciesFile: File? =
+            task.convertedLibraryDependencies?.singleFile()
         val inputResourcesDir: File? = task.inputResourcesDir?.singleFile()
         val mergeBlameFolder: File = task.mergeBlameLogFolder
         val isLibrary: Boolean = task.isLibrary
         val symbolsWithPackageNameOutputFile: File? = task.symbolsWithPackageNameOutputFile
         val useConditionalKeepRules: Boolean = task.useConditionalKeepRules
         val useFinalIds: Boolean = task.useFinalIds
+        val errorFormatMode: SyncOptions.ErrorFormatMode = task.errorFormatMode
     }
 
     @Input

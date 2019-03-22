@@ -53,7 +53,7 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
     lateinit var referencedClasses: FileCollection
         private set
 
-    private val workers: WorkerExecutorFacade = Workers.getWorker(project.name, path, workerExecutor)
+    private val workers: WorkerExecutorFacade = Workers.preferWorkers(project.name, path, workerExecutor)
 
     private var userCache: FileCache? = null
 
@@ -118,7 +118,7 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
 
             referencedClasses.from(variantScope.getArtifactFileCollection(
                 AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                AndroidArtifacts.ArtifactScope.MODULE,
+                AndroidArtifacts.ArtifactScope.PROJECT,
                 AndroidArtifacts.ArtifactType.CLASSES))
 
             if (isTestCoverageEnabled) {

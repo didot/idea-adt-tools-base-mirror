@@ -45,7 +45,7 @@ import javax.inject.Inject
 open class FeatureSetMetadataWriterTask @Inject constructor(workerExecutor: WorkerExecutor) :
     AndroidVariantTask() {
 
-    private val workers = Workers.getWorker(project.name, path, workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @get:InputFiles
     lateinit var inputFiles: FileCollection
@@ -139,7 +139,7 @@ open class FeatureSetMetadataWriterTask @Inject constructor(workerExecutor: Work
             task.outputFile = outputFile
             task.inputFiles = variantScope.getArtifactFileCollection(
                 AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,
-                AndroidArtifacts.ArtifactScope.MODULE,
+                AndroidArtifacts.ArtifactScope.PROJECT,
                 AndroidArtifacts.ArtifactType.METADATA_FEATURE_DECLARATION
             )
             val maxNumberOfFeaturesBeforeOreo = variantScope.globalScope.projectOptions

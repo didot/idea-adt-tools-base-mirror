@@ -36,7 +36,7 @@ set TARGETS=
 for /f %%i in (%SCRIPTDIR%targets.win) do set TARGETS=!TARGETS! %%i
 
 @rem Run Bazel
-CALL %SCRIPTDIR%bazel.cmd --max_idle_secs=60 test %CONFIGOPTIONS% %AUTHCREDS% --config=remote --build_tag_filters=-no_rbe_windows,-no_windows --test_tag_filters=-no_rbe_windows,%TESTTAGFILTERS% --profile=%DISTDIR%\prof --runs_per_test=5 -- %TARGETS%
+CALL %SCRIPTDIR%bazel.cmd --max_idle_secs=60 test %CONFIGOPTIONS% %AUTHCREDS% --config=remote --build_tag_filters=-no_rbe_windows,-no_windows --test_tag_filters=-no_rbe_windows,%TESTTAGFILTERS% --profile=%DISTDIR%\prof --runs_per_test=10 -- %TARGETS%
 SET EXITCODE=%errorlevel%
 
 IF NOT EXIST %DISTDIR%\ GOTO ENDSCRIPT
@@ -53,12 +53,17 @@ FOR /F "tokens=*" %%F IN ('C:\cygwin64\bin\find.exe . -type f -name "*outputs.zi
   C:\cygwin64\bin\zip.exe -ur %DISTDIR%\perfgate_data.zip %%F
 )
 
+@rem Until bazel clean is fixed on Windows, remove perfgate data manually.
+call del /s /q outputs.zip
+
 @rem Create profile html in %DISTDIR% so it ends up in Artifacts.
 @rem We must cd back into %BASEDIR% so bazel config files are properly located.
 cd %BASEDIR%
 CALL %SCRIPTDIR%bazel.cmd analyze-profile --html %DISTDIR%\prof
 
 :ENDSCRIPT
+@rem We will explicitly clear the Bazel cache between runs to keep data hermetic.
+CALL %SCRIPTDIR%bazel.cmd clean --expunge
 @rem On windows we must explicitly shut down bazel.  Otherwise file handles remain open.
 CALL %SCRIPTDIR%bazel.cmd shutdown
 @rem We also must call the kill-processes.py python script and kill all processes still open

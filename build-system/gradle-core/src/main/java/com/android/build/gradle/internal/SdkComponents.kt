@@ -64,6 +64,7 @@ open class SdkComponents(
     private var fallbackResultsSupplier: Supplier<Pair<SdkInfo, TargetInfo>?> = Suppliers.memoize { runFallbackSdkHandler() }
     val ndkHandlerSupplier : Supplier<NdkHandler> = Suppliers.memoize {
         NdkHandler(
+            options.enableSideBySideNdk,
             options.ndkVersionSupplier.get(),
             options.platformTargetHashSupplier.get(),
             project.rootDir)
@@ -179,7 +180,7 @@ open class SdkComponents(
     }
 
     fun getNdkFolder(): File? {
-        return ndkHandlerSupplier.get().ndkDirectory
+        return ndkHandlerSupplier.get().ndkPlatform.ndkDirectory
     }
 
     fun getCMakeExecutable(): File? {
@@ -196,4 +197,5 @@ class SdkComponentsOptions(
     val buildToolRevisionSupplier: Supplier<Revision>,
     val ndkVersionSupplier: Supplier<String>,
     val sdkLibDataFactory: SdkLibDataFactory,
-    val useAndroidX: Boolean)
+    val useAndroidX: Boolean,
+    val enableSideBySideNdk: Boolean)

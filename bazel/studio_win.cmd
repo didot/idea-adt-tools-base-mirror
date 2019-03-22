@@ -61,12 +61,17 @@ FOR /F "tokens=*" %%F IN ('C:\cygwin64\bin\find.exe . -type f -name "*outputs.zi
   C:\cygwin64\bin\zip.exe -ur %DISTDIR%\perfgate_data.zip %%F
 )
 
+@rem until bazel clean is fixed on windows, remove perfgate data amanually.
+CALL del /s /q outputs.zip
+
 @rem Create profile html in %DISTDIR% so it ends up in Artifacts.
 @rem We must cd back into %BASEDIR% so bazel config files are properly located.
 cd %BASEDIR%
 CALL %SCRIPTDIR%bazel.cmd analyze-profile --html %DISTDIR%\prof
 
 :ENDSCRIPT
+@rem We will explicitly clear the Bazel cache between runs to keep data hermetic.
+CALL %SCRIPTDIR%bazel.cmd clean --expunge
 @rem On windows we must explicitly shut down bazel.  Otherwise file handles remain open.
 CALL %SCRIPTDIR%bazel.cmd shutdown
 @rem We also must call the kill-processes.py python script and kill all processes still open

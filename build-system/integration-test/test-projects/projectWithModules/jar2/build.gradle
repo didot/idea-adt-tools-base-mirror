@@ -14,24 +14,7 @@
  * limitations under the License.
  */
 
-package com.android.build.gradle.internal.profile
+apply plugin: 'java-library'
 
-/**
- * MBean for services related to profiling notifications.
- *
- */
-interface ProfileMBean {
-    /**
-     * Notification of the start of execution of a worker.
-     * @param taskPath spawning task identification
-     * @param workerKey worker identification.
-     */
-    fun workerStarted(taskPath: String, workerKey: String)
-
-    /**
-     * Notification of the completion of execution of a worker.
-     * @param taskPath spawning task identification
-     * @param workerKey worker identification.
-     */
-    fun workerFinished(taskPath: String, workerKey: String)
-}
+sourceCompatibility = "1.6"
+targetCompatibility = "1.6"

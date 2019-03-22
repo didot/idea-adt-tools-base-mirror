@@ -20,7 +20,8 @@ import com.android.build.api.transform.QualifiedContent.Scope.EXTERNAL_LIBRARIES
 import com.android.build.api.transform.QualifiedContent.Scope.PROJECT
 import com.android.build.api.transform.QualifiedContent.Scope.SUB_PROJECTS
 import com.android.build.api.transform.QualifiedContent.ScopeType
-import com.android.build.gradle.internal.InternalScope
+import com.android.build.gradle.internal.InternalScope.FEATURES
+import com.android.build.gradle.internal.InternalScope.LOCAL_DEPS
 import com.android.build.gradle.internal.packaging.SerializablePackagingOptions
 import com.android.build.gradle.internal.pipeline.StreamFilter.PROJECT_RESOURCES
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
@@ -34,14 +35,13 @@ import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.model.ObjectFactory
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.workers.WorkerExecutor
 import java.io.File
@@ -49,33 +49,27 @@ import javax.inject.Inject
 
 /**
  * Task to merge java resources from multiple modules
- *
- * TODO: Make task cacheable. Using @get:Classpath instead of @get:InputFiles would allow caching
- * but leads to issues with incremental task action: https://github.com/gradle/gradle/issues/1931.
  */
+@CacheableTask
 open class MergeJavaResourceTask
 @Inject constructor(workerExecutor: WorkerExecutor, objects: ObjectFactory) : IncrementalTask() {
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
+    @get:Classpath
     lateinit var projectJavaRes: FileCollection
         private set
 
-    @get:InputFiles
+    @get:Classpath
     @get:Optional
-    @get:PathSensitive(PathSensitivity.RELATIVE)
     var subProjectJavaRes: FileCollection? = null
         private set
 
-    @get:InputFiles
+    @get:Classpath
     @get:Optional
-    @get:PathSensitive(PathSensitivity.RELATIVE)
     var externalLibJavaRes: FileCollection? = null
         private set
 
-    @get:InputFiles
+    @get:Classpath
     @get:Optional
-    @get:PathSensitive(PathSensitivity.RELATIVE)
     var featureJavaRes: FileCollection? = null
         private set
 
@@ -98,7 +92,7 @@ open class MergeJavaResourceTask
     @get:OutputFile
     val outputFile: RegularFileProperty = objects.fileProperty()
 
-    private val workers = Workers.getWorker(project.name, path, workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     override fun isIncremental() = true
 
@@ -198,25 +192,21 @@ open class MergeJavaResourceTask
                 task.subProjectJavaRes =
                     variantScope.getArtifactFileCollection(
                         AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                        AndroidArtifacts.ArtifactScope.MODULE,
+                        AndroidArtifacts.ArtifactScope.PROJECT,
                         AndroidArtifacts.ArtifactType.JAVA_RES
                     )
             }
 
-            if (mergeScopes.contains(EXTERNAL_LIBRARIES)) {
-                task.externalLibJavaRes =
-                        variantScope.getArtifactFileCollection(
-                            AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                            AndroidArtifacts.ArtifactScope.EXTERNAL,
-                            AndroidArtifacts.ArtifactType.JAVA_RES
-                        )
+            if (mergeScopes.contains(EXTERNAL_LIBRARIES) || mergeScopes.contains(LOCAL_DEPS)) {
+                // Local jars are treated the same as external libraries
+                task.externalLibJavaRes = getExternalLibJavaRes(variantScope, mergeScopes)
             }
 
-            if (mergeScopes.contains(InternalScope.FEATURES)) {
+            if (mergeScopes.contains(FEATURES)) {
                 task.featureJavaRes =
                         variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,
-                            AndroidArtifacts.ArtifactScope.MODULE,
+                            AndroidArtifacts.ArtifactScope.PROJECT,
                             AndroidArtifacts.ArtifactType.METADATA_JAVA_RES
                         )
             }
@@ -243,4 +233,21 @@ fun getProjectJavaRes(scope: VariantScope): FileCollection {
         scope.artifacts.getFinalArtifactFiles(InternalArtifactType.RUNTIME_R_CLASS_CLASSES)
     )
     return javaRes
+}
+
+private fun getExternalLibJavaRes(scope: VariantScope, mergeScopes: Collection<ScopeType>): FileCollection {
+    val externalLibJavaRes = scope.globalScope.project.files()
+    if (mergeScopes.contains(EXTERNAL_LIBRARIES)) {
+        externalLibJavaRes.from(
+            scope.getArtifactFileCollection(
+                AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
+                AndroidArtifacts.ArtifactScope.EXTERNAL,
+                AndroidArtifacts.ArtifactType.JAVA_RES
+            )
+        )
+    }
+    if (mergeScopes.contains(LOCAL_DEPS)) {
+        externalLibJavaRes.from(scope.localPackagedJars)
+    }
+    return externalLibJavaRes
 }

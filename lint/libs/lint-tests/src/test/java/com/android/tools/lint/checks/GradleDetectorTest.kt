@@ -40,6 +40,7 @@ import com.android.tools.lint.checks.GradleDetector.Companion.EXPIRING_TARGET_SD
 import com.android.tools.lint.checks.GradleDetector.Companion.GRADLE_GETTER
 import com.android.tools.lint.checks.GradleDetector.Companion.GRADLE_PLUGIN_COMPATIBILITY
 import com.android.tools.lint.checks.GradleDetector.Companion.HIGH_APP_VERSION_CODE
+import com.android.tools.lint.checks.GradleDetector.Companion.LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8
 import com.android.tools.lint.checks.GradleDetector.Companion.MIN_SDK_TOO_LOW
 import com.android.tools.lint.checks.GradleDetector.Companion.NOT_INTERPOLATED
 import com.android.tools.lint.checks.GradleDetector.Companion.PATH
@@ -433,6 +434,35 @@ class GradleDetectorTest : AbstractCheckTest() {
                         "}\n"
             )
         ).issues(DEPENDENCY).run().expect(expected)
+    }
+
+    fun testQvsAndroidX() {
+        // Regression test for 128648458: Lint Warning to update appCompat in Q
+        val expected = "" +
+                "build.gradle:13: Error: Version 28 (intended for Android Pie and below) is the last version of the legacy support library, so we recommend that you migrate to AndroidX libraries when using Android Q and moving forward. The IDE can help with this: Refactor > Migrate to AndroidX... [GradleCompatible]\n" +
+                "    implementation 'com.android.support:appcompat-v7:28.0.0' \n" +
+                "    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                "1 errors, 0 warnings"
+
+        lint().files(
+            gradle(
+                "" +
+                        "apply plugin: 'com.android.application'\n" +
+                        "\n" +
+                        "android {\n" +
+                        "     compileSdkVersion 'android-Q'\n" +
+                        "\n" +
+                        "    defaultConfig {\n" +
+                        "        minSdkVersion 19\n" +
+                        "        targetSdkVersion 'Q'\n" +
+                        "    }\n" +
+                        "}\n" +
+                        "\n" +
+                        "dependencies {\n" +
+                        "    implementation 'com.android.support:appcompat-v7:28.0.0' \n" +
+                        "}\n"
+            )
+        ).issues(COMPATIBILITY).run().expect(expected)
     }
 
     fun testCompatibility() {
@@ -1661,16 +1691,16 @@ class GradleDetectorTest : AbstractCheckTest() {
         val expected =
             if (isWindows())
                 """
-                    build.gradle:2: Warning: Use robolectric version 4.1 or later to fix issues with parsing of Windows paths [GradleDependency]
-                        testImplementation 'org.robolectric:robolectric:4.1-beta-2'
-                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                    build.gradle:3: Warning: Use robolectric version 4.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                    build.gradle:2: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                        testImplementation 'org.robolectric:robolectric:4.1'
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    build.gradle:3: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
                         testImplementation 'org.robolectric:robolectric:3.8'
                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                    build.gradle:4: Warning: Use robolectric version 4.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                    build.gradle:4: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
                         testImplementation 'org.robolectric:robolectric:3.6'
                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                    build.gradle:5: Warning: Use robolectric version 4.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                    build.gradle:5: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
                         testImplementation 'org.robolectric:robolectric:2.0'
                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                     0 errors, 4 warnings
@@ -1682,11 +1712,11 @@ class GradleDetectorTest : AbstractCheckTest() {
             gradle(
                 """
                     dependencies {
-                        testImplementation 'org.robolectric:robolectric:4.1-beta-2'
+                        testImplementation 'org.robolectric:robolectric:4.1'
                         testImplementation 'org.robolectric:robolectric:3.8'
                         testImplementation 'org.robolectric:robolectric:3.6'
                         testImplementation 'org.robolectric:robolectric:2.0'
-                        testImplementation 'org.robolectric:robolectric:4.1'
+                        testImplementation 'org.robolectric:robolectric:4.2.1'
                     }
                 """.trimIndent()
             )
@@ -1697,23 +1727,23 @@ class GradleDetectorTest : AbstractCheckTest() {
             .expectFixDiffs(
                 if (isWindows())
                     """
-                        Fix for build.gradle line 2: Change to 4.1:
+                        Fix for build.gradle line 2: Change to 4.2.1:
                         @@ -2 +2
-                        -     testImplementation 'org.robolectric:robolectric:4.1-beta-2'
-                        +     testImplementation 'org.robolectric:robolectric:4.1'
-                        Fix for build.gradle line 3: Change to 4.1:
+                        -     testImplementation 'org.robolectric:robolectric:4.1'
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
+                        Fix for build.gradle line 3: Change to 4.2.1:
                         @@ -3 +3
                         -     testImplementation 'org.robolectric:robolectric:3.8'
-                        +     testImplementation 'org.robolectric:robolectric:4.1'
-                        Fix for build.gradle line 4: Change to 4.1:
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
+                        Fix for build.gradle line 4: Change to 4.2.1:
                         @@ -4 +4
                         -     testImplementation 'org.robolectric:robolectric:3.6'
-                        +     testImplementation 'org.robolectric:robolectric:4.1'
-                        Fix for build.gradle line 5: Change to 4.1:
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
+                        Fix for build.gradle line 5: Change to 4.2.1:
                         @@ -5 +5
                         -     testImplementation 'org.robolectric:robolectric:2.0'
                         @@ -7 +6
-                        +     testImplementation 'org.robolectric:robolectric:4.1'
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
                     """.trimIndent()
                 else ""
             )
@@ -2741,6 +2771,72 @@ class GradleDetectorTest : AbstractCheckTest() {
                         "    ~~~~~~~~~~~~\n" +
                         "0 errors, 1 warnings"
             )
+    }
+
+    fun testJava8WithLifecycleAnnotationProcessor() {
+        lint().files(
+            gradle(
+                        "dependencies {\n" +
+                        "  implementation \"android.arch.lifecycle:runtime:1.1.1\"\n" +
+                        "  annotationProcessor \"android.arch.lifecycle:compiler:1.1.1\"\n" +
+                        "}" +
+                        "android {\n" +
+                        "    compileOptions {\n" +
+                        "        sourceCompatibility JavaVersion.VERSION_1_8\n" +
+                        "        targetCompatibility JavaVersion.VERSION_1_8\n" +
+                        "    }\n" +
+                        "}"
+            )
+        )
+            .issues(LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8)
+            .run()
+            .expect(
+                "" +
+                        "build.gradle:3: Warning: Use the Lifecycle Java 8 API provided by the lifecycle-common-java8 library instead of Lifecycle annotations for faster incremental build. [LifecycleAnnotationProcessorWithJava8]\n" +
+                        "  annotationProcessor \"android.arch.lifecycle:compiler:1.1.1\"\n" +
+                        "  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                        "0 errors, 1 warnings"
+            )
+    }
+
+    fun testJava8WithoutLifecycleAnnotationProcessor() {
+        lint().files(
+            gradle(
+                        "dependencies {\n" +
+                        "  implementation \"android.arch.lifecycle:runtime:1.1.1\"\n" +
+                        "  implementation \"android.arch.lifecycle:common-java8:1.1.1\"\n" +
+                        "}" +
+                        "android {\n" +
+                        "    compileOptions {\n" +
+                        "        sourceCompatibility JavaVersion.VERSION_1_8\n" +
+                        "        targetCompatibility JavaVersion.VERSION_1_8\n" +
+                        "    }\n" +
+                        "}"
+            )
+        )
+            .issues(LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8)
+            .run()
+            .expectClean()
+    }
+
+    fun testJava7WithLifecycleAnnotationProcessor() {
+        lint().files(
+            gradle(
+                        "dependencies {\n" +
+                        "  implementation \"android.arch.lifecycle:runtime:1.1.1\"\n" +
+                        "  annotationProcessor \"android.arch.lifecycle:compiler:1.1.1\"\n" +
+                        "}" +
+                        "android {\n" +
+                        "    compileOptions {\n" +
+                        "        sourceCompatibility JavaVersion.VERSION_1_7\n" +
+                        "        targetCompatibility JavaVersion.VERSION_1_7\n" +
+                        "    }\n" +
+                        "}"
+            )
+        )
+            .issues(LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8)
+            .run()
+            .expectClean()
     }
 
     fun testCompileDeprecationInConsumableModule() {

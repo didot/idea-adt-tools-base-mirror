@@ -27,6 +27,7 @@ import com.android.build.gradle.internal.tasks.AndroidBuilderTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.BooleanOption
+import com.android.build.gradle.options.SyncOptions
 import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
@@ -61,8 +62,9 @@ import javax.inject.Inject
 @CacheableTask
 open class ProcessAndroidAppResourcesTask
 @Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
-    private val workers = Workers.getWorker(project.name, path, workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
+    private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
 
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var manifestFileDirectory: Provider<Directory> private set
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var thisSubProjectStaticLibrary: BuildableArtifact private set
@@ -114,7 +116,7 @@ open class ProcessAndroidAppResourcesTask
         workers.use {
             it.submit(
                 Aapt2LinkRunnable::class.java,
-                Aapt2LinkRunnable.Params(aapt2ServiceKey, config)
+                Aapt2LinkRunnable.Params(aapt2ServiceKey, config, errorFormatMode)
             )
         }
     }
@@ -123,7 +125,7 @@ open class ProcessAndroidAppResourcesTask
         VariantTaskCreationAction<ProcessAndroidAppResourcesTask>(variantScope) {
 
         override val name: String
-            get() = variantScope.getTaskName("process", "Resources")
+            get() = variantScope.getTaskName("process", "NamespacedResources")
         override val type: Class<ProcessAndroidAppResourcesTask>
             get() = ProcessAndroidAppResourcesTask::class.java
 
@@ -189,6 +191,9 @@ open class ProcessAndroidAppResourcesTask
             task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
             task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
             task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
+            task.errorFormatMode = SyncOptions.getErrorFormatMode(
+                variantScope.globalScope.projectOptions
+            )
         }
     }
 

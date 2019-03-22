@@ -392,9 +392,11 @@ public abstract class BasePlugin<E extends BaseExtension2>
                         buildCache);
 
         project.getTasks()
-                .getByName("assemble")
-                .setDescription(
-                        "Assembles all variants of all applications and secondary packages.");
+                .named("assemble")
+                .configure(
+                        task ->
+                                task.setDescription(
+                                        "Assembles all variants of all applications and secondary packages."));
 
         // call back on execution. This is called after the whole build is done (not
         // after the current project is done).
@@ -462,7 +464,8 @@ public abstract class BasePlugin<E extends BaseExtension2>
                         () -> getExtension().getBuildToolsRevision(),
                         () -> getExtension().getNdkVersion(),
                         factory,
-                        projectOptions.get(BooleanOption.USE_ANDROID_X));
+                        projectOptions.get(BooleanOption.USE_ANDROID_X),
+                        projectOptions.get(BooleanOption.ENABLE_SIDE_BY_SIDE_NDK));
 
         return new SdkComponents(
                 options, sdkHandler, extraModelInfo.getSyncIssueHandler(), project);

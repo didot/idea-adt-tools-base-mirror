@@ -35,13 +35,11 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileCollection
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.workers.WorkerExecutor
 import java.io.File
@@ -50,25 +48,23 @@ import javax.inject.Inject
 /**
  * Task to merge native libs from multiple modules
  */
+@CacheableTask
 open class MergeNativeLibsTask
 @Inject constructor(workerExecutor: WorkerExecutor, objects: ObjectFactory) : IncrementalTask() {
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
+    @get:Classpath
     val projectNativeLibs: FileCollection
         get() = getProjectNativeLibs(variantScope)
 
-    @get:InputFiles
+    @get:Classpath
     @get:Optional
-    @get:PathSensitive(PathSensitivity.RELATIVE)
     val subProjectNativeLibs: FileCollection?
         get() = if (mergeScopes.contains(SUB_PROJECTS)) {
                     getSubProjectNativeLibs(variantScope)
                 } else null
 
-    @get:InputFiles
+    @get:Classpath
     @get:Optional
-    @get:PathSensitive(PathSensitivity.RELATIVE)
     val externalLibNativeLibs: FileCollection?
         get() = if (mergeScopes.contains(EXTERNAL_LIBRARIES)) {
                     getExternalNativeLibs(variantScope)
@@ -98,7 +94,7 @@ open class MergeNativeLibsTask
     private var containsExternalLibraries = false
 
 
-    private val workers = Workers.getWorker(project.name, path, workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
 
 
@@ -235,14 +231,14 @@ fun getSubProjectNativeLibs(scope: VariantScope): FileCollection {
     nativeLibs.from(
         scope.getArtifactFileCollection(
             AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-            AndroidArtifacts.ArtifactScope.MODULE,
+            AndroidArtifacts.ArtifactScope.PROJECT,
             AndroidArtifacts.ArtifactType.JAVA_RES
         )
     )
     nativeLibs.from(
         scope.getArtifactFileCollection(
             AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-            AndroidArtifacts.ArtifactScope.MODULE,
+            AndroidArtifacts.ArtifactScope.PROJECT,
             AndroidArtifacts.ArtifactType.JNI
         )
     )

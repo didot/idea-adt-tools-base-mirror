@@ -16,7 +16,7 @@
 
 package com.android.build.gradle.tasks;
 
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_APPLICATION_ID_DECLARATION;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.METADATA_BASE_MODULE_DECLARATION;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
@@ -26,10 +26,10 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.VariantOutput;
 import com.android.build.gradle.internal.core.VariantConfiguration;
-import com.android.build.gradle.internal.dsl.AaptOptions;
 import com.android.build.gradle.internal.dsl.DslAdaptersKt;
 import com.android.build.gradle.internal.res.Aapt2MavenUtils;
 import com.android.build.gradle.internal.res.Aapt2ProcessResourcesRunnable;
+import com.android.build.gradle.internal.res.LinkingTaskInputAaptOptions;
 import com.android.build.gradle.internal.res.namespaced.Aapt2DaemonManagerService;
 import com.android.build.gradle.internal.res.namespaced.Aapt2ServiceKey;
 import com.android.build.gradle.internal.scope.ApkData;
@@ -42,8 +42,10 @@ import com.android.build.gradle.internal.tasks.ModuleMetadata;
 import com.android.build.gradle.internal.tasks.Workers;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata;
+import com.android.build.gradle.options.SyncOptions;
 import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.VariantType;
+import com.android.builder.internal.aapt.AaptOptions;
 import com.android.builder.internal.aapt.AaptPackageConfig;
 import com.android.ide.common.workers.WorkerExecutorFacade;
 import com.android.utils.FileUtils;
@@ -82,7 +84,7 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
     @Inject
     public GenerateSplitAbiRes(@NonNull WorkerExecutor workerExecutor) {
         this.workers =
-                Workers.INSTANCE.getWorker(getProject().getName(), getPath(), workerExecutor);
+                Workers.INSTANCE.preferWorkers(getProject().getName(), getPath(), workerExecutor);
     }
 
     private Supplier<String> applicationId;
@@ -108,6 +110,8 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
     private File mergeBlameFolder;
 
     private Provider<File> androidJarProvider;
+
+    private SyncOptions.ErrorFormatMode errorFormatMode;
 
     @Input
     public String getApplicationId() {
@@ -146,8 +150,8 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
     }
 
     @Nested
-    public AaptOptions getAaptOptions() {
-        return aaptOptions;
+    public LinkingTaskInputAaptOptions getAaptOptionsInput() {
+        return new LinkingTaskInputAaptOptions(aaptOptions);
     }
 
     @Input
@@ -184,7 +188,7 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
                 AaptPackageConfig aaptConfig =
                         new AaptPackageConfig.Builder()
                                 .setManifestFile(manifestFile)
-                                .setOptions(DslAdaptersKt.convert(aaptOptions))
+                                .setOptions(aaptOptions)
                                 .setDebuggable(debuggable)
                                 .setResourceOutputApk(resPackageFile)
                                 .setVariantType(variantType)
@@ -196,7 +200,10 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
                                 aapt2FromMaven, builder.getLogger());
                 Aapt2ProcessResourcesRunnable.Params params =
                         new Aapt2ProcessResourcesRunnable.Params(
-                                aapt2ServiceKey, aaptConfig, mergeBlameFolder);
+                                aapt2ServiceKey,
+                                aaptConfig,
+                                errorFormatMode,
+                                mergeBlameFolder);
                 workerExecutor.submit(Aapt2ProcessResourcesRunnable.class, params);
 
                 buildOutputs.add(
@@ -357,7 +364,8 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
             task.outputBaseName = config.getBaseName();
             task.applicationId = config::getApplicationId;
             task.debuggable = config.getBuildType().isDebuggable();
-            task.aaptOptions = scope.getGlobalScope().getExtension().getAaptOptions();
+            task.aaptOptions =
+                    DslAdaptersKt.convert(scope.getGlobalScope().getExtension().getAaptOptions());
             task.aapt2FromMaven = Aapt2MavenUtils.getAapt2FromMaven(scope.getGlobalScope());
 
             task.androidJarProvider =
@@ -365,16 +373,19 @@ public class GenerateSplitAbiRes extends AndroidBuilderTask {
 
             task.mergeBlameFolder = scope.getResourceBlameLogDir();
 
+            task.errorFormatMode =
+                    SyncOptions.getErrorFormatMode(scope.getGlobalScope().getProjectOptions());
+
             // if BASE_FEATURE get the app ID from the app module
             if (variantType.isBaseModule() && variantType.isHybrid()) {
                 task.applicationIdOverride =
                         scope.getArtifactFileCollection(
-                                METADATA_VALUES, MODULE, METADATA_BASE_MODULE_DECLARATION);
+                                METADATA_VALUES, PROJECT, METADATA_BASE_MODULE_DECLARATION);
             } else if (variantType.isFeatureSplit()) {
                 // if feature split, get it from the base module
                 task.applicationIdOverride =
                         scope.getArtifactFileCollection(
-                                COMPILE_CLASSPATH, MODULE, FEATURE_APPLICATION_ID_DECLARATION);
+                                COMPILE_CLASSPATH, PROJECT, FEATURE_APPLICATION_ID_DECLARATION);
             }
         }
 

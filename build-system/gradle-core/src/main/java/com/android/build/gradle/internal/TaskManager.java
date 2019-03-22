@@ -22,9 +22,10 @@ import static com.android.build.api.transform.QualifiedContent.DefaultContentTyp
 import static com.android.build.gradle.internal.dependency.VariantDependencies.CONFIG_NAME_ANDROID_APIS;
 import static com.android.build.gradle.internal.dependency.VariantDependencies.CONFIG_NAME_LINTCHECKS;
 import static com.android.build.gradle.internal.dependency.VariantDependencies.CONFIG_NAME_LINTPUBLISH;
+import static com.android.build.gradle.internal.pipeline.ExtendedContentType.NATIVE_LIBS;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.EXTERNAL;
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.APKS_FROM_BUNDLE;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.CLASSES;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.CONSUMER_PROGUARD_RULES;
@@ -80,7 +81,6 @@ import com.android.build.gradle.internal.dsl.CoreProductFlavor;
 import com.android.build.gradle.internal.dsl.DataBindingOptions;
 import com.android.build.gradle.internal.dsl.PackagingOptions;
 import com.android.build.gradle.internal.model.CoreExternalNativeBuild;
-import com.android.build.gradle.internal.ndk.NdkHandler;
 import com.android.build.gradle.internal.packaging.GradleKeystoreHelper;
 import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.build.gradle.internal.pipeline.OriginalStream;
@@ -108,6 +108,7 @@ import com.android.build.gradle.internal.tasks.CheckManifest;
 import com.android.build.gradle.internal.tasks.CheckProguardFiles;
 import com.android.build.gradle.internal.tasks.DependencyReportTask;
 import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask;
+import com.android.build.gradle.internal.tasks.DexFileDependenciesTask;
 import com.android.build.gradle.internal.tasks.DexMergingAction;
 import com.android.build.gradle.internal.tasks.DexMergingTask;
 import com.android.build.gradle.internal.tasks.ExtractProguardFiles;
@@ -362,7 +363,7 @@ public abstract class TaskManager {
         final BaseVariantData variantData = scope.getVariantData();
         File objFolder = new File(scope.getGlobalScope().getIntermediatesDir(),
                 "ndk/" + variantData.getVariantConfiguration().getDirName() + "/obj");
-        for (Abi abi : NdkHandler.getAbiList()) {
+        for (Abi abi : Abi.values()) {
             scope.addNdkDebuggableLibraryFolders(abi,
                     new File(objFolder, "local/" + abi.getName()));
         }
@@ -593,7 +594,7 @@ public abstract class TaskManager {
 
         // Add stream of external java resources if EXTERNAL_LIBRARIES isn't in the set of java res
         // merging scopes.
-        if (!getResMergingScopes(variantScope).contains(Scope.EXTERNAL_LIBRARIES)) {
+        if (!getJavaResMergingScopes(variantScope, RESOURCES).contains(Scope.EXTERNAL_LIBRARIES)) {
             transformManager.addStream(
                     OriginalStream.builder(project, "ext-libs-java-res")
                             .addContentTypes(RESOURCES)
@@ -611,18 +612,18 @@ public abstract class TaskManager {
                         .addScope(Scope.SUB_PROJECTS)
                         .setArtifactCollection(
                                 variantScope.getArtifactCollection(
-                                        RUNTIME_CLASSPATH, MODULE, CLASSES))
+                                        RUNTIME_CLASSPATH, PROJECT, CLASSES))
                         .build());
 
         // same for the java resources, if SUB_PROJECTS isn't in the set of java res merging scopes.
-        if (!getResMergingScopes(variantScope).contains(Scope.SUB_PROJECTS)) {
+        if (!getJavaResMergingScopes(variantScope, RESOURCES).contains(Scope.SUB_PROJECTS)) {
             transformManager.addStream(
                     OriginalStream.builder(project, "sub-projects-java-res")
                             .addContentTypes(RESOURCES)
                             .addScope(Scope.SUB_PROJECTS)
                             .setArtifactCollection(
                                     variantScope.getArtifactCollection(
-                                            RUNTIME_CLASSPATH, MODULE, JAVA_RES))
+                                            RUNTIME_CLASSPATH, PROJECT, JAVA_RES))
                             .build());
         }
 
@@ -637,7 +638,7 @@ public abstract class TaskManager {
                             .addScope(InternalScope.FEATURES)
                             .setArtifactCollection(
                                     variantScope.getArtifactCollection(
-                                            METADATA_VALUES, MODULE, METADATA_CLASSES))
+                                            METADATA_VALUES, PROJECT, METADATA_CLASSES))
                             .build());
         }
 
@@ -904,7 +905,7 @@ public abstract class TaskManager {
         final MutableTaskContainer taskContainer = variantScope.getTaskContainer();
 
         // Compute the scopes that need to be merged.
-        Set<ScopeType> mergeScopes = getResMergingScopes(variantScope);
+        Set<ScopeType> mergeScopes = getJavaResMergingScopes(variantScope, NATIVE_LIBS);
 
         taskFactory.register(new MergeNativeLibsTask.CreationAction(mergeScopes, variantScope));
 
@@ -915,7 +916,7 @@ public abstract class TaskManager {
                 .getTransformManager()
                 .addStream(
                         OriginalStream.builder(project, "merged-native-libs")
-                                .addContentType(ExtendedContentType.NATIVE_LIBS)
+                                .addContentType(NATIVE_LIBS)
                                 .addScopes(mergeScopes)
                                 .setFileCollection(project.getLayout().files(nativeLibsProvider))
                                 .build());
@@ -1172,10 +1173,12 @@ public abstract class TaskManager {
      * Returns the scopes for which the java resources should be merged.
      *
      * @param variantScope the scope of the variant being processed.
+     * @param contentType the contentType of java resources, must be RESOURCES or NATIVE_LIBS
      * @return the list of scopes for which to merge the java resources.
      */
     @NonNull
-    protected abstract Set<ScopeType> getResMergingScopes(@NonNull VariantScope variantScope);
+    protected abstract Set<ScopeType> getJavaResMergingScopes(
+            @NonNull VariantScope variantScope, @NonNull QualifiedContent.ContentType contentType);
 
     /**
      * Creates the java resources processing tasks.
@@ -1244,7 +1247,7 @@ public abstract class TaskManager {
         TransformManager transformManager = variantScope.getTransformManager();
 
         // Compute the scopes that need to be merged.
-        Set<ScopeType> mergeScopes = getResMergingScopes(variantScope);
+        Set<ScopeType> mergeScopes = getJavaResMergingScopes(variantScope, RESOURCES);
 
         taskFactory.register(new MergeJavaResourceTask.CreationAction(mergeScopes, variantScope));
 
@@ -1915,7 +1918,7 @@ public abstract class TaskManager {
                             baseVariantData
                                     .getScope()
                                     .getArtifactFileCollection(
-                                            RUNTIME_CLASSPATH, MODULE, APKS_FROM_BUNDLE));
+                                            RUNTIME_CLASSPATH, PROJECT, APKS_FROM_BUNDLE));
         } else {
             testData =
                     new TestDataImpl(
@@ -2270,12 +2273,18 @@ public abstract class TaskManager {
             dexOptions = extension.getDexOptions();
         }
 
+        Java8LangSupport java8SLangSupport = variantScope.getJava8LangSupportType();
         boolean minified = variantScope.getCodeShrinker() != null;
+        boolean supportsDesugaring =
+                java8SLangSupport == Java8LangSupport.UNUSED
+                        || (java8SLangSupport == Java8LangSupport.D8
+                                && projectOptions.get(
+                                        BooleanOption.ENABLE_DEXING_DESUGARING_ARTIFACT_TRANSFORM));
         boolean enableDexingArtifactTransform =
                 globalScope.getProjectOptions().get(BooleanOption.ENABLE_DEXING_ARTIFACT_TRANSFORM)
                         && extension.getTransforms().isEmpty()
                         && !minified
-                        && variantScope.getJava8LangSupportType() == Java8LangSupport.UNUSED
+                        && supportsDesugaring
                         && getAdvancedProfilingTransforms(projectOptions).isEmpty();
         FileCache userLevelCache = getUserDexCache(minified, dexOptions.getPreDexLibraries());
         DexArchiveBuilderTransform preDexTransform =
@@ -2299,7 +2308,7 @@ public abstract class TaskManager {
                                         .getVariantConfiguration()
                                         .getBuildType()
                                         .isDebuggable())
-                        .setJava8LangSupportType(variantScope.getJava8LangSupportType())
+                        .setJava8LangSupportType(java8SLangSupport)
                         .setProjectVariant(getProjectVariantId(variantScope))
                         .setNumberOfBuckets(
                                 projectOptions.get(IntegerOption.DEXING_NUMBER_OF_BUCKETS))
@@ -2382,10 +2391,25 @@ public abstract class TaskManager {
      */
     private void createDexMergingWithArtifactTransforms(
             @NonNull VariantScope variantScope, @NonNull DexingType dexingType) {
+
+        // When desugaring, The file dependencies are dexed in a task with the whole
+        // remote classpath present, as they lack dependency information to desugar
+        // them correctly in an artifact transform.
+        boolean separateFileDependenciesDexingTask =
+                variantScope.getJava8LangSupportType() == Java8LangSupport.D8;
+        if (separateFileDependenciesDexingTask) {
+            DexFileDependenciesTask.CreationAction desugarFileDeps =
+                    new DexFileDependenciesTask.CreationAction(variantScope);
+            taskFactory.register(desugarFileDeps);
+        }
+
         if (dexingType == DexingType.LEGACY_MULTIDEX) {
             DexMergingTask.CreationAction configAction =
                     new DexMergingTask.CreationAction(
-                            variantScope, DexMergingAction.MERGE_ALL, dexingType);
+                            variantScope,
+                            DexMergingAction.MERGE_ALL,
+                            dexingType,
+                            separateFileDependenciesDexingTask);
             taskFactory.register(configAction);
         } else {
             boolean produceSeparateOutputs =
@@ -2397,6 +2421,7 @@ public abstract class TaskManager {
                             variantScope,
                             DexMergingAction.MERGE_EXTERNAL_LIBS,
                             DexingType.NATIVE_MULTIDEX,
+                            separateFileDependenciesDexingTask,
                             produceSeparateOutputs
                                     ? InternalArtifactType.DEX
                                     : InternalArtifactType.EXTERNAL_LIBS_DEX));
@@ -2409,10 +2434,7 @@ public abstract class TaskManager {
 
                 DexMergingTask.CreationAction mergeLibraries =
                         new DexMergingTask.CreationAction(
-                                variantScope,
-                                DexMergingAction.MERGE_LIBRARY_PROJECTS,
-                                dexingType,
-                                InternalArtifactType.DEX);
+                                variantScope, DexMergingAction.MERGE_LIBRARY_PROJECTS, dexingType);
                 taskFactory.register(mergeLibraries);
             } else {
                 DexMergingTask.CreationAction configAction =
@@ -3271,7 +3293,7 @@ public abstract class TaskManager {
         if (variantScope.consumesFeatureJars()) {
             configurationFiles.from(
                     variantScope.getArtifactFileCollection(
-                            METADATA_VALUES, MODULE, CONSUMER_PROGUARD_RULES));
+                            METADATA_VALUES, PROJECT, CONSUMER_PROGUARD_RULES));
         }
     }
 
@@ -3340,7 +3362,7 @@ public abstract class TaskManager {
                         "dex-splitter",
                         variantScope.getVariantConfiguration().getDirName());
         FileCollection featureJars =
-                variantScope.getArtifactFileCollection(METADATA_VALUES, MODULE, METADATA_CLASSES);
+                variantScope.getArtifactFileCollection(METADATA_VALUES, PROJECT, METADATA_CLASSES);
         BuildableArtifact baseJars =
                 variantScope
                         .getArtifacts()

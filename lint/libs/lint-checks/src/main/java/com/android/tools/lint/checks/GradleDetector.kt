@@ -55,6 +55,7 @@ import com.android.tools.lint.detector.api.Location
 import com.android.tools.lint.detector.api.Project
 import com.android.tools.lint.detector.api.Scope
 import com.android.tools.lint.detector.api.Severity
+import com.android.tools.lint.detector.api.getLanguageLevel
 import com.android.tools.lint.detector.api.guessGradleLocation
 import com.android.tools.lint.detector.api.isNumberString
 import com.android.tools.lint.detector.api.readUrlData
@@ -64,6 +65,8 @@ import com.google.common.base.Charsets.UTF_8
 import com.google.common.base.Joiner
 import com.google.common.base.Splitter
 import com.google.common.collect.ArrayListMultimap
+import com.intellij.pom.java.LanguageLevel.JDK_1_7
+import com.intellij.pom.java.LanguageLevel.JDK_1_8
 import java.io.File
 import java.io.IOException
 import java.io.UnsupportedEncodingException
@@ -439,6 +442,16 @@ open class GradleDetector : Detector(), GradleScanner {
                             checkDependency(context, gc, isResolved, valueCookie, statementCookie)
                         })
                     }
+                    if (hasLifecycleAnnotationProcessor(dependency) &&
+                        targetJava8Plus(context.project)
+                    ) {
+                        report(
+                            context, valueCookie, LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8,
+                            "Use the Lifecycle Java 8 API provided by the " +
+                                    "`lifecycle-common-java8` library instead of Lifecycle annotations " +
+                                    "for faster incremental build.", null
+                        )
+                    }
                 }
                 checkDeprecatedConfigurations(property, context, propertyCookie)
             }
@@ -776,13 +789,13 @@ open class GradleDetector : Detector(), GradleScanner {
                 if ("robolectric" == artifactId &&
                     System.getProperty("os.name").toLowerCase(Locale.US).contains("windows")
                 ) {
-                    if (!version.isAtLeast(4, 1, 0)) {
-                        val fix = getUpdateDependencyFix(revision, "4.1")
+                    if (!version.isAtLeast(4, 2, 1)) {
+                        val fix = getUpdateDependencyFix(revision, "4.2.1")
                         report(
                             context,
                             cookie,
                             DEPENDENCY,
-                            "Use robolectric version 4.1 or later to " +
+                            "Use robolectric version 4.2.1 or later to " +
                                     "fix issues with parsing of Windows paths",
                             fix
                         )
@@ -1012,6 +1025,17 @@ open class GradleDetector : Detector(), GradleScanner {
                 dependency.majorVersion != GradleCoordinate.PLUS_REV_VALUE &&
                 context.isEnabled(COMPATIBILITY)
             ) {
+                if (compileSdkVersion >= 29 && dependency.majorVersion < 29) {
+                    reportNonFatalCompatibilityIssue(context, cookie,
+                        "Version 28 (intended for Android Pie and below) is the last " +
+                                "version of the legacy support library, so we recommend that " +
+                                "you migrate to AndroidX libraries when using Android Q and " +
+                                "moving forward. The IDE can help with this: " +
+                                "Refactor > Migrate to AndroidX..."
+                    )
+                    return
+                }
+
                 var fix: LintFix? = null
                 if (newerVersion != null) {
                     fix = fix().name("Replace with $newerVersion")
@@ -2307,6 +2331,34 @@ open class GradleDetector : Detector(), GradleScanner {
             implementation = IMPLEMENTATION
         )
 
+        /** Using Lifecycle annotation processor with java8 */
+        @JvmField
+        val LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8 = Issue.create(
+            id = "LifecycleAnnotationProcessorWithJava8",
+            briefDescription = "Lifecycle Annotation Processor with Java 8 Compile Option",
+            moreInfo = "https://d.android.com/r/studio-ui/lifecycle-release-notes",
+            explanation = """
+                For faster incremental build, switch to the Lifecycle Java 8 API with these steps:
+
+                First replace
+
+                `annotationProcessor "androidx.lifecycle:lifecycle-compiler:*version*"`
+                `kapt "androidx.lifecycle:lifecycle-compiler:*version*"`
+
+                with
+
+                `implementation "androidx.lifecycle:lifecycle-common-java8:*version*"`
+
+                Then remove any `OnLifecycleEvent` annotations from `Observer` classes \
+                and make them implement the `DefaultLifecycleObserver` interface.
+                """,
+            category = Category.PERFORMANCE,
+            priority = 6,
+            severity = Severity.WARNING,
+            androidSpecific = true,
+            implementation = IMPLEMENTATION
+        )
+
         /** Using a vulnerable library */
         @JvmField
         val RISKY_LIBRARY = Issue.create(
@@ -2637,5 +2689,13 @@ open class GradleDetector : Detector(), GradleScanner {
                 }
             }
         }
+
+        private fun targetJava8Plus(project: Project): Boolean {
+            return getLanguageLevel(project, JDK_1_7).isAtLeast(JDK_1_8)
+        }
+
+        private fun hasLifecycleAnnotationProcessor(dependency: String) =
+            dependency.contains("android.arch.lifecycle:compiler") ||
+                    dependency.contains("androidx.lifecycle:lifecycle-compiler")
     }
 }

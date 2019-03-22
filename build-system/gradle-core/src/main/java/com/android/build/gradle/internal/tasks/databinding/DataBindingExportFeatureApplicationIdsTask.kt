@@ -52,7 +52,7 @@ open class DataBindingExportFeatureApplicationIdsTask @Inject constructor(
     @get:InputFiles lateinit var featureDeclarations: FileCollection
         private set
 
-    val workers = Workers.getWorker(project.name, path, workerExecutor)
+    val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @TaskAction
     fun fullTaskAction() {
@@ -93,7 +93,7 @@ open class DataBindingExportFeatureApplicationIdsTask @Inject constructor(
             task.packageListOutFolder = packageListOutFolder
             task.featureDeclarations = variantScope.getArtifactFileCollection(
                     AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,
-                    AndroidArtifacts.ArtifactScope.MODULE,
+                    AndroidArtifacts.ArtifactScope.PROJECT,
                     AndroidArtifacts.ArtifactType.METADATA_FEATURE_DECLARATION
             )
         }
