@@ -17,6 +17,7 @@
 package com.android.build.gradle.internal.cxx.configure
 
 import com.android.build.gradle.internal.core.Abi
+import com.android.build.gradle.internal.cxx.logging.RecordingLoggingEnvironment
 import com.google.common.collect.Sets
 import com.google.common.truth.Truth.assertThat
 import org.junit.After
@@ -25,7 +26,7 @@ import org.junit.Test
 class AbiConfiguratorTest {
     companion object {
         val ALL_ABI = Abi.getDefaultValues().toList()
-        val ALL_ABI_AS_STRING = ALL_ABI.map(Abi::getName)
+        val ALL_ABI_AS_STRING = ALL_ABI.map(Abi::getTag)
         val ALL_ABI_COMMA_STRING = ALL_ABI_AS_STRING.sorted().joinToString(", ")
     }
 
@@ -37,7 +38,7 @@ class AbiConfiguratorTest {
         externalNativeBuildAbiFilters: Set<String> = setOf(),
         ndkConfigAbiFilters: Set<String> = setOf(),
         splitsFilterAbis: Set<String> = Abi.getDefaultValues()
-            .map { abi: Abi -> abi.getName() }
+            .map { abi: Abi -> abi.getTag() }
             .toSet(),
         ideBuildOnlyTargetAbi: Boolean = false,
         ideBuildTargetAbi: String? = null): AbiConfigurator {

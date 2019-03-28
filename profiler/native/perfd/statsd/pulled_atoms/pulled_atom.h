@@ -16,8 +16,8 @@
 #ifndef PERFD_STATSD_PULLED_ATOMS_PULLED_ATOM_H_
 #define PERFD_STATSD_PULLED_ATOMS_PULLED_ATOM_H_
 
-#include "proto/statsd/atoms.pb.h"
-#include "proto/statsd/shell_config.pb.h"
+#include "statsd/proto/atoms.pb.h"
+#include "statsd/proto/shell_config.pb.h"
 
 namespace profiler {
 
@@ -35,7 +35,7 @@ class PulledAtom {
       android::os::statsd::PulledAtomSubscription* pulled) = 0;
   // Callback to handle when an atom is received for this subscription.
   // Dispatched on a separate thread.
-  virtual void OnAtomRecieved(const android::os::statsd::Atom& atom) = 0;
+  virtual void OnAtomReceived(const android::os::statsd::Atom& atom) = 0;
 };
 }  // namespace profiler
 

@@ -19,6 +19,9 @@ package com.android.build.gradle.internal.cxx.configure
 import com.android.SdkConstants
 import com.android.SdkConstants.FD_CMAKE
 import com.android.build.gradle.external.cmake.CmakeUtils
+import com.android.build.gradle.internal.cxx.logging.info
+import com.android.build.gradle.internal.cxx.logging.warn
+import com.android.build.gradle.internal.cxx.logging.error
 import com.android.repository.Revision
 import com.android.repository.api.LocalPackage
 import com.android.sdklib.repository.AndroidSdkHandler
@@ -558,7 +561,6 @@ fun findCmakePath(
             cmakeVersionFromDsl,
             cmakeFile,
             downloader,
-            // { version -> sdkHandler.installCMake(version) },
             { getEnvironmentPaths() },
             { getCanarySdkPaths(sdkFolder) },
             { folder -> getCmakeRevisionFromExecutable(folder) },

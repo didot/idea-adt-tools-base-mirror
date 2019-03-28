@@ -16,7 +16,7 @@
 
 package com.android.build.gradle.tasks;
 
-import static com.android.build.gradle.internal.cxx.configure.LoggingEnvironmentKt.info;
+import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.info;
 import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.JNI;
@@ -28,10 +28,10 @@ import static com.google.common.base.Preconditions.checkState;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.internal.core.Abi;
-import com.android.build.gradle.internal.cxx.configure.GradleBuildLoggingEnvironment;
 import com.android.build.gradle.internal.cxx.json.AndroidBuildGradleJsons;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValueMini;
 import com.android.build.gradle.internal.cxx.json.NativeLibraryValueMini;
+import com.android.build.gradle.internal.cxx.logging.GradleBuildLoggingEnvironment;
 import com.android.build.gradle.internal.dsl.CoreExternalNativeBuildOptions;
 import com.android.build.gradle.internal.dsl.CoreExternalNativeCmakeOptions;
 import com.android.build.gradle.internal.dsl.CoreExternalNativeNdkBuildOptions;
@@ -223,8 +223,7 @@ public class ExternalNativeBuildTask extends AndroidBuilderTask {
                             String.format("Unknown ABI seen %s", libraryValue.abi));
                 }
                 File expectedOutputFile =
-                        FileUtils.join(
-                                getObjFolder(), abi.getName(), libraryValue.output.getName());
+                        FileUtils.join(getObjFolder(), abi.getTag(), libraryValue.output.getName());
                 if (!FileUtils.isSameFile(libraryValue.output, expectedOutputFile)) {
                     info(
                             "external build set its own library output location for '%s', "
@@ -245,8 +244,7 @@ public class ExternalNativeBuildTask extends AndroidBuilderTask {
             for (Abi abi : getStlSharedObjectFiles().keySet()) {
                 File stlSharedObjectFile = checkNotNull(getStlSharedObjectFiles().get(abi));
                 File objAbi =
-                        FileUtils.join(
-                                getObjFolder(), abi.getName(), stlSharedObjectFile.getName());
+                        FileUtils.join(getObjFolder(), abi.getTag(), stlSharedObjectFile.getName());
                 if (!objAbi.getParentFile().isDirectory()) {
                     // A build failure can leave the obj/abi folder missing. Just note that case
                     // and continue without copying STL.
@@ -461,7 +459,7 @@ public class ExternalNativeBuildTask extends AndroidBuilderTask {
             default:
                 throw new RuntimeException(
                         "Unexpected native build system "
-                                + jsonGenerator.getNativeBuildSystem().getName());
+                                + jsonGenerator.getNativeBuildSystem().getTag());
         }
     }
 
@@ -506,7 +504,7 @@ public class ExternalNativeBuildTask extends AndroidBuilderTask {
                                                         jsonGenerator
                                                                 .getAbis()
                                                                 .stream()
-                                                                .map(Abi::getName)
+                                                                .map(Abi::getTag)
                                                                 .collect(Collectors.toList()))),
                                 this.getName());
                 return ImmutableList.of();

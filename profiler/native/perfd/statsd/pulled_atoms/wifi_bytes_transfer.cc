@@ -22,7 +22,7 @@ namespace profiler {
 
 void WifiBytesTransfer::BuildConfig(PulledAtomSubscription* pulled) {
   auto* matcher = pulled->mutable_matcher();
-  matcher->set_atom_id(Atom::PulledCase::kWifiBytesTransfer);
+  matcher->set_atom_id(AtomId());
   auto* field_value_matcher = matcher->add_field_value_matcher();
   field_value_matcher->set_field(
       android::os::statsd::WifiBytesTransfer::kUidFieldNumber);
@@ -30,7 +30,7 @@ void WifiBytesTransfer::BuildConfig(PulledAtomSubscription* pulled) {
   pulled->set_freq_millis(kFreqMillis);
 }
 
-void WifiBytesTransfer::OnAtomRecieved(const Atom& atom) {
+void WifiBytesTransfer::OnAtomReceived(const Atom& atom) {
   auto wifi_bytes_transfer = atom.wifi_bytes_transfer();
   rx_bytes_ = wifi_bytes_transfer.rx_bytes();
   tx_bytes_ = wifi_bytes_transfer.tx_bytes();

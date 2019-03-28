@@ -22,17 +22,17 @@
 
 namespace profiler {
 
-// A pulled atom that contains bytes transfered over WiFi since device boot.
+// A pulled atom that contains bytes transferred over WiFi since device boot.
 class WifiBytesTransfer : public PulledAtom {
  public:
   WifiBytesTransfer(uint32_t uid) : uid_(uid), rx_bytes_(0), tx_bytes_(0) {}
 
-  virtual int32_t AtomId() override {
+  int32_t AtomId() override {
     return android::os::statsd::Atom::PulledCase::kWifiBytesTransfer;
   }
-  virtual void BuildConfig(
+  void BuildConfig(
       android::os::statsd::PulledAtomSubscription* pulled) override;
-  virtual void OnAtomRecieved(const android::os::statsd::Atom& atom) override;
+  void OnAtomReceived(const android::os::statsd::Atom& atom) override;
 
   int64_t rx_bytes() { return rx_bytes_; }
   int64_t tx_bytes() { return tx_bytes_; }

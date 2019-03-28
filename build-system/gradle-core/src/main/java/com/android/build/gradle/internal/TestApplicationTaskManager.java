@@ -35,6 +35,7 @@ import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask;
 import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.test.TestApplicationTestData;
+import com.android.build.gradle.internal.variant.ApkVariantData;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.options.ProjectOptions;
@@ -51,9 +52,7 @@ import java.util.Objects;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
-import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
@@ -163,6 +162,11 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     }
 
     @Override
+    public void maybeCreateLintVitalTask(@NonNull ApkVariantData variantData) {
+        // do nothing
+    }
+
+    @Override
     public void createGlobalLintTask() {
         // do nothing
     }
@@ -218,21 +222,9 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     protected TaskProvider<? extends ManifestProcessorTask> createMergeManifestTask(
             @NonNull VariantScope variantScope) {
 
-        Provider<Directory> directoryProperty =
-                project.provider(
-                        () ->
-                                project.getLayout()
-                                        .getBuildDirectory()
-                                        .dir(
-                                                getTestedManifestMetadata(
-                                                                variantScope.getVariantData())
-                                                        .getSingleFile()
-                                                        .getAbsolutePath())
-                                        .get());
-
-        // TODO : Investigate why there is no actual dependency embedded in the directoryProperty.
         return taskFactory.register(
-                new ProcessTestManifest.CreationAction(variantScope, directoryProperty));
+                new ProcessTestManifest.CreationAction(
+                        variantScope, getTestedManifestMetadata(variantScope.getVariantData())));
     }
 
     @Override

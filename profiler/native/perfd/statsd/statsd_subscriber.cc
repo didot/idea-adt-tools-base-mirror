@@ -22,7 +22,7 @@
 #include <memory>
 #include <vector>
 
-#include "proto/statsd/shell_data.pb.h"
+#include "statsd/proto/shell_data.pb.h"
 #include "utils/log.h"
 
 using android::os::statsd::ShellData;
@@ -67,10 +67,8 @@ void StatsdSubscriber::Run() {
   // Then we write the proto content.
   subscription_.SerializeToArray(buffer.data() + sizeof(size), size);
 
-  NonBlockingCommandRunner::StdoutCallback callback =
-      std::bind(&StatsdSubscriber::HandleOutput, this, std::placeholders::_1);
   if (!runner_->Run(kStatsdArgs, string(buffer.begin(), buffer.end()),
-                    &callback)) {
+                    &callback_)) {
     Log::E("Failed to run statsd command.");
     return;
   }
@@ -105,7 +103,7 @@ void StatsdSubscriber::HandleOutput(int stdout_fd) {
         auto atom = shell_data.atom(i);
         auto search = pulled_atoms_.find(atom.pulled_case());
         if (search != pulled_atoms_.end()) {
-          search->second->OnAtomRecieved(atom);
+          search->second->OnAtomReceived(atom);
         }
       }
     } else {

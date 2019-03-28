@@ -16,16 +16,16 @@
 
 package com.android.build.gradle.tasks;
 
-import static com.android.build.gradle.internal.cxx.configure.LoggingEnvironmentKt.info;
+import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.info;
 import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.core.Abi;
-import com.android.build.gradle.internal.cxx.configure.GradleBuildLoggingEnvironment;
 import com.android.build.gradle.internal.cxx.json.AndroidBuildGradleJsons;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValueMini;
 import com.android.build.gradle.internal.cxx.json.NativeLibraryValueMini;
+import com.android.build.gradle.internal.cxx.logging.GradleBuildLoggingEnvironment;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
@@ -91,7 +91,7 @@ public class ExternalNativeCleanTask extends AndroidBuilderTask {
                     File stlSharedObjectFile = checkNotNull(getStlSharedObjectFiles().get(abi));
                     File objAbi =
                             FileUtils.join(
-                                    getObjFolder(), abi.getName(), stlSharedObjectFile.getName());
+                                    getObjFolder(), abi.getTag(), stlSharedObjectFile.getName());
 
                     if (objAbi.delete()) {
                         info("removed file %s", objAbi);
@@ -165,7 +165,7 @@ public class ExternalNativeCleanTask extends AndroidBuilderTask {
             // to leave stale results hanging around.
             List<String> abiNames = Lists.newArrayList();
             for (Abi abi : Abi.values()) {
-                abiNames.add(abi.getName());
+                abiNames.add(abi.getTag());
             }
             task.abiNames = abiNames;
             task.generator = generator;

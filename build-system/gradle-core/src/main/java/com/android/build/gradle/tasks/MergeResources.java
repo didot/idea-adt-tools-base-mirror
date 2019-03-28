@@ -26,12 +26,14 @@ import com.android.annotations.Nullable;
 import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.aapt.WorkerExecutorResourceCompilationService;
+import com.android.build.gradle.internal.errors.MessageReceiverImpl;
 import com.android.build.gradle.internal.res.Aapt2MavenUtils;
 import com.android.build.gradle.internal.res.namespaced.Aapt2DaemonManagerService;
 import com.android.build.gradle.internal.res.namespaced.Aapt2ServiceKey;
 import com.android.build.gradle.internal.res.namespaced.NamespaceRemover;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.Blocks;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.build.gradle.internal.tasks.Workers;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
@@ -60,6 +62,7 @@ import com.android.resources.Density;
 import com.android.utils.FileUtils;
 import com.android.utils.ILogger;
 import com.google.common.collect.ImmutableSet;
+import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -216,10 +219,16 @@ public class MergeResources extends ResourceAwareTask {
                         flags,
                         processResources)) {
 
-            for (ResourceSet resourceSet : resourceSets) {
-                resourceSet.loadFromFiles(getILogger());
-                merger.addDataSet(resourceSet);
-            }
+            Blocks.recordSpan(
+                    getProject().getName(),
+                    getPath(),
+                    GradleBuildProfileSpan.ExecutionType.TASK_EXECUTION_PHASE_1,
+                    () -> {
+                        for (ResourceSet resourceSet : resourceSets) {
+                            resourceSet.loadFromFiles(getILogger());
+                            merger.addDataSet(resourceSet);
+                        }
+                    });
 
             MergedResourceWriter writer =
                     new MergedResourceWriter(
@@ -235,18 +244,38 @@ public class MergeResources extends ResourceAwareTask {
                             pseudoLocalesEnabled,
                             getCrunchPng());
 
-            merger.mergeData(writer, false /*doCleanUp*/);
+            Blocks.recordSpan(
+                    getProject().getName(),
+                    getPath(),
+                    GradleBuildProfileSpan.ExecutionType.TASK_EXECUTION_PHASE_2,
+                    () -> merger.mergeData(writer, false /*doCleanUp*/));
 
-            if (dataBindingLayoutProcessor != null) {
-                dataBindingLayoutProcessor.end();
-            }
+            Blocks.recordSpan(
+                    getProject().getName(),
+                    getPath(),
+                    GradleBuildProfileSpan.ExecutionType.TASK_EXECUTION_PHASE_3,
+                    () -> {
+                        if (dataBindingLayoutProcessor != null) {
+                            dataBindingLayoutProcessor.end();
+                        }
+                    });
 
             // No exception? Write the known state.
-            merger.writeBlobTo(getIncrementalFolder(), writer, false);
-        } catch (MergingException e) {
-            System.out.println(e.getMessage());
-            merger.cleanBlob(getIncrementalFolder());
-            throw new ResourceException(e.getMessage(), e);
+            Blocks.recordSpan(
+                    getProject().getName(),
+                    getPath(),
+                    GradleBuildProfileSpan.ExecutionType.TASK_EXECUTION_PHASE_4,
+                    () -> merger.writeBlobTo(getIncrementalFolder(), writer, false));
+
+        } catch (Exception e) {
+            MergingException.findAndReportMergingException(
+                    e, new MessageReceiverImpl(errorFormatMode, getLogger()));
+            try {
+                throw e;
+            } catch (MergingException mergingException) {
+                merger.cleanBlob(getIncrementalFolder());
+                throw new ResourceException(mergingException.getMessage(), mergingException);
+            }
         } finally {
             cleanup();
         }
@@ -338,9 +367,15 @@ public class MergeResources extends ResourceAwareTask {
                 // No exception? Write the known state.
                 merger.writeBlobTo(getIncrementalFolder(), writer, false);
             }
-        } catch (MergingException e) {
-            merger.cleanBlob(getIncrementalFolder());
-            throw new ResourceException(e.getMessage(), e);
+        } catch (Exception e) {
+            MergingException.findAndReportMergingException(
+                    e, new MessageReceiverImpl(errorFormatMode, getLogger()));
+            try {
+                throw e;
+            } catch (MergingException mergingException) {
+                merger.cleanBlob(getIncrementalFolder());
+                throw new ResourceException(mergingException.getMessage(), mergingException);
+            }
         } finally {
             cleanup();
         }
@@ -691,10 +726,12 @@ public class MergeResources extends ResourceAwareTask {
 
                             @Override
                             public boolean processSingleFile(File file, File out) throws Exception {
+                                // For cache relocatability, we want to pass relative paths here
+                                // instead of absolute paths. However, it is currently not possible
+                                // due to bug 128579779.
                                 return getProcessor()
                                         .processSingleFile(
-                                                RelativizableFile.Companion.fromAbsoluteFile(
-                                                        file, task.getProject().getProjectDir()),
+                                                RelativizableFile.fromAbsoluteFile(file, null),
                                                 out);
                             }
 

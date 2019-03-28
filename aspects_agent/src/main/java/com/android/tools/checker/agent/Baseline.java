@@ -18,12 +18,19 @@ package com.android.tools.checker.agent;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.annotations.VisibleForTesting;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.logging.Logger;
 
@@ -40,7 +47,7 @@ import java.util.logging.Logger;
  * sun.configurations.Configuration.computeBestDevice|com.tools.Configuration.getDevice
  * com.example.Configuration.getDevice|com.nele.NlPreviewForm.lambda$initNeleModelWhenSmart$8
  *
- * <p>TODO: add utility methods to generate baseline files for given rules.
+ * <p>TODO(b/129057468): make this class a singleton instead of a static instance
  */
 public class Baseline {
     private static final Logger LOGGER = Logger.getLogger(Baseline.class.getName());
@@ -64,7 +71,14 @@ public class Baseline {
      */
     private static final int STACKTRACE_START_INDEX = 2;
 
-    @NonNull private static Set<String> whitelist = Collections.emptySet();
+    /**
+     * Accessed through {@link #isGeneratingBaseline()}. When null, the getter should calculate its
+     * value from system properties.
+     */
+    @VisibleForTesting @Nullable public static Boolean isGeneratingBaseline;
+
+    // TODO: allow whitelisting stack traces for specific rules.
+    @VisibleForTesting @NonNull public static Set<String> whitelist = new HashSet<>();
 
     private Baseline() {}
 
@@ -83,7 +97,7 @@ public class Baseline {
             }
             whitelist.forEach(
                     (callstack) ->
-                            LOGGER.info(
+                            LOGGER.fine(
                                     String.format(
                                             "Ignoring whitelisted callstack:\n%s",
                                             formattedCallstack(callstack))));
@@ -91,6 +105,33 @@ public class Baseline {
         } catch (IOException e) {
             LOGGER.warning(String.format("Error while parsing the baseline.\n%s", e.getMessage()));
         }
+    }
+
+    /**
+     * Checks whether the given {@link StackTraceElement} corresponds to a whitelisted callstack.
+     * TODO: allow whitelisting callstacks for specific annotations/rules.
+     */
+    public static boolean isWhitelisted(@NonNull StackTraceElement[] stackTrace) {
+        return whitelist.contains(stackTraceToString(stackTrace));
+    }
+
+    public static void whitelistStackTrace(StackTraceElement[] stackTrace) {
+        String parsedStackTrace = stackTraceToString(stackTrace);
+        whitelist.add(parsedStackTrace);
+    }
+
+    public static boolean isGeneratingBaseline() {
+        // Lazily determine if we're in generating baseline mode
+        if (isGeneratingBaseline == null) {
+            isGeneratingBaseline =
+                    System.getProperty("aspects.baseline.export.path") != null
+                            && !System.getProperty("aspects.baseline.export.path").isEmpty();
+            if (isGeneratingBaseline) {
+                // If we are generating the baseline, add the shutdown hook to export it to a file.
+                exportBaselineOnShutdown();
+            }
+        }
+        return isGeneratingBaseline;
     }
 
     @NonNull
@@ -107,14 +148,6 @@ public class Baseline {
         return output.toString();
     }
 
-    /**
-     * Checks whether the given {@link StackTraceElement} corresponds to a whitelisted callstack.
-     * TODO: allow whitelisting callstacks for specific annotations/rules.
-     */
-    public static boolean isWhitelisted(@NonNull StackTraceElement[] stackTrace) {
-        return whitelist.contains(stackTraceToString(stackTrace));
-    }
-
     private static String stackTraceToString(@NonNull StackTraceElement[] stackTrace) {
         StringBuilder callstack = new StringBuilder();
         for (int i = 0; i < SUBSTACK_SIZE; i++) {
@@ -128,5 +161,31 @@ public class Baseline {
                             stackTrace[STACKTRACE_START_INDEX + i].getMethodName()));
         }
         return callstack.toString();
+    }
+
+    private static void exportBaselineOnShutdown() {
+        Runnable writeBaselineToFile =
+                () -> {
+                    String outputPath = System.getProperty("aspects.baseline.export.path");
+                    LOGGER.info(
+                            String.format(
+                                    Locale.getDefault(),
+                                    "Exporting %d elements to %s",
+                                    whitelist.size(),
+                                    outputPath));
+                    List<String> baseline = new ArrayList<>(whitelist);
+                    Collections.sort(baseline);
+                    try {
+                        Path output = Paths.get(outputPath);
+                        Files.createDirectories(output.getParent());
+
+                        Files.write(output, baseline);
+                    } catch (IOException e) {
+                        LOGGER.severe(
+                                String.format(
+                                        "Error while exporting baseline:\n%s", e.getMessage()));
+                    }
+                };
+        Runtime.getRuntime().addShutdownHook(new Thread(writeBaselineToFile));
     }
 }

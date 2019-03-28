@@ -60,7 +60,7 @@ enum class BooleanOption(
     ENABLE_TEST_SHARDING("android.androidTest.shardBetweenDevices"),
     VERSION_CHECK_OVERRIDE_PROPERTY("android.overrideVersionCheck"),
     OVERRIDE_PATH_CHECK_PROPERTY("android.overridePathCheck"),
-    ENABLE_GRADLE_WORKERS("android.enableGradleWorkers", false),
+    ENABLE_GRADLE_WORKERS("android.enableGradleWorkers", true),
     DISABLE_RESOURCE_VALIDATION("android.disableResourceValidation"),
     CONSUME_DEPENDENCIES_AS_SHARED_LIBRARIES("android.consumeDependenciesAsSharedLibraries"),
     KEEP_TIMESTAMPS_IN_APK("android.keepTimestampsInApk"),
@@ -92,7 +92,6 @@ enum class BooleanOption(
     ENABLE_EXTRACT_ANNOTATIONS("android.enableExtractAnnotations", true),
     ENABLE_AAPT2_WORKER_ACTIONS("android.enableAapt2WorkerActions", true),
     ENABLE_D8_DESUGARING("android.enableD8.desugaring", true),
-    ENABLE_R8("android.enableR8", true, status = Option.Status.STABLE),
     ENABLE_R8_LIBRARIES("android.enableR8.libraries", true, status = Option.Status.STABLE),
     /** Set to true by default, but has effect only if R8 is enabled. */
     ENABLE_R8_DESUGARING("android.enableR8.desugaring", true),
