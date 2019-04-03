@@ -633,7 +633,9 @@ public class AndroidDebugBridge {
             return;
         } catch (ExecutionException e) {
             Log.logAndDisplay(LogLevel.ERROR, ADB, e.getCause().getMessage());
-            Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
+            if (e.getCause() instanceof IOException) {
+              throw ((IOException)e.getCause());
+            }
             return;
         }
 
