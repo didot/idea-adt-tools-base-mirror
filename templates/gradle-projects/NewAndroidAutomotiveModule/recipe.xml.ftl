@@ -31,8 +31,7 @@
     <mkdir at="${escapeXmlAttribute(srcOut)}" />
 </#if>
 
-    <dependency mavenUrl="androidx.appcompat:appcompat:+" />
-    <dependency mavenUrl="androidx.car:car:+" />
+    <dependency mavenUrl="com.android.support:appcompat-v7:${buildApi}.+" />
 
 <#if makeIgnore>
     <copy from="root://gradle-projects/common/gitignore"
@@ -81,7 +80,7 @@
     </#if>
 </#if>
 
-<#if generateKotlin>
+<#if generateKotlin && useAndroidX>
     <dependency mavenUrl="androidx.core:core-ktx:+" />
 </#if>
 </recipe>

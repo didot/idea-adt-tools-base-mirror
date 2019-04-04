@@ -38,7 +38,7 @@ namespace profiler {
 
 StatsdSubscriber& StatsdSubscriber::Instance() {
   static StatsdSubscriber* instance =
-      new StatsdSubscriber(new NonBlockingCommandRunner(kStatsdCommand));
+      new StatsdSubscriber(new NonBlockingCommandRunner(kStatsdCommand, true));
   return *instance;
 }
 
@@ -68,7 +68,7 @@ void StatsdSubscriber::Run() {
   subscription_.SerializeToArray(buffer.data() + sizeof(size), size);
 
   if (!runner_->Run(kStatsdArgs, string(buffer.begin(), buffer.end()),
-                    &callback_)) {
+                    &callback_, nullptr)) {
     Log::E("Failed to run statsd command.");
     return;
   }
@@ -95,7 +95,7 @@ void StatsdSubscriber::HandleOutput(int stdout_fd) {
     }
     buffer.resize(size);
     if (read(stdout_fd, buffer.data(), size) == -1) {
-      Log::E("failed to read statsd data: %s.", strerror(errno));
+      Log::E("Failed to read statsd data: %s.", strerror(errno));
       return;
     }
     if (shell_data.ParseFromArray(buffer.data(), size)) {

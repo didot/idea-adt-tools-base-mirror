@@ -89,7 +89,7 @@ struct CpuServiceTest : testing::Test {
         std::unique_ptr<AtraceManager>(new AtraceManager(
             std::unique_ptr<FileSystem>(new MemoryFileSystem()), &clock_, 50,
             std::unique_ptr<Atrace>(new FakeAtrace(&clock_, false)))),
-        std::unique_ptr<PerfettoManager>(new PerfettoManager(
+        std::unique_ptr<PerfettoManager>(new PerfettoManager(&clock_,
             std::unique_ptr<Perfetto>(new FakePerfetto())))));
   }
 
@@ -224,7 +224,7 @@ TEST_F(CpuServiceTest, StopArtTraceWhenPerfdTerminated) {
           std::unique_ptr<FileSystem>(new MemoryFileSystem()), &clock_, 50,
           std::unique_ptr<Atrace>(new FakeAtrace(&clock_)))),
       std::unique_ptr<PerfettoManager>(
-          new PerfettoManager(std::unique_ptr<Perfetto>(new FakePerfetto())))};
+          new PerfettoManager(&clock_, std::unique_ptr<Perfetto>(new FakePerfetto())))};
 
   // Start an ART recording.
   ServerContext context;
@@ -255,8 +255,8 @@ TEST_F(CpuServiceTest, AtraceRunsOnOWithPerfettoDisabled) {
   RunAtraceTest(DeviceInfo::O, false, false);
 }
 
-TEST_F(CpuServiceTest, AtraceRunsOnPWithPerfettoEnabled) {
-  RunAtraceTest(DeviceInfo::P, true, false);
+TEST_F(CpuServiceTest, PerfettoRunsOnPWithPerfettoEnabled) {
+  RunAtraceTest(DeviceInfo::P, true, true);
 }
 
 TEST_F(CpuServiceTest, AtraceRunsOnQWithPerfettoDisabled) {

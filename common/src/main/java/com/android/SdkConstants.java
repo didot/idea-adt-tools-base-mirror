@@ -1306,6 +1306,7 @@ public final class SdkConstants {
     public static final String ATTR_HANDLE_PROFILING = "handleProfiling";
     public static final String ATTR_TARGET_PACKAGE = "targetPackage";
     public static final String ATTR_EXTRACT_NATIVE_LIBS = "extractNativeLibs";
+    public static final String ATTR_USE_EMBEDDED_DEX = "useEmbeddedDex";
     public static final String ATTR_SPLIT_NAME = "splitName";
     public static final String ATTR_FEATURE_SPLIT = "featureSplit";
     public static final String ATTR_TARGET_SANDBOX_VERSION = "targetSandboxVersion";
@@ -1339,6 +1340,7 @@ public final class SdkConstants {
     public static final String ATTR_AUTOFILL_HINTS = "autofillHints"; //$NON-NLS-1$
     public static final String ATTR_TEXT = "text"; //$NON-NLS-1$
     public static final String ATTR_TEXT_SIZE = "textSize"; //$NON-NLS-1$
+    public static final String ATTR_ALPHA = "alpha"; //$NON-NLS-1$
     public static final String ATTR_LABEL = "label"; //$NON-NLS-1$
     public static final String ATTR_HINT = "hint"; //$NON-NLS-1$
     public static final String ATTR_PROMPT = "prompt"; //$NON-NLS-1$
@@ -2613,7 +2615,7 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "5.3-rc-2";
+    public static final String GRADLE_MINIMUM_VERSION = "5.3.1";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
     public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";
@@ -2647,7 +2649,9 @@ public final class SdkConstants {
     public static final String MAPS_ARTIFACT = "com.google.android.gms:play-services-maps";
     public static final String ADS_ARTIFACT = "com.google.android.gms:play-services-ads";
     public static final String LEANBACK_V17_ARTIFACT = "com.android.support:leanback-v17";
-    public static final String ANNOTATIONS_LIB_ARTIFACT = "com.android.support:support-annotations";
+    public static final String ANNOTATIONS_LIB_ARTIFACT_ID = "support-annotations";
+    public static final String ANNOTATIONS_LIB_ARTIFACT =
+            SUPPORT_LIB_GROUP_ID + ":" + ANNOTATIONS_LIB_ARTIFACT_ID;
     public static final String MEDIA_ROUTER_LIB_ARTIFACT = "com.android.support:mediarouter-v7";
 
     public static final String ANDROIDX_MATERIAL_ARTIFACT = "com.google.android.material:material";
