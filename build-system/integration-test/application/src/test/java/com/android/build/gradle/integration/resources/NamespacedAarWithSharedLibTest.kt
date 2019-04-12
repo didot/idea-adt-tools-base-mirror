@@ -209,7 +209,7 @@ class NamespacedAarWithSharedLibTest {
                 sharedAar.mergeFrom(previousAar) { false }
                 sharedAar.add(
                         SdkConstants.FN_SHARED_LIBRARY_ANDROID_MANIFEST_XML,
-                        manifestSnippet.byteInputStream(StandardCharsets.UTF_8))
+                        manifestSnippet.byteInputStream(Charsets.UTF_8))
                 sharedAar.add(SdkConstants.FN_RESOURCE_SHARED_STATIC_LIBRARY, sharedLib.inputStream().buffered())
             }
         }

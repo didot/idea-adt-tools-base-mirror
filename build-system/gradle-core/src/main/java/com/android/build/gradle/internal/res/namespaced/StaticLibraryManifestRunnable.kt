@@ -24,7 +24,7 @@ import javax.inject.Inject
 class StaticLibraryManifestRunnable @Inject constructor(
         val params: StaticLibraryManifestRequest) : Runnable {
     override fun run() {
-        params.manifestFile.outputStream().writer(StandardCharsets.UTF_8).buffered().use {
+        params.manifestFile.outputStream().writer(Charsets.UTF_8).buffered().use {
             it.append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
                     .append("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n")
                     .append("    package=\"${params.packageName}\"/>\n")

@@ -26,7 +26,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import com.google.common.collect.ImmutableList.of as list
 
@@ -302,7 +301,7 @@ class SymbolTablePartialRMergeTest {
                 "default int styleable dsA_attr2",
                 "default int styleable dsA_attr3")
 
-        Files.write(writtenResources.toPath(), expectedLines, StandardCharsets.UTF_8)
+        Files.write(writtenResources.toPath(), expectedLines, Charsets.UTF_8)
         val expected = SymbolIo.readFromPartialRFile(writtenResources, "com.boop.beep");
         assertThat(result).isEqualTo(expected)
     }

@@ -311,7 +311,7 @@ class LintBaseline(
         try {
             BufferedReader(
                 InputStreamReader(
-                    FileInputStream(file), StandardCharsets.UTF_8
+                    FileInputStream(file), Charsets.UTF_8
                 )
             ).use { reader ->
                 val parser = KXmlParser()

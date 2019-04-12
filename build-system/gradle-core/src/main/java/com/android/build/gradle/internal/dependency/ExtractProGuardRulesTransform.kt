@@ -35,7 +35,7 @@ private fun isProguardRule(entry: ZipEntry): Boolean {
 
 class ExtractProGuardRulesTransform @Inject  constructor() : ArtifactTransform() {
     override fun transform(jarFile: File): List<File> {
-        ZipFile(jarFile, StandardCharsets.UTF_8).use { zipFile ->
+        ZipFile(jarFile, Charsets.UTF_8).use { zipFile ->
             return zipFile
                 .stream()
                 .filter { zipEntry -> isProguardRule(zipEntry) }

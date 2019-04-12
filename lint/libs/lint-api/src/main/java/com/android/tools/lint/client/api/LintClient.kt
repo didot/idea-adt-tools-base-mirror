@@ -1542,7 +1542,7 @@ abstract class LintClient {
         }
         val parser = KXmlParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
-        parser.setInput(ByteArrayInputStream(bytes), StandardCharsets.UTF_8.name())
+        parser.setInput(ByteArrayInputStream(bytes), Charsets.UTF_8.name())
         return parser
     }
 

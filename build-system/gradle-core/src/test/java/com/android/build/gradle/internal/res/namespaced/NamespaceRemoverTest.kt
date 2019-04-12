@@ -148,6 +148,6 @@ class NamespaceRemoverTest {
     }
 
     private fun rewrite(original: String) : String {
-        return namespaceRemover.rewrite(original.byteInputStream(StandardCharsets.UTF_8), "\n")
+        return namespaceRemover.rewrite(original.byteInputStream(Charsets.UTF_8), "\n")
     }
 }

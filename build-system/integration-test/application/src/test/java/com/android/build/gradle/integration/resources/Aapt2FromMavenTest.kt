@@ -111,7 +111,7 @@ class Aapt2FromMavenTest {
             .resolve("strings.xml")
             .apply {
                 Files.createDirectories(parent)
-                Files.write(this, "<resources></resources>".toByteArray(StandardCharsets.UTF_8))
+                Files.write(this, "<resources></resources>".toByteArray(Charsets.UTF_8))
             }
             .toFile()
 }

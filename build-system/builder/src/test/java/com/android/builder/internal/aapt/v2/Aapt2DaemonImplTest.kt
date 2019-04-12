@@ -340,7 +340,7 @@ class Aapt2DaemonImplTest {
                     .resolve(name)
                     .apply {
                         Files.createDirectories(this.parent)
-                        Files.write(this, content.toByteArray(StandardCharsets.UTF_8))
+                        Files.write(this, content.toByteArray(Charsets.UTF_8))
                     }
                     .toFile()
 

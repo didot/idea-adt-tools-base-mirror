@@ -34,7 +34,7 @@ class SyncCommandHandler : DeviceCommandHandler() {
       CommandHandler.writeOkay(output)
 
       // TODO the following is a hack. See http://b/79271028
-      output.write("OKAY".toByteArray(StandardCharsets.UTF_8).copyOf(8))
+      output.write("OKAY".toByteArray(Charsets.UTF_8).copyOf(8))
       // Drain input stream. This data comes from files
       val input = responseSocket.getInputStream()
       val buffer= ByteArray(1024)

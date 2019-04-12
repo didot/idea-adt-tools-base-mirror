@@ -51,13 +51,13 @@ class BundleOptionsTest {
         val apks = generateApks()
         assertThat(apks).containsAllOf("base-x86.apk", "base-hdpi.apk")
 
-        project.buildFile.appendText("\nandroid.bundle.abi.enableSplit=false", StandardCharsets.UTF_8)
+        project.buildFile.appendText("\nandroid.bundle.abi.enableSplit=false", Charsets.UTF_8)
         val apksNoAbiSplit = generateApks()
         assertThat(apksNoAbiSplit).doesNotContain("base-x86.apk")
         assertThat(apksNoAbiSplit).contains("base-hdpi.apk")
 
 
-        project.buildFile.appendText("\nandroid.bundle.density.enableSplit=false", StandardCharsets.UTF_8)
+        project.buildFile.appendText("\nandroid.bundle.density.enableSplit=false", Charsets.UTF_8)
         val apksNoDensitySplit = generateApks()
         assertThat(apksNoDensitySplit).doesNotContain("base-x86.apk")
         assertThat(apksNoDensitySplit).doesNotContain("base-hdpi.apk")
