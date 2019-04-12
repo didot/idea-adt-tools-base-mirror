@@ -8,8 +8,8 @@ cc_library(
         "activity_manager.cc",
         "background_queue.cc",
         "bash_command.cc",
-        "config.cc",
         "current_process.cc",
+        "daemon_config.cc",
         "file_cache.cc",
         "file_reader.cc",
         "fs/dir.cc",
@@ -29,18 +29,21 @@ cc_library(
         "termination_service.cc",
         "tokenizer.cc",
         "trace.cc",
+        "uid_fetcher.cc",
     ] + select({
         "//tools/base/bazel:darwin": [
             "clock.mac.cc",
             "current_process.mac.cc",
             "filesystem_notifier.mac.cc",
             "thread_name.mac.cc",
+            "uid_fetcher.mac.cc",
         ],
         "//conditions:default": [
             "clock.cc",
             "current_process.linux.cc",
             "filesystem_notifier.cc",
             "thread_name.cc",
+            "uid_fetcher.linux.cc",
         ],
     }) + select_android(
         [
@@ -65,9 +68,9 @@ cc_library(
         "bash_command.h",
         "circular_buffer.h",
         "clock.h",
-        "config.h",
         "count_down_latch.h",
         "current_process.h",
+        "daemon_config.h",
         "device_info.h",
         "device_info_helper.h",
         "fake_clock.h",
@@ -162,9 +165,15 @@ cc_test(
         "nonblocking_command_runner.cc",
         "nonblocking_command_runner.h",
         "nonblocking_command_runner_test.cc",
-        "thread_name.cc",
         "thread_name.h",
-    ],
+    ] + select({
+        "//tools/base/bazel:darwin": [
+            "thread_name.mac.cc",
+        ],
+        "//conditions:default": [
+            "thread_name.cc",
+        ],
+    }),
     copts = [
         "-Itools/base/transport",
     ],

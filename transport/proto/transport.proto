@@ -48,13 +48,6 @@ service TransportService {
   // TODO: replace with command in the new pipeline.
   rpc GetAgentStatus(AgentStatusRequest) returns (AgentData) {}
 
-  // Makes all necessary configurations needed for attaching agent on startup.
-  // Returns |agent_args| to be used with the application launch command,
-  // e.g "am start --attach-agent |agent_args|".
-  // TODO: replace with command in the new pipeline.
-  rpc ConfigureStartupAgent(ConfigureStartupAgentRequest)
-      returns (ConfigureStartupAgentResponse) {}
-
   // Executes a |Command| on the daemon.
   rpc Execute(ExecuteRequest) returns (ExecuteResponse) {}
 
@@ -129,16 +122,6 @@ message AgentStatusRequest {
   int32 pid = 2;
 }
 
-message ConfigureStartupAgentRequest {
-  int64 stream_id = 1;
-  string app_package_name = 2;
-  string agent_lib_file_name = 3;
-}
-
-message ConfigureStartupAgentResponse {
-  string agent_args = 1;
-}
-
 message ExecuteRequest {
   Command command = 1;
 }
@@ -184,4 +167,20 @@ message GetEventGroupsResponse {
 message EventGroup {
   int64 group_id = 1;
   repeated Event events = 2;
+}
+
+// Proto used for configuring the daemon.
+// The message itself is created and pushed to device from Studio
+// and can be access via profiler::Config::Instance().
+message DaemonConfig {
+  message CpuConfig {
+    // Waiting time in Seconds for ART when stopping the ongoing ART profiling.
+    int32 art_stop_timeout_sec = 1;
+    // equivalent to StudioFlags.PROFILER_SIMPLEPERF_HOST
+    bool simpleperf_host = 2;
+    // equivalent to StudioFlags.PROFILER_USE_PERFETTO
+    bool use_perfetto = 3;
+  }
+  CommonConfig common = 1;
+  CpuConfig cpu = 2;
 }

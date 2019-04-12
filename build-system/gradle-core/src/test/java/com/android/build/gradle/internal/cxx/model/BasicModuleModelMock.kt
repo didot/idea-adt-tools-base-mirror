@@ -31,6 +31,7 @@ import com.android.build.gradle.internal.model.CoreExternalNativeBuild
 import com.android.build.gradle.internal.model.CoreNdkBuildOptions
 import com.android.build.gradle.internal.ndk.NdkHandler
 import com.android.build.gradle.internal.ndk.NdkInfo
+import com.android.build.gradle.internal.ndk.NdkInstallStatus
 import com.android.build.gradle.internal.ndk.NdkPlatform
 import com.android.build.gradle.internal.scope.GlobalScope
 import com.android.build.gradle.internal.variant.BaseVariantData
@@ -43,6 +44,8 @@ import com.android.sdklib.AndroidVersion
 import org.gradle.api.Project
 import org.junit.rules.TemporaryFolder
 import org.mockito.Mockito
+import org.mockito.Mockito.`when`
+import org.mockito.Mockito.doNothing
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.invocation.InvocationOnMock
@@ -77,10 +80,11 @@ open class BasicModuleModelMock {
         CoreNdkBuildOptions::class.java,
         throwUnmocked
     )
-    val ndkPlatform = mock(
-        NdkPlatform::class.java,
-        throwUnmocked
-    )
+    val ndkPlatform = NdkInstallStatus.Valid(
+        mock(
+            NdkPlatform::class.java,
+            throwUnmocked
+    ))
     val baseVariantData = mock(
         BaseVariantData::class.java,
         throwUnmocked
@@ -144,6 +148,12 @@ open class BasicModuleModelMock {
         ApiVersion::class.java,
         throwUnmocked
     )
+    private fun <T> any(): T {
+        Mockito.any<T>()
+        return uninitialized()
+    }
+    private fun <T> uninitialized(): T = null as T
+
     init {
         doReturn(extension).`when`(global).extension
         doReturn(externalNativeBuild).`when`(extension).externalNativeBuild
@@ -188,25 +198,21 @@ open class BasicModuleModelMock {
         doReturn(buildDir).`when`(project).buildDir
         doReturn(projectRootDir).`when`(project).rootDir
         doReturn("3.10.2").`when`(cmake).version
-        doReturn(listOf(Abi.X86)).`when`(ndkPlatform).supportedAbis
-        doReturn(listOf(Abi.X86)).`when`(ndkPlatform).defaultAbis
+        doReturn(listOf(Abi.X86)).`when`(ndkPlatform.getOrThrow()).supportedAbis
+        doReturn(listOf(Abi.X86)).`when`(ndkPlatform.getOrThrow()).defaultAbis
         doReturn(coreBuildType).`when`(gradleVariantConfiguration).buildType
         doReturn(true).`when`(coreBuildType).isDebuggable
         doReturn(Supplier { ndkHandler }).`when`(sdkComponents).ndkHandlerSupplier
         doReturn(ndkPlatform).`when`(ndkHandler).ndkPlatform
-        doReturn(true).`when`(ndkPlatform).isConfigured
         doReturn(productFlavor).`when`(gradleVariantConfiguration).mergedFlavor
         doReturn(minSdkVersion).`when`(productFlavor).minSdkVersion
         doReturn(18).`when`(minSdkVersion).apiLevel
         doReturn(null).`when`(minSdkVersion).codename
-        doReturn(ndkInfo).`when`(ndkPlatform).ndkInfo
+        doReturn(ndkInfo).`when`(ndkPlatform.getOrThrow()).ndkInfo
         Mockito.`when`(ndkInfo.findSuitablePlatformVersion(
             "x86",
             AndroidVersion(minSdkVersion.apiLevel, minSdkVersion.codename))).thenReturn(18)
-    }
-
-    fun getHumanReadable(abi: CxxAbiModel) : String {
-        return abi.toJsonString()
+        doNothing().`when`(ndkHandler).writeNdkLocatorRecord(any())
     }
 
     class RuntimeExceptionAnswer : Answer<Any> {

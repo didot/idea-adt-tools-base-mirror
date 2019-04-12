@@ -32,7 +32,7 @@ import java.io.StringWriter
  */
 fun CxxAbiModel.toJsonString(): String {
     return StringWriter()
-        .also { writer -> GSON.toJson(toMutable(), writer) }
+        .also { writer -> GSON.toJson(toData(), writer) }
         .toString()
 }
 
@@ -40,7 +40,7 @@ fun CxxAbiModel.toJsonString(): String {
  * Create a [CxxAbiModel] from Json string.
  */
 fun createCxxAbiModelFromJson(json: String): CxxAbiModel {
-    return GSON.fromJson(json, MutableCxxAbiModel::class.java)
+    return GSON.fromJson(json, CxxAbiModelData::class.java)
 }
 
 private val GSON = GsonBuilder()
@@ -64,144 +64,144 @@ private class RevisionTypeAdapter : TypeAdapter<Revision>() {
 }
 
 /**
- * Private mutable implementation of [CxxModuleModel] that Gson can use to
- * read and write.
- */
-private data class MutableCxxModuleModel(
-    override var sdkFolder: File = File("."),
-    override var isNativeCompilerSettingsCacheEnabled: Boolean = false,
-    override var isBuildOnlyTargetAbiEnabled: Boolean = false,
-    override var isSideBySideCmakeEnabled: Boolean = false,
-    override var ideBuildTargetAbi: String? = null,
-    override var isGeneratePureSplitsEnabled: Boolean = false,
-    override var isUniversalApkEnabled: Boolean = false,
-    override var splitsAbiFilters: Set<String> = setOf(),
-    override var intermediatesFolder: File = File("."),
-    override var gradleModulePathName: String = "",
-    override var moduleRootFolder: File = File("."),
-    override var buildFolder: File = File("."),
-    override var makeFile: File = File("."),
-    override var buildSystem: NativeBuildSystem = NativeBuildSystem.CMAKE,
-    override var cmakeVersion: String? = null,
-    override var ndkSymlinkFolder: File? = null,
-    override var compilerSettingsCacheFolder: File = File("."),
-    override var cxxFolder: File = File("."),
-    override var ndkFolder: File = File("."),
-    override var ndkVersion: Revision = Revision.parseRevision("0.0.0"),
-    override var ndkSupportedAbiList: List<Abi> = listOf(),
-    override var ndkDefaultAbiList: List<Abi> = listOf()
-) : CxxModuleModel
-
-private fun CxxModuleModel.toMutable() = MutableCxxModuleModel(
-    sdkFolder,
-    isNativeCompilerSettingsCacheEnabled,
-    isBuildOnlyTargetAbiEnabled,
-    isSideBySideCmakeEnabled,
-    ideBuildTargetAbi,
-    isGeneratePureSplitsEnabled,
-    isUniversalApkEnabled,
-    splitsAbiFilters,
-    intermediatesFolder,
-    gradleModulePathName,
-    moduleRootFolder,
-    buildFolder,
-    makeFile,
-    buildSystem,
-    cmakeVersion,
-    ndkSymlinkFolder,
-    compilerSettingsCacheFolder,
-    cxxFolder,
-    ndkFolder,
-    ndkVersion
-)
-
-/**
- * Private mutable implementation of [MutableCxxVariantModel] that Gson can
+ * Private data-backed implementation of [CxxModuleModel] that Gson can
  * use to read and write.
  */
-private data class MutableCxxVariantModel(
-    override var module: MutableCxxModuleModel = MutableCxxModuleModel(),
-    override var buildSystemArgumentList: List<String> = listOf(),
-    override var cFlagList: List<String> = listOf(),
-    override var cppFlagsList: List<String> = listOf(),
-    override var variantName: String = "",
-    override var soFolder: File = File("."),
-    override var objFolder: File = File("."),
-    override var jsonFolder: File = File("."),
-    override var gradleBuildOutputFolder: File = File("."),
-    override var isDebuggableEnabled: Boolean = false,
-    override var validAbiList: List<Abi> = listOf()
-) : CxxVariantModel
+private data class CxxModuleModelData(
+    override val rootBuildGradleFolder: File = File("."),
+    override val sdkFolder: File = File("."),
+    override val isNativeCompilerSettingsCacheEnabled: Boolean = false,
+    override val isBuildOnlyTargetAbiEnabled: Boolean = false,
+    override val ideBuildTargetAbi: String? = null,
+    override val splitsAbiFilterSet: Set<String> = setOf(),
+    override val intermediatesFolder: File = File("."),
+    override val gradleModulePathName: String = "",
+    override val moduleRootFolder: File = File("."),
+    override val makeFile: File = File("."),
+    override val buildSystem: NativeBuildSystem = NativeBuildSystem.CMAKE,
+    override val compilerSettingsCacheFolder: File = File("."),
+    override val cxxFolder: File = File("."),
+    override val ndkFolder: File = File("."),
+    override val ndkVersion: Revision =
+        Revision.parseRevision("0.0.0"),
+    override val ndkSupportedAbiList: List<Abi> = listOf(),
+    override val ndkDefaultAbiList: List<Abi> = listOf(),
+    override val cmake: CxxCmakeModuleModel? = null
+) : CxxModuleModel
 
-private fun CxxVariantModel.toMutable() =
-    MutableCxxVariantModel(
-        module.toMutable(),
-        buildSystemArgumentList,
-        cFlagList,
-        cppFlagsList,
-        variantName,
-        soFolder,
-        objFolder,
-        jsonFolder,
-        gradleBuildOutputFolder,
-        isDebuggableEnabled,
-        validAbiList
-    )
-
-
-/**
- * Private mutable implementation of [CxxAbiModel] that Gson can use
- * to read and write.
- */
-private data class MutableCxxAbiModel(
-    override var variant: MutableCxxVariantModel = MutableCxxVariantModel(),
-    override var abi: Abi = Abi.X86,
-    override var abiPlatformVersion: Int = 0,
-    override var cxxBuildFolder: File = File("."),
-    override var jsonFile: File = File("."),
-    override var gradleBuildOutputFolder: File = File("."),
-    override var objFolder: File = File("."),
-    override var buildCommandFile: File = File("."),
-    override var buildOutputFile: File = File("."),
-    override var modelOutputFile: File = File("."),
-    override var cmake: MutableCxxCmakeAbiModel? = null
-) : CxxAbiModel
-
-fun CxxAbiModel.toMutable(): CxxAbiModel = MutableCxxAbiModel(
-    variant.toMutable(),
-    abi,
-    abiPlatformVersion,
-    cxxBuildFolder,
-    jsonFile,
-    gradleBuildOutputFolder,
-    objFolder,
-    buildCommandFile,
-    buildOutputFile,
-    modelOutputFile,
-    cmake?.toMutable()
+private fun CxxModuleModel.toData() = CxxModuleModelData(
+    rootBuildGradleFolder = rootBuildGradleFolder,
+    sdkFolder = sdkFolder,
+    isNativeCompilerSettingsCacheEnabled = isNativeCompilerSettingsCacheEnabled,
+    isBuildOnlyTargetAbiEnabled = isBuildOnlyTargetAbiEnabled,
+    ideBuildTargetAbi = ideBuildTargetAbi,
+    splitsAbiFilterSet = splitsAbiFilterSet,
+    intermediatesFolder = intermediatesFolder,
+    gradleModulePathName = gradleModulePathName,
+    moduleRootFolder = moduleRootFolder,
+    makeFile = makeFile,
+    buildSystem = buildSystem,
+    compilerSettingsCacheFolder = compilerSettingsCacheFolder,
+    cxxFolder = cxxFolder,
+    ndkFolder = ndkFolder,
+    ndkVersion = ndkVersion,
+    ndkSupportedAbiList = ndkSupportedAbiList,
+    ndkDefaultAbiList = ndkDefaultAbiList,
+    cmake = cmake
 )
 
 /**
- * Private mutable implementation of [CxxCmakeAbiModel] that Gson can use
+ * Private data-backed implementation of [CxxVariantModel] that Gson can
+ * use to read and write.
+ */
+private data class CxxVariantModelData(
+    override val module: CxxModuleModelData = CxxModuleModelData(),
+    override val buildSystemArgumentList: List<String> = listOf(),
+    override val cFlagList: List<String> = listOf(),
+    override val cppFlagsList: List<String> = listOf(),
+    override val variantName: String = "",
+    override val soFolder: File = File("."),
+    override val objFolder: File = File("."),
+    override val jsonFolder: File = File("."),
+    override val gradleBuildOutputFolder: File = File("."),
+    override val isDebuggableEnabled: Boolean = false,
+    override val validAbiList: List<Abi> = listOf(),
+    override val buildTargetSet: Set<String> = setOf()
+) : CxxVariantModel
+
+private fun CxxVariantModel.toData() =
+    CxxVariantModelData(
+        module = module.toData(),
+        buildSystemArgumentList = buildSystemArgumentList,
+        cFlagList = cFlagList,
+        cppFlagsList = cppFlagsList,
+        variantName = variantName,
+        soFolder = soFolder,
+        objFolder = objFolder,
+        jsonFolder = jsonFolder,
+        gradleBuildOutputFolder = gradleBuildOutputFolder,
+        isDebuggableEnabled = isDebuggableEnabled,
+        validAbiList = validAbiList,
+        buildTargetSet = buildTargetSet
+    )
+
+/**
+ * Private data-backed implementation of [CxxAbiModel] that Gson can use
  * to read and write.
  */
-private data class MutableCxxCmakeAbiModel(
-    override var cmakeListsWrapperFile: File = File("."),
-    override var toolchainWrapperFile: File = File("."),
-    override var buildGenerationStateFile: File = File("."),
-    override var cacheKeyFile: File = File("."),
-    override var compilerCacheUseFile: File = File("."),
-    override var compilerCacheWriteFile: File = File("."),
-    override var toolchainSettingsFromCacheFile: File = File(".")
+private data class CxxAbiModelData(
+    override val variant: CxxVariantModelData = CxxVariantModelData(),
+    override val abi: Abi = Abi.X86,
+    override val abiPlatformVersion: Int = 0,
+    override val cxxBuildFolder: File = File("."),
+    override val jsonFile: File = File("."),
+    override val gradleBuildOutputFolder: File = File("."),
+    override val objFolder: File = File("."),
+    override val buildCommandFile: File = File("."),
+    override val buildOutputFile: File = File("."),
+    override val modelOutputFile: File = File("."),
+    override val cmake: CxxCmakeAbiModelData? = null,
+    override val jsonGenerationLoggingRecordFile: File = File(".")
+) : CxxAbiModel
+
+private fun CxxAbiModel.toData(): CxxAbiModel = CxxAbiModelData(
+    variant = variant.toData(),
+    abi = abi,
+    abiPlatformVersion = abiPlatformVersion,
+    cxxBuildFolder = cxxBuildFolder,
+    jsonFile = jsonFile,
+    gradleBuildOutputFolder = gradleBuildOutputFolder,
+    objFolder = objFolder,
+    buildCommandFile = buildCommandFile,
+    buildOutputFile = buildOutputFile,
+    modelOutputFile = modelOutputFile,
+    jsonGenerationLoggingRecordFile = jsonGenerationLoggingRecordFile,
+    cmake = cmake?.toData()
+)
+
+/**
+ * Private data-backed implementation of [CxxCmakeAbiModel] that Gson can use
+ * to read and write.
+ */
+private data class CxxCmakeAbiModelData(
+    override val cmakeListsWrapperFile: File = File("."),
+    override val toolchainWrapperFile: File = File("."),
+    override val buildGenerationStateFile: File = File("."),
+    override val cacheKeyFile: File = File("."),
+    override val compilerCacheUseFile: File = File("."),
+    override val compilerCacheWriteFile: File = File("."),
+    override val toolchainSettingsFromCacheFile: File = File("."),
+    override val compileCommandsJsonFile: File = File(".")
 ) : CxxCmakeAbiModel
 
-private fun CxxCmakeAbiModel.toMutable() = MutableCxxCmakeAbiModel(
-    cmakeListsWrapperFile,
-    toolchainWrapperFile,
-    buildGenerationStateFile,
-    cacheKeyFile,
-    compilerCacheUseFile,
-    compilerCacheWriteFile,
-    toolchainSettingsFromCacheFile
+private fun CxxCmakeAbiModel.toData() = CxxCmakeAbiModelData(
+    cmakeListsWrapperFile = cmakeListsWrapperFile,
+    toolchainWrapperFile = toolchainWrapperFile,
+    buildGenerationStateFile = buildGenerationStateFile,
+    cacheKeyFile = cacheKeyFile,
+    compilerCacheUseFile = compilerCacheUseFile,
+    compilerCacheWriteFile = compilerCacheWriteFile,
+    toolchainSettingsFromCacheFile = toolchainSettingsFromCacheFile,
+    compileCommandsJsonFile = compileCommandsJsonFile
 )
 

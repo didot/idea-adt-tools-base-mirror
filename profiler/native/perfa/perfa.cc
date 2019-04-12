@@ -24,7 +24,6 @@
 #include "agent/scoped_local_ref.h"
 #include "memory/memory_tracking_env.h"
 #include "proto/transport.grpc.pb.h"
-#include "utils/config.h"
 #include "utils/device_info.h"
 #include "utils/log.h"
 
@@ -143,7 +142,7 @@ void JNICALL OnClassFileLoaded(jvmtiEnv* jvmti_env, JNIEnv* jni_env,
 
 // Populate the map of transforms we want to apply to different classes.
 void RegisterTransforms(
-    const proto::AgentConfig& config,
+    const AgentConfig& config,
     std::unordered_map<std::string, Transform*>* transforms) {
   transforms->insert({"Ljava/net/URL;", new JavaUrlTransform()});
   transforms->insert({"Lokhttp3/OkHttpClient;", new Okhttp3ClientTransform()});
@@ -157,7 +156,7 @@ void RegisterTransforms(
   transforms->insert(
       {"Landroidx/fragment/app/Fragment;", new AndroidXFragmentTransform()});
 
-  if (config.energy_profiler_enabled()) {
+  if (config.common().energy_profiler_enabled()) {
     transforms->insert({"Landroid/app/Instrumentation;",
                         new AndroidInstrumentationTransform()});
     transforms->insert(
@@ -192,11 +191,11 @@ void RegisterTransforms(
 }
 
 void ProfilerInitializationWorker(jvmtiEnv* jvmti, JNIEnv* jni, void* ptr) {
-  proto::AgentConfig* config = static_cast<proto::AgentConfig*>(ptr);
+  AgentConfig* config = static_cast<AgentConfig*>(ptr);
   jclass service =
       jni->FindClass("com/android/tools/profiler/support/ProfilerService");
   jmethodID initialize = jni->GetStaticMethodID(service, "initialize", "(Z)V");
-  bool log_live_alloc_count = config->mem_config().use_live_alloc();
+  bool log_live_alloc_count = config->mem().use_live_alloc();
   jni->CallStaticVoidMethod(service, initialize, !log_live_alloc_count);
 }
 
@@ -217,8 +216,7 @@ void InitializePerfa(jvmtiEnv* jvmti_env, JNIEnv* jni_env,
   // prepare). For P+ we want to keep the hook events always on to support
   // multiple retransforming agents (and therefore don't need to perform
   // retransformation on class prepare).
-  bool filter_class_load_hook =
-      agent_config.android_feature_level() < DeviceInfo::P;
+  bool filter_class_load_hook = DeviceInfo::feature_level() < DeviceInfo::P;
   SetEventNotification(jvmti_env,
                        filter_class_load_hook ? JVMTI_ENABLE : JVMTI_DISABLE,
                        JVMTI_EVENT_CLASS_PREPARE);
@@ -275,21 +273,35 @@ void InitializePerfa(jvmtiEnv* jvmti_env, JNIEnv* jni_env,
                             JVMTI_THREAD_NORM_PRIORITY);
 }
 
-void RegisterPerfaCommandHandlers(JavaVM* vm, jvmtiEnv* jvmti_env,
-                                  const AgentConfig& agent_config) {
-  Agent::Instance().RegisterCommandHandler(
-      Command::BEGIN_SESSION,
-      [vm, jvmti_env, agent_config](const Command* command) -> void {
-        if (!Agent::Instance().IsProfilerInitalized()) {
-          JNIEnv* jni_env = GetThreadLocalJNI(vm);
-          Agent::Instance().InitializeProfilers();
-          MemoryTrackingEnv::Instance(vm, agent_config.mem_config());
-          InitializePerfa(jvmti_env, jni_env, agent_config);
-          // Perf-test currently waits on this message to determine that agent
-          // has finished profiler initialization.
-          Log::V("Profiler initialization complete on agent.");
-        }
-      });
+void InitializeProfiler(JavaVM* vm, jvmtiEnv* jvmti_env,
+                        const AgentConfig& agent_config) {
+  JNIEnv* jni_env = GetThreadLocalJNI(vm);
+  Agent::Instance().InitializeProfilers();
+  InitializePerfa(jvmti_env, jni_env, agent_config);
+  // MemoryTrackingEnv needs to wait for the MemoryComponent in the agent,
+  // which blocks until the Daemon is connected, hence we delay initializing
+  // it in the callback below.
+  Agent::Instance().AddDaemonConnectedCallback([vm, agent_config] {
+    MemoryTrackingEnv::Instance(vm, agent_config.mem());
+  });
+  // Perf-test currently waits on this message to determine that agent
+  // has finished profiler initialization.
+  Log::V("Profiler initialization complete on agent.");
+}
+
+void SetupPerfa(JavaVM* vm, jvmtiEnv* jvmti_env,
+                const AgentConfig& agent_config) {
+  if (agent_config.startup_profiling_enabled()) {
+    InitializeProfiler(vm, jvmti_env, agent_config);
+  } else {
+    Agent::Instance().RegisterCommandHandler(
+        Command::BEGIN_SESSION,
+        [vm, jvmti_env, agent_config](const Command* command) -> void {
+          if (!Agent::Instance().IsProfilerInitalized()) {
+            InitializeProfiler(vm, jvmti_env, agent_config);
+          }
+        });
+  }
 }
 
 }  // namespace profiler

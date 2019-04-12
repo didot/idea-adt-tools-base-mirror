@@ -30,24 +30,20 @@ class JsonUtilTest {
     private val abi  : CxxAbiModel
     init {
         val module = object : CxxModuleModel {
+            override val rootBuildGradleFolder: File = File("rootBuildGradleFolder")
+            override val cmake: CxxCmakeModuleModel? = null
             override val ndkSupportedAbiList = Abi.values().toList()
             override val ndkDefaultAbiList = listOf(Abi.X86_64)
             override val isNativeCompilerSettingsCacheEnabled = false
             override val sdkFolder = File("soFolder")
             override val isBuildOnlyTargetAbiEnabled = true
-            override val isSideBySideCmakeEnabled = false
             override val ideBuildTargetAbi = "ideBuildTargetAbi"
-            override val isGeneratePureSplitsEnabled = true
-            override val isUniversalApkEnabled = true
-            override val splitsAbiFilters = setOf("ABI")
+            override val splitsAbiFilterSet = setOf("ABI")
             override val intermediatesFolder = File("intermediates")
             override val gradleModulePathName = ":app"
             override val moduleRootFolder = File("moduleRootFolder")
-            override val buildFolder = File("buildFolder")
             override val makeFile = File("makeFile")
             override val buildSystem = NativeBuildSystem.CMAKE
-            override val cmakeVersion = "cmakeVersion "
-            override val ndkSymlinkFolder = File("ndkSymlinkFolder")
             override val compilerSettingsCacheFolder = File("compilerSettingsCacheFolder")
             override val cxxFolder = File("cxxFolder")
             override val ndkFolder = File("ndkFolder")
@@ -55,6 +51,7 @@ class JsonUtilTest {
         }
 
         val variant = object : CxxVariantModel {
+            override val buildTargetSet = setOf("buildTargetSet")
             override val buildSystemArgumentList = listOf("buildSystemArgumentList")
             override val cFlagList = listOf("cFlagList")
             override val cppFlagsList = listOf("cppFlagList")
@@ -68,6 +65,7 @@ class JsonUtilTest {
             override val module = module
         }
         val cmake = object : CxxCmakeAbiModel {
+            override val compileCommandsJsonFile = File("compileCommandsJsonFile")
             override val cmakeListsWrapperFile = File("cmakeListsWrapperFile")
             override val toolchainWrapperFile = File("toolchainWrapperFile")
             override val buildGenerationStateFile = File("buildGenerationStateFile")
@@ -77,6 +75,7 @@ class JsonUtilTest {
             override val toolchainSettingsFromCacheFile = File("toolchainSettingsFromCacheFile")
         }
         val abi = object : CxxAbiModel {
+            override val jsonGenerationLoggingRecordFile = File("jsonGenerationLoggingRecordFile")
             override val abi = Abi.X86
             override val abiPlatformVersion = 28
             override val cxxBuildFolder = File("cxxBuildFolder")
@@ -102,7 +101,7 @@ class JsonUtilTest {
         val writtenBackAbi = createCxxAbiModelFromJson(json)
         val writtenBackJson = writtenBackAbi.toJsonString()
         assertThat(json).isEqualTo(writtenBackJson)
-        assertThat(writtenBackAbi.variant.module.buildFolder.path).isEqualTo("buildFolder")
+        assertThat(writtenBackAbi.variant.module.cxxFolder.path).isEqualTo("cxxFolder")
         assertThat(writtenBackAbi.variant.module.ndkVersion.toString()).isEqualTo("1.2.3")
     }
 }

@@ -9,16 +9,11 @@ readonly build_number="$3"
 readonly script_dir="$(dirname "$0")"
 
 build_tag_filters=-no_linux
-test_tag_filters=-no_linux,-no_test_linux,-qa_sanity,-qa_fast,-qa_unreliable,perfgate_test,perfgate_only
+test_tag_filters=perfgate_multi_run,perfgate_only,-no_linux,-no_test_linux
 
 config_options="--config=postsubmit"
 
 config_options="${config_options} --config=remote"
-
-# Conditionally add --auth_credentials option for BYOB machines.
-if [[ -r "${HOME}/.android-studio-alphasource.json" ]]; then
-  config_options="${config_options} --auth_credentials=${HOME}/.android-studio-alphasource.json"
-fi
 
 # Grab the location of the command_log file for bazel daemon so we can search it later.
 readonly command_log="$("${script_dir}"/bazel info ${config_options} command_log)"

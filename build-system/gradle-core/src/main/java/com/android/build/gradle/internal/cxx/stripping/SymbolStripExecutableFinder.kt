@@ -23,7 +23,7 @@ import java.io.File
 /**
  * This class is responsible for locating symbol strip tool withing the NDK.
  */
-class SymbolStripExecutableFinder(private val stripExecutables: Map<Abi, File>) {
+class SymbolStripExecutableFinder(val stripExecutables: Map<Abi, File>) {
 
     /**
      * Return the collection of strip tools that we know about.
@@ -61,8 +61,8 @@ fun createSymbolStripExecutableFinder(ndkHandler: NdkHandler): SymbolStripExecut
         return SymbolStripExecutableFinder(mapOf())
     }
     val stripExecutables = mutableMapOf<Abi, File>()
-    for (abi in ndkHandler.ndkPlatform.supportedAbis) {
-        stripExecutables[abi] = ndkHandler.ndkPlatform.ndkInfo!!.getStripExecutable(abi)
+    for (abi in ndkHandler.ndkPlatform.getOrThrow().supportedAbis) {
+        stripExecutables[abi] = ndkHandler.ndkPlatform.getOrThrow().ndkInfo.getStripExecutable(abi)
     }
     return SymbolStripExecutableFinder(stripExecutables)
 }

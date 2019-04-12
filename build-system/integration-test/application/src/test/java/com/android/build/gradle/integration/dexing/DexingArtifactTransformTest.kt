@@ -17,10 +17,12 @@
 package com.android.build.gradle.integration.dexing
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
+import com.android.build.gradle.integration.common.fixture.SUPPORT_LIB_VERSION
 import com.android.build.gradle.integration.common.fixture.app.MinimalSubProject
 import com.android.build.gradle.integration.common.truth.TruthHelper.assertThatApk
-import com.android.build.gradle.integration.common.fixture.SUPPORT_LIB_VERSION
 import com.android.build.gradle.options.BooleanOption
+import com.android.build.gradle.options.OptionalBooleanOption
+import com.android.testutils.TestInputsGenerator
 import com.google.common.truth.Truth.assertThat
 import org.junit.Rule
 import org.junit.Test
@@ -31,7 +33,8 @@ class DexingArtifactTransformTest {
     @JvmField
     val project =
         GradleTestProject.builder().fromTestApp(
-            MinimalSubProject.app("com.example.test")).create()
+            MinimalSubProject.app("com.example.test")
+        ).create()
 
     @Test
     fun testMonoDex() {
@@ -148,10 +151,19 @@ class DexingArtifactTransformTest {
     }
 
     @Test
-    fun testMinifiedDoesNotUseNewPipeline() {
-        project.buildFile.appendText("\nandroid.buildTypes.debug.minifyEnabled true")
-        val result = executor().run("assembleDebug")
+    fun testProguardDoesSingleMerge() {
+        project.testDir.resolve("proguard-rules.pro").writeText("-keep class **")
+        project.buildFile.appendText(
+            """
+            android.buildTypes.debug {
+                minifyEnabled true
+                proguardFiles 'proguard-rules.pro'
+            }
+        """.trimIndent()
+        )
+        val result = executor().with(OptionalBooleanOption.ENABLE_R8, false).run("assembleDebug")
         assertThat(result.tasks).doesNotContain(":mergeExtDexDebug")
+        assertThat(result.tasks).contains(":mergeDexDebug")
     }
 
     @Test
@@ -161,14 +173,24 @@ class DexingArtifactTransformTest {
         assertThat(result.tasks).containsAllIn(listOf(":mergeExtDexDebug", ":mergeDexDebug"))
     }
 
+    /** Regression test for b/129910310. */
     @Test
-    fun testDesugaringDoesNotUseNewPipeline() {
-        project.buildFile.appendText("\nandroid.compileOptions.targetCompatibility 1.8")
+    fun testGeneratedBytecodeIsProcessed() {
+        TestInputsGenerator.jarWithEmptyClasses(
+            project.testDir.resolve("generated-classes.jar").toPath(), setOf("test/A")
+        )
+
+        project.buildFile.appendText(
+            """
+            android.applicationVariants.all { variant ->
+                def generated = project.files("generated-classes.jar")
+                variant.registerPostJavacGeneratedBytecode(generated)
+            }
+        """.trimIndent()
+        )
         val result =
-            project.executor()
-                .with(BooleanOption.ENABLE_DEXING_DESUGARING_ARTIFACT_TRANSFORM, false)
-                .run("assembleDebug")
-        assertThat(result.tasks).doesNotContain(":mergeExtDexDebug")
+            project.executor().run("assembleDebug")
+        assertThatApk(project.getApk(GradleTestProject.ApkType.DEBUG)).containsClass("Ltest/A;")
     }
 
     private fun executor() =

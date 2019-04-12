@@ -44,19 +44,19 @@ import org.gradle.api.logging.Logging
 /**
  * Report an error.
  */
-fun error(format: String, vararg args: Any) =
+fun errorln(format: String, vararg args: Any) =
     ThreadLoggingEnvironment.reportFormattedErrorToCurrentLogger(checkedFormat(format, args))
 
 /**
  * Report a warning.
  */
-fun warn(format: String, vararg args: Any) =
+fun warnln(format: String, vararg args: Any) =
     ThreadLoggingEnvironment.reportFormattedWarningToCurrentLogger(checkedFormat(format, args))
 
 /**
  * Report diagnostic/informational message.
  */
-fun info(format: String, vararg args: Any) =
+fun infoln(format: String, vararg args: Any) =
     ThreadLoggingEnvironment.reportFormattedInfoToCurrentLogger(checkedFormat(format, args))
 
 /**
@@ -151,6 +151,25 @@ abstract class ThreadLoggingEnvironment : AutoCloseable {
          * Report diagnostic/informational message.
          */
         fun reportFormattedInfoToCurrentLogger(message: String) = logger.info(message)
+
+        /**
+         * Produce an ILogger over the current logger.
+         */
+        fun getILogger() = object : ILogger {
+            override fun error(t: Throwable?, format: String?, vararg args: Any) {
+                if (t != null) throw t
+                logger.error(checkedFormat(format!!, args))
+            }
+            override fun warning(format: String, vararg args: Any) {
+                logger.warn(checkedFormat(format, args))
+            }
+            override fun info(format: String, vararg args: Any) {
+                logger.info(checkedFormat(format, args))
+            }
+            override fun verbose(format: String, vararg args: Any) {
+                logger.info(checkedFormat(format, args))
+            }
+        }
     }
 }
 

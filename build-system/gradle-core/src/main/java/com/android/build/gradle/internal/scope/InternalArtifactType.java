@@ -70,7 +70,11 @@ public enum InternalArtifactType implements ArtifactType {
     // Full jar with both classes and java res.
     FULL_JAR,
 
+    // A folder with classes instrumented with jacoco. Internal folder file structure reflects
+    // the hierarchy of namespaces
     JACOCO_INSTRUMENTED_CLASSES,
+    // A folder containing jars with classes instrumented with jacoco
+    JACOCO_INSTRUMENTED_JARS,
     // The jacoco code coverage from the connected task
     CODE_COVERAGE(Category.OUTPUTS),
     // The jacoco code coverage from the device provider tasks.
@@ -150,6 +154,8 @@ public enum InternalArtifactType implements ArtifactType {
     NDK_LIBS,
     // native libs merged from module(s)
     MERGED_NATIVE_LIBS,
+    // native libs stripped of debug symbols
+    STRIPPED_NATIVE_LIBS,
 
     // Assets created by compiling shader
     SHADER_ASSETS,

@@ -16,7 +16,6 @@
 
 package com.android.build.gradle.internal.cxx.model
 
-import com.android.SdkConstants.NDK_SYMLINK_DIR
 import com.android.build.gradle.internal.cxx.logging.RecordingLoggingEnvironment
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
@@ -59,16 +58,6 @@ class TryCreateCxxModuleModelTest {
                     method.invoke(module)
                 }
             }
-        }
-    }
-
-    @Test
-    fun `ndk symlinkdir works`() {
-        BasicCmakeMock().let {
-            it.localProperties.writeText("$NDK_SYMLINK_DIR=my-symlink-dir")
-            assertThat(it.localProperties.isFile).isTrue()
-            val module = tryCreateCxxModuleModel(it.global)!!
-            assertThat(module.ndkSymlinkFolder!!.path).contains("my-symlink-dir")
         }
     }
 
