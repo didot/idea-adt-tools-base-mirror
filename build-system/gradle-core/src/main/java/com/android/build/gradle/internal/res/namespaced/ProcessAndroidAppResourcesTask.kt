@@ -17,13 +17,15 @@ package com.android.build.gradle.internal.res.namespaced
 
 import com.android.SdkConstants
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.api.artifact.singlePath
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.OutputScope
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.BooleanOption
@@ -35,6 +37,7 @@ import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
 import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
+import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.InputFile
@@ -46,6 +49,7 @@ import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.nio.file.Files
@@ -61,7 +65,7 @@ import javax.inject.Inject
  */
 @CacheableTask
 open class ProcessAndroidAppResourcesTask
-@Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
+@Inject constructor(objects: ObjectFactory, workerExecutor: WorkerExecutor) : AndroidVariantTask() {
     private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
@@ -84,7 +88,7 @@ open class ProcessAndroidAppResourcesTask
         private set
 
     @get:OutputDirectory lateinit var aaptIntermediateDir: File private set
-    @get:OutputDirectory lateinit var rClassSource: File private set
+    @get:OutputDirectory val rClassSource= objects.directoryProperty()
     @get:OutputFile lateinit var resourceApUnderscore: File private set
 
     @get:Internal lateinit var outputScope: OutputScope private set
@@ -105,13 +109,13 @@ open class ProcessAndroidAppResourcesTask
                 options = AaptOptions(null, false, null),
                 staticLibraryDependencies = staticLibraries.build(),
                 imports = ImmutableList.copyOf(sharedLibraryDependencies.asIterable()),
-                sourceOutputDir = rClassSource,
+                sourceOutputDir = rClassSource.get().asFile,
                 resourceOutputApk = resourceApUnderscore,
                 variantType = VariantTypeImpl.LIBRARY,
                 intermediateDir = aaptIntermediateDir)
 
         val aapt2ServiceKey = registerAaptService(
-            aapt2FromMaven = aapt2FromMaven, logger = iLogger
+            aapt2FromMaven = aapt2FromMaven, logger = LoggerWrapper(logger)
         )
         workers.use {
             it.submit(
@@ -130,16 +134,11 @@ open class ProcessAndroidAppResourcesTask
             get() = ProcessAndroidAppResourcesTask::class.java
 
         private lateinit var resourceApUnderscore: File
-        private lateinit var rClassSource: File
 
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
 
             val artifacts = variantScope.artifacts
-
-            rClassSource = artifacts.appendArtifact(
-                InternalArtifactType.RUNTIME_R_CLASS_SOURCES,
-                taskName)
 
             resourceApUnderscore = variantScope.artifacts
                 .appendArtifact(
@@ -147,6 +146,17 @@ open class ProcessAndroidAppResourcesTask
                     taskName,
                     "res.apk")
 
+        }
+
+        override fun handleProvider(taskProvider: TaskProvider<out ProcessAndroidAppResourcesTask>) {
+            super.handleProvider(taskProvider)
+            variantScope.artifacts.producesDir(
+                InternalArtifactType.RUNTIME_R_CLASS_SOURCES,
+                BuildArtifactsHolder.OperationType.INITIAL,
+                taskProvider,
+                taskProvider.map { it.rClassSource },
+                "out"
+            )
         }
 
         override fun configure(task: ProcessAndroidAppResourcesTask) {
@@ -186,9 +196,7 @@ open class ProcessAndroidAppResourcesTask
             task.aaptIntermediateDir =
                     FileUtils.join(
                             variantScope.globalScope.intermediatesDir, "res-process-intermediate", variantScope.variantConfiguration.dirName)
-            task.rClassSource = rClassSource
             task.resourceApUnderscore = resourceApUnderscore
-            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
             task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
             task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
             task.errorFormatMode = SyncOptions.getErrorFormatMode(

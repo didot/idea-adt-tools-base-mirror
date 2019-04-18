@@ -26,10 +26,11 @@ import com.android.build.gradle.internal.scope.ApkData;
 import com.android.build.gradle.internal.scope.BuildElementsTransformParams;
 import com.android.build.gradle.internal.scope.BuildElementsTransformRunnable;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
+import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.MutableTaskContainer;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.AndroidVariantTask;
 import com.android.build.gradle.internal.tasks.PerModuleBundleTaskKt;
 import com.android.build.gradle.internal.tasks.SigningConfigMetadata;
 import com.android.build.gradle.internal.tasks.Workers;
@@ -60,7 +61,7 @@ import org.gradle.tooling.BuildException;
 import org.gradle.workers.WorkerExecutor;
 
 /** Package a abi dimension specific split APK */
-public class PackageSplitAbi extends AndroidBuilderTask {
+public class PackageSplitAbi extends AndroidVariantTask {
 
     private BuildableArtifact processedAbiResources;
 
@@ -83,6 +84,8 @@ public class PackageSplitAbi extends AndroidBuilderTask {
     private boolean keepTimestampsInApk;
 
     private final WorkerExecutorFacade workers;
+
+    private String createdBy;
 
     @Inject
     public PackageSplitAbi(WorkerExecutor workerExecutor) {
@@ -132,6 +135,11 @@ public class PackageSplitAbi extends AndroidBuilderTask {
     @Input
     public boolean getKeepTimestampsInApk() {
         return keepTimestampsInApk;
+    }
+
+    @Input
+    public String getCreatedBy() {
+        return createdBy;
     }
 
     @TaskAction
@@ -216,7 +224,7 @@ public class PackageSplitAbi extends AndroidBuilderTask {
                                     task.signingConfig != null));
             incrementalDir = task.incrementalDir;
             signingConfigFile = SigningConfigMetadata.Companion.getOutputFile(task.signingConfig);
-            createdBy = task.getBuilder().getCreatedBy();
+            createdBy = task.getCreatedBy();
             aaptOptionsNoCompress = task.aaptOptionsNoCompress;
             jniFolders = task.getJniFolders().getFiles();
             keepTimestampsInApk = task.getKeepTimestampsInApk();
@@ -281,6 +289,7 @@ public class PackageSplitAbi extends AndroidBuilderTask {
         public void configure(@NonNull PackageSplitAbi task) {
             super.configure(task);
             VariantScope scope = getVariantScope();
+            final GlobalScope globalScope = scope.getGlobalScope();
 
             VariantConfiguration config = scope.getVariantConfiguration();
             task.processedAbiResources =
@@ -292,7 +301,7 @@ public class PackageSplitAbi extends AndroidBuilderTask {
             task.incrementalDir = scope.getIncrementalDir(task.getName());
 
             task.aaptOptionsNoCompress =
-                    scope.getGlobalScope().getExtension().getAaptOptions().getNoCompress();
+                    globalScope.getExtension().getAaptOptions().getNoCompress();
             task.jniDebuggable = config.getBuildType().isJniDebuggable();
 
             task.jniFolders =
@@ -301,9 +310,9 @@ public class PackageSplitAbi extends AndroidBuilderTask {
             task.splits = scope.getVariantData().getFilters(OutputFile.FilterType.ABI);
 
             task.keepTimestampsInApk =
-                    scope.getGlobalScope()
-                            .getProjectOptions()
-                            .get(BooleanOption.KEEP_TIMESTAMPS_IN_APK);
+                    globalScope.getProjectOptions().get(BooleanOption.KEEP_TIMESTAMPS_IN_APK);
+
+            task.createdBy = globalScope.getCreatedBy();
 
             MutableTaskContainer taskContainer = scope.getTaskContainer();
 

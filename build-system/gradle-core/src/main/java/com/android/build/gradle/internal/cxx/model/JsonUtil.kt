@@ -18,6 +18,7 @@ package com.android.build.gradle.internal.cxx.model
 
 import com.android.build.gradle.internal.core.Abi
 import com.android.build.gradle.internal.cxx.json.PlainFileGsonTypeAdaptor
+import com.android.build.gradle.internal.cxx.services.CxxServiceRegistry
 import com.android.build.gradle.tasks.NativeBuildSystem
 import com.android.repository.Revision
 import com.google.gson.GsonBuilder
@@ -41,6 +42,14 @@ fun CxxAbiModel.toJsonString(): String {
  */
 fun createCxxAbiModelFromJson(json: String): CxxAbiModel {
     return GSON.fromJson(json, CxxAbiModelData::class.java)
+}
+
+/**
+ * Write model to JSON file.
+ */
+fun CxxAbiModel.writeJsonToFile() {
+    modelOutputFile.parentFile.mkdirs()
+    modelOutputFile.writeText(toJsonString())
 }
 
 private val GSON = GsonBuilder()
@@ -67,6 +76,8 @@ private class RevisionTypeAdapter : TypeAdapter<Revision>() {
  * Private data-backed implementation of [CxxModuleModel] that Gson can
  * use to read and write.
  */
+// TODO Can the Cxx*Data classes be automated or otherwise removed while still
+// TODO retaining JSON read/write? They're a pain to maintain.
 private data class CxxModuleModelData(
     override val rootBuildGradleFolder: File = File("."),
     override val sdkFolder: File = File("."),
@@ -82,12 +93,15 @@ private data class CxxModuleModelData(
     override val compilerSettingsCacheFolder: File = File("."),
     override val cxxFolder: File = File("."),
     override val ndkFolder: File = File("."),
-    override val ndkVersion: Revision =
-        Revision.parseRevision("0.0.0"),
+    override val ndkVersion: Revision = Revision.parseRevision("0.0.0"),
     override val ndkSupportedAbiList: List<Abi> = listOf(),
     override val ndkDefaultAbiList: List<Abi> = listOf(),
-    override val cmake: CxxCmakeModuleModel? = null
-) : CxxModuleModel
+    override val cmake: CxxCmakeModuleModel? = null,
+    override val cmakeToolchainFile: File = File(".")
+) : CxxModuleModel {
+    override val services: CxxServiceRegistry
+        get() = throw RuntimeException("Cannot use services from deserialized CxxModuleModel")
+}
 
 private fun CxxModuleModel.toData() = CxxModuleModelData(
     rootBuildGradleFolder = rootBuildGradleFolder,
@@ -161,7 +175,8 @@ private data class CxxAbiModelData(
     override val buildOutputFile: File = File("."),
     override val modelOutputFile: File = File("."),
     override val cmake: CxxCmakeAbiModelData? = null,
-    override val jsonGenerationLoggingRecordFile: File = File(".")
+    override val jsonGenerationLoggingRecordFile: File = File("."),
+    override val compileCommandsJsonFile: File = File(".")
 ) : CxxAbiModel
 
 private fun CxxAbiModel.toData(): CxxAbiModel = CxxAbiModelData(
@@ -176,6 +191,7 @@ private fun CxxAbiModel.toData(): CxxAbiModel = CxxAbiModelData(
     buildOutputFile = buildOutputFile,
     modelOutputFile = modelOutputFile,
     jsonGenerationLoggingRecordFile = jsonGenerationLoggingRecordFile,
+    compileCommandsJsonFile = compileCommandsJsonFile,
     cmake = cmake?.toData()
 )
 
@@ -191,7 +207,7 @@ private data class CxxCmakeAbiModelData(
     override val compilerCacheUseFile: File = File("."),
     override val compilerCacheWriteFile: File = File("."),
     override val toolchainSettingsFromCacheFile: File = File("."),
-    override val compileCommandsJsonFile: File = File(".")
+    override val cmakeWrappingBaseFolder: File = File(".")
 ) : CxxCmakeAbiModel
 
 private fun CxxCmakeAbiModel.toData() = CxxCmakeAbiModelData(
@@ -201,7 +217,7 @@ private fun CxxCmakeAbiModel.toData() = CxxCmakeAbiModelData(
     cacheKeyFile = cacheKeyFile,
     compilerCacheUseFile = compilerCacheUseFile,
     compilerCacheWriteFile = compilerCacheWriteFile,
-    toolchainSettingsFromCacheFile = toolchainSettingsFromCacheFile,
-    compileCommandsJsonFile = compileCommandsJsonFile
+    toolchainSettingsFromCacheFile = toolchainSettingsFromCacheFile
+
 )
 

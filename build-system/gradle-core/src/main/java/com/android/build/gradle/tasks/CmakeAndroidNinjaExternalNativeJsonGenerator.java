@@ -16,17 +16,15 @@
 
 package com.android.build.gradle.tasks;
 
-import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
+import static com.android.build.gradle.internal.cxx.services.CxxProcessServiceKt.createProcessOutputJunction;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.cxx.model.CxxAbiModel;
 import com.android.build.gradle.internal.cxx.model.CxxVariantModel;
-import com.android.builder.core.AndroidBuilder;
 import com.android.ide.common.process.ProcessException;
 import com.google.wireless.android.sdk.stats.GradleBuildVariant;
 import java.io.IOException;
 import java.util.List;
-import java.util.Set;
 
 /**
  * This strategy uses the older custom CMake (version 3.6) that directly generates the JSON file as
@@ -37,10 +35,8 @@ class CmakeAndroidNinjaExternalNativeJsonGenerator extends CmakeExternalNativeJs
     CmakeAndroidNinjaExternalNativeJsonGenerator(
             @NonNull CxxVariantModel variant,
             @NonNull List<CxxAbiModel> abis,
-            @NonNull Set<String> configurationFailures,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull GradleBuildVariant.Builder stats) {
-        super(variant, abis, configurationFailures, androidBuilder, stats);
+        super(variant, abis, stats);
     }
 
     @NonNull
@@ -50,7 +46,7 @@ class CmakeAndroidNinjaExternalNativeJsonGenerator extends CmakeExternalNativeJs
         cacheArguments.add(
                 String.format(
                         "-DCMAKE_TOOLCHAIN_FILE=%s",
-                        cmake.getCmakeToolchainFile().getAbsolutePath()));
+                        abi.getVariant().getModule().getCmakeToolchainFile().getAbsolutePath()));
         cacheArguments.add(
                 String.format("-DCMAKE_MAKE_PROGRAM=%s", cmake.getNinjaExe().getAbsolutePath()));
         cacheArguments.add("-GAndroid Gradle - Ninja");
@@ -63,10 +59,10 @@ class CmakeAndroidNinjaExternalNativeJsonGenerator extends CmakeExternalNativeJs
             throws ProcessException, IOException {
         String logPrefix = variant.getVariantName() + "|" + abi.getAbi().getTag() + " :";
         return createProcessOutputJunction(
+                        abi.getVariant().getModule(),
                         abi.getCxxBuildFolder(),
                         "android_gradle_generate_cmake_ninja_json_" + abi.getAbi().getTag(),
                         getProcessBuilder(abi),
-                        androidBuilder,
                         logPrefix)
                 .logStderrToInfo()
                 .logStdoutToInfo()

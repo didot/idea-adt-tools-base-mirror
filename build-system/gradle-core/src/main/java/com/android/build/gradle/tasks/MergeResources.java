@@ -38,8 +38,8 @@ import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.build.gradle.internal.tasks.Workers;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.SyncOptions;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.model.SourceProvider;
 import com.android.builder.model.VectorDrawablesOptions;
 import com.android.builder.png.VectorDrawableRenderer;
@@ -76,6 +76,7 @@ import javax.inject.Inject;
 import javax.xml.bind.JAXBException;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.logging.Logger;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
@@ -137,16 +138,18 @@ public class MergeResources extends ResourceAwareTask {
 
     private boolean pseudoLocalesEnabled;
 
+    private boolean precompileRemoteResources;
+
     private ImmutableSet<Flag> flags;
 
     @NonNull
     private static ResourceCompilationService getResourceProcessor(
-            @NonNull AndroidBuilder builder,
             @Nullable FileCollection aapt2FromMaven,
             @NonNull WorkerExecutorFacade workerExecutor,
             SyncOptions.ErrorFormatMode errorFormatMode,
             ImmutableSet<Flag> flags,
-            boolean processResources) {
+            boolean processResources,
+            Logger logger) {
         // If we received the flag for removing namespaces we need to use the namespace remover to
         // process the resources.
         if (flags.contains(Flag.REMOVE_RESOURCE_NAMESPACES)) {
@@ -160,7 +163,8 @@ public class MergeResources extends ResourceAwareTask {
         }
 
         Aapt2ServiceKey aapt2ServiceKey =
-                Aapt2DaemonManagerService.registerAaptService(aapt2FromMaven, builder.getLogger());
+                Aapt2DaemonManagerService.registerAaptService(
+                        aapt2FromMaven, new LoggerWrapper(logger));
 
         return new WorkerExecutorResourceCompilationService(
                 workerExecutor, aapt2ServiceKey, errorFormatMode);
@@ -212,12 +216,12 @@ public class MergeResources extends ResourceAwareTask {
 
         try (ResourceCompilationService resourceCompiler =
                 getResourceProcessor(
-                        getBuilder(),
                         aapt2FromMaven,
                         workerExecutorFacade,
                         errorFormatMode,
                         flags,
-                        processResources)) {
+                        processResources,
+                        getLogger())) {
 
             Blocks.recordSpan(
                     getProject().getName(),
@@ -225,7 +229,7 @@ public class MergeResources extends ResourceAwareTask {
                     GradleBuildProfileSpan.ExecutionType.TASK_EXECUTION_PHASE_1,
                     () -> {
                         for (ResourceSet resourceSet : resourceSets) {
-                            resourceSet.loadFromFiles(getILogger());
+                            resourceSet.loadFromFiles(new LoggerWrapper(getLogger()));
                             merger.addDataSet(resourceSet);
                         }
                     });
@@ -320,9 +324,13 @@ public class MergeResources extends ResourceAwareTask {
                     doFullTaskAction();
                     return;
                 } else if (fileValidity.getStatus() == FileValidity.FileStatus.VALID_FILE) {
-                    if (!fileValidity.getDataSet().updateWith(
-                            fileValidity.getSourceFile(), changedFile, entry.getValue(),
-                            getILogger())) {
+                    if (!fileValidity
+                            .getDataSet()
+                            .updateWith(
+                                    fileValidity.getSourceFile(),
+                                    changedFile,
+                                    entry.getValue(),
+                                    new LoggerWrapper(getLogger()))) {
                         getLogger().info(
                                 String.format("Failed to process %s event! Full task run",
                                         entry.getValue()));
@@ -337,12 +345,12 @@ public class MergeResources extends ResourceAwareTask {
 
             try (ResourceCompilationService resourceCompiler =
                     getResourceProcessor(
-                            getBuilder(),
                             aapt2FromMaven,
                             workerExecutorFacade,
                             errorFormatMode,
                             flags,
-                            processResources)) {
+                            processResources,
+                            getLogger())) {
 
                 MergedResourceWriter writer =
                         new MergedResourceWriter(
@@ -441,7 +449,7 @@ public class MergeResources extends ResourceAwareTask {
         // back to full task run. Because the cached ResourceList is modified we don't want
         // to recompute this twice (plus, why recompute it twice anyway?)
         if (processedInputs == null) {
-            processedInputs = getResourcesComputer().compute();
+            processedInputs = getResourcesComputer().compute(precompileRemoteResources);
             List<ResourceSet> generatedSets = new ArrayList<>(processedInputs.size());
 
             for (ResourceSet resourceSet : processedInputs) {
@@ -759,6 +767,9 @@ public class MergeResources extends ResourceAwareTask {
             task.flags = flags;
 
             task.errorFormatMode = SyncOptions.getErrorFormatMode(globalScope.getProjectOptions());
+
+            task.precompileRemoteResources =
+                    globalScope.getProjectOptions().get(BooleanOption.PRECOMPILE_REMOTE_RESOURCES);
 
             task.dependsOn(variantScope.getTaskContainer().getResourceGenTask());
 

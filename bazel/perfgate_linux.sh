@@ -9,7 +9,7 @@ readonly build_number="$3"
 readonly script_dir="$(dirname "$0")"
 
 build_tag_filters=-no_linux
-test_tag_filters=perfgate_multi_run,perfgate_only,-no_linux,-no_test_linux
+test_tag_filters=perfgate_multi_run,perfgate_only,-no_perfgate,-no_linux,-no_test_linux
 
 config_options="--config=postsubmit"
 
@@ -26,7 +26,7 @@ readonly command_log="$("${script_dir}"/bazel info ${config_options} command_log
   --build_tag_filters=${build_tag_filters} \
   --test_tag_filters=${test_tag_filters} \
   --profile=${dist_dir}/prof \
-  --runs_per_test=10 \
+  --runs_per_test=3 \
   -- \
   $(< "${script_dir}/targets")
 

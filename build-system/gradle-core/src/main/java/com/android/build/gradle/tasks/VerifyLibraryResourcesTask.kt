@@ -18,7 +18,9 @@ package com.android.build.gradle.tasks
 
 import com.google.common.annotations.VisibleForTesting
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.api.artifact.singleFile
+import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.res.Aapt2CompileRunnable
 import com.android.build.gradle.internal.res.Aapt2ProcessResourcesRunnable
 import com.android.build.gradle.internal.res.getAapt2FromMaven
@@ -30,6 +32,8 @@ import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.IncrementalTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
+import com.android.build.gradle.internal.utils.toImmutableList
+import com.android.build.gradle.options.BooleanOption
 import com.android.build.gradle.options.SyncOptions
 import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptException
@@ -42,6 +46,7 @@ import com.android.ide.common.workers.WorkerExecutorFacade
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableSet
 import com.google.common.collect.Iterables
+import org.gradle.api.artifacts.ArtifactCollection
 import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Provider
@@ -49,6 +54,7 @@ import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
@@ -92,6 +98,8 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
     lateinit var androidJar: Provider<File>
         private set
 
+    private var compiledRemoteResources: ArtifactCollection? = null
+
     private lateinit var mergeBlameFolder: File
 
     private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
@@ -132,7 +140,7 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
         val manifestsOutputs = ExistingBuildElements.from(taskInputType, manifestFiles.get().asFile)
         val manifestFile = Iterables.getOnlyElement(manifestsOutputs).outputFile
 
-        val aapt2ServiceKey = registerAaptService(aapt2FromMaven, iLogger)
+        val aapt2ServiceKey = registerAaptService(aapt2FromMaven, LoggerWrapper(logger))
         // If we're using AAPT2 we need to compile the resources into the compiled directory
         // first as we need the .flat files for linking.
         workers.use { facade ->
@@ -158,15 +166,22 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
     }
 
     private fun getAaptPackageConfig(resDir: File, manifestFile: File): AaptPackageConfig {
+        val compiledRemoteResourcesDirs =
+            if (getCompiledRemoteResources() == null) emptyList<File>() else {
+                // the order of the artifact is descending order, so we need to reverse it.
+                getCompiledRemoteResources()!!.reversed().toImmutableList()
+            }
+
         // We're do not want to generate any files - only to make sure everything links properly.
         return AaptPackageConfig.Builder()
-                .setManifestFile(manifestFile)
-                .setResourceDir(resDir)
-                .setLibrarySymbolTableFiles(ImmutableSet.of())
-                .setOptions(AaptOptions(failOnMissingConfigEntry = false))
-                .setVariantType(VariantTypeImpl.LIBRARY)
-                .setAndroidTarget(androidJar.get())
-                .build()
+            .setManifestFile(manifestFile)
+            .addResourceDirectories(compiledRemoteResourcesDirs)
+            .addResourceDir(resDir)
+            .setLibrarySymbolTableFiles(ImmutableSet.of())
+            .setOptions(AaptOptions(failOnMissingConfigEntry = false))
+            .setVariantType(VariantTypeImpl.LIBRARY)
+            .setAndroidTarget(androidJar.get())
+            .build()
     }
 
     class CreationAction(
@@ -208,7 +223,27 @@ constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
             task.errorFormatMode = SyncOptions.getErrorFormatMode(
                 variantScope.globalScope.projectOptions
             )
+
+            if (variantScope.globalScope.projectOptions.get(BooleanOption.PRECOMPILE_REMOTE_RESOURCES)) {
+                task.compiledRemoteResources =
+                    variantScope.getArtifactCollection(
+                        AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
+                        AndroidArtifacts.ArtifactScope.ALL,
+                        AndroidArtifacts.ArtifactType.COMPILED_REMOTE_RESOURCES
+                    )
+            }
         }
+    }
+
+    /**
+     * Returns a file collection of the directories containing the compiled remote libraries
+     * resource files.
+     */
+    @Optional
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    fun getCompiledRemoteResources(): FileCollection? {
+        return compiledRemoteResources?.artifactFiles
     }
 
     companion object {

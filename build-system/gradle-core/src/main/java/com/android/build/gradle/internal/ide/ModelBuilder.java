@@ -353,7 +353,7 @@ public class ModelBuilder<Extension extends AndroidConfig>
                         extension.getLintOptions());
 
         AaptOptions aaptOptions = AaptOptionsImpl.create(extension.getAaptOptions());
-        
+
         // For modules that have C/C++, construct the JSON generators to get sync errors.
         // This doesn't do the slow work of actually generating the JSON.
         for (VariantScope variantScope : variantManager.getVariantScopes()) {
@@ -743,14 +743,14 @@ public class ModelBuilder<Extension extends AndroidConfig>
         VariantScope testedScope = Objects.requireNonNull(scope.getTestedVariantData()).getScope();
         if (testedScope
                 .getArtifacts()
-                .hasArtifact(InternalArtifactType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR)) {
+                .hasFinalProduct(InternalArtifactType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR)) {
             additionalTestClasses.add(
-                    Iterables.getOnlyElement(
-                            testedScope
-                                    .getArtifacts()
-                                    .getFinalArtifactFiles(
-                                            InternalArtifactType
-                                                    .COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR)));
+                    testedScope
+                            .getArtifacts()
+                            .getFinalProduct(
+                                    InternalArtifactType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR)
+                            .get()
+                            .getAsFile());
         }
 
         // No files are possible if the SDK was not configured properly.
@@ -1173,16 +1173,6 @@ public class ModelBuilder<Extension extends AndroidConfig>
                 Lists.newArrayListWithExpectedSize(additionalFolders + extraFolders.size());
         folders.addAll(extraFolders);
 
-        if (!globalScope.getProjectOptions().get(BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION)
-                && !globalScope.getExtension().getAaptOptions().getNamespaced()) {
-            folders.add(
-                    Iterables.get(
-                            artifacts
-                                    .getFinalArtifactFiles(
-                                            InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES)
-                                    .getFiles(),
-                            0));
-        }
         folders.add(
                 scope.getArtifacts()
                         .getFinalArtifactFiles(InternalArtifactType.AIDL_SOURCE_OUTPUT_DIR)

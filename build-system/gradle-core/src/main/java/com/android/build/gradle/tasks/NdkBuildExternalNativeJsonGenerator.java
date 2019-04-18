@@ -21,7 +21,7 @@ import static com.android.SdkConstants.PLATFORM_WINDOWS;
 import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.errorln;
 import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.infoln;
 import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.warnln;
-import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
+import static com.android.build.gradle.internal.cxx.services.CxxProcessServiceKt.createProcessOutputJunction;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.external.gnumake.NativeBuildConfigValueBuilder;
@@ -30,7 +30,6 @@ import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValue;
 import com.android.build.gradle.internal.cxx.json.PlainFileGsonTypeAdaptor;
 import com.android.build.gradle.internal.cxx.model.CxxAbiModel;
 import com.android.build.gradle.internal.cxx.model.CxxVariantModel;
-import com.android.builder.core.AndroidBuilder;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.process.ProcessInfoBuilder;
 import com.google.common.base.Charsets;
@@ -46,7 +45,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * ndk-build JSON generation logic. This is separated from the corresponding ndk-build task so that
@@ -57,10 +55,8 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
     NdkBuildExternalNativeJsonGenerator(
             @NonNull CxxVariantModel variant,
             @NonNull List<CxxAbiModel> abis,
-            @NonNull Set<String> configurationFailures,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull GradleBuildVariant.Builder stats) {
-        super(variant, abis, configurationFailures, androidBuilder, stats);
+        super(variant, abis, stats);
         this.stats.setNativeBuildSystemType(
                 GradleNativeAndroidModule.NativeBuildSystemType.NDK_BUILD);
 
@@ -162,10 +158,10 @@ class NdkBuildExternalNativeJsonGenerator extends ExternalNativeJsonGenerator {
     @Override
     String executeProcess(@NonNull CxxAbiModel abi) throws ProcessException, IOException {
         return createProcessOutputJunction(
+                        abi.getVariant().getModule(),
                         abi.getObjFolder(),
                         "android_gradle_generate_ndk_build_json_" + abi.getAbi().getTag(),
                         getProcessBuilder(abi),
-                        androidBuilder,
                         "")
                 .logStderrToInfo()
                 .executeAndReturnStdoutString();

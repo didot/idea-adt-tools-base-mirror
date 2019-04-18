@@ -43,6 +43,7 @@ import com.android.build.gradle.internal.api.artifact.BuildArtifactSpec;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.crash.ExternalApiUsageException;
 import com.android.build.gradle.internal.dependency.AarCompileClassesTransform;
+import com.android.build.gradle.internal.dependency.AarResourcesCompilerTransform;
 import com.android.build.gradle.internal.dependency.AarTransform;
 import com.android.build.gradle.internal.dependency.AlternateCompatibilityRule;
 import com.android.build.gradle.internal.dependency.AlternateDisambiguationRule;
@@ -72,6 +73,7 @@ import com.android.build.gradle.internal.profile.AnalyticsUtil;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType;
 import com.android.build.gradle.internal.publishing.PublishingSpecs;
+import com.android.build.gradle.internal.res.Aapt2MavenUtils;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.TransformVariantScope;
@@ -685,6 +687,25 @@ public class VariantManager implements VariantModel {
                     });
         }
 
+        if (globalScope.getProjectOptions().get(BooleanOption.PRECOMPILE_REMOTE_RESOURCES)) {
+            dependencies.registerTransform(
+                    AarResourcesCompilerTransform.class,
+                    reg -> {
+                        reg.getFrom().attribute(ARTIFACT_FORMAT, EXPLODED_AAR.getType());
+                        reg.getTo()
+                                .attribute(
+                                        ARTIFACT_FORMAT,
+                                        ArtifactType.COMPILED_REMOTE_RESOURCES.getType());
+
+                        reg.parameters(
+                                params ->
+                                        params.getAapt2FromMaven()
+                                                .from(
+                                                        Aapt2MavenUtils.getAapt2FromMaven(
+                                                                globalScope)));
+                    });
+        }
+
         // API jar(s)
         Usage apiUsage = project.getObjects().named(Usage.class, Usage.JAVA_API);
         dependencies.registerTransform(
@@ -949,8 +970,7 @@ public class VariantManager implements VariantModel {
             // ensure that there is always a dimension
             if (flavorDimensionList == null || flavorDimensionList.isEmpty()) {
                 globalScope
-                        .getAndroidBuilder()
-                        .getIssueReporter()
+                        .getErrorHandler()
                         .reportError(
                                 EvalIssueReporter.Type.UNNAMED_FLAVOR_DIMENSION,
                                 new EvalIssueException(
@@ -1452,9 +1472,7 @@ public class VariantManager implements VariantModel {
                 file,
                 f ->
                         new DefaultManifestParser(
-                                f,
-                                this::canParseManifest,
-                                globalScope.getAndroidBuilder().getIssueReporter()));
+                                f, this::canParseManifest, globalScope.getErrorHandler()));
     }
 
     private boolean canParseManifest() {

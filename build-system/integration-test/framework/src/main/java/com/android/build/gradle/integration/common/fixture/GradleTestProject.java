@@ -28,7 +28,7 @@ import com.android.build.gradle.integration.BazelIntegrationTestsSuite;
 import com.android.build.gradle.integration.common.truth.ScannerSubjectUtils;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.build.gradle.options.BooleanOption;
-import com.android.builder.core.AndroidBuilder;
+import com.android.builder.core.ToolsRevisionUtils;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.ProjectBuildOutput;
 import com.android.builder.model.Version;
@@ -164,7 +164,7 @@ public final class GradleTestProject implements TestRule {
             DEFAULT_BUILD_TOOL_VERSION =
                     MoreObjects.firstNonNull(
                             envBuildToolVersion,
-                            AndroidBuilder.DEFAULT_BUILD_TOOLS_REVISION.toString());
+                            ToolsRevisionUtils.DEFAULT_BUILD_TOOLS_REVISION.toString());
 
             String envVersion = Strings.emptyToNull(System.getenv().get("CUSTOM_PLUGIN_VERSION"));
             ANDROID_GRADLE_PLUGIN_VERSION =
@@ -338,7 +338,7 @@ public final class GradleTestProject implements TestRule {
         this.heapSize = rootProject.getHeapSize();
     }
 
-    private static Path getGradleUserHome(File buildDir) {
+    public static Path getGradleUserHome(File buildDir) {
         if (TestUtils.runningFromBazel()) {
             return BazelIntegrationTestsSuite.GRADLE_USER_HOME;
         }

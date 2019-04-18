@@ -85,7 +85,7 @@ class SvgTree {
     // information of that style class.
     private final Map<String, String> mStyleClassAttributeMap = new HashMap<>();
 
-    public enum SvgLogLevel {
+    enum SvgLogLevel {
         ERROR,
         WARNING
     }
@@ -157,6 +157,11 @@ class SvgTree {
         mRoot.flatten(new AffineTransform());
     }
 
+    /** Validates all nodes and logs any encountered issues. */
+    public void validate() {
+        mRoot.validate();
+    }
+
     public Document parse(@NonNull File f) throws Exception {
         mFileName = f.getName();
         return PositionXmlParser.parse(new BufferedInputStream(new FileInputStream(f)), false);
@@ -174,9 +179,9 @@ class SvgTree {
         mRoot.transformIfNeeded(rootTransform);
     }
 
-    public void dump(@NonNull SvgGroupNode root) {
-        logger.log(Level.FINE, "current file is :" + mFileName);
-        root.dumpNode("");
+    public void dump() {
+        logger.log(Level.FINE, "file: " + mFileName);
+        mRoot.dumpNode("");
     }
 
     public void setRoot(SvgGroupNode root) {
@@ -188,7 +193,15 @@ class SvgTree {
         return mRoot;
     }
 
-    public void logErrorLine(@NonNull String s, @Nullable Node node, @NonNull SvgLogLevel level) {
+    public void logError(@NonNull String s, @Nullable Node node) {
+        logErrorLine(s, node, SvgLogLevel.ERROR);
+    }
+
+    public void logWarning(@NonNull String s, @Nullable Node node) {
+        logErrorLine(s, node, SvgLogLevel.WARNING);
+    }
+
+    void logErrorLine(@NonNull String s, @Nullable Node node, @NonNull SvgLogLevel level) {
         Preconditions.checkArgument(!s.isEmpty());
         int line = node == null ? 0 : getStartLine(node);
         mLogMessages.add(new LogMessage(level, line, s));

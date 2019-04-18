@@ -8,7 +8,7 @@ set OUTDIR=%1
 set DISTDIR=%2
 set BUILDNUMBER=%3
 
-set TESTTAGFILTERS=perfgate_multi_run,perfgate_only,-no_windows,-no_test_windows
+set TESTTAGFILTERS=perfgate_multi_run,perfgate_only,-no_perfgate,-no_windows,-no_test_windows
 
 set CONFIGOPTIONS=--config=postsubmit
 
@@ -34,7 +34,7 @@ set TARGETS=
 for /f %%i in (%SCRIPTDIR%targets.win) do set TARGETS=!TARGETS! %%i
 
 @rem Run Bazel
-CALL %SCRIPTDIR%bazel.cmd --max_idle_secs=60 test %CONFIGOPTIONS% --config=remote --build_tag_filters=-no_rbe_windows,-no_windows --test_tag_filters=-no_rbe_windows,%TESTTAGFILTERS% --profile=%DISTDIR%\prof --runs_per_test=10 -- %TARGETS%
+CALL %SCRIPTDIR%bazel.cmd --max_idle_secs=60 test %CONFIGOPTIONS% --config=remote --build_tag_filters=-no_rbe_windows,-no_windows --test_tag_filters=-no_rbe_windows,%TESTTAGFILTERS% --profile=%DISTDIR%\prof --runs_per_test=3 -- %TARGETS%
 SET EXITCODE=%errorlevel%
 
 IF NOT EXIST %DISTDIR%\ GOTO ENDSCRIPT

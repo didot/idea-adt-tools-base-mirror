@@ -2619,10 +2619,10 @@ public final class SdkConstants {
     public static final String GRADLE_PLUGIN_NAME = "com.android.tools.build:gradle:";
     public static final String GRADLE_EXPERIMENTAL_PLUGIN_NAME =
             "com.android.tools.build:gradle-experimental:";
-    public static final String GRADLE_MINIMUM_VERSION = "5.3.1";
+    public static final String GRADLE_MINIMUM_VERSION = "5.4-rc-1";
     public static final String GRADLE_LATEST_VERSION = GRADLE_MINIMUM_VERSION;
     public static final String GRADLE_PLUGIN_MINIMUM_VERSION = "1.0.0";
-    public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.1.0";
+    public static final String GRADLE_PLUGIN_RECOMMENDED_VERSION = "3.3.2";
     // Temporary - can be removed once the recommended version supports AIA (with splits).
     public static final String GRADLE_PLUGIN_LATEST_VERSION = GRADLE_PLUGIN_RECOMMENDED_VERSION;
 
@@ -2719,6 +2719,30 @@ public final class SdkConstants {
             AndroidxName.of("android.databinding.", "ViewStubProxy");
     public static final AndroidxName BINDING_ADAPTER_ANNOTATION =
             AndroidxName.of("android.databinding.", "BindingAdapter");
+
+    public static final AndroidxName CLASS_LIVE_DATA =
+            AndroidxName.of("android.arch.lifecycle.", "LiveData");
+    public static final AndroidxName CLASS_OBSERVABLE_BOOLEAN =
+            AndroidxName.of("android.databinding.", "ObservableBoolean");
+    public static final AndroidxName CLASS_OBSERVABLE_BYTE =
+            AndroidxName.of("android.databinding.", "ObservableByte");
+    public static final AndroidxName CLASS_OBSERVABLE_CHAR =
+            AndroidxName.of("android.databinding.", "ObservableChar");
+    public static final AndroidxName CLASS_OBSERVABLE_SHORT =
+            AndroidxName.of("android.databinding.", "ObservableShort");
+    public static final AndroidxName CLASS_OBSERVABLE_INT =
+            AndroidxName.of("android.databinding.", "ObservableInt");
+    public static final AndroidxName CLASS_OBSERVABLE_LONG =
+            AndroidxName.of("android.databinding.", "ObservableLong");
+    public static final AndroidxName CLASS_OBSERVABLE_FLOAT =
+            AndroidxName.of("android.databinding.", "ObservableFloat");
+    public static final AndroidxName CLASS_OBSERVABLE_DOUBLE =
+            AndroidxName.of("android.databinding.", "ObservableDouble");
+    public static final AndroidxName CLASS_OBSERVABLE_FIELD =
+            AndroidxName.of("android.databinding.", "ObservableField");
+    public static final AndroidxName CLASS_OBSERVABLE_PARCELABLE =
+            AndroidxName.of("android.databinding.", "ObservableParcelable");
+
 
     /** Name of keep attribute in XML */
     public static final String ATTR_KEEP = "keep";

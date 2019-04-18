@@ -25,9 +25,10 @@ import com.android.build.gradle.internal.core.Abi;
 import com.android.build.gradle.internal.cxx.json.AndroidBuildGradleJsons;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValueMini;
 import com.android.build.gradle.internal.cxx.json.NativeLibraryValueMini;
-import com.android.build.gradle.internal.cxx.logging.GradleBuildLoggingEnvironment;
+import com.android.build.gradle.internal.cxx.logging.ErrorsAreFatalThreadLoggingEnvironment;
+import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.AndroidVariantTask;
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.process.ProcessInfoBuilder;
@@ -50,14 +51,14 @@ import org.gradle.api.tasks.TaskAction;
  * <p>It declares no inputs or outputs, as it's supposed to always run when invoked. Incrementality
  * is left to the underlying build system.
  */
-public class ExternalNativeCleanTask extends AndroidBuilderTask {
+public class ExternalNativeCleanTask extends AndroidVariantTask {
 
     @NonNull private Provider<ExternalNativeJsonGenerator> generator;
 
     @TaskAction
     void clean() throws ProcessException, IOException {
-        try (GradleBuildLoggingEnvironment ignore =
-                new GradleBuildLoggingEnvironment(getLogger(), getVariantName())) {
+        try (ErrorsAreFatalThreadLoggingEnvironment ignore =
+                new ErrorsAreFatalThreadLoggingEnvironment()) {
             infoln("starting clean");
             infoln("finding existing JSONs");
 
@@ -124,7 +125,8 @@ public class ExternalNativeCleanTask extends AndroidBuilderTask {
                             this.getObjFolder(),
                             "android_gradle_clean_" + commandIndex,
                             processBuilder,
-                            getBuilder(),
+                            getLogger(),
+                            new GradleProcessExecutor(getProject()),
                             "")
                     .logStderrToInfo()
                     .logStdoutToInfo()
@@ -159,7 +161,6 @@ public class ExternalNativeCleanTask extends AndroidBuilderTask {
         public void configure(@NonNull ExternalNativeCleanTask task) {
             task.setVariantName(variantScope.getFullVariantName());
             task.generator = generator;
-            task.setAndroidBuilder(variantScope.getGlobalScope().getAndroidBuilder());
         }
     }
 

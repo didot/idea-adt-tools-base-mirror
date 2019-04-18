@@ -51,9 +51,9 @@ import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.ModuleMetadata;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata;
+import com.android.build.gradle.internal.tasks.manifest.ManifestHelperKt;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.options.BooleanOption;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.VariantType;
 import com.android.builder.dexing.DexingType;
 import com.android.builder.model.ApiVersion;
@@ -182,7 +182,8 @@ public class ProcessApplicationManifest extends ManifestProcessorTask {
         ImmutableList.Builder<BuildOutput> bundleManifestOutputs = ImmutableList.builder();
         ImmutableList.Builder<BuildOutput> instantAppManifestOutputs = ImmutableList.builder();
 
-        List<File> navigationXmls = resourcesComputer.getNavigationXmlsList(getILogger());
+        List<File> navigationXmls =
+                resourcesComputer.getNavigationXmlsList(new LoggerWrapper(getLogger()));
         // FIX ME : multi threading.
         // TODO : LOAD the APK_LIST FILE .....
         for (ApkData apkData : outputScope.getApkDatas()) {
@@ -214,7 +215,7 @@ public class ProcessApplicationManifest extends ManifestProcessorTask {
                             : null;
 
             MergingReport mergingReport =
-                    AndroidBuilder.mergeManifestsForApplication(
+                    ManifestHelperKt.mergeManifestsForApplication(
                             getMainManifest(),
                             getManifestOverlays(),
                             computeFullProviderList(compatibleScreenManifestForSplit),

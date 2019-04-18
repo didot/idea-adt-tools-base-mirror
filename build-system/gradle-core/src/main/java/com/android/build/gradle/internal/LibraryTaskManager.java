@@ -213,8 +213,7 @@ public class LibraryTaskManager extends TaskManager {
             if (!difference.isEmpty()) {
                 String scopes = difference.toString();
                 globalScope
-                        .getAndroidBuilder()
-                        .getIssueReporter()
+                        .getErrorHandler()
                         .reportError(
                                 Type.GENERIC,
                                 new EvalIssueException(
@@ -364,11 +363,6 @@ public class LibraryTaskManager extends TaskManager {
     }
 
     private void registerRClassTransformStream(@NonNull VariantScope variantScope) {
-        if (!projectOptions.get(BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION)) {
-            return;
-        }
-
-
         InternalArtifactType rClassJar;
 
         if (globalScope.getExtension().getAaptOptions().getNamespaced()) {
@@ -387,7 +381,7 @@ public class LibraryTaskManager extends TaskManager {
         }
 
         FileCollection compileRClass =
-                variantScope.getArtifacts().getFinalArtifactFiles(rClassJar).get();
+                project.files(variantScope.getArtifacts().getFinalProduct(rClassJar));
         variantScope
                 .getTransformManager()
                 .addStream(

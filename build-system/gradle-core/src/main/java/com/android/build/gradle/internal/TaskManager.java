@@ -1077,11 +1077,6 @@ public abstract class TaskManager {
         artifacts.appendArtifact(
                 InternalArtifactType.SYMBOL_LIST, ImmutableList.of(symbolFile), task.getName());
 
-        // Needed for the IDE
-        if (!projectOptions.get(BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION)) {
-            TaskFactoryUtils.dependsOn(scope.getTaskContainer().getSourceGenTask(), task);
-        }
-
         // Synthetic output for AARs (see SymbolTableWithPackageNameTransform), and created in
         // process resources for local subprojects.
         artifacts.appendArtifact(
@@ -1425,10 +1420,7 @@ public abstract class TaskManager {
         scope.getTaskContainer()
                 .setExternalNativeJsonGenerator(
                         TaskInputHelper.memoizeToProvider(
-                                project,
-                                () ->
-                                        ExternalNativeJsonGenerator.create(
-                                                module, globalScope.getAndroidBuilder(), scope)));
+                                project, () -> ExternalNativeJsonGenerator.create(module, scope)));
     }
 
     public void createExternalNativeBuildTasks(@NonNull VariantScope scope) {
@@ -1446,19 +1438,10 @@ public abstract class TaskManager {
 
         ProjectOptions projectOptions = globalScope.getProjectOptions();
 
-        String targetAbi =
-                projectOptions.get(BooleanOption.BUILD_ONLY_TARGET_ABI)
-                        ? projectOptions.get(StringOption.IDE_BUILD_TARGET_ABI)
-                        : null;
-
         // Set up build tasks
         TaskProvider<ExternalNativeBuildTask> buildTask =
                 taskFactory.register(
-                        new ExternalNativeBuildTask.CreationAction(
-                                generator,
-                                generateTask,
-                                scope,
-                                globalScope.getAndroidBuilder()));
+                        new ExternalNativeBuildTask.CreationAction(generator, generateTask, scope));
 
         TaskFactoryUtils.dependsOn(taskContainer.getCompileTask(), buildTask);
 
@@ -1625,8 +1608,7 @@ public abstract class TaskManager {
         // Empty R class jar. TODO: Resources support for unit tests?
         variantScope
                 .getArtifacts()
-                .appendArtifact(
-                        InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR, project.files());
+                .emptyFile(InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR);
 
         TaskProvider<? extends JavaCompile> javacTask = createJavacTask(variantScope);
         addJavacClassesStream(variantScope);
@@ -2147,7 +2129,7 @@ public abstract class TaskManager {
                             variantScope.getBootClasspath(),
                             userCache,
                             minSdk.getFeatureLevel(),
-                            globalScope.getAndroidBuilder().getJavaProcessExecutor(),
+                            globalScope.getJavaProcessExecutor(),
                             project.getLogger().isEnabled(LogLevel.INFO),
                             projectOptions.get(BooleanOption.ENABLE_GRADLE_WORKERS),
                             variantScope.getGlobalScope().getTmpFolder().toPath(),
@@ -2408,8 +2390,7 @@ public abstract class TaskManager {
         if (isTestCoverageEnabled) {
             if (variantScope.getDexer() == DexerTool.DX) {
                 globalScope
-                        .getAndroidBuilder()
-                        .getIssueReporter()
+                        .getErrorHandler()
                         .reportWarning(
                                 Type.GENERIC,
                                 String.format(
@@ -3323,8 +3304,7 @@ public abstract class TaskManager {
             publishFeatureDex(variantScope);
         } else {
             globalScope
-                    .getAndroidBuilder()
-                    .getIssueReporter()
+                    .getErrorHandler()
                     .reportError(
                             Type.GENERIC,
                             new EvalIssueException(
@@ -3407,8 +3387,7 @@ public abstract class TaskManager {
 
         if (!transformTask.isPresent()) {
             globalScope
-                    .getAndroidBuilder()
-                    .getIssueReporter()
+                    .getErrorHandler()
                     .reportError(
                             Type.GENERIC,
                             new EvalIssueException(
@@ -3474,8 +3453,7 @@ public abstract class TaskManager {
 
         if (!shrinkTask.isPresent()) {
             globalScope
-                    .getAndroidBuilder()
-                    .getIssueReporter()
+                    .getErrorHandler()
                     .reportError(
                             Type.GENERIC,
                             new EvalIssueException(
@@ -3711,8 +3689,7 @@ public abstract class TaskManager {
                                         + ":"
                                         + dependency.getVersion();
                         globalScope
-                                .getAndroidBuilder()
-                                .getIssueReporter()
+                                .getErrorHandler()
                                 .reportError(
                                         Type.GENERIC,
                                         new EvalIssueException(

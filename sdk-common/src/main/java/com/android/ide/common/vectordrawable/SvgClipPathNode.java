@@ -15,6 +15,8 @@
  */
 package com.android.ide.common.vectordrawable;
 
+import static com.android.ide.common.vectordrawable.Svg2Vector.SVG_MASK;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.google.common.collect.Iterables;
@@ -22,25 +24,25 @@ import java.awt.geom.AffineTransform;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
-import org.w3c.dom.Node;
+import org.w3c.dom.Element;
 
 /**
  * Represents a SVG group element that contains a clip-path. SvgClipPathNode's mChildren will
  * contain the actual path data of the clip-path. The path of the clip will be constructed in
- * writeXML by concatenating mChildren's paths. mAffectedNodes contains any group or leaf nodes that
- * are clipped by the path.
+ * {@link #writeXml} by concatenating mChildren's paths. mAffectedNodes contains any group or leaf
+ * nodes that are clipped by the path.
  */
 class SvgClipPathNode extends SvgGroupNode {
     private final ArrayList<SvgNode> mAffectedNodes = new ArrayList<>();
 
-    SvgClipPathNode(@NonNull SvgTree svgTree, @NonNull Node docNode, @Nullable String name) {
-        super(svgTree, docNode, name);
+    SvgClipPathNode(@NonNull SvgTree svgTree, @NonNull Element element, @Nullable String name) {
+        super(svgTree, element, name);
     }
 
     @Override
     @NonNull
     public SvgClipPathNode deepCopy() {
-        SvgClipPathNode newInstance = new SvgClipPathNode(getTree(), getDocumentNode(), getName());
+        SvgClipPathNode newInstance = new SvgClipPathNode(getTree(), mDocumentElement, mName);
         newInstance.copyFrom(this);
         return newInstance;
     }
@@ -82,12 +84,30 @@ class SvgClipPathNode extends SvgGroupNode {
 
         if (mVdAttributesMap.containsKey(Svg2Vector.SVG_STROKE_WIDTH)
                 && ((mStackedTransform.getType() & AffineTransform.TYPE_MASK_SCALE) != 0)) {
-            getTree()
-                    .logErrorLine(
-                            "Scaling of the stroke width is ignored",
-                            getDocumentNode(),
-                            SvgTree.SvgLogLevel.WARNING);
+            logWarning("Scaling of the stroke width is ignored");
         }
+    }
+
+    @Override
+    public void validate() {
+        super.validate();
+        if (mDocumentElement.getTagName().equals(SVG_MASK) && !isWhiteFill()) {
+            // A mask that is not solid white creates a transparency effect that cannot be
+            // reproduced by a clip-path.
+            logError("Semitransparent mask cannot be represented by a vector drawable");
+        }
+    }
+
+    private boolean isWhiteFill() {
+        String fillColor = mVdAttributesMap.get("fill");
+        if (fillColor == null) {
+            return false;
+        }
+        fillColor = colorSvg2Vd(fillColor, "#000");
+        if (fillColor == null) {
+            return false;
+        }
+        return VdUtil.parseColorValue(fillColor) == 0xFFFFFFFF;
     }
 
     @Override
