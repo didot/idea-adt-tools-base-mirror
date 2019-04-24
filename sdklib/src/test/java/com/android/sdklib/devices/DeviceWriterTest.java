@@ -17,13 +17,13 @@
 package com.android.sdklib.devices;
 
 import com.android.dvlib.DeviceSchemaTest;
-
 import com.google.common.collect.Table;
 import junit.framework.TestCase;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -40,7 +40,7 @@ public class DeviceWriterTest extends TestCase {
         DeviceWriter.writeToXml(baos, devices.values());
         String written = baos.toString();
         Table<String, String, Device> writtenDevices = DeviceParser.parse(
-                new ByteArrayInputStream(written.getBytes()));
+                new ByteArrayInputStream(written.getBytes(StandardCharsets.UTF_8)));
         assertEquals(devices, writtenDevices);
     }
 
@@ -54,7 +54,7 @@ public class DeviceWriterTest extends TestCase {
         DeviceWriter.writeToXml(baos, devices.values());
         String written = baos.toString();
         Table<String, String, Device> writtenDevices = DeviceParser.parse(
-          new ByteArrayInputStream(written.getBytes()));
+          new ByteArrayInputStream(written.getBytes(StandardCharsets.UTF_8)));
         assertEquals(devices, writtenDevices);
     }
 
@@ -85,7 +85,7 @@ public class DeviceWriterTest extends TestCase {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DeviceWriter.writeToXml(baos, devices.values());
         Table<String, String, Device> writtenDevices = DeviceParser.parse(
-                new ByteArrayInputStream(baos.toString().getBytes()));
+                new ByteArrayInputStream(baos.toString().getBytes(StandardCharsets.UTF_8)));
         assertEquals(devices, writtenDevices);
     }
 
@@ -97,7 +97,7 @@ public class DeviceWriterTest extends TestCase {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DeviceWriter.writeToXml(baos, devices.values());
         Table<String, String, Device> writtenDevices = DeviceParser.parse(
-                new ByteArrayInputStream(baos.toString().getBytes()));
+                new ByteArrayInputStream(baos.toString().getBytes(StandardCharsets.UTF_8)));
         assertEquals(devices, writtenDevices);
     }
 
@@ -109,7 +109,7 @@ public class DeviceWriterTest extends TestCase {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DeviceWriter.writeToXml(baos, devices.values());
         Table<String, String, Device> writtenDevices = DeviceParser.parse(
-                new ByteArrayInputStream(baos.toString().getBytes()));
+                new ByteArrayInputStream(baos.toString().getBytes(StandardCharsets.UTF_8)));
         assertEquals(devices, writtenDevices);
     }
 
@@ -121,7 +121,7 @@ public class DeviceWriterTest extends TestCase {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DeviceWriter.writeToXml(baos, devices.values());
         Table<String, String, Device> writtenDevices = DeviceParser.parse(
-                new ByteArrayInputStream(baos.toString().getBytes()));
+                new ByteArrayInputStream(baos.toString().getBytes(StandardCharsets.UTF_8)));
         assertEquals(devices, writtenDevices);
     }
     public void testApiSingle() throws Exception {
@@ -132,7 +132,7 @@ public class DeviceWriterTest extends TestCase {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DeviceWriter.writeToXml(baos, devices.values());
         Table<String, String, Device> writtenDevices = DeviceParser.parse(
-                new ByteArrayInputStream(baos.toString().getBytes()));
+                new ByteArrayInputStream(baos.toString().getBytes(StandardCharsets.UTF_8)));
         assertEquals(devices, writtenDevices);
     }
 }
