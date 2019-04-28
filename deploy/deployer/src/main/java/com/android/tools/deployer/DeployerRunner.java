@@ -29,10 +29,12 @@ import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class DeployerRunner implements UIService {
+public class DeployerRunner {
 
     private static final String DB_PATH = "/tmp/studio.db";
     private final ApkFileDatabase db;
+    private final ArrayList<DeployMetric> metrics;
+    private final UIService service;
 
     // Run it from bazel with the following command:
     // bazel run :deployer.runner org.wikipedia.alpha PATH_TO_APK1 PATH_TO_APK2
@@ -49,12 +51,14 @@ public class DeployerRunner implements UIService {
 
     public static int tracedMain(String[] args, ILogger logger) {
         ApkFileDatabase db = new SqlApkFileDatabase(new File(DB_PATH));
-        DeployerRunner runner = new DeployerRunner(db);
+        DeployerRunner runner = new DeployerRunner(db, new CommandLineService());
         return runner.run(args, logger);
     }
 
-    public DeployerRunner(ApkFileDatabase db) {
+    public DeployerRunner(ApkFileDatabase db, UIService service) {
         this.db = db;
+        this.service = service;
+        this.metrics = new ArrayList<>();
     }
 
     public int run(String[] args, ILogger logger) {
@@ -95,8 +99,8 @@ public class DeployerRunner implements UIService {
                 new AdbInstaller(parameters.getInstallersPath(), adb, new ArrayList<>(), logger);
         ExecutorService service = Executors.newFixedThreadPool(5);
         TaskRunner runner = new TaskRunner(service);
-        Deployer deployer =
-                new Deployer(adb, db, runner, installer, this, new ArrayList<>(), logger);
+        metrics.clear();
+        Deployer deployer = new Deployer(adb, db, runner, installer, this.service, metrics, logger);
         try {
             if (parameters.getCommand() == DeployRunnerParameters.Command.INSTALL) {
                 InstallOptions.Builder options = InstallOptions.builder().setAllowDebuggable();
@@ -104,9 +108,9 @@ public class DeployerRunner implements UIService {
                     options.setGrantAllPermissions();
                 }
 
-                Deployer.InstallMode installMode = Deployer.InstallMode.FULL;
-                if (parameters.isDeltaInstall()) {
-                    installMode = Deployer.InstallMode.DELTA;
+                Deployer.InstallMode installMode = Deployer.InstallMode.DELTA;
+                if (parameters.isForceFullInstall()) {
+                    installMode = Deployer.InstallMode.FULL;
                 }
                 deployer.install(packageName, apks, options.build(), installMode);
             } else if (parameters.getCommand() == DeployRunnerParameters.Command.FULLSWAP) {
@@ -126,6 +130,10 @@ public class DeployerRunner implements UIService {
             service.shutdown();
         }
         return 0;
+    }
+
+    public ArrayList<DeployMetric> getMetrics() {
+        return metrics;
     }
 
     private IDevice getDevice(AndroidDebugBridge bridge) {
@@ -149,16 +157,18 @@ public class DeployerRunner implements UIService {
         return bridge;
     }
 
-    @Override
-    public boolean prompt(String message) {
-        System.err.println(message + ". Y/N?");
-        try (Scanner scanner = new Scanner(System.in)) {
-            return scanner.nextLine().equalsIgnoreCase("y");
+    static class CommandLineService implements UIService {
+        @Override
+        public boolean prompt(String message) {
+            System.err.println(message + ". Y/N?");
+            try (Scanner scanner = new Scanner(System.in)) {
+                return scanner.nextLine().equalsIgnoreCase("y");
+            }
         }
-    }
 
-    @Override
-    public void message(String message) {
-        System.err.println(message);
+        @Override
+        public void message(String message) {
+            System.err.println(message);
+        }
     }
 }

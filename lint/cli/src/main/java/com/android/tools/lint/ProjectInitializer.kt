@@ -43,6 +43,7 @@ import com.android.tools.lint.detector.api.Project
 import com.android.tools.lint.detector.api.Severity
 import com.android.utils.XmlUtils.getFirstSubTag
 import com.android.utils.XmlUtils.getNextTag
+import com.android.utils.usLocaleCapitalize
 import com.google.common.collect.ArrayListMultimap
 import com.google.common.collect.Multimap
 import com.google.common.io.ByteStreams
@@ -683,7 +684,7 @@ private class ProjectInitializer(
         val jarsDir = File(expanded, FD_JARS)
         if (jarsDir.isDirectory) {
             jarsDir.listFiles()?.let {
-                jarList.addAll(it.filter { name -> name.endsWith(DOT_JAR) }.toList())
+                jarList.addAll(it.filter { file -> file.name.endsWith(DOT_JAR) }.toList())
             }
         }
         val classesJar = File(expanded, "classes.jar")
@@ -756,7 +757,7 @@ private class ProjectInitializer(
                 for (root in typeSourceRoots) {
                     if (sourceRoots.contains(root)) {
                         reportError(
-                            "${type.capitalize()} sources cannot be in the same " +
+                            "${type.usLocaleCapitalize()} sources cannot be in the same " +
                                     "source root as production files; " +
                                     "source root $root is also a test root"
                         )

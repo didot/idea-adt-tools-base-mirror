@@ -16,13 +16,16 @@
 package com.android.tools.deployer.devices.shell;
 
 import com.android.tools.deployer.devices.FakeDevice;
+import com.android.tools.deployer.devices.shell.interpreter.ShellContext;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 
 public class BasicPm extends ShellCommand {
     @Override
-    public boolean execute(
-            FakeDevice device, String[] args, InputStream stdin, PrintStream stdout) {
+    public int execute(ShellContext context, String[] args, InputStream stdin, PrintStream stdout)
+            throws IOException {
+        FakeDevice device = context.getDevice();
         Arguments arguments = new Arguments(args);
         String action = arguments.nextArgument();
         if ("install".equals(action)) {
@@ -32,20 +35,27 @@ public class BasicPm extends ShellCommand {
             String pkg = arguments.nextArgument();
             if (pkg == null) {
                 stdout.print("\tpkg: null\nError: no package specified\n");
-                return false;
+                return 1;
             }
             byte[] file = device.readFile(pkg);
             if (file == null) {
                 stdout.print(
                         "\tpkg: /data/local/tmp/sample.apk2\nFailure [INSTALL_FAILED_INVALID_URI]\n");
-                return false;
+                return 1;
             }
-            device.addApk(file);
-            stdout.println("Success");
-            return true;
+            FakeDevice.InstallResult install = device.install(file);
+            switch (install.error) {
+                case SUCCESS:
+                    stdout.println("Success");
+                    return 0;
+                case INSTALL_FAILED_VERSION_DOWNGRADE:
+                    stdout.println("Failure [INSTALL_FAILED_VERSION_DOWNGRADE]");
+                    return 0;
+            }
+            return 0;
         } else {
             stdout.println("pm usage:\n...");
-            return false;
+            return 1;
         }
     }
 

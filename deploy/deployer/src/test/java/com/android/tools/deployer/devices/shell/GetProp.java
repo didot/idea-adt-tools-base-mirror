@@ -16,25 +16,26 @@
 package com.android.tools.deployer.devices.shell;
 
 import com.android.tools.deployer.devices.FakeDevice;
+import com.android.tools.deployer.devices.shell.interpreter.ShellContext;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.util.Map;
 
 public class GetProp extends ShellCommand {
     @Override
-    public boolean execute(
-            FakeDevice device, String[] args, InputStream stdin, PrintStream stdout) {
+    public int execute(ShellContext context, String[] args, InputStream stdin, PrintStream stdout) {
+        FakeDevice device = context.getDevice();
         if (args.length == 0) {
             stdout.println("# This is some build info");
             for (Map.Entry<String, String> entry : device.getProps().entrySet()) {
                 stdout.format("[%s]: [%s]\n", entry.getKey(), entry.getValue());
             }
-            return true;
         } else {
             String value = device.getProps().get(args[0]);
             stdout.println(value == null ? "" : value);
-            return value != null;
+            // It always returns 0 even if it doesn't find it
         }
+        return 0;
     }
 
     @Override

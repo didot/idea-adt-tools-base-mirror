@@ -41,8 +41,12 @@ class ProfileMBeanImpl(private val buildListener: RecordingBuildListener):
         }
     }
 
-    override fun registerSpan(taskPath:String, type: GradleBuildProfileSpan.ExecutionType, threadId: Long, startTime: Instant, duration: Duration) {
-        val taskRecord = buildListener.getTaskRecord(taskPath)
-        taskRecord?.addSpan(type, threadId, startTime, duration)
+    override fun registerSpan(taskPath:String?, builder: GradleBuildProfileSpan.Builder) {
+        if (taskPath==null) {
+            buildListener.recordAnonymousSpan(builder)
+        } else {
+            val taskRecord = buildListener.getTaskRecord(taskPath)
+            taskRecord?.addSpan(builder)
+        }
     }
 }

@@ -19,6 +19,7 @@ package com.android.build.gradle.tasks;
 import static com.android.build.gradle.internal.cxx.attribution.UtilsKt.collectNinjaLogs;
 import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.infoln;
 import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.warnln;
+import static com.android.build.gradle.internal.cxx.model.GetCxxBuildModelKt.getCxxBuildModel;
 import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.JNI;
@@ -36,10 +37,10 @@ import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValueMini;
 import com.android.build.gradle.internal.cxx.json.NativeLibraryValueMini;
 import com.android.build.gradle.internal.cxx.logging.ErrorsAreFatalThreadLoggingEnvironment;
 import com.android.build.gradle.internal.cxx.model.CxxAbiModel;
-import com.android.build.gradle.internal.cxx.services.CxxBuildSessionService;
+import com.android.build.gradle.internal.cxx.model.CxxBuildModel;
 import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.ide.common.process.BuildCommandException;
 import com.android.ide.common.process.ProcessInfoBuilder;
@@ -62,7 +63,6 @@ import org.gradle.api.GradleException;
 import org.gradle.api.Task;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.provider.Provider;
-import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskProvider;
 
 /**
@@ -72,7 +72,7 @@ import org.gradle.api.tasks.TaskProvider;
  * <p>It declares no inputs or outputs, as it's supposed to always run when invoked. Incrementality
  * is left to the underlying build system.
  */
-public class ExternalNativeBuildTask extends AndroidVariantTask {
+public class ExternalNativeBuildTask extends NonIncrementalTask {
 
     private Provider<ExternalNativeJsonGenerator> generator;
 
@@ -105,8 +105,8 @@ public class ExternalNativeBuildTask extends AndroidVariantTask {
         }
     }
 
-    @TaskAction
-    void build() throws BuildCommandException, IOException {
+    @Override
+    protected void doTaskAction() throws BuildCommandException, IOException {
         try (ErrorsAreFatalThreadLoggingEnvironment ignore =
                 new ErrorsAreFatalThreadLoggingEnvironment()) {
             buildImpl();
@@ -448,14 +448,12 @@ public class ExternalNativeBuildTask extends AndroidVariantTask {
                 if (cxxAbiModelOptional.isPresent()) {
                     this.getVariantName();
                     UtilsKt.appendTimestampAndBuildIdToNinjaLog(cxxAbiModelOptional.get());
-                    CxxBuildSessionService cxxBuildSessionService =
-                            CxxBuildSessionService.getInstance();
-                    cxxBuildSessionService.getAllBuiltAbis().add(cxxAbiModelOptional.get());
+                    CxxBuildModel buildModel = getCxxBuildModel();
                     BuildSessionImpl.getSingleton()
                             .executeOnceWhenBuildFinished(
                                     CxxAbiModel.class.getName(),
                                     "CollectNinjaLogs",
-                                    () -> collectNinjaLogs(cxxBuildSessionService));
+                                    () -> collectNinjaLogs(buildModel));
                 } else {
                     warnln(
                             "Cannot locate ABI {} for generating build attribution metrics.",

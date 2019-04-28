@@ -36,7 +36,7 @@ using profiler::proto::AgentConfig;
 namespace profiler {
 
 // Retrieve the app's data directory path
-static std::string GetAppDataPath() {
+static std::string GetAppDataCodeCachePath() {
   Dl_info dl_info;
   dladdr((void*)Agent_OnAttach, &dl_info);
   std::string so_path(dl_info.dli_fname);
@@ -52,7 +52,7 @@ static bool ParseConfigFromPath(const std::string& path, AgentConfig* config) {
 
 void LoadDex(jvmtiEnv* jvmti, JNIEnv* jni) {
   // Load in perfa.jar which should be in to data/data.
-  std::string agent_lib_path(GetAppDataPath());
+  std::string agent_lib_path(GetAppDataCodeCachePath());
   agent_lib_path.append("perfa.jar");
   jvmti->AddToBootstrapClassLoaderSearch(agent_lib_path.c_str());
 }
@@ -92,7 +92,10 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
   }
 
   // Profiler agent.
-  SetupPerfa(vm, jvmti_env, config);
+  // We are passing in the AgentConfig stored in the Agent::Instance() because
+  // it will be accessed beyond the lifetime of this function. The |config|
+  // instance created within this function will no longer be valid.
+  SetupPerfa(vm, jvmti_env, Agent::Instance().agent_config());
 
   Agent::Instance().AddDaemonConnectedCallback([] {
     Agent::Instance().StartHeartbeat();

@@ -35,15 +35,21 @@ namespace deploy {
 
 class Workspace {
  public:
-  Workspace(const std::string& executable_path, Executor& executor);
+  Workspace(const std::string& executable_path, Executor* executor);
 
   bool Valid() const { return base_ != ""; }
+
+  const std::string GetRoot() const noexcept { return root_; }
+
+  void SetRoot(const std::string& root) { root_ = root; }
 
   const std::string GetBase() const noexcept { return base_; }
 
   const std::string GetTmpFolder() const noexcept { return tmp_; }
 
-  Executor& GetExecutor() const noexcept { return executor_; }
+  Executor& GetExecutor() const noexcept { return *executor_; }
+
+  void SetExecutor(Executor* executor) { executor_ = executor; }
 
   proto::InstallerResponse& GetResponse() noexcept { return response_; }
 
@@ -56,8 +62,9 @@ class Workspace {
 
   std::string base_;
   std::string tmp_;
+  std::string root_;
 
-  Executor& executor_;
+  Executor* executor_;
 
   deploy::MessagePipeWrapper output_pipe_;
   proto::InstallerResponse response_;

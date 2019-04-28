@@ -88,12 +88,6 @@ bool DeltaInstallCommand::SendApkToPackageManager(
     const proto::PatchInstruction& patch, const std::string& session_id) {
   Phase p("DeltaInstallCommand::SendApkToPackageManager");
 
-  // Special case where there is no patch, the apk has not changed, we can skip
-  // it altogether since the session was created with inheritance (-p).
-  if (patch.patches().size() == 0) {
-    return true;
-  }
-
   // Open a stream to the package manager to write to.
   std::string output;
   std::string error;
@@ -114,7 +108,7 @@ bool DeltaInstallCommand::SendApkToPackageManager(
   workspace_.GetExecutor().ForkAndExec("cmd", parameters, &pm_stdin, &pm_stdout,
                                        &pm_stderr, &pid);
 
-  PatchApplier patchApplier;
+  PatchApplier patchApplier(workspace_.GetRoot());
   patchApplier.ApplyPatchToFD(patch, pm_stdin);
 
   // Clean up
@@ -146,7 +140,7 @@ void DeltaInstallCommand::Install() {
   int dst_fd = open(tmp_apk_path.c_str(), O_CREAT, O_WRONLY);
 
   // Write content of the tmp apk
-  PatchApplier patchApplier;
+  PatchApplier patchApplier(workspace_.GetRoot());
   bool patch_result =
       patchApplier.ApplyPatchToFD(request_.patchinstructions()[0], dst_fd);
   if (!patch_result) {
@@ -187,8 +181,10 @@ void DeltaInstallCommand::StreamInstall() {
 
   // Use inheritance so we can skip unchanged APKs in cases where
   // the application uses splits.
-  options.emplace_back("-p");
-  options.emplace_back(request_.package_name());
+  if (request_.inherit()) {
+    options.emplace_back("-p");
+    options.emplace_back(request_.package_name());
+  }
 
   if (!cmd.CreateInstallSession(&output, options)) {
     ErrEvent("Unable to create session"_s + output);
@@ -202,6 +198,10 @@ void DeltaInstallCommand::StreamInstall() {
 
   // For all apks involved, stream the patched content to the Package Manager
   for (const proto::PatchInstruction& patch : request_.patchinstructions()) {
+    // Skip if we are inheriting and no delta
+    if (request_.inherit() && patch.patches().size() == 0) {
+      continue;
+    }
     bool send_result = SendApkToPackageManager(patch, session_id);
     if (!send_result) {
       std::string abort_output;
@@ -215,10 +215,9 @@ void DeltaInstallCommand::StreamInstall() {
   response->set_install_output(output);
   if (!commit_result) {
     ErrEvent(output);
-    response->set_status(proto::DeltaInstallResponse_Status_ERROR);
-    return;
   }
-
+  // commit result cannot be reliable used to determine if the installation
+  // succedded.
   response->set_status(proto::DeltaInstallResponse_Status_OK);
 }
 

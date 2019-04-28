@@ -19,10 +19,12 @@ package com.android.build.gradle.internal.dependency
 import com.android.build.gradle.internal.errors.MessageReceiverImpl
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.recordArtifactTransformSpan
 import com.android.build.gradle.options.SyncOptions
 import com.android.builder.dexing.ClassFileInputs
 import com.android.builder.dexing.DexArchiveBuilder
 import com.android.builder.dexing.r8.ClassFileProviderFactory
+import com.android.tools.build.gradle.internal.profile.GradleTransformExecutionType
 import com.google.common.io.Closer
 import com.google.common.io.Files
 import org.gradle.api.artifacts.dsl.DependencyHandler
@@ -30,7 +32,6 @@ import org.gradle.api.artifacts.transform.InputArtifact
 import org.gradle.api.artifacts.transform.InputArtifactDependencies
 import org.gradle.api.artifacts.transform.TransformAction
 import org.gradle.api.artifacts.transform.TransformOutputs
-import org.gradle.api.artifacts.transform.TransformParameters
 import org.gradle.api.attributes.Attribute
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.FileCollection
@@ -44,7 +45,7 @@ import java.io.File
 import java.nio.file.Path
 
 abstract class BaseDexingTransform : TransformAction<BaseDexingTransform.Parameters> {
-    interface Parameters: TransformParameters {
+    interface Parameters: GenericTransformParameters {
         @get:Input
         val minSdkVersion: Property<Int>
         @get:Input
@@ -62,30 +63,35 @@ abstract class BaseDexingTransform : TransformAction<BaseDexingTransform.Paramet
     protected abstract fun enableDesugaring(): Boolean
 
     override fun transform(outputs: TransformOutputs) {
-        val name = Files.getNameWithoutExtension(primaryInput.name)
-        val outputDir = outputs.dir(name)
-        Closer.create().use { closer ->
+        recordArtifactTransformSpan(
+            parameters.projectName.get(),
+            GradleTransformExecutionType.DEX_ARTIFACT_TRANSFORM
+        ) {
+            val name = Files.getNameWithoutExtension(primaryInput.name)
+            val outputDir = outputs.dir(name)
+            Closer.create().use { closer ->
 
-            val d8DexBuilder = DexArchiveBuilder.createD8DexBuilder(
-                parameters.minSdkVersion.get(),
-                parameters.debuggable.get(),
-                ClassFileProviderFactory(parameters.bootClasspath.files.map(File::toPath))
-                    .also { closer.register(it) },
-                ClassFileProviderFactory(computeClasspathFiles()).also { closer.register(it) },
-                enableDesugaring(),
-                MessageReceiverImpl(
-                    SyncOptions.ErrorFormatMode.MACHINE_PARSABLE,
-                    LoggerFactory.getLogger(DexingNoDesugarTransform::class.java)
-                )
-            )
-
-            ClassFileInputs.fromPath(primaryInput.toPath()).use { classFileInput ->
-                classFileInput.entries { true }.use { classesInput ->
-                    d8DexBuilder.convert(
-                        classesInput,
-                        outputDir.toPath(),
-                        false
+                val d8DexBuilder = DexArchiveBuilder.createD8DexBuilder(
+                    parameters.minSdkVersion.get(),
+                    parameters.debuggable.get(),
+                    ClassFileProviderFactory(parameters.bootClasspath.files.map(File::toPath))
+                        .also { closer.register(it) },
+                    ClassFileProviderFactory(computeClasspathFiles()).also { closer.register(it) },
+                    enableDesugaring(),
+                    MessageReceiverImpl(
+                        SyncOptions.ErrorFormatMode.MACHINE_PARSABLE,
+                        LoggerFactory.getLogger(DexingNoDesugarTransform::class.java)
                     )
+                )
+
+                ClassFileInputs.fromPath(primaryInput.toPath()).use { classFileInput ->
+                    classFileInput.entries { true }.use { classesInput ->
+                        d8DexBuilder.convert(
+                            classesInput,
+                            outputDir.toPath(),
+                            false
+                        )
+                    }
                 }
             }
         }
@@ -131,11 +137,13 @@ data class DexingArtifactConfiguration(
 ) {
 
     fun registerTransform(
+        projectName: String,
         dependencyHandler: DependencyHandler,
         bootClasspath: FileCollection
     ) {
         dependencyHandler.registerTransform(getTransformClass()) { spec ->
             spec.parameters { parameters ->
+                parameters.projectName.set(projectName)
                 parameters.minSdkVersion.set(minSdk)
                 parameters.debuggable.set(isDebuggable)
                 if (enableDesugaring) {
@@ -145,7 +153,7 @@ data class DexingArtifactConfiguration(
             spec.from.attribute(ARTIFACT_FORMAT, AndroidArtifacts.ArtifactType.PROCESSED_JAR.type)
             spec.to.attribute(ARTIFACT_FORMAT, AndroidArtifacts.ArtifactType.DEX.type)
 
-            getAttributes().forEach { attribute, value ->
+            getAttributes().forEach { (attribute, value) ->
                 spec.from.attribute(attribute, value)
                 spec.to.attribute(attribute, value)
             }

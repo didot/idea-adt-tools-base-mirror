@@ -15,11 +15,7 @@
  */
 package com.android.ide.common.vectordrawable;
 
-import static com.android.ide.common.vectordrawable.SvgNode.CONTINUATION_INDENT;
-import static com.android.ide.common.vectordrawable.SvgNode.INDENT_UNIT;
 import static com.android.ide.common.vectordrawable.SvgTree.getStartLine;
-import static com.android.utils.XmlUtils.formatFloatAttribute;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -30,7 +26,6 @@ import java.awt.geom.AffineTransform;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -56,9 +51,6 @@ import org.w3c.dom.NodeList;
  */
 public class Svg2Vector {
     private static final Logger logger = Logger.getLogger(Svg2Vector.class.getSimpleName());
-    private static final String HEAD =
-            "<vector xmlns:android=\"http://schemas.android.com/apk/res/android\"";
-    private static final String AAPT_BOUND = "xmlns:aapt=\"http://schemas.android.com/aapt\"";
     private static final String SVG_DEFS = "defs";
     private static final String SVG_USE = "use";
     private static final String SVG_HREF = "href";
@@ -409,6 +401,10 @@ public class Svg2Vector {
                 }
 
                 default:
+                    String id = childElement.getAttribute("id");
+                    if (id != null) {
+                        svgTree.addIgnoredId(id);
+                    }
                     // For other fancy tags, like <switch>, they can contain children too.
                     // Report the unsupported nodes.
                     if (unsupportedSvgNodes.contains(tagName)) {
@@ -599,10 +595,10 @@ public class Svg2Vector {
      * Checks if the id of a node exists and adds the id and SvgNode to the svgTree's idMap if it
      * exists.
      */
-    private static void processIdName(@NonNull SvgTree svgTree, @NonNull SvgNode child) {
-        String idName = child.getAttributeValue("id");
-        if (!idName.isEmpty()) {
-            svgTree.addIdToMap(idName, child);
+    private static void processIdName(@NonNull SvgTree svgTree, @NonNull SvgNode node) {
+        String id = node.getAttributeValue("id");
+        if (!id.isEmpty()) {
+            svgTree.addIdToMap(id, node);
         }
     }
 
@@ -641,7 +637,9 @@ public class Svg2Vector {
         AffineTransform useTransform = new AffineTransform(1, 0, 0, 1, x, y);
         SvgNode definedNode = id == null ? null : svgTree.getSvgNodeFromId(id);
         if (definedNode == null) {
-            svgTree.logError("Referenced id not found", currentNode);
+            if (id == null || !svgTree.isIdIgnored(id)) {
+                svgTree.logError("Referenced id not found", currentNode);
+            }
         } else {
             //noinspection SuspiciousMethodCalls
             if (svgTree.getPendingUseSet().contains(definedNode)) {
@@ -1207,54 +1205,7 @@ public class Svg2Vector {
 
     private static void writeFile(@NonNull OutputStream outStream, @NonNull SvgTree svgTree)
             throws IOException {
-        OutputStreamWriter writer = new OutputStreamWriter(outStream, UTF_8);
-        writer.write(HEAD);
-        writer.write(System.lineSeparator());
-        if (svgTree.getHasGradient()) {
-            writer.write(CONTINUATION_INDENT);
-            writer.write(AAPT_BOUND);
-            writer.write(System.lineSeparator());
-        }
-        float viewportWidth = svgTree.getViewportWidth();
-        float viewportHeight = svgTree.getViewportHeight();
-
-        writer.write(CONTINUATION_INDENT);
-        writer.write("android:width=\"");
-        writer.write(formatFloatAttribute(svgTree.getWidth() * svgTree.getScaleFactor()));
-        writer.write("dp\"");
-        writer.write(System.lineSeparator());
-        writer.write(CONTINUATION_INDENT);
-        writer.write("android:height=\"");
-        writer.write(formatFloatAttribute(svgTree.getHeight() * svgTree.getScaleFactor()));
-        writer.write("dp\"");
-        writer.write(System.lineSeparator());
-
-        writer.write(CONTINUATION_INDENT);
-        writer.write("android:viewportWidth=\"");
-        writer.write(formatFloatAttribute(viewportWidth));
-        writer.write("\"");
-        writer.write(System.lineSeparator());
-        writer.write(CONTINUATION_INDENT);
-        writer.write("android:viewportHeight=\"");
-        writer.write(formatFloatAttribute(viewportHeight));
-        writer.write("\">");
-        writer.write(System.lineSeparator());
-
-        svgTree.normalize();
-        // TODO: this has to happen in the tree mode!!!
-        writeXml(svgTree, writer);
-        writer.write("</vector>");
-        writer.write(System.lineSeparator());
-
-        writer.close();
-    }
-
-    private static void writeXml(@NonNull SvgTree svgTree, @NonNull OutputStreamWriter fw)
-            throws IOException {
-        if (svgTree.getRoot() == null) {
-            throw new NullPointerException("SvgTree root is null.");
-        }
-        svgTree.getRoot().writeXml(fw, false, INDENT_UNIT);
+        svgTree.writeXml(outStream);
     }
 
     /**
@@ -1263,27 +1214,27 @@ public class Svg2Vector {
      * @param inputSvg the input SVG file
      * @param outStream the converted VectorDrawable's content. This can be empty if there is any
      *     error found during parsing
-     * @return the error messages, which contain things like all the tags VectorDrawable doesn't
-     *     support or exception message
+     * @return the error message that combines all logged errors and warnings, or an empty string if
+     *     there were no errors
      */
     @NonNull
     public static String parseSvgToXml(@NonNull File inputSvg, @NonNull OutputStream outStream) {
         // Write all the error message during parsing into SvgTree and return here as getErrorLog().
         // We will also log the exceptions here.
-        String errorLog;
+        String errorMessage;
         try {
             SvgTree svgTree = parse(inputSvg);
             if (svgTree.getHasLeafNode()) {
                 writeFile(outStream, svgTree);
             }
-            errorLog = svgTree.getErrorLog();
+            errorMessage = svgTree.getErrorMessage();
         } catch (Exception e) {
-            errorLog = "Error while parsing " + inputSvg.getName();
+            errorMessage = "Error while parsing " + inputSvg.getName();
             String errorDetail = e.getLocalizedMessage();
             if (errorDetail != null) {
-                errorLog += ":\n" + errorDetail;
+                errorMessage += ":\n" + errorDetail;
             }
         }
-        return errorLog;
+        return errorMessage;
     }
 }

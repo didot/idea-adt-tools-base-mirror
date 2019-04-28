@@ -19,6 +19,7 @@ package com.android.build.gradle.internal.res
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.dsl.convert
+import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_RESOURCE_PKG
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH
@@ -27,12 +28,15 @@ import com.android.build.gradle.internal.scope.ApkData
 import com.android.build.gradle.internal.scope.ExistingBuildElements
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.TaskInputHelper
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata
 import com.android.build.gradle.options.StringOption
+import com.android.build.gradle.internal.utils.toImmutableList
+import com.android.build.gradle.options.BooleanOption
+
 import com.android.build.gradle.options.SyncOptions
 import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
@@ -41,6 +45,7 @@ import com.android.sdklib.AndroidVersion
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableSet
+import org.gradle.api.artifacts.ArtifactCollection
 import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
@@ -53,7 +58,6 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.io.IOException
@@ -65,7 +69,7 @@ import javax.inject.Inject
  */
 @CacheableTask
 open class LinkAndroidResForBundleTask
-@Inject constructor(workerExecutor: WorkerExecutor) : AndroidVariantTask() {
+@Inject constructor(workerExecutor: WorkerExecutor) : NonIncrementalTask() {
 
     private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
@@ -123,8 +127,9 @@ open class LinkAndroidResForBundleTask
     lateinit var aapt2FromMaven: FileCollection
         private set
 
-    @TaskAction
-    fun taskAction() {
+    private var compiledRemoteResources: ArtifactCollection? = null
+
+    override fun doTaskAction() {
 
         val manifestFile = ExistingBuildElements.from(InternalArtifactType.BUNDLE_MANIFEST, manifestFiles)
                 .element(mainSplit)
@@ -144,6 +149,13 @@ open class LinkAndroidResForBundleTask
             featurePackagesBuilder.add(buildElements.iterator().next().outputFile)
         }
 
+        val compiledRemoteResourcesDirs =
+            if (getCompiledRemoteResources() == null) emptyList<File>()
+            else {
+                // the order of the artifact is descending order, so we need to reverse it.
+                getCompiledRemoteResources()!!.reversed().toImmutableList()
+            }
+
         val config = AaptPackageConfig(
             androidJarPath = androidJar.get().absolutePath,
             generateProtos = true,
@@ -155,7 +167,9 @@ open class LinkAndroidResForBundleTask
             packageId = resOffset,
             allowReservedPackageId = minSdkVersion < AndroidVersion.VersionCodes.O,
             dependentFeatures = featurePackagesBuilder.build(),
-            resourceDirs = ImmutableList.of(checkNotNull(getInputResourcesDir()).single()),
+            resourceDirs = ImmutableList.Builder<File>().addAll(compiledRemoteResourcesDirs).add(
+                checkNotNull(getInputResourcesDir()).single()
+            ).build(),
             resourceConfigs = ImmutableSet.copyOf(resConfig)
         )
         if (logger.isInfoEnabled) {
@@ -199,6 +213,17 @@ open class LinkAndroidResForBundleTask
     @Nested
     fun getAaptOptionsInput(): LinkingTaskInputAaptOptions {
         return LinkingTaskInputAaptOptions(aaptOptions)
+    }
+
+    /**
+     * Returns a file collection of the directories containing the compiled remote libraries
+     * resource files.
+     */
+    @Optional
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    fun getCompiledRemoteResources(): FileCollection? {
+        return compiledRemoteResources?.artifactFiles
     }
 
     @get:Input
@@ -279,6 +304,16 @@ open class LinkAndroidResForBundleTask
             task.errorFormatMode = SyncOptions.getErrorFormatMode(
                 variantScope.globalScope.projectOptions
             )
+
+            if (variantScope.globalScope.projectOptions.
+                    get(BooleanOption.PRECOMPILE_REMOTE_RESOURCES)) {
+                task.compiledRemoteResources =
+                    variantScope.getArtifactCollection(
+                        AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
+                        AndroidArtifacts.ArtifactScope.ALL,
+                        AndroidArtifacts.ArtifactType.COMPILED_REMOTE_RESOURCES
+                    )
+            }
         }
     }
 }

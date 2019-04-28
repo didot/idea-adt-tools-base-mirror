@@ -26,16 +26,11 @@ namespace deploy {
 
 class ExecutorImpl : public Executor {
  public:
-  ExecutorImpl(const std::string& run_as_exec) : run_as_exec_(run_as_exec) {}
+  ExecutorImpl() {}
 
   bool Run(const std::string& executable_path,
            const std::vector<std::string>& args, std::string* output,
            std::string* error) const;
-
-  bool RunAs(const std::string& executable_path,
-             const std::string& package_name,
-             const std::vector<std::string>& args, std::string* output,
-             std::string* error) const;
 
   bool RunWithInput(const std::string& executable_path,
                     const std::vector<std::string>& args, std::string* output,
@@ -46,15 +41,7 @@ class ExecutorImpl : public Executor {
                    int* child_stdin_fd, int* child_stdout_fd,
                    int* child_stderr_fd, int* fork_pid) const;
 
-  bool ForkAndExecAs(const std::string& executable_path,
-                     const std::string& package_name,
-                     const std::vector<std::string>& parameters,
-                     int* child_stdin_fd, int* child_stdout_fd,
-                     int* child_stderr_fd, int* fork_pid) const;
-
  private:
-  std::string run_as_exec_;
-
   void Pump(int stdin_source, int child_stdin, int child_stdout,
             std::string* output, int child_stderr, std::string* error) const;
 

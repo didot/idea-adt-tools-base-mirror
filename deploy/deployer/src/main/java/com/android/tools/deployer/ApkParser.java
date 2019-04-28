@@ -25,7 +25,6 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.*;
 import java.util.zip.ZipEntry;
@@ -33,32 +32,30 @@ import java.util.zip.ZipFile;
 
 public class ApkParser {
     private static final int EOCD_SIGNATURE = 0x06054b50;
-    private static final int CD_SIGNATURE = 0x02014b50;
     private static final byte[] SIGNATURE_BLOCK_MAGIC = "APK Sig Block 42".getBytes();
+    private static final long USHRT_MAX = 65535;
+    private static final int EOCD_SIZE = 22;
 
-    private static class ApkArchiveMap {
+    public static class ApkArchiveMap {
         public static final long UNINITIALIZED = -1;
         long cdOffset = UNINITIALIZED;
         long cdSize = UNINITIALIZED;
 
         long signatureBlockOffset = UNINITIALIZED;
         long signatureBlockSize = UNINITIALIZED;
-
-        long eocdOffset = UNINITIALIZED;
-        long eocdSize = UNINITIALIZED;
     }
 
-    private static class ApkDetails {
-        private final String fileName;
-        private final String packageName;
-        private final List<String> targetPackages;
+    public static class ApkDetails {
+        public final int versionCode;
+        public final String fileName;
+        public final String packageName;
+        public final List<String> targetPackages;
 
         private ApkDetails(
-                String fileName,
-                String packageName,
-                List<String> targetPackages) {
+                String fileName, String packageName, int versionCode, List<String> targetPackages) {
             this.fileName = fileName;
             this.packageName = packageName;
+            this.versionCode = versionCode;
             this.targetPackages = targetPackages;
         }
     }
@@ -78,25 +75,30 @@ public class ApkParser {
         }
     }
 
-    private List<ApkEntry> parse(String apkPath) throws IOException {
+    public ApkDetails getApkDetails(String path) throws IOException {
+        ApkDetails apkDetails;
+        try (ZipFile zipFile = new ZipFile(path)) {
+            ZipEntry manifestEntry = zipFile.getEntry("AndroidManifest.xml");
+            InputStream stream = zipFile.getInputStream(manifestEntry);
+            apkDetails = parseManifest(stream);
+        }
+        return apkDetails;
+    }
+
+    private List<ApkEntry> parse(String apkPath) throws IOException, DeployerException {
         File file = new File(apkPath);
-        MappedByteBuffer mmap;
         String absolutePath = file.getAbsolutePath();
         String digest;
         HashMap<String, ZipUtils.ZipEntry> zipEntries;
         try (RandomAccessFile raf = new RandomAccessFile(absolutePath, "r");
                 FileChannel fileChannel = raf.getChannel()) {
-            mmap = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size());
-            ApkArchiveMap map = parse(mmap);
+            ApkArchiveMap map = new ApkArchiveMap();
+            findCDLocation(fileChannel, map);
+            findSignatureLocation(fileChannel, map);
             digest = generateDigest(raf, map);
             zipEntries = readZipEntries(raf, map);
         }
-        ApkDetails apkDetails;
-        try (ZipFile zipFile = new ZipFile(absolutePath)) {
-            ZipEntry manifestEntry = zipFile.getEntry("AndroidManifest.xml");
-            InputStream stream = zipFile.getInputStream(manifestEntry);
-            apkDetails = parseManifest(stream);
-        }
+        ApkDetails apkDetails = getApkDetails(absolutePath);
 
         List<ApkEntry> files = new ArrayList<>();
         Apk apk =
@@ -115,72 +117,82 @@ public class ApkParser {
         return files;
     }
 
-    // Parse the APK archive. The ByteBuffer is expected to contain the entire APK archive.
-    private ApkArchiveMap parse(ByteBuffer bytes) {
-        bytes.order(ByteOrder.LITTLE_ENDIAN);
-        ApkArchiveMap map = readCentralDirectoryRecord(bytes);
+    public static void findSignatureLocation(FileChannel channel, ApkArchiveMap map) {
+        try {
+            // Search the Signature Block magic number
+            ByteBuffer signatureBlockMagicNumber =
+                    ByteBuffer.allocate(SIGNATURE_BLOCK_MAGIC.length);
+            channel.read(signatureBlockMagicNumber, map.cdOffset - SIGNATURE_BLOCK_MAGIC.length);
+            signatureBlockMagicNumber.rewind();
+            if (!signatureBlockMagicNumber.equals(ByteBuffer.wrap(SIGNATURE_BLOCK_MAGIC))) {
+                // This is not a signature block magic number.
+                return;
+            }
 
-        // Make sure the magic number in the Central Directory is what is expected.
-        bytes.position((int) map.cdOffset);
-        if (bytes.getInt() != CD_SIGNATURE) {
-            throw new IllegalArgumentException("Central Directory signature invalid.");
+            // The magic number is not enough, we need to make sure the upper and lower size are the same.
+            ByteBuffer sizeBuffer = ByteBuffer.allocate(Long.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+            channel.read(sizeBuffer, map.cdOffset - SIGNATURE_BLOCK_MAGIC.length - Long.BYTES);
+            sizeBuffer.rewind();
+            long lowerSignatureBlockSize = sizeBuffer.getLong();
+
+            sizeBuffer.rewind();
+            channel.read(sizeBuffer, map.cdOffset - Long.BYTES - lowerSignatureBlockSize);
+            sizeBuffer.rewind();
+            long upperSignatureBlocSize = sizeBuffer.getLong();
+
+            if (lowerSignatureBlockSize != upperSignatureBlocSize) {
+                return;
+            }
+
+            // Everything matches (signature and upper/lower size, this is a confirmed signature block;
+            map.signatureBlockOffset = map.cdOffset - Long.BYTES - lowerSignatureBlockSize;
+            map.signatureBlockSize = lowerSignatureBlockSize;
+        } catch (IOException e) {
+            // It is not an error if there is not V2 signature.
         }
-
-        readSignatureBlock(bytes, map);
-        return map;
     }
 
-    private void readSignatureBlock(ByteBuffer buffer, ApkArchiveMap map) {
-        // Search the Signature Block magic number
-        buffer.position((int) map.cdOffset - SIGNATURE_BLOCK_MAGIC.length);
-        byte[] signatureBlockMagicNumber = new byte[SIGNATURE_BLOCK_MAGIC.length];
-        buffer.get(signatureBlockMagicNumber);
-        //String signatureProspect = new String(signatureBlockMagicNumber);
-        if (!Arrays.equals(signatureBlockMagicNumber, SIGNATURE_BLOCK_MAGIC)) {
-            // This is not a signature block magic number.
-            return;
+    public static void findCDLocation(FileChannel channel, ApkArchiveMap map)
+            throws IOException, DeployerException {
+        long fileSize = channel.size();
+        if (fileSize < EOCD_SIZE) {
+            throw DeployerException.parseFailed("File is too small to be a valid zip file");
         }
-
-        // The magic number is not enough, we nee to make sure the upper and lower size are the same.
-        buffer.position(buffer.position() - SIGNATURE_BLOCK_MAGIC.length - Long.BYTES);
-        long lowerSignatureBlockSize = buffer.getLong();
-        buffer.position((int) (buffer.position() + Long.BYTES - lowerSignatureBlockSize));
-        long upperSignatureBlocSize = buffer.getLong();
-
-        if (lowerSignatureBlockSize != upperSignatureBlocSize) {
-            return;
-        }
-
-        // Everything matches (signature and upper/lower size, this is a confirmed signature block;
-        map.signatureBlockOffset = buffer.position() - Long.BYTES;
-        map.signatureBlockSize = lowerSignatureBlockSize;
-    }
-
-    private ApkArchiveMap readCentralDirectoryRecord(ByteBuffer buffer) {
-        ApkArchiveMap map = new ApkArchiveMap();
         // Search the End of Central Directory Record
         // The End of Central Directory record size is 22 bytes if the comment section size is zero.
         // The comment section can be of any size, up to 65535 since it is stored on two bytes.
         // We start at the likely position of the beginning of the EoCD position and backtrack toward the
         // beginning of the buffer.
-        buffer.position(buffer.capacity() - 22);
-        while (buffer.getInt() != EOCD_SIGNATURE) {
-            int position = buffer.position() - Integer.BYTES - 1;
-            buffer.position(position);
-        }
-        map.eocdOffset = buffer.position() - Integer.BYTES;
-        map.eocdSize = buffer.capacity() - map.eocdOffset;
 
-        // Read the End of Central Directory Record and record its position in the map. For now skip fields we don't use.
-        buffer.position(buffer.position() + Short.BYTES * 4);
-        //short numDisks = bytes.getShort();
-        //short cdStartDisk = bytes.getShort();
-        //short numCDRonDisk = bytes.getShort();
-        //short numCDRecords = buffer.getShort();
-        map.cdSize = buffer.getInt();
-        map.cdOffset = buffer.getInt();
-        //short sizeComment = bytes.getShort();
-        return map;
+        // Fast path where no comment where used in the eocd.
+        ByteBuffer eocdBuffer = ByteBuffer.allocate(EOCD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
+        channel.read(eocdBuffer, fileSize - EOCD_SIZE);
+        eocdBuffer.rewind();
+        if (eocdBuffer.getInt() == EOCD_SIGNATURE) {
+            eocdBuffer.position(eocdBuffer.position() + Short.BYTES * 4);
+            map.cdSize = eocdBuffer.getInt();
+            map.cdOffset = eocdBuffer.getInt();
+            return;
+        }
+
+        // Slow path where 65KiB of data needs to be retrieved from the zip file.
+        ByteBuffer endofFileBuffer =
+                ByteBuffer.allocate((int) Math.min(fileSize, USHRT_MAX + EOCD_SIZE))
+                        .order(ByteOrder.LITTLE_ENDIAN);
+        channel.read(endofFileBuffer, fileSize - endofFileBuffer.capacity());
+        endofFileBuffer.position(endofFileBuffer.capacity() - EOCD_SIZE);
+        while (true) {
+            if (endofFileBuffer.getInt() == EOCD_SIGNATURE) {
+                eocdBuffer.position(eocdBuffer.position() + Short.BYTES * 4);
+                map.cdSize = eocdBuffer.getInt();
+                map.cdOffset = eocdBuffer.getInt();
+                return;
+            }
+            if (endofFileBuffer.position() - 5 < 0) {
+                throw DeployerException.parseFailed("Unable to find apk's ECOD signature");
+            }
+            endofFileBuffer.position(endofFileBuffer.position() - 5);
+        }
     }
 
     private HashMap<String, ZipUtils.ZipEntry> readZipEntries(
@@ -222,6 +234,7 @@ public class ApkParser {
 
         String packageName = null;
         String splitName = null;
+        int versionCode = 0;
         List<String> targetPackages = new ArrayList<>();
 
         XmlChunk xmlChunk = (XmlChunk) chunks.get(0);
@@ -240,6 +253,13 @@ public class ApkParser {
                     if (attribute.name().equals("package")) {
                         packageName = attribute.rawValue();
                     }
+
+                    if (attribute.name().equals("versionCode")) {
+                        BinaryResourceValue value = attribute.typedValue();
+                        if (value != null) {
+                            versionCode = value.data();
+                        }
+                    }
                 }
             }
 
@@ -257,6 +277,6 @@ public class ApkParser {
         }
 
         String apkFileName = splitName == null ? "base.apk" : "split_" + splitName + ".apk";
-        return new ApkDetails(apkFileName, packageName, targetPackages);
+        return new ApkDetails(apkFileName, packageName, versionCode, targetPackages);
     }
 }

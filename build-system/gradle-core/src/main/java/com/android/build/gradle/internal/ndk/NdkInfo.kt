@@ -32,13 +32,6 @@ interface NdkInfo {
     val supported32BitsAbis: Collection<Abi>
 
     val supportedAbis: Collection<Abi>
-    /**
-     * Retrieve the newest supported version if the specified version is not supported.
-     *
-     * An older NDK may not support the specified compiledSdkVersion.  In that case, determine what
-     * is the newest supported version return it.
-     */
-    fun findLatestPlatformVersion(targetPlatformString: String): String?
 
     fun findSuitablePlatformVersion(
         abi: String,
@@ -47,4 +40,12 @@ interface NdkInfo {
 
     /** Return the executable for removing debug symbols from a shared object.  */
     fun getStripExecutable(abi: Abi): File
+
+    /**
+     * Validates that the described NDK is valid.
+     *
+     * Performs a sanity check that the pointed-to NDK contains all the expected pieces. If any
+     * issues are found, an error message is returned. If no issues are found, null is returned.
+     */
+    fun validate(): String?
 }

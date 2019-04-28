@@ -23,6 +23,7 @@ import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl
 import com.android.build.gradle.internal.api.artifact.toArtifactType
 import com.android.build.gradle.internal.api.dsl.DslScope
 import com.android.utils.FileUtils
+import com.android.utils.appendCapitalized
 import com.google.common.base.Joiner
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
@@ -335,7 +336,7 @@ abstract class BuildArtifactsHolder(
         // note that this configuration block may be called immediately in case the task has
         // already been initialized.
         taskProvider.configure {
-
+            
             product.get().set(settableFileLocation)
 
             // add a new configuration action to make sure the producers are configured even
@@ -403,6 +404,31 @@ abstract class BuildArtifactsHolder(
     }
 
     /**
+     * Sets a [Property] value to the final producer for the given artifact type.
+     *
+     * If there are more than one producer appending artifacts for the passed type, calling this
+     * method will generate an error and [getFinalProducts] should be used instead.
+     *
+     * The simplest way to use the mechanism is as follow :
+     * <pre>
+     *     abstract class MyTask: Task() {
+     *          val inputFile: RegularFileProperty
+     *     }
+     *
+     *     val myTaskProvider = taskFactory.register("myTask", MyTask::class.java) {
+     *          scope.artifacts.setTaskInputToFinalProduct(InternalArtifactTYpe.SOME_ID, it.inputFile)
+     *     }
+     * </pre>
+     *
+     * @param artifactType requested artifact type
+     * @param taskInputProperty the [Property] to set the final producer on.
+     */
+    fun <T: FileSystemLocation> setTaskInputToFinalProduct(artifactType: ArtifactType, taskInputProperty: Property<T>) {
+        val finalProduct = getFinalProduct<T>(artifactType)
+        taskInputProperty.set(finalProduct)
+    }
+
+    /**
      * See [getFinalProducts] API.
      *
      * On top of returning the [Provider] of [Directory] or [RegularFile], also returns a
@@ -433,7 +459,7 @@ abstract class BuildArtifactsHolder(
      * Returns an appropriate task name for the variant with the given prefix.
      */
     fun getTaskName(prefix : String) : String {
-        return prefix + getIdentifier().capitalize()
+        return prefix.appendCapitalized(getIdentifier())
     }
 
     /**
@@ -660,7 +686,7 @@ abstract class BuildArtifactsHolder(
             File(
                 FileUtils.join(
                     artifactType.getOutputPath(),
-                    artifactType.name().toLowerCase(),
+                    artifactType.name().toLowerCase(Locale.US),
                     getIdentifier(),
                     fileName
                 )
@@ -712,7 +738,7 @@ abstract class BuildArtifactsHolder(
             taskName,
             File(FileUtils.join(
                 artifactType.getOutputPath(),
-                artifactType.name().toLowerCase(),
+                artifactType.name().toLowerCase(Locale.US),
                 getIdentifier(),
                 fileName)))
     /**
@@ -730,7 +756,7 @@ abstract class BuildArtifactsHolder(
 
         createDirectory(artifactType, operationType, taskName, File(FileUtils.join(
             artifactType.getOutputPath(),
-            artifactType.name().toLowerCase(),
+            artifactType.name().toLowerCase(Locale.US),
             getIdentifier(),
             fileName)))
 
@@ -778,7 +804,7 @@ abstract class BuildArtifactsHolder(
             } else {
                 FileUtils.join(
                     intermediatesOutput,
-                    artifactType.name().toLowerCase(),
+                    artifactType.name().toLowerCase(Locale.US),
                     getIdentifier(),
                     taskName,
                     requestedFileLocation.name)
@@ -814,7 +840,7 @@ abstract class BuildArtifactsHolder(
         if (lastProducer != null) {
             val lastProducerNewLocation = FileUtils.join(
                 intermediatesOutput,
-                artifactType.name().toLowerCase(),
+                artifactType.name().toLowerCase(Locale.US),
                 getIdentifier(),
                 lastProducer.name,
                 lastProducer.fileName

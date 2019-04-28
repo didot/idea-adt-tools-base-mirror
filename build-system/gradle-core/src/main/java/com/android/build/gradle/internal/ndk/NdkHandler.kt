@@ -109,10 +109,12 @@ class NdkHandler(
     }
 
     private fun getNdkInfo(ndkDirectory: File, revision: Revision): NdkInfo {
-        return if (revision.major < 14) {
-            DefaultNdkInfo(ndkDirectory)
-        } else {
+        return if (revision.major >= 19) {
+            NdkR19Info(ndkDirectory)
+        } else if (revision.major >= 14) {
             NdkR14Info(ndkDirectory)
+        } else {
+            DefaultNdkInfo(ndkDirectory)
         }
     }
 
@@ -131,6 +133,12 @@ class NdkHandler(
         }
 
         val ndkInfo = getNdkInfo(ndkDirectory, revision)
+
+        val error = ndkInfo.validate()
+        if (error != null) {
+            return NdkInstallStatus.Invalid(error)
+        }
+
         return NdkInstallStatus.Valid(
             NdkPlatform(ndkDirectory, ndkInfo, revision, compileSdkVersion)
         )
@@ -245,36 +253,7 @@ class NdkHandler(
                 properties = readProperties(localProperties)
             }
 
-            val ndkDir = findNdkDirectory(properties, projectDir) ?: return null
-            return if (checkNdkDir(ndkDir)) ndkDir else null
-        }
-
-        /**
-         * Perform basic verification on the NDK directory.
-         */
-        private fun checkNdkDir(ndkDir: File): Boolean {
-            if (!File(ndkDir, "platforms").isDirectory) {
-                invalidNdkWarning("NDK is missing a \"platforms\" directory.", ndkDir)
-                return false
-            }
-            if (!File(ndkDir, "toolchains").isDirectory) {
-                invalidNdkWarning("NDK is missing a \"toolchains\" directory.", ndkDir)
-                return false
-            }
-            return true
-        }
-
-        private fun invalidNdkWarning(message: String, ndkDir: File) {
-            Logging.getLogger(NdkHandler::class.java)
-                .warn(
-                    "{}\n"
-                            + "If you are using NDK, verify the ndk.dir is set to a valid NDK "
-                            + "directory.  It is currently set to {}.\n"
-                            + "If you are not using NDK, unset the NDK variable from ANDROID_NDK_HOME "
-                            + "or local.properties to remove this warning.\n",
-                    message,
-                    ndkDir.absolutePath
-                )
+            return findNdkDirectory(properties, projectDir)
         }
 
         /**

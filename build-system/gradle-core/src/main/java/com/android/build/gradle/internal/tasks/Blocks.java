@@ -60,10 +60,11 @@ public class Blocks {
         if (profileMBean != null) {
             profileMBean.registerSpan(
                     taskPath,
-                    type,
-                    Thread.currentThread().getId(),
-                    before,
-                    Duration.between(before, after));
+                    GradleBuildProfileSpan.newBuilder()
+                        .setType(type)
+                        .setThreadId(Thread.currentThread().getId())
+                        .setStartTimeInMs(before.toEpochMilli())
+                        .setDurationInMs(Duration.between(before, after).toMillis()));
         }
     }
 
@@ -92,10 +93,11 @@ public class Blocks {
         if (profileMBean != null) {
             profileMBean.registerSpan(
                     taskPath,
-                    type,
-                    Thread.currentThread().getId(),
-                    before,
-                    Duration.between(before, after));
+                    GradleBuildProfileSpan.newBuilder()
+                            .setType(type)
+                            .setThreadId(Thread.currentThread().getId())
+                            .setStartTimeInMs(before.toEpochMilli())
+                            .setDurationInMs(Duration.between(before, after).toMillis()));
         }
         return t;
     }

@@ -21,10 +21,10 @@ import com.android.testutils.TestUtils;
 import com.android.tools.deploy.proto.Deploy;
 import com.android.tools.deploy.protobuf.ByteString;
 import com.android.tools.deploy.protobuf.CodedOutputStream;
-import com.android.tools.deployer.devices.FakeDevice;
 import com.android.tools.deployer.devices.FakeDeviceLibrary;
 import com.android.tools.deployer.devices.shell.Arguments;
 import com.android.tools.deployer.devices.shell.ShellCommand;
+import com.android.tools.deployer.devices.shell.interpreter.ShellContext;
 import com.android.utils.FileUtils;
 import com.google.common.collect.Lists;
 import java.io.File;
@@ -80,10 +80,10 @@ public class ApkInstallerTest extends FakeAdbTestBase {
 
         List<String> history = device.getShell().getHistory();
         String lastCmd = history.get(history.size() - 1);
-        if (device.apiLevelAtLeast(24)) {
+        if (device.getApi() >= 24) {
             Assert.assertFalse(installed);
             Assert.assertEquals("am force-stop com.android.test.uibench", lastCmd);
-        } else if (device.apiLevelAtLeast(20)) {
+        } else if (device.getApi() >= 20) {
             Assert.assertTrue(lastCmd.startsWith("pm install-commit"));
         } else {
             Assert.assertTrue(history.stream().anyMatch(command -> command.contains("pm install")));
@@ -92,8 +92,8 @@ public class ApkInstallerTest extends FakeAdbTestBase {
 
     private class SkipInstallCommand extends ShellCommand {
         @Override
-        public boolean execute(
-                FakeDevice device, String[] args, InputStream stdin, PrintStream stdout)
+        public int execute(
+                ShellContext context, String[] args, InputStream stdin, PrintStream stdout)
                 throws IOException {
             Arguments arguments = new Arguments(args);
             String version = arguments.nextOption();
@@ -135,7 +135,7 @@ public class ApkInstallerTest extends FakeAdbTestBase {
             CodedOutputStream cos = CodedOutputStream.newInstance(bytes, Integer.BYTES, size);
             response.writeTo(cos);
             stdout.write(bytes);
-            return true;
+            return 0;
         }
 
         @Override

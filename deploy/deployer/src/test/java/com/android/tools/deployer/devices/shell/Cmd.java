@@ -16,40 +16,32 @@
 package com.android.tools.deployer.devices.shell;
 
 import com.android.tools.deployer.devices.FakeDevice;
+import com.android.tools.deployer.devices.shell.interpreter.ShellContext;
 import com.google.common.io.ByteStreams;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
+import java.util.List;
 
 public class Cmd extends ShellCommand {
 
-    private final boolean reportCommitSuccess;
-
-    public Cmd(boolean reportSuccessOnCommit) {
-        reportCommitSuccess = reportSuccessOnCommit;
-    }
-
-    public Cmd() {
-        this(true);
-    }
-
     @Override
-    public boolean execute(FakeDevice device, String[] args, InputStream stdin, PrintStream stdout)
+    public int execute(ShellContext context, String[] args, InputStream stdin, PrintStream stdout)
             throws IOException {
         try {
-            return run(device, new Arguments(args), stdin, stdout);
+            return run(context.getDevice(), new Arguments(args), stdin, stdout);
         } catch (IllegalArgumentException e) {
             stdout.println(e.getMessage());
-            return false;
+            return 255;
         }
     }
 
-    public boolean run(FakeDevice device, Arguments args, InputStream stdin, PrintStream stdout)
+    public int run(FakeDevice device, Arguments args, InputStream stdin, PrintStream stdout)
             throws IOException {
         String service = args.nextArgument();
         if (service == null) {
             stdout.println("cmd: no service specified; use -l to list all services");
-            return false;
+            return 20;
         }
 
         switch (service) {
@@ -57,27 +49,37 @@ public class Cmd extends ShellCommand {
                 String action = args.nextArgument();
                 if (action == null) {
                     stdout.println("Usage\n...message...");
-                    return false;
+                    return 255;
                 }
                 switch (action) {
                         // eg: pm install-create -r -t -S 5047
                     case "install-create":
-                        stdout.format(
-                                "Success: created install session [%d]\n", device.createSession());
-                        return true;
-                        // eg: install-write -S 5047 100000000 0_sample -
+                        {
+                            String opt;
+                            String inherit = null;
+                            while ((opt = args.nextOption()) != null) {
+                                if (opt.equals("-p")) {
+                                    inherit = args.nextArgument();
+                                }
+                            }
+                            stdout.format(
+                                    "Success: created install session [%d]\n",
+                                    device.createSession(inherit));
+                            return 0;
+                            // eg: install-write -S 5047 100000000 0_sample -
+                        }
                     case "install-write":
                         {
                             String opt = args.nextOption();
                             if (opt == null) {
                                 stdout.println("Error: must specify a APK size");
-                                return false;
+                                return 1;
                             } else if (!opt.equals("-S")) {
                                 stdout.format(
-                                        "\nException occurred while dumping:\n"
+                                        "\nException occurred while executing:\n"
                                                 + "java.lang.IllegalArgumentException: Unknown option %s\n\tat com...\n",
                                         opt);
-                                return false;
+                                return 255;
                             }
                             // This should be a long, but we keep all the files in memory. Int is enough for tests.
                             int size = parseInt(args.nextArgument());
@@ -85,9 +87,9 @@ public class Cmd extends ShellCommand {
                             String name = args.nextArgument();
                             if (name == null) {
                                 stdout.println(
-                                        "\nException occurred while dumping:\n"
+                                        "\nException occurred while executing:\n"
                                                 + "java.lang.IllegalArgumentException: Invalid name: null\n\tat com...");
-                                return false;
+                                return 255;
                             }
                             String path = args.nextArgument();
                             byte[] apk;
@@ -96,29 +98,73 @@ public class Cmd extends ShellCommand {
                                 ByteStreams.readFully(stdin, apk);
                             } else {
                                 stdout.println("Error: APK content must be streamed");
-                                return false;
+                                return 1;
                             }
                             device.writeToSession(session, apk);
                             stdout.format("Success: streamed %d bytes\n", size);
-                            return true;
+                            return 0;
                         }
                     case "install-commit":
                         {
-                            device.commitSession(parseSession(device, args));
-                            // On some APIs the "Success" part of install-commit is not printed. We allow this
-                            // to be configured so we can reproduce that odd behaviour.
-                            stdout.println(reportCommitSuccess ? "Success" : "");
-                            return true;
+                            FakeDevice.InstallResult result =
+                                    device.commitSession(parseSession(device, args));
+                            switch (result.error) {
+                                case SUCCESS:
+                                    if (device.getApi() <= 24) {
+                                        stdout
+                                                .println(); // On API 24, a successful installation does not print anything;
+                                    } else {
+                                        stdout.println("Success");
+                                    }
+                                    return 0;
+                                case INSTALL_FAILED_INVALID_APK:
+                                    stdout.printf(
+                                            "Failure [INSTALL_FAILED_INVALID_APK: <filename> version code %d inconsistent with %d]\n",
+                                            result.previous, result.value);
+                                    if (device.getApi() <= 25) {
+                                        return 0;
+                                    } else {
+                                        return 4;
+                                    }
+                                case INSTALL_FAILED_VERSION_DOWNGRADE:
+                                    stdout.println("Failure [INSTALL_FAILED_VERSION_DOWNGRADE]");
+                                    if (device.getApi() <= 25) {
+                                        return 0;
+                                    } else {
+                                        return 4;
+                                    }
+                            }
                         }
                     case "install-abandon":
-                        device.abandonSession(parseSession(device, args));
-                        stdout.println("Success");
-                        return true;
+                        {
+                            device.abandonSession(parseSession(device, args));
+                            stdout.println("Success");
+                            return 0;
+                        }
+                    case "path":
+                        {
+                            String pkg = args.nextArgument();
+                            if (pkg == null) {
+                                stdout.println(
+                                        "\nException occurred while executing:\n"
+                                                + "java.lang.IllegalArgumentException: Argument expected after \"path\"\n\tat com...");
+                                return 255;
+                            }
+                            List<String> paths = device.getAppPaths(pkg);
+                            if (paths != null) {
+                                for (String path : paths) {
+                                    stdout.println("package:" + path);
+                                }
+                                return 0;
+                            } else {
+                                return 1;
+                            }
+                        }
                 }
                 break;
         }
         stdout.println("Can't find service: " + service);
-        return false;
+        return 20;
     }
 
     public int parseSession(FakeDevice device, Arguments args) {
@@ -154,5 +200,10 @@ public class Cmd extends ShellCommand {
     @Override
     public String getExecutable() {
         return "cmd";
+    }
+
+    @Override
+    public String getLocation() {
+        return "/system/bin";
     }
 }

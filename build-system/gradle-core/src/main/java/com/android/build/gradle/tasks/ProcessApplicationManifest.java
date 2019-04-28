@@ -131,7 +131,7 @@ public class ProcessApplicationManifest extends ManifestProcessorTask {
 
     @Override
     @Internal
-    protected boolean isIncremental() {
+    protected boolean getIncremental() {
         // This task is not actually incremental, the incrementality is used to skip executions
         // triggered by the changes in files not used in this task. Namely, we only use manifests
         // and navigation xml resource files
@@ -315,7 +315,8 @@ public class ProcessApplicationManifest extends ManifestProcessorTask {
     }
 
     @Override
-    protected void doIncrementalTaskAction(Map<File, FileStatus> changedInputs) throws IOException {
+    protected void doIncrementalTaskAction(Map<File, ? extends FileStatus> changedInputs)
+            throws IOException {
         Set<File> files = changedInputs.keySet();
         if (hasManifestsOrApkLists(files) || hasNavigationXmls(files)) {
             doFullTaskAction();
@@ -370,9 +371,19 @@ public class ProcessApplicationManifest extends ManifestProcessorTask {
     @Optional
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
-    public FileCollection getLibraries() {
-        if (resourcesComputer.getLibraries() != null) {
-            return resourcesComputer.getLibraries().getArtifactFiles();
+    public FileCollection getLocalLibraries() {
+        if (resourcesComputer.getLocalLibraries() != null) {
+            return resourcesComputer.getLocalLibraries().getArtifactFiles();
+        }
+        return null;
+    }
+
+    @Optional
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public FileCollection getRemoteLibraries() {
+        if (resourcesComputer.getRemoteLibraries() != null) {
+            return resourcesComputer.getRemoteLibraries().getArtifactFiles();
         }
         return null;
     }
