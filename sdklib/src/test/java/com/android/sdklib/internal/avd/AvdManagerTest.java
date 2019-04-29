@@ -16,6 +16,8 @@
 
 package com.android.sdklib.internal.avd;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.android.prefs.AndroidLocation;
 import com.android.repository.testframework.FakeProgressIndicator;
 import com.android.repository.testframework.MockFileOp;
@@ -27,18 +29,10 @@ import com.android.sdklib.repository.targets.SystemImage;
 import com.android.testutils.MockLog;
 import com.android.utils.NullLogger;
 import com.google.common.collect.Maps;
+
+import java.io.*;
+import java.util.*;
 import junit.framework.TestCase;
-
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TreeMap;
-
-import static com.google.common.truth.Truth.assertThat;
 
 public class AvdManagerTest extends TestCase {
 
@@ -661,7 +655,7 @@ public class AvdManagerTest extends TestCase {
         // Check a bad AVD .ini file.
         // Append garbage to make the file invalid.
         try (OutputStream corruptedStream = mFileOp.newFileOutputStream(avdIniFile, true);
-             BufferedWriter corruptedWriter = new BufferedWriter(new OutputStreamWriter(corruptedStream, StandardCharsets.UTF_8))) {
+             BufferedWriter corruptedWriter = new BufferedWriter(new OutputStreamWriter(corruptedStream))) {
             corruptedWriter.write("[invalid syntax]\n");
         }
         AvdInfo corruptedInfo = mAvdManager.parseAvdInfo(avdIniFile, log);

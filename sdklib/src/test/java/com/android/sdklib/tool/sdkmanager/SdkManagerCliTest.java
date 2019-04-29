@@ -16,6 +16,15 @@
 
 package com.android.sdklib.tool.sdkmanager;
 
+import static com.android.repository.testframework.FakePackage.FakeRemotePackage;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 import com.android.annotations.NonNull;
 import com.android.repository.Revision;
 import com.android.repository.api.License;
@@ -26,20 +35,28 @@ import com.android.repository.impl.manager.RemoteRepoLoader;
 import com.android.repository.impl.manager.RepoManagerImpl;
 import com.android.repository.impl.meta.CommonFactory;
 import com.android.repository.impl.meta.RepositoryPackages;
-import com.android.repository.testframework.*;
+import com.android.repository.testframework.FakeDependency;
+import com.android.repository.testframework.FakeDownloader;
+import com.android.repository.testframework.FakeLoader;
+import com.android.repository.testframework.FakePackage;
+import com.android.repository.testframework.FakeProgressIndicator;
+import com.android.repository.testframework.FakeRepoManager;
+import com.android.repository.testframework.FakeRepositorySourceProvider;
+import com.android.repository.testframework.FakeSettingsController;
+import com.android.repository.testframework.MockFileOp;
 import com.android.repository.util.InstallerUtil;
 import com.android.sdklib.repository.AndroidSdkHandler;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import org.junit.Before;
-import org.junit.Test;
-
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintStream;
 import java.net.MalformedURLException;
 import java.net.Proxy;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,9 +66,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-
-import static com.android.repository.testframework.FakePackage.FakeRemotePackage;
-import static org.junit.Assert.*;
+import org.junit.Before;
+import org.junit.Test;
 
 /** Tests for {@link SdkManagerCli} */
 @SuppressWarnings("resource")
@@ -402,7 +418,7 @@ public class SdkManagerCliTest {
         assertNotNull("Arguments should be valid", settings);
         SdkManagerCli downloader = new SdkManagerCli(settings,
                 new PrintStream(out),
-                new ByteArrayInputStream("y\n".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream("y\n".getBytes()),
                 mDownloader,
                 mSdkHandler);
         downloader.run(new FakeProgressIndicator());
@@ -426,7 +442,7 @@ public class SdkManagerCliTest {
         assertNotNull("Arguments should be valid", settings);
         SdkManagerCli downloader = new SdkManagerCli(settings,
                 new PrintStream(out),
-                new ByteArrayInputStream("y\ny\n".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream("y\ny\n".getBytes()),
                 mDownloader,
                 mSdkHandler);
         downloader.run(new FakeProgressIndicator(true));
@@ -486,7 +502,7 @@ public class SdkManagerCliTest {
         assertNotNull("Arguments should be valid", settings);
         SdkManagerCli downloader = new SdkManagerCli(settings,
                 new PrintStream(out),
-                new ByteArrayInputStream("y\n".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream("y\n".getBytes()),
                 mDownloader,
                 mSdkHandler);
         try {
@@ -516,7 +532,7 @@ public class SdkManagerCliTest {
         assertNotNull("Arguments should be valid", settings);
         SdkManagerCli downloader = new SdkManagerCli(settings,
                 new PrintStream(out),
-                new ByteArrayInputStream("y\n".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream("y\n".getBytes()),
                 mDownloader,
                 mSdkHandler);
         downloader.run(new FakeProgressIndicator());
@@ -600,7 +616,7 @@ public class SdkManagerCliTest {
         assertNotNull("Arguments should be valid", settings);
         SdkManagerCli downloader = new SdkManagerCli(settings,
                 new PrintStream(out),
-                new ByteArrayInputStream("foo\n".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream("foo\n".getBytes()),
                 mDownloader,
                 mSdkHandler);
         downloader.run(new FakeProgressIndicator());
@@ -610,7 +626,7 @@ public class SdkManagerCliTest {
 
         downloader = new SdkManagerCli(settings,
                 new PrintStream(out),
-                new ByteArrayInputStream("y\n".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream("y\n".getBytes()),
                 mDownloader,
                 mSdkHandler);
         downloader.run(new FakeProgressIndicator());
@@ -633,7 +649,7 @@ public class SdkManagerCliTest {
         new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("n\n".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("n\n".getBytes()),
                         mDownloader,
                         mSdkHandler)
                 .run(new FakeProgressIndicator());
@@ -658,7 +674,7 @@ public class SdkManagerCliTest {
         new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("n\n".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("n\n".getBytes()),
                         mDownloader,
                         mSdkHandler)
                 .run(new FakeProgressIndicator());
@@ -694,7 +710,7 @@ public class SdkManagerCliTest {
         new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("y\ny\ny\n".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("y\ny\ny\n".getBytes()),
                         mDownloader,
                         mSdkHandler)
                 .run(new FakeProgressIndicator());
@@ -718,7 +734,7 @@ public class SdkManagerCliTest {
         new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("".getBytes()),
                         mDownloader,
                         mSdkHandler)
                 .run(new FakeProgressIndicator());
@@ -740,7 +756,7 @@ public class SdkManagerCliTest {
         new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("y\ny\nn\n".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("y\ny\nn\n".getBytes()),
                         mDownloader,
                         mSdkHandler)
                 .run(new FakeProgressIndicator());
@@ -765,7 +781,7 @@ public class SdkManagerCliTest {
         new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("y\ny\n".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("y\ny\n".getBytes()),
                         mDownloader,
                         mSdkHandler)
                 .run(new FakeProgressIndicator());
@@ -797,7 +813,7 @@ public class SdkManagerCliTest {
         assertNotNull("Arguments should be valid", settings);
         SdkManagerCli downloader = new SdkManagerCli(settings,
                 new PrintStream(out),
-                new ByteArrayInputStream("y\nn\ny\n".getBytes(StandardCharsets.UTF_8)),
+                new ByteArrayInputStream("y\nn\ny\n".getBytes()),
                 mDownloader,
                 mSdkHandler);
         downloader.run(new FakeProgressIndicator());
@@ -821,7 +837,7 @@ public class SdkManagerCliTest {
                 new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("y\nn\ny\n".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("y\nn\ny\n".getBytes()),
                         mDownloader,
                         mSdkHandler);
 
@@ -853,7 +869,7 @@ public class SdkManagerCliTest {
                 new SdkManagerCli(
                         settings,
                         new PrintStream(out),
-                        new ByteArrayInputStream("y\nn\ny\n".getBytes(StandardCharsets.UTF_8)),
+                        new ByteArrayInputStream("y\nn\ny\n".getBytes()),
                         mDownloader,
                         handler);
 

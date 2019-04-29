@@ -18,7 +18,6 @@ package com.android.tools.deployer;
 import com.android.utils.ILogger;
 import com.google.common.collect.Lists;
 import com.google.devrel.gmscore.tools.apk.arsc.*;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -27,7 +26,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
@@ -38,7 +36,7 @@ public class ApkFull {
     private static final ILogger LOGGER = Logger.getLogger(ApkFull.class);
     private static final int EOCD_SIGNATURE = 0x06054b50;
     private static final int CD_SIGNATURE = 0x02014b50;
-    private static final byte[] SIGNATURE_BLOCK_MAGIC = "APK Sig Block 42".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] SIGNATURE_BLOCK_MAGIC = "APK Sig Block 42".getBytes();
 
     private final String path;
     private HashMap<String, Long> crcs = null;

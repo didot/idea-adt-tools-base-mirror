@@ -310,7 +310,7 @@ open class DefaultJavaEvaluator(
         val parameters = parameterList.parameters
 
         var j = 0
-        if (parameters.firstOrNull()?.name?.startsWith("\$this") == true &&
+        if (parameters.isNotEmpty() && "\$receiver" == parameters[0].name &&
             isKotlin(call.sourcePsi)
         ) {
             // Kotlin extension method.

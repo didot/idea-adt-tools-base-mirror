@@ -18,12 +18,10 @@ package com.android.tools.deployer;
 
 import com.android.annotations.NonNull;
 import com.android.ddmlib.*;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -68,7 +66,7 @@ public class AdbClient {
             // TODO: Delete this once we gather all stdout and stderr in a proto.
             // For now this is mandatory to properly troubleshot.
             System.out.println("OUTPUT_START:");
-            System.out.println(new String(receiver.toByteArray(), StandardCharsets.UTF_8));
+            System.out.println(new String(receiver.toByteArray()));
             System.out.println("OUTPUT_END:");
 
         }
