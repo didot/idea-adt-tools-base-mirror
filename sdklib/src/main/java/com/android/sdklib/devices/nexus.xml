@@ -1955,6 +1955,7 @@
       <d:name>Pixel 3a</d:name>
       <d:id>pixel_3a</d:id>
       <d:manufacturer>Google</d:manufacturer>
+      <d:playstore-enabled>true</d:playstore-enabled>
       <d:hardware>
         <d:screen>
           <d:screen-size>normal</d:screen-size>
@@ -2050,7 +2051,7 @@
       <d:hardware>
         <d:screen>
           <d:screen-size>normal</d:screen-size>
-          <d:diagonal-length>5.60</d:diagonal-length>
+          <d:diagonal-length>6.00</d:diagonal-length>
           <d:pixel-density>400dpi</d:pixel-density>
           <d:screen-ratio>long</d:screen-ratio>
           <d:dimensions>

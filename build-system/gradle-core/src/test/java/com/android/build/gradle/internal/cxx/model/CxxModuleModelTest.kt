@@ -26,7 +26,6 @@ import java.lang.reflect.Method
 import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Type
-import java.util.UUID
 import kotlin.test.fail
 
 /**
@@ -37,7 +36,6 @@ import kotlin.test.fail
 
 private val ALLOWED_MODEL_INTERFACES = setOf(
     CxxCmakeAbiModel::class.java,
-    CxxBuildModel::class.java,
     CxxVariantModel::class.java,
     CxxAbiModel::class.java,
     CxxCmakeModuleModel::class.java,
@@ -46,7 +44,6 @@ private val ALLOWED_MODEL_INTERFACES = setOf(
 
 private val ALLOWED_PARAMETER_AND_RETURN_TYPES = setOf(
     CxxServiceRegistry::class.java,
-    UUID::class.java,
     List::class.java,
     Set::class.java,
     String::class.java,
