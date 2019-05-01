@@ -15,10 +15,10 @@
  */
 package com.android.tools.deployer;
 
+import static com.android.tools.deployer.AdbClient.InstallResult.OK;
+import static com.android.tools.deployer.AdbClient.InstallResult.SKIPPED_INSTALL;
 
-import static com.android.tools.deployer.AdbClient.InstallStatus.OK;
-import static com.android.tools.deployer.AdbClient.InstallStatus.SKIPPED_INSTALL;
-
+import com.android.ddmlib.InstallMetrics;
 import com.android.ddmlib.InstallReceiver;
 import com.android.sdklib.AndroidVersion;
 import com.android.tools.deploy.proto.Deploy;
@@ -44,7 +44,7 @@ public class ApkInstaller {
         DUMP_UNKNOWN_PACKAGE,
     }
 
-    private static class DeltaInstallResult {
+    private class DeltaInstallResult {
         final DeltaInstallStatus status;
         final String packageManagerOutput;
 
@@ -91,11 +91,11 @@ public class ApkInstaller {
             logger.info("Unable to delta install: '%s'", e.getDetails());
         }
 
-        AdbClient.InstallResult result = new AdbClient.InstallResult(OK);
+        AdbClient.InstallResult result = OK;
         switch (deltaInstallResult.status) {
             case SUCCESS:
                 {
-                    // Success means that the install procedure finished on device. There could
+                    // Success means that the install procedure finsihed on device. There could
                     // still be errors in the output if the installation was not finished.
                     DeployMetric metric = new DeployMetric("DELTAINSTALL", deltaInstallStart);
 
@@ -108,20 +108,19 @@ public class ApkInstaller {
                     } else {
                         result = parseInstallerResultErrorCode(installReceiver.getErrorCode());
                         metric.finish(
-                                DeltaInstallStatus.ERROR.name() + "." + result.status.name(),
-                                metrics);
+                                DeltaInstallStatus.ERROR.name() + "." + result.name(), metrics);
                     }
 
                     // If the binary patching failed, we will experience a signature failure,
                     // so in that case only we fall back to a normal install.
-                    switch (result.status) {
+                    switch (result) {
                         case NO_CERTIFICATE:
                         case INSTALL_PARSE_FAILED_NO_CERTIFICATES:
                             result = adb.install(apks, options.getFlags(), allowReinstall);
                             long installStartTime = System.nanoTime();
                             DeployMetric installResult =
                                     new DeployMetric("INSTALL", installStartTime);
-                            installResult.finish(result.status.name(), metrics);
+                            installResult.finish(result.name(), metrics);
                             break;
                         default:
                             // Don't fallback
@@ -130,6 +129,41 @@ public class ApkInstaller {
                 }
             case ERROR:
             case UNKNOWN:
+                {
+                    InstallReceiver installReceiver = new InstallReceiver();
+                    String[] lines = deltaInstallResult.packageManagerOutput.split("\\n");
+                    installReceiver.processNewLines(lines);
+                    result = parseInstallerResultErrorCode(installReceiver.getErrorCode());
+
+                    // Record metric for delta install.
+                    DeployMetric deltaInstallMetric =
+                            new DeployMetric("DELTAINSTALL", deltaInstallStart);
+                    deltaInstallMetric.finish(
+                            deltaInstallResult.status.name() + "." + result.name(), metrics);
+
+                    // Fallback
+                    long installStartedNs = System.nanoTime();
+                    result = adb.install(apks, options.getFlags(), allowReinstall);
+
+                    DeployMetric installResult = new DeployMetric("INSTALL", installStartedNs);
+                    installResult.finish(result.name(), metrics);
+
+                    // If the install succeeded and returned specific metrics about push/install
+                    // times, record those metrics as well.
+                    if (result.getMetrics() != InstallMetrics.EMPTY) {
+                        metrics.add(
+                                new DeployMetric(
+                                        "INSTALL::UPLOAD",
+                                        result.getMetrics().getUploadStartNs(),
+                                        result.getMetrics().getUploadFinishNs()));
+                        metrics.add(
+                                new DeployMetric(
+                                        "INSTALL::INSTALL",
+                                        result.getMetrics().getInstallStartNs(),
+                                        result.getMetrics().getInstallFinishNs()));
+                    }
+                    break;
+                }
             case DISABLED:
             case CANNOT_GENERATE_DELTA:
             case API_NOT_SUPPORTED:
@@ -147,14 +181,29 @@ public class ApkInstaller {
                     result = adb.install(apks, options.getFlags(), allowReinstall);
 
                     DeployMetric installResult = new DeployMetric("INSTALL", installStartedNs);
-                    installResult.finish(result.status.name(), metrics);
+                    installResult.finish(result.name(), metrics);
+
+                    // If the install succeeded and returned specific metrics about push/install
+                    // times, record those metrics as well.
+                    if (result.getMetrics() != InstallMetrics.EMPTY) {
+                        metrics.add(
+                                new DeployMetric(
+                                        "INSTALL::UPLOAD",
+                                        result.getMetrics().getUploadStartNs(),
+                                        result.getMetrics().getUploadFinishNs()));
+                        metrics.add(
+                                new DeployMetric(
+                                        "INSTALL::INSTALL",
+                                        result.getMetrics().getInstallStartNs(),
+                                        result.getMetrics().getInstallFinishNs()));
+                    }
                     break;
                 }
             case NO_CHANGES:
                 {
-                    result = new AdbClient.InstallResult(SKIPPED_INSTALL);
+                    result = SKIPPED_INSTALL;
                     DeployMetric installMetric = new DeployMetric("INSTALL");
-                    installMetric.finish(result.status.name(), metrics);
+                    installMetric.finish(result.name(), metrics);
                     try {
                         adb.shell(new String[] {"am", "force-stop", packageName});
                     } catch (IOException e) {
@@ -165,22 +214,8 @@ public class ApkInstaller {
                 }
         }
 
-        // If the install succeeded and returned specific metrics about push/install
-        // times, record those metrics as well.
-        if (result.metrics != null) {
-            metrics.add(
-                    new DeployMetric(
-                            "DDMLIB_UPLOAD",
-                            result.metrics.getUploadStartNs(),
-                            result.metrics.getUploadFinishNs()));
-            metrics.add(
-                    new DeployMetric(
-                            "DDMLIB_INSTALL",
-                            result.metrics.getInstallStartNs(),
-                            result.metrics.getInstallFinishNs()));
-        }
         String message = message(result);
-        switch (result.status) {
+        switch (result) {
             case INSTALL_FAILED_UPDATE_INCOMPATIBLE:
             case INCONSISTENT_CERTIFICATES:
             case INSTALL_FAILED_VERSION_DOWNGRADE:
@@ -202,10 +237,10 @@ public class ApkInstaller {
         }
 
         boolean installed = true;
-        if (result.status == SKIPPED_INSTALL) {
+        if (result == SKIPPED_INSTALL) {
             installed = false;
-        } else if (result.status != OK) {
-            throw DeployerException.installFailed(result.status, message);
+        } else if (result != OK) {
+            throw DeployerException.installFailed(result, message);
         }
         return installed;
     }
@@ -299,15 +334,16 @@ public class ApkInstaller {
 
     public static AdbClient.InstallResult parseInstallerResultErrorCode(String errorCode) {
         try {
-            return new AdbClient.InstallResult(AdbClient.InstallStatus.valueOf(errorCode));
+            return AdbClient.InstallResult.valueOf(errorCode);
         } catch (Exception e) {
-            return new AdbClient.InstallResult(
-                    AdbClient.InstallStatus.UNKNOWN_ERROR, errorCode, null);
+            AdbClient.InstallResult result = AdbClient.InstallResult.UNKNOWN_ERROR;
+            result.setReason(errorCode);
+            return result;
         }
     }
 
     private String message(AdbClient.InstallResult result) {
-        switch (result.status) {
+        switch (result) {
             case INSTALL_FAILED_VERSION_DOWNGRADE:
                 return "The device already has a newer version of this application.";
             case DEVICE_NOT_RESPONDING:
@@ -336,7 +372,7 @@ public class ApkInstaller {
             case INSTALL_FAILED_INVALID_APK:
                 return "The APKs are invalid.";
             default:
-                return "Installation failed due to: '" + result.reason + "'";
+                return "Installation failed due to: '" + result.getReason() + "'";
         }
     }
 }

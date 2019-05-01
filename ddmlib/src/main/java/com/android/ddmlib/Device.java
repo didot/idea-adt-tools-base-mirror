@@ -67,7 +67,7 @@ final class Device implements IDevice {
     private boolean mIsRoot = false;
 
     /** Information about the most recent installation via this device */
-    private InstallMetrics lastInstallMetrics = null;
+    private InstallMetrics lastInstallMetrics = InstallMetrics.EMPTY;
 
     /** Device properties. */
     private final PropertyFetcher mPropFetcher = new PropertyFetcher(this);

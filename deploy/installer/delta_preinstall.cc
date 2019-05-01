@@ -38,7 +38,7 @@ void DeltaPreinstallCommand::ParseParameters(int argc, char** argv) {
   deploy::MessagePipeWrapper wrapper(STDIN_FILENO);
   std::string data;
 
-  BeginMetric("DELTAPREINSTALL_UPLOAD");
+  BeginMetric("DELTAPREINSTALL::PUSH");
   if (!wrapper.Read(&data)) {
     ErrEvent("Unable to read data on stdin.");
     EndPhase();
@@ -91,7 +91,7 @@ bool DeltaPreinstallCommand::SendApkToPackageManager(
 }
 
 void DeltaPreinstallCommand::Run() {
-  Metric m("DELTAPREINSTALL_WRITE");
+  Metric m("DELTAPREINSTALL::WRITE");
 
   proto::DeltaPreinstallResponse* response =
       new proto::DeltaPreinstallResponse();

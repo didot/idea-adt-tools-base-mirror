@@ -50,11 +50,8 @@ android {
     <#if hasTests>
         testInstrumentationRunner "${getMaterialComponentName('android.support.test.runner.AndroidJUnitRunner', useAndroidX)}"
     </#if>
-    <#if canUseProguard && (isLibraryProject!false)>
-        consumerProguardFiles 'consumer-rules.pro'
-    </#if>
-    <#if canHaveCpp && (includeCppSupport!false)>
 
+    <#if canHaveCpp && (includeCppSupport!false)>
         externalNativeBuild {
             cmake {
                 cppFlags "${cppFlags}"
