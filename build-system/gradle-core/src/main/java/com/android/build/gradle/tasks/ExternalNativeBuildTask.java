@@ -31,8 +31,8 @@ import com.android.build.gradle.internal.cxx.json.AndroidBuildGradleJsons;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValueMini;
 import com.android.build.gradle.internal.cxx.json.NativeLibraryValueMini;
 import com.android.build.gradle.internal.cxx.logging.ErrorsAreFatalThreadLoggingEnvironment;
-import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.process.GradleProcessExecutor;
+import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.NonIncrementalTask;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.ide.common.process.BuildCommandException;
@@ -442,6 +442,18 @@ public class ExternalNativeBuildTask extends NonIncrementalTask {
                     .logStdoutToInfo()
                     .execute();
         }
+    }
+
+    @NonNull
+    @SuppressWarnings("unused") // Exposed in Variants API
+    public File getObjFolder() {
+        return generator.get().getObjFolder();
+    }
+
+    @NonNull
+    @SuppressWarnings("unused") // Exposed in Variants API
+    public File getSoFolder() {
+        return generator.get().getSoFolder();
     }
 
     @NonNull
