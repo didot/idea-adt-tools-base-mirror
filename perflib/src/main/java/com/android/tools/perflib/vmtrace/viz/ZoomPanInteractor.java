@@ -19,11 +19,7 @@ package com.android.tools.perflib.vmtrace.viz;
 import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
 
-import java.awt.event.MouseEvent;
-import java.awt.event.MouseListener;
-import java.awt.event.MouseMotionListener;
-import java.awt.event.MouseWheelEvent;
-import java.awt.event.MouseWheelListener;
+import java.awt.event.*;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
@@ -53,7 +49,7 @@ public class ZoomPanInteractor implements MouseListener, MouseMotionListener, Mo
     private int mLastX;
     private int mLastY;
 
-    private final List<ViewTransformListener> mListeners = new ArrayList<ViewTransformListener>();
+    private final List<ViewTransformListener> mListeners = new ArrayList<>();
 
     @Override
     public void mouseClicked(MouseEvent e) {

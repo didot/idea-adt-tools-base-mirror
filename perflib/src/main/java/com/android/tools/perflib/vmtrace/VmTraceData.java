@@ -22,14 +22,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -174,8 +168,8 @@ public class VmTraceData {
     public SearchResult searchFor(String pattern, ThreadInfo thread) {
         pattern = pattern.toLowerCase(Locale.US);
 
-        Set<MethodInfo> methods = new HashSet<MethodInfo>();
-        Set<Call> calls = new HashSet<Call>();
+        Set<MethodInfo> methods = new HashSet<>();
+        Set<Call> calls = new HashSet<>();
 
         Call topLevelCall = getThread(thread.getName()).getTopLevelCall();
         if (topLevelCall == null) {
@@ -223,20 +217,20 @@ public class VmTraceData {
         private boolean mDataFileOverflow;
         private VmClockType mVmClockType = VmClockType.THREAD_CPU;
         private String mVm = "";
-        private final Map<String, String> mProperties = new HashMap<String, String>(10);
+        private final Map<String, String> mProperties = new HashMap<>(10);
 
         /** Map from thread ids to thread names. */
-        private final SparseArray<String> mThreads = new SparseArray<String>(10);
+        private final SparseArray<String> mThreads = new SparseArray<>(10);
 
         /** Map from method id to method info. */
-        private final Map<Long,MethodInfo> mMethods = new HashMap<Long, MethodInfo>(100);
+        private final Map<Long,MethodInfo> mMethods = new HashMap<>(100);
 
         /** Map from thread id to per thread stack call reconstructor. */
         private final SparseArray<CallStackReconstructor> mStackReconstructors
-                = new SparseArray<CallStackReconstructor>(10);
+                = new SparseArray<>(10);
 
         /** Map from thread id to the top level call for that thread. */
-        private final SparseArray<Call> mTopLevelCalls = new SparseArray<Call>(10);
+        private final SparseArray<Call> mTopLevelCalls = new SparseArray<>(10);
 
         @Override
         public void setVersion(int version) {

@@ -17,14 +17,13 @@
 package com.android.tools.perflib.heap;
 
 import com.android.annotations.NonNull;
-
-import java.util.ArrayList;
-import java.util.Collection;
-
-import com.google.common.collect.*;
+import com.google.common.collect.ArrayListMultimap;
+import com.google.common.collect.Multimap;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TLongObjectHashMap;
 import gnu.trove.TObjectProcedure;
+
+import java.util.Collection;
 
 public class Heap {
 
@@ -35,16 +34,16 @@ public class Heap {
 
     //  List of threads
     @NonNull
-    TIntObjectHashMap<ThreadObj> mThreads = new TIntObjectHashMap<ThreadObj>();
+    TIntObjectHashMap<ThreadObj> mThreads = new TIntObjectHashMap<>();
 
     //  Class definitions
     @NonNull
-    TLongObjectHashMap<ClassObj> mClassesById = new TLongObjectHashMap<ClassObj>();
+    TLongObjectHashMap<ClassObj> mClassesById = new TLongObjectHashMap<>();
 
     @NonNull Multimap<String, ClassObj> mClassesByName = ArrayListMultimap.create();
 
     //  List of instances of above class definitions
-    private final TLongObjectHashMap<Instance> mInstances = new TLongObjectHashMap<Instance>();
+    private final TLongObjectHashMap<Instance> mInstances = new TLongObjectHashMap<>();
 
     //  The snapshot that this heap is part of
     Snapshot mSnapshot;

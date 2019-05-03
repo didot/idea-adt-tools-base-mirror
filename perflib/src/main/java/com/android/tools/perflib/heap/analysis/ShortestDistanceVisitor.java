@@ -22,8 +22,8 @@ import com.android.tools.perflib.heap.NonRecursiveVisitor;
 import java.util.PriorityQueue;
 
 public class ShortestDistanceVisitor extends NonRecursiveVisitor {
-    private PriorityQueue<Instance> mPriorityQueue = new PriorityQueue<Instance>(1024,
-                                                                                 (o1, o2) -> o1.getDistanceToGcRoot() - o2.getDistanceToGcRoot());
+    private PriorityQueue<Instance> mPriorityQueue = new PriorityQueue<>(1024,
+                                                                         (o1, o2) -> o1.getDistanceToGcRoot() - o2.getDistanceToGcRoot());
 
     private Instance mPreviousInstance = null;
 

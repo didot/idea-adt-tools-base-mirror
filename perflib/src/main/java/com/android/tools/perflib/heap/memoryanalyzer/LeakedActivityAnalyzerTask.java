@@ -17,11 +17,7 @@ package com.android.tools.perflib.heap.memoryanalyzer;
 
 import com.android.annotations.NonNull;
 import com.android.tools.perflib.analyzer.AnalysisResultEntry;
-import com.android.tools.perflib.heap.ClassInstance;
-import com.android.tools.perflib.heap.ClassObj;
-import com.android.tools.perflib.heap.Heap;
-import com.android.tools.perflib.heap.Instance;
-import com.android.tools.perflib.heap.Snapshot;
+import com.android.tools.perflib.heap.*;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,11 +34,11 @@ public class LeakedActivityAnalyzerTask extends MemoryAnalyzerTask {
     @Override
     protected List<AnalysisResultEntry<?>> analyze(@NonNull Configuration configuration,
                                                 @NonNull Snapshot snapshot) {
-        List<Instance> leakingInstances = new ArrayList<Instance>();
+        List<Instance> leakingInstances = new ArrayList<>();
 
         List<ClassObj> activityClasses = snapshot.findAllDescendantClasses("android.app.Activity");
         for (ClassObj activityClass : activityClasses) {
-            List<Instance> instances = new ArrayList<Instance>();
+            List<Instance> instances = new ArrayList<>();
             for (Heap heap : configuration.mHeaps) {
                 instances.addAll(activityClass.getHeapInstances(heap.getId()));
             }
@@ -67,8 +63,8 @@ public class LeakedActivityAnalyzerTask extends MemoryAnalyzerTask {
             }
         }
 
-        List<AnalysisResultEntry<?>> results = new ArrayList<AnalysisResultEntry<?>>(
-                leakingInstances.size());
+        List<AnalysisResultEntry<?>> results = new ArrayList<>(
+          leakingInstances.size());
         for (Instance instance : leakingInstances) {
             results.add(new LeakedActivityEntry(instance.getClassObj().getClassName(),
                     instance));
