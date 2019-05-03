@@ -29,10 +29,7 @@ import gnu.trove.THashSet;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TLongObjectHashMap;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import java.util.*;
 
 /*
  * A snapshot of all of the heaps, and related meta-data, for the runtime at a given instant.
@@ -129,7 +126,7 @@ public class Snapshot extends Capture {
 
     @NonNull
     public static Snapshot createSnapshot(@NonNull DataBuffer buffer, @NonNull ProguardMap map) {
-        return createSnapshot(buffer, map, Arrays.asList(new NativeRegistryPostProcessor()));
+        return createSnapshot(buffer, map, Collections.singletonList(new NativeRegistryPostProcessor()));
     }
 
     @NonNull
