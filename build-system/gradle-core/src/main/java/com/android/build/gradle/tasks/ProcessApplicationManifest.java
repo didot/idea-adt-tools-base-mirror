@@ -103,7 +103,7 @@ import org.gradle.internal.component.local.model.OpaqueComponentArtifactIdentifi
 
 /** A task that processes the manifest */
 @CacheableTask
-public class ProcessApplicationManifest extends ManifestProcessorTask {
+public abstract class ProcessApplicationManifest extends ManifestProcessorTask {
 
     private Supplier<String> minSdkVersion;
     private Supplier<String> targetSdkVersion;
@@ -249,6 +249,8 @@ public class ProcessApplicationManifest extends ManifestProcessorTask {
 
             XmlDocument mergedXmlDocument =
                     mergingReport.getMergedXmlDocument(MergingReport.MergedManifestKind.MERGED);
+
+            outputMergeBlameContents(mergingReport, getMergeBlameFile().get().getAsFile());
 
             ImmutableMap<String, String> properties =
                     mergedXmlDocument != null
@@ -700,6 +702,17 @@ public class ProcessApplicationManifest extends ManifestProcessorTask {
                             taskProvider.map(
                                     ManifestProcessorTask::getInstantAppManifestOutputDirectory),
                             "");
+
+            getVariantScope()
+                    .getArtifacts()
+                    .producesFile(
+                            InternalArtifactType.MANIFEST_MERGE_BLAME_FILE,
+                            BuildArtifactsHolder.OperationType.INITIAL,
+                            taskProvider,
+                            taskProvider.map(ProcessApplicationManifest::getMergeBlameFile),
+                            "manifest-merger-blame-"
+                                    + variantScope.getVariantConfiguration().getBaseName()
+                                    + "-report.txt");
         }
 
         @Override
