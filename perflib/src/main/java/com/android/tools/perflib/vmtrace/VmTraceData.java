@@ -166,7 +166,7 @@ public class VmTraceData {
     }
 
     public SearchResult searchFor(String pattern, ThreadInfo thread) {
-        pattern = pattern.toLowerCase(Locale.ENGLISH);
+        pattern = pattern.toLowerCase(Locale.US);
 
         Set<MethodInfo> methods = new HashSet<>();
         Set<Call> calls = new HashSet<>();
@@ -179,7 +179,7 @@ public class VmTraceData {
 
         // Find all methods matching given pattern called on given thread
         for (MethodInfo method: getMethods().values()) {
-            String fullName = method.getFullName().toLowerCase(Locale.ENGLISH);
+            String fullName = method.getFullName().toLowerCase(Locale.US);
             if (fullName.contains(pattern)) { // method name matches
                 long inclusiveTime = method.getProfileData()
                         .getInclusiveTime(thread, ClockType.GLOBAL, TimeUnit.NANOSECONDS);
