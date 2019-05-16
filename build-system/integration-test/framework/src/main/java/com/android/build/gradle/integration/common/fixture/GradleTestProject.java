@@ -36,6 +36,7 @@ import com.android.io.StreamException;
 import com.android.sdklib.SdkVersionInfo;
 import com.android.sdklib.internal.project.ProjectProperties;
 import com.android.sdklib.internal.project.ProjectPropertiesWorkingCopy;
+import com.android.testutils.MavenRepoGenerator;
 import com.android.testutils.OsType;
 import com.android.testutils.TestUtils;
 import com.android.testutils.apk.Aar;
@@ -219,6 +220,8 @@ public final class GradleTestProject implements TestRule {
 
     @NonNull private final GradleTestProjectBuilder.MemoryRequirement heapSize;
     @Nullable private final List<Path> repoDirectories;
+    @Nullable private MavenRepoGenerator additionalMavenRepo;
+    @Nullable private Path additionalMavenRepoDir;
 
     @NonNull private final File androidHome;
     @NonNull private final File androidNdkHome;
@@ -255,6 +258,7 @@ public final class GradleTestProject implements TestRule {
             @NonNull List<String> withIncludedBuilds,
             @Nullable File testDir,
             @Nullable List<Path> repoDirectories,
+            @Nullable MavenRepoGenerator additionalMavenRepo,
             @NonNull File androidHome,
             @NonNull File androidNdkHome,
             @NonNull File gradleDistributionDirectory,
@@ -266,6 +270,7 @@ public final class GradleTestProject implements TestRule {
         this.withAndroidGradlePlugin = withAndroidGradlePlugin;
         this.withKotlinGradlePlugin = withKotlinGradlePlugin;
         this.withIncludedBuilds = withIncludedBuilds;
+        this.additionalMavenRepo = additionalMavenRepo;
         this.buildFile = null;
         this.name = (name == null) ? DEFAULT_TEST_PROJECT_NAME : name;
         this.targetGradleVersion = targetGradleVersion;
@@ -563,7 +568,13 @@ public final class GradleTestProject implements TestRule {
         if (repoDirectories != null) {
             return repoDirectories;
         } else {
-            return getLocalRepositories();
+            ImmutableList.Builder<Path> builder = ImmutableList.builder();
+            builder.addAll(getLocalRepositories());
+            Path additionalMavenRepo = getAdditionalMavenRepo();
+            if (additionalMavenRepo != null) {
+                builder.add(additionalMavenRepo);
+            }
+            return builder.build();
         }
     }
 
@@ -577,8 +588,24 @@ public final class GradleTestProject implements TestRule {
     }
 
     @NonNull
-    public String generateProjectRepoScript() {
+    private String generateProjectRepoScript() {
         return generateRepoScript(getRepoDirectories());
+    }
+
+    @Nullable
+    private Path getAdditionalMavenRepo() {
+        if (additionalMavenRepo == null) {
+            return null;
+        }
+        if (additionalMavenRepoDir == null) {
+            additionalMavenRepoDir =
+                    Objects.requireNonNull(testDir)
+                            .toPath()
+                            .getParent()
+                            .resolve("additional_maven_repo");
+            additionalMavenRepo.generate(additionalMavenRepoDir);
+        }
+        return additionalMavenRepoDir;
     }
 
     @NonNull
@@ -622,11 +649,6 @@ public final class GradleTestProject implements TestRule {
         }
 
         return result;
-    }
-
-    @NonNull
-    private static String generateRepoScript() {
-        return generateRepoScript(getLocalRepositories());
     }
 
     @NonNull
