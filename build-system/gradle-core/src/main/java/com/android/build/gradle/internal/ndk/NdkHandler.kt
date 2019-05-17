@@ -20,7 +20,7 @@ import com.android.SdkConstants.FN_LOCAL_PROPERTIES
 import com.android.build.gradle.internal.cxx.configure.findNdkPath
 
 import com.android.SdkConstants
-import com.android.build.gradle.internal.SdkHandler
+import com.android.build.gradle.internal.SdkLocator
 import com.android.build.gradle.internal.cxx.configure.NdkLocatorRecord
 import com.android.build.gradle.internal.cxx.json.PlainFileGsonTypeAdaptor
 import com.android.builder.sdk.InstallFailedException
@@ -38,7 +38,6 @@ import java.io.IOException
 import java.io.InputStreamReader
 import java.util.Properties
 import org.gradle.api.InvalidUserDataException
-import org.gradle.api.logging.Logging
 import java.io.FileWriter
 
 val GSON = GsonBuilder()
@@ -277,8 +276,7 @@ class NdkHandler(
                 return File(ndkEnvVar)
             }
 
-            val sdkLocation = SdkHandler.findSdkLocation(properties, projectDir)
-            val sdkFolder = sdkLocation.first
+            val sdkFolder = SdkLocator.getSdkLocation(projectDir).directory
             if (sdkFolder != null) {
                 // Worth checking if the NDK came bundled with the SDK
                 val ndkBundle = File(sdkFolder, SdkConstants.FD_NDK)
