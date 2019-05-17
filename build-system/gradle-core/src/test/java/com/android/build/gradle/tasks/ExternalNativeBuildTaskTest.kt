@@ -32,4 +32,19 @@ class ExternalNativeBuildTaskTest {
             ExternalNativeBuildTask::class.java.methods.single { it.name == "getSoFolder" }
         Truth.assertThat(Modifier.isPublic(soFolder.modifiers)).isTrue()
     }
+
+    // See b/132976644
+    @Test
+    fun `enforce NDK version requires three parts when specified`() {
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl(null)).isTrue()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("")).isTrue()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("   ")).isTrue()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("19")).isFalse()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("19")).isFalse()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("19.0")).isFalse()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("19.0.0")).isTrue()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("19.0.0.0")).isFalse()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("19.0.0 rc1")).isTrue()
+        Truth.assertThat(ExternalNativeBuildTask.isAcceptableNdkVersionFromDsl("19.0.0-rc1")).isTrue()
+    }
 }
