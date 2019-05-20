@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.tasks;
 
+import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.errorln;
 import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.infoln;
 import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
@@ -39,6 +40,7 @@ import com.android.ide.common.process.BuildCommandException;
 import com.android.ide.common.process.ProcessInfoBuilder;
 import com.android.utils.FileUtils;
 import com.android.utils.StringHelper;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -67,6 +69,7 @@ import org.gradle.api.tasks.TaskProvider;
 public class ExternalNativeBuildTask extends NonIncrementalTask {
 
     private Provider<ExternalNativeJsonGenerator> generator;
+    private String ndkVersionFromDsl; // See b/132976644
 
     // This placeholder is inserted into the buildTargetsCommand, and then later replaced by the
     // list of libraries that shall be built with a single build tool invocation.
@@ -105,12 +108,37 @@ public class ExternalNativeBuildTask extends NonIncrementalTask {
         }
     }
 
+    // See b/132976644
+    @VisibleForTesting
+    static boolean isAcceptableNdkVersionFromDsl(String ndkVersionFromDsl) {
+        if (Strings.isNullOrEmpty(ndkVersionFromDsl)) {
+            // User specified no NDK version. That's acceptable.
+            return true;
+        }
+        if (ndkVersionFromDsl.trim().isEmpty()) {
+            // Non-empty blank is okay too.
+            return true;
+        }
+        // Otherwise, version requires three parts.
+        int dotCount = ndkVersionFromDsl.length() - ndkVersionFromDsl.replace(".", "").length();
+        return dotCount == 2;
+    }
+
     private void buildImpl() throws BuildCommandException, IOException {
         infoln("starting build");
         checkNotNull(getVariantName());
         infoln("reading expected JSONs");
         List<NativeBuildConfigValueMini> miniConfigs = getNativeBuildConfigValueMinis();
         infoln("done reading expected JSONs");
+
+        if (!isAcceptableNdkVersionFromDsl(ndkVersionFromDsl)) {
+            // See b/132976644
+            errorln(
+                    "Specified android.ndkVersion '%s' does not have "
+                            + "correct precision. Use major.minor.micro in version.",
+                    ndkVersionFromDsl);
+            return;
+        }
 
         Set<String> targets = generator.get().variant.getBuildTargetSet();
 
@@ -509,6 +537,8 @@ public class ExternalNativeBuildTask extends NonIncrementalTask {
                     generateTask, scope.getArtifactFileCollection(RUNTIME_CLASSPATH, ALL, JNI));
 
             task.generator = generator;
+            // See b/132976644
+            task.ndkVersionFromDsl = scope.getGlobalScope().getExtension().getNdkVersion();
         }
     }
 }
