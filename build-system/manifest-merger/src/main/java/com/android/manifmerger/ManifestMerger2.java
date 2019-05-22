@@ -333,9 +333,6 @@ public class ManifestMerger2 {
                                     xmlDocumentOptional.get(),
                                     loadedNavigationMap,
                                     mergingReportBuilder));
-        } else {
-            NavGraphExpander.INSTANCE.ensureNoNavigationGraphsIncluded(
-                    xmlDocumentOptional.get(), mergingReportBuilder);
         }
 
         if (mergingReportBuilder.hasErrors()) {
