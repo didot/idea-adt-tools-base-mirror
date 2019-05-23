@@ -64,6 +64,7 @@ import com.android.ide.common.internal.WaitableExecutor;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.process.ProcessOutput;
 import com.android.ide.common.process.ProcessOutputHandler;
+import com.android.sdklib.AndroidVersion;
 import com.android.utils.FileUtils;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -198,6 +199,7 @@ public class DexArchiveBuilderTransform extends Transform {
     private final boolean includeFeaturesInScopes;
 
     private boolean enableDexingArtifactTransform;
+    private final boolean needsClasspath;
 
     DexArchiveBuilderTransform(
             @NonNull FileCollection androidJarClasspath,
@@ -237,6 +239,9 @@ public class DexArchiveBuilderTransform extends Transform {
         this.numberOfBuckets = numberOfBuckets == null ? DEFAULT_NUM_BUCKETS : numberOfBuckets;
         this.includeFeaturesInScopes = includeFeaturesInScopes;
         this.enableDexingArtifactTransform = enableDexingArtifactTransform;
+        this.needsClasspath =
+                java8LangSupportType == VariantScope.Java8LangSupport.D8
+                        && minSdkVersion < AndroidVersion.VersionCodes.N;
     }
 
     @NonNull
@@ -272,6 +277,10 @@ public class DexArchiveBuilderTransform extends Transform {
     @NonNull
     @Override
     public Set<? super Scope> getReferencedScopes() {
+        if (!needsClasspath) {
+            return ImmutableSet.of();
+        }
+
         Set<? super QualifiedContent.ScopeType> referenced =
                 Sets.newHashSet(Scope.PROVIDED_ONLY, Scope.TESTED_CODE);
         if (enableDexingArtifactTransform) {
@@ -343,12 +352,12 @@ public class DexArchiveBuilderTransform extends Transform {
         List<DexArchiveBuilderCacheHandler.CacheableItem> cacheableItems = new ArrayList<>();
         boolean isIncremental = transformInvocation.isIncremental();
         List<Path> classpath =
-                getClasspath(transformInvocation, java8LangSupportType)
+                getClasspath(transformInvocation)
                         .stream()
                         .map(Paths::get)
                         .collect(Collectors.toList());
         List<Path> bootclasspath =
-                getBootClasspath(androidJarClasspath, java8LangSupportType)
+                getBootClasspath(androidJarClasspath)
                         .stream()
                         .map(Paths::get)
                         .collect(Collectors.toList());
@@ -903,10 +912,8 @@ public class DexArchiveBuilderTransform extends Transform {
     }
 
     @NonNull
-    private static List<String> getClasspath(
-            @NonNull TransformInvocation transformInvocation,
-            @NonNull VariantScope.Java8LangSupport java8LangSupportType) {
-        if (java8LangSupportType != VariantScope.Java8LangSupport.D8) {
+    private List<String> getClasspath(@NonNull TransformInvocation transformInvocation) {
+        if (!needsClasspath) {
             return Collections.emptyList();
         }
         ImmutableList.Builder<String> classpathEntries = ImmutableList.builder();
@@ -933,11 +940,8 @@ public class DexArchiveBuilderTransform extends Transform {
     }
 
     @NonNull
-    private static List<String> getBootClasspath(
-            @NonNull FileCollection androidJarClasspath,
-            @NonNull VariantScope.Java8LangSupport java8LangSupportType) {
-
-        if (java8LangSupportType != VariantScope.Java8LangSupport.D8) {
+    private List<String> getBootClasspath(@NonNull FileCollection androidJarClasspath) {
+        if (!needsClasspath) {
             return Collections.emptyList();
         }
         ImmutableList.Builder<String> classpathEntries = ImmutableList.builder();

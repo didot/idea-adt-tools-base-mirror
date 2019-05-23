@@ -27,6 +27,7 @@ import com.android.builder.dexing.ClassFileInputs
 import com.android.builder.dexing.DexArchiveBuilder
 import com.android.builder.dexing.r8.ClassFileProviderFactory
 import com.android.ide.common.workers.WorkerExecutorFacade
+import com.android.sdklib.AndroidVersion
 import com.google.common.util.concurrent.MoreExecutors
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.Directory
@@ -120,19 +121,24 @@ abstract class LibraryDexingTask @Inject constructor(
                 task.classes
             )
             task.output = output
-            task.minSdkVersion = scope.variantConfiguration.minSdkVersionWithTargetDeviceApi.featureLevel
+            val minSdkVersion =
+                scope.variantConfiguration.minSdkVersionWithTargetDeviceApi.featureLevel
+            task.minSdkVersion = minSdkVersion
             task.errorFormatMode =
                 SyncOptions.getErrorFormatMode(variantScope.globalScope.projectOptions)
             if (scope.java8LangSupportType == VariantScope.Java8LangSupport.D8) {
                 task.enableDesugaring.set(true)
-                task.bootClasspath.from(scope.globalScope.bootClasspath)
-                task.classpath.from(
-                    scope.getArtifactFileCollection(
-                        AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                        AndroidArtifacts.ArtifactScope.ALL,
-                        AndroidArtifacts.ArtifactType.CLASSES
+
+                if (minSdkVersion < AndroidVersion.VersionCodes.N) {
+                    task.bootClasspath.from(scope.globalScope.bootClasspath)
+                    task.classpath.from(
+                        scope.getArtifactFileCollection(
+                            AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
+                            AndroidArtifacts.ArtifactScope.ALL,
+                            AndroidArtifacts.ArtifactType.CLASSES
+                        )
                     )
-                )
+                }
             } else {
                 task.enableDesugaring.set(false)
             }
