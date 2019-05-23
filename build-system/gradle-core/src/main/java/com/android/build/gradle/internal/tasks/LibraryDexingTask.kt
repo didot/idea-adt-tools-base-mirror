@@ -119,8 +119,8 @@ abstract class LibraryDexingTask @Inject constructor(
                 InternalArtifactType.RUNTIME_LIBRARY_CLASSES,
                 task.classes
             )
-            task.minSdkVersion = scope.minSdkVersion.featureLevel
             task.output = output
+            task.minSdkVersion = scope.variantConfiguration.minSdkVersionWithTargetDeviceApi.featureLevel
             task.errorFormatMode =
                 SyncOptions.getErrorFormatMode(variantScope.globalScope.projectOptions)
             if (scope.java8LangSupportType == VariantScope.Java8LangSupport.D8) {
