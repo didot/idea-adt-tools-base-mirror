@@ -66,6 +66,7 @@ import com.google.common.base.Preconditions
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableSet
 import org.gradle.api.artifacts.ArtifactCollection
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFileProperty
@@ -96,7 +97,7 @@ import java.util.regex.Pattern
 import javax.inject.Inject
 
 @CacheableTask
-open class LinkApplicationAndroidResourcesTask @Inject constructor(
+abstract class LinkApplicationAndroidResourcesTask @Inject constructor(
     objects: ObjectFactory,
     workerExecutor: WorkerExecutor) :
     ProcessAndroidResources() {
@@ -151,10 +152,11 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(
 
     private lateinit var type: VariantType
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection
+    @get:Input
+    lateinit var aapt2Version: String
         private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
     private var debuggable: Boolean = false
 
@@ -465,7 +467,9 @@ open class LinkApplicationAndroidResourcesTask @Inject constructor(
             preconditionsCheck(variantData)
 
             task.resPackageOutputFolder = resPackageOutputFolder
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+            val (aapt2FromMaven, aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
 
             task.applicationId = TaskInputHelper.memoize { config.applicationId }
 
