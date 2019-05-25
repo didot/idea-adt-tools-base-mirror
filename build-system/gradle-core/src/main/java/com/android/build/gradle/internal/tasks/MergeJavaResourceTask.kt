@@ -59,9 +59,12 @@ import javax.inject.Inject
 open class MergeJavaResourceTask
 @Inject constructor(workerExecutor: WorkerExecutor, objects: ObjectFactory) : IncrementalTask() {
 
+    // PathSensitivity.ABSOLUTE necessary here to support changing java resource file relative
+    // paths. A better solution will be custom snapshots from gradle:
+    // https://github.com/gradle/gradle/issues/8503
     @get:InputFiles
+    @get:PathSensitive(PathSensitivity.ABSOLUTE)
     @get:Optional
-    @get:PathSensitive(PathSensitivity.RELATIVE)
     var projectJavaRes: FileCollection? = null
         private set
 

@@ -15,6 +15,7 @@
  */
 package com.android.build.gradle.internal.tasks
 
+import com.android.SdkConstants
 import com.android.build.api.transform.QualifiedContent.Scope.EXTERNAL_LIBRARIES
 import com.android.build.api.transform.QualifiedContent.Scope.SUB_PROJECTS
 import com.android.build.api.transform.QualifiedContent.ScopeType
@@ -37,12 +38,16 @@ import org.gradle.api.model.ObjectFactory
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Classpath
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.workers.WorkerExecutor
 import java.io.File
+import java.util.function.Predicate
 import javax.inject.Inject
 
 /**
@@ -52,9 +57,14 @@ import javax.inject.Inject
 open class MergeNativeLibsTask
 @Inject constructor(workerExecutor: WorkerExecutor, objects: ObjectFactory) : IncrementalTask() {
 
-    @get:Classpath
+    // PathSensitivity.ABSOLUTE necessary here because of incorrect incremental info from Gradle
+    // when using RELATIVE or NAME_ONLY: https://github.com/gradle/gradle/issues/9320, and we can't
+    // use @Classpath because we need support for changing .so file names. A better solution will be
+    // custom snapshots from gradle: https://github.com/gradle/gradle/issues/8503
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.ABSOLUTE)
     val projectNativeLibs: FileCollection
-        get() = getProjectNativeLibs(variantScope)
+        get() = getProjectNativeLibs(variantScope).asFileTree.filter(spec)
 
     @get:Classpath
     @get:Optional
@@ -90,21 +100,25 @@ open class MergeNativeLibsTask
     val outputDir: DirectoryProperty = objects.directoryProperty()
 
     private lateinit var variantScope: VariantScope
-    private var containsSubProjects = false
-    private var containsExternalLibraries = false
-
 
     private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     override val incremental: Boolean
         get() = true
 
+    // The runnable implementing the processing is not able to deal with fine-grained file but
+    // instead is expecting directories of files. Use the unfiltered collection (since the filtering
+    // changes the FileCollection of directories into a FileTree of files) to process, but don't
+    // use it as an input, it's covered by the [projectNativeLibs] above.
+    private val unfilteredProjectNativeLibs: FileCollection
+        get() = getProjectNativeLibs(variantScope)
+
     override fun doFullTaskAction() {
         workers.use {
             it.submit(
                 MergeJavaResRunnable::class.java,
                 MergeJavaResRunnable.Params(
-                    projectNativeLibs.files,
+                    unfilteredProjectNativeLibs.files,
                     subProjectNativeLibs?.files,
                     externalLibNativeLibs?.files,
                     null,
@@ -129,7 +143,7 @@ open class MergeNativeLibsTask
             it.submit(
                 MergeJavaResRunnable::class.java,
                 MergeJavaResRunnable.Params(
-                    projectNativeLibs.files,
+                    unfilteredProjectNativeLibs.files,
                     subProjectNativeLibs?.files,
                     externalLibNativeLibs?.files,
                     null,
@@ -183,6 +197,15 @@ open class MergeNativeLibsTask
             task.cacheDir = File(task.intermediateDir, "zip-cache")
             task.incrementalStateFile = File(task.intermediateDir, "merge-state")
         }
+    }
+
+    companion object {
+        val predicate = Predicate<String> { filename ->
+            filename.endsWith(SdkConstants.DOT_NATIVE_LIBS)
+                    || SdkConstants.FN_GDBSERVER == filename
+                    || SdkConstants.FN_GDB_SETUP == filename
+        }
+        val spec: (file: File) -> Boolean = { predicate.test(it.name) }
     }
 }
 
