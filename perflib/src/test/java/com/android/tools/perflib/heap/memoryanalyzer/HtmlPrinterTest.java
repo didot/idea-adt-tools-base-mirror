@@ -1,31 +1,21 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.android.tools.perflib.heap.memoryanalyzer;
 
-import static org.junit.Assert.assertEquals;
-
 import com.android.ddmlib.BitmapDecoder;
-import com.android.tools.perflib.heap.ArrayInstance;
-import com.android.tools.perflib.heap.ClassInstance;
-import com.android.tools.perflib.heap.ClassObj;
-import com.android.tools.perflib.heap.Field;
-import com.android.tools.perflib.heap.Instance;
-import com.android.tools.perflib.heap.StackFrame;
-import com.android.tools.perflib.heap.StackTrace;
-import com.android.tools.perflib.heap.Type;
-
+import com.android.tools.perflib.heap.*;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
-import org.mockito.Answers;
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
+import org.mockito.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+
+import static org.junit.Assert.assertEquals;
 
 /**
  * Tests for {@link HtmlPrinter}.
@@ -114,7 +104,7 @@ public final class HtmlPrinterTest {
     public void testAddImage() throws Exception {
         // arrange
         Mockito.when(mBufferMock.getArrayType()).thenReturn(Type.BYTE);
-        Mockito.when(mBufferMock.asRawByteArray(Mockito.anyInt(), Mockito.anyInt()))
+        Mockito.when(mBufferMock.asRawByteArray(ArgumentMatchers.anyInt(), ArgumentMatchers.anyInt()))
                 .thenReturn(new byte[]{0, 0, 0, 0});
         Mockito.when(mBufferMock.getLength()).thenReturn(4);
         List<ClassInstance.FieldValue> fields = new ArrayList<>();
