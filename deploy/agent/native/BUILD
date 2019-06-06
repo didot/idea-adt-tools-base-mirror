@@ -70,15 +70,15 @@ genrule(
 )
 
 android_cc_binary(
-    name = "raw-libswap",
+    name = "android-libswap",
     abis = [
         "x86",
         "x86_64",
         "armeabi-v7a",
         "arm64-v8a",
     ],
-    binary = ":libswap.so",
-    filename = "libswap.so",
+    binary = ":libswap.so.stripped",
+    filename = "android-libswap.so",
     tags = [
         "no_windows",
     ],
@@ -117,15 +117,15 @@ cc_test(
 )
 
 android_cc_binary(
-    name = "raw-agent_server",
+    name = "android-agent_server",
     abis = [
         "x86",
         "x86_64",
         "armeabi-v7a",
         "arm64-v8a",
     ],
-    binary = ":agent_server",
-    filename = "agent_server",
+    binary = ":agent_server.stripped",
+    filename = "android-agent_server",
     tags = ["no_windows"],
     visibility = ["//visibility:public"],
 )
