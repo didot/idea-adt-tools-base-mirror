@@ -34,7 +34,7 @@ import java.util.concurrent.ExecutorService;
 
 public class MemoryAnalyzer extends Analyzer {
 
-    private Set<MemoryAnalyzerTask> mTasks = new HashSet<MemoryAnalyzerTask>();
+    private Set<MemoryAnalyzerTask> mTasks = new HashSet<>();
 
     private AnalysisReport mOutstandingReport;
 
@@ -89,7 +89,7 @@ public class MemoryAnalyzer extends Analyzer {
         mOutstandingReport.addResultListeners(listeners);
 
         List<ListenableFutureTask<List<AnalysisResultEntry<?>>>> futuresList
-                = new ArrayList<ListenableFutureTask<List<AnalysisResultEntry<?>>>>();
+                = new ArrayList<>();
 
         for (final Capture capture : captureGroup.getCaptures()) {
             if (accept(capture)) {
@@ -98,7 +98,7 @@ public class MemoryAnalyzer extends Analyzer {
                     continue;
                 }
 
-                List<Heap> heapsToUse = new ArrayList<Heap>(snapshot.getHeaps().size());
+                List<Heap> heapsToUse = new ArrayList<>(snapshot.getHeaps().size());
                 for (Heap heap : snapshot.getHeaps()) {
                     if ("app".equals(heap.getName())) {
                         heapsToUse.add(heap);

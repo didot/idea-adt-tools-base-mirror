@@ -47,7 +47,7 @@ public final class LinkEvalDominators extends DominatorsBase {
     public LinkEvalDominators(@NonNull Snapshot snapshot) {
         super(snapshot);
 
-        final Map<Instance, LinkEvalNode> instanceNodeMap = new HashMap<Instance, LinkEvalNode>();
+        final Map<Instance, LinkEvalNode> instanceNodeMap = new HashMap<>();
         TObjectProcedure<Instance> mapProcedure = instance -> {
             LinkEvalNode node = new LinkEvalNode(instance);
             instanceNodeMap.put(instance, node);
@@ -65,7 +65,7 @@ public final class LinkEvalDominators extends DominatorsBase {
         }
 
         Collection<RootObj> roots = snapshot.getGCRoots();
-        Set<Instance> filteredRootInstances = new HashSet<Instance>(roots.size());
+        Set<Instance> filteredRootInstances = new HashSet<>(roots.size());
         for (RootObj root : roots) {
             Instance referredInstance = root.getReferredInstance();
             if (referredInstance != null) {
@@ -93,7 +93,7 @@ public final class LinkEvalDominators extends DominatorsBase {
             rootNode.setBackReferences(augmentedBackReferences);
         }
 
-        mNodes = new ArrayList<LinkEvalNode>();
+        mNodes = new ArrayList<>();
         depthFirstSearch(sentinelRootNode);
         mNodes.trimToSize();
 
@@ -195,7 +195,7 @@ public final class LinkEvalDominators extends DominatorsBase {
         //    return topologicalOrder;
         //}
 
-        Stack<LinkEvalNode> nodeStack = new Stack<LinkEvalNode>();
+        Stack<LinkEvalNode> nodeStack = new Stack<>();
         TIntStack childOffsetStack = new TIntStack();
         int topologicalOrder = 0;
 
@@ -233,7 +233,7 @@ public final class LinkEvalDominators extends DominatorsBase {
 
     protected static class LinkEval {
         @NonNull
-        private List<LinkEvalNode> mCompressArray = new ArrayList<LinkEvalNode>();
+        private List<LinkEvalNode> mCompressArray = new ArrayList<>();
 
         public static void link(@NonNull LinkEvalNode ancestor, @NonNull LinkEvalNode child) {
             child.setAncestor(ancestor);
@@ -318,7 +318,7 @@ public final class LinkEvalDominators extends DominatorsBase {
             mParent = null;
             mAncestor = null;
             mLabel = this;
-            mSemisDominated = new ArrayList<LinkEvalNode>(1);
+            mSemisDominated = new ArrayList<>(1);
         }
 
         public final Instance getInstance() {
@@ -347,8 +347,8 @@ public final class LinkEvalDominators extends DominatorsBase {
             }
 
             // Filter reverse reference list for unreachable nodes.
-            List<LinkEvalNode> backReferenceInstances = new ArrayList<LinkEvalNode>(
-                    mInstance.getHardReverseReferences().size());
+            List<LinkEvalNode> backReferenceInstances = new ArrayList<>(
+              mInstance.getHardReverseReferences().size());
             for (Instance instance : mInstance.getHardReverseReferences()) {
                 if (instance.isReachable()) {
                     backReferenceInstances.add(instanceLookup.get(instance));

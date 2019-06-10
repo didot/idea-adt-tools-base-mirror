@@ -17,8 +17,10 @@
 package com.android.tools.deployer;
 
 import com.google.common.io.BaseEncoding;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
@@ -62,7 +64,7 @@ public class ZipUtils {
             // buf.getShort();
             // buf.getInt();
             // buf.getInt();
-            String name = new String(buf.array(), buf.position(), pathLength);
+            String name = new String(buf.array(), buf.position(), pathLength, StandardCharsets.UTF_8);
             buf.position(buf.position() + pathLength + extraLength + commentLength);
             crcs.put(name, crc32);
         }
