@@ -27,7 +27,7 @@ public class ClassObj extends Instance implements Comparable<ClassObj> {
     public static class HeapData {
         public int mShallowSize = 0;
 
-        public List<Instance> mInstances = new ArrayList<Instance>();
+        public List<Instance> mInstances = new ArrayList<>();
     }
 
     @NonNull
@@ -48,10 +48,10 @@ public class ClassObj extends Instance implements Comparable<ClassObj> {
     private boolean mIsSoftReference = false;
 
     @NonNull
-    TIntObjectHashMap<HeapData> mHeapData = new TIntObjectHashMap<HeapData>();
+    TIntObjectHashMap<HeapData> mHeapData = new TIntObjectHashMap<>();
 
     @NonNull
-    Set<ClassObj> mSubclasses = new HashSet<ClassObj>();
+    Set<ClassObj> mSubclasses = new HashSet<>();
 
     public ClassObj(long id, @NonNull StackTrace stack, @NonNull String className,
             long staticFieldsOffset) {
@@ -152,7 +152,7 @@ public class ClassObj extends Instance implements Comparable<ClassObj> {
 
     @NonNull
     public Map<Field, Object> getStaticFieldValues() {
-        Map<Field, Object> result = new HashMap<Field, Object>();
+        Map<Field, Object> result = new HashMap<>();
         getBuffer().setPosition(mStaticFieldsOffset);
 
         int numEntries = readUnsignedShort();
@@ -254,7 +254,7 @@ public class ClassObj extends Instance implements Comparable<ClassObj> {
 
     public List<Instance> getInstancesList() {
         int count = getInstanceCount();
-        ArrayList<Instance> resultList = new ArrayList<Instance>(count);
+        ArrayList<Instance> resultList = new ArrayList<>(count);
         for (int heapId : mHeapData.keys()) {
             resultList.addAll(getHeapInstances(heapId));
         }
@@ -264,7 +264,7 @@ public class ClassObj extends Instance implements Comparable<ClassObj> {
     @NonNull
     public List<Instance> getHeapInstances(int heapId) {
         HeapData result = mHeapData.get(heapId);
-        return result == null ? new ArrayList<Instance>(0) : result.mInstances;
+        return result == null ? new ArrayList<>(0) : result.mInstances;
     }
 
     public int getHeapInstancesCount(int heapId) {
@@ -295,9 +295,9 @@ public class ClassObj extends Instance implements Comparable<ClassObj> {
 
     @NonNull
     public List<ClassObj> getDescendantClasses() {
-        List<ClassObj> descendants = new ArrayList<ClassObj>();
+        List<ClassObj> descendants = new ArrayList<>();
 
-        Stack<ClassObj> searchStack = new Stack<ClassObj>();
+        Stack<ClassObj> searchStack = new Stack<>();
         searchStack.push(this);
 
         while (!searchStack.isEmpty()) {

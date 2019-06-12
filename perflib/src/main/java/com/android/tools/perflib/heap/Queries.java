@@ -68,9 +68,9 @@ public class Queries {
     public static Map<String, Set<ClassObj>> classes(@NonNull Snapshot snapshot,
             @Nullable String[] excludedPrefixes) {
         TreeMap<String, Set<ClassObj>> result =
-                new TreeMap<String, Set<ClassObj>>();
+          new TreeMap<>();
 
-        Set<ClassObj> classes = new TreeSet<ClassObj>();
+        Set<ClassObj> classes = new TreeSet<>();
 
         //  Build a set of all classes across all heaps
         for (Heap heap : snapshot.mHeaps) {
@@ -107,7 +107,7 @@ public class Queries {
             Set<ClassObj> classSet = result.get(packageName);
 
             if (classSet == null) {
-                classSet = new TreeSet<ClassObj>();
+                classSet = new TreeSet<>();
                 result.put(packageName, classSet);
             }
 
@@ -127,7 +127,7 @@ public class Queries {
     @NonNull
     public static Collection<ClassObj> commonClasses(@NonNull Snapshot first,
             @NonNull Snapshot second) {
-        Collection<ClassObj> classes = new ArrayList<ClassObj>();
+        Collection<ClassObj> classes = new ArrayList<>();
         for (Heap heap : first.getHeaps()) {
             for (ClassObj clazz : heap.getClasses()) {
                 if (second.findClass(clazz.getClassName()) != null) {
@@ -175,12 +175,12 @@ public class Queries {
             throw new IllegalArgumentException("Class not found: " + baseClassName);
         }
 
-        ArrayList<ClassObj> classList = new ArrayList<ClassObj>();
+        ArrayList<ClassObj> classList = new ArrayList<>();
 
         classList.add(theClass);
         classList.addAll(traverseSubclasses(theClass));
 
-        ArrayList<Instance> instanceList = new ArrayList<Instance>();
+        ArrayList<Instance> instanceList = new ArrayList<>();
 
         for (ClassObj someClass : classList) {
             instanceList.addAll(someClass.getInstancesList());
@@ -195,7 +195,7 @@ public class Queries {
 
     @NonNull
     private static ArrayList<ClassObj> traverseSubclasses(@NonNull ClassObj base) {
-        ArrayList<ClassObj> result = new ArrayList<ClassObj>();
+        ArrayList<ClassObj> result = new ArrayList<>();
 
         for (ClassObj subclass : base.mSubclasses) {
             result.add(subclass);
@@ -223,7 +223,7 @@ public class Queries {
 
     @NonNull
     public static final Instance[] newInstances(@NonNull Snapshot older, @NonNull Snapshot newer) {
-        final ArrayList<Instance> resultList = new ArrayList<Instance>();
+        final ArrayList<Instance> resultList = new ArrayList<>();
 
         for (Heap newHeap : newer.mHeaps) {
             final Heap oldHeap = older.getHeap(newHeap.getName());

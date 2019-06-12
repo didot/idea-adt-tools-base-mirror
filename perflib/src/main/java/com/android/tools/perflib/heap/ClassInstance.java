@@ -19,6 +19,7 @@ package com.android.tools.perflib.heap;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.annotations.VisibleForTesting;
+
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +36,7 @@ public class ClassInstance extends Instance {
     @VisibleForTesting
     @NonNull
     List<FieldValue> getFields(String name) {
-        ArrayList<FieldValue> result = new ArrayList<FieldValue>();
+        ArrayList<FieldValue> result = new ArrayList<>();
         for (FieldValue value : getValues()) {
             if (value.getField().getName().equals(name)) {
                 result.add(value);
@@ -46,7 +47,7 @@ public class ClassInstance extends Instance {
 
     @NonNull
     public List<FieldValue> getValues() {
-        ArrayList<FieldValue> result = new ArrayList<FieldValue>();
+        ArrayList<FieldValue> result = new ArrayList<>();
 
         ClassObj clazz = getClassObj();
         getBuffer().setPosition(mValuesOffset);

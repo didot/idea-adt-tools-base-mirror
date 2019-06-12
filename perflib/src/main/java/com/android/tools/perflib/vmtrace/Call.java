@@ -22,11 +22,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.primitives.UnsignedInts;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Stack;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 public class Call {
@@ -72,7 +68,7 @@ public class Call {
             mCallees = Collections.emptyList();
         } else {
             backStack.push(mMethodId);
-            List<Call> callees = new ArrayList<Call>(builder.mCallees.size());
+            List<Call> callees = new ArrayList<>(builder.mCallees.size());
             for (Builder b : builder.mCallees) {
                 callees.add(b.build(backStack));
             }
@@ -170,7 +166,7 @@ public class Call {
 
         public void addCallee(Builder c) {
             if (mCallees == null) {
-                mCallees = new ArrayList<Builder>();
+                mCallees = new ArrayList<>();
             }
             mCallees.add(c);
         }
@@ -258,7 +254,7 @@ public class Call {
      * were invoked.
      */
     private static class CallHierarchyIterator implements Iterator<Call> {
-        private final Stack<Call> mCallStack = new Stack<Call>();
+        private final Stack<Call> mCallStack = new Stack<>();
 
         public CallHierarchyIterator(@NonNull Call top) {
             mCallStack.push(top);

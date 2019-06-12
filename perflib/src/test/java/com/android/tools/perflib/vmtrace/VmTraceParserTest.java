@@ -23,6 +23,7 @@ import junit.framework.TestCase;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -121,7 +122,7 @@ public class VmTraceParserTest extends TestCase {
         MethodInfo info = traceData.getMethod(0x259c);
         assertEquals("ˊ", info.methodName);
         assertEquals(1, info.methodName.length());
-        assertEquals(2, info.methodName.getBytes().length);
+        assertEquals(2, info.methodName.getBytes(StandardCharsets.UTF_8).length);
     }
 
     public void testMisMatchedTrace() throws IOException {

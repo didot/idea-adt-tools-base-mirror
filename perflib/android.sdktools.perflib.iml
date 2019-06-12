@@ -19,5 +19,6 @@
     <orderEntry type="library" name="com.android.tools:common" level="project" />
     <orderEntry type="library" name="com.android.tools.ddms:ddmlib" level="project" />
     <orderEntry type="library" scope="TEST" name="com.android.tools:testutils" level="project" />
+    <orderEntry type="library" scope="TEST" name="Mocks" level="project" />
   </component>
 </module>

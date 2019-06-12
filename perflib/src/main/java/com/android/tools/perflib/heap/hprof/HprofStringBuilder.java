@@ -17,7 +17,6 @@
 package com.android.tools.perflib.heap.hprof;
 
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,8 +28,8 @@ public class HprofStringBuilder {
 
     public HprofStringBuilder(int time) {
         mTime = time;
-        mStrings = new HashMap<String, Integer>();
-        mStringRecords = new ArrayList<HprofString>();
+        mStrings = new HashMap<>();
+        mStringRecords = new ArrayList<>();
     }
 
     /**

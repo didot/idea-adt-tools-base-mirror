@@ -29,10 +29,7 @@ import gnu.trove.THashSet;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TLongObjectHashMap;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
+import java.util.*;
 
 /*
  * A snapshot of all of the heaps, and related meta-data, for the runtime at a given instant.
@@ -91,22 +88,22 @@ public class Snapshot extends Capture {
     private final DataBuffer mBuffer;
 
     @NonNull
-    ArrayList<Heap> mHeaps = new ArrayList<Heap>();
+    ArrayList<Heap> mHeaps = new ArrayList<>();
 
     @NonNull
     Heap mCurrentHeap;
 
     //  Root objects such as interned strings, jni locals, etc
     @NonNull
-    ArrayList<RootObj> mRoots = new ArrayList<RootObj>();
+    ArrayList<RootObj> mRoots = new ArrayList<>();
 
     //  List stack traces, which are lists of stack frames
     @NonNull
-    TIntObjectHashMap<StackTrace> mTraces = new TIntObjectHashMap<StackTrace>();
+    TIntObjectHashMap<StackTrace> mTraces = new TIntObjectHashMap<>();
 
     //  List of individual stack frames
     @NonNull
-    TLongObjectHashMap<StackFrame> mFrames = new TLongObjectHashMap<StackFrame>();
+    TLongObjectHashMap<StackFrame> mFrames = new TLongObjectHashMap<>();
 
     private List<Instance> mTopSort;
 
@@ -116,7 +113,7 @@ public class Snapshot extends Capture {
             = DominatorComputationStage.INITIALIZING;
 
     //  The set of all classes that are (sub)class(es) of java.lang.ref.Reference.
-    private THashSet<ClassObj> mReferenceClasses = new THashSet<ClassObj>();
+    private THashSet<ClassObj> mReferenceClasses = new THashSet<>();
 
     private int[] mTypeSizes;
 
@@ -129,7 +126,7 @@ public class Snapshot extends Capture {
 
     @NonNull
     public static Snapshot createSnapshot(@NonNull DataBuffer buffer, @NonNull ProguardMap map) {
-        return createSnapshot(buffer, map, Arrays.asList(new NativeRegistryPostProcessor()));
+        return createSnapshot(buffer, map, Collections.singletonList(new NativeRegistryPostProcessor()));
     }
 
     @NonNull
@@ -353,7 +350,7 @@ public class Snapshot extends Capture {
      */
     @NonNull
     public final Collection<ClassObj> findClasses(String name) {
-        ArrayList<ClassObj> classObjs = new ArrayList<ClassObj>();
+        ArrayList<ClassObj> classObjs = new ArrayList<>();
 
         //noinspection ForLoopReplaceableByForEach
         for (int i = 0; i < mHeaps.size(); i++) {
@@ -427,7 +424,7 @@ public class Snapshot extends Capture {
     @NonNull
     public List<ClassObj> findAllDescendantClasses(@NonNull String className) {
         Collection<ClassObj> ancestorClasses = findClasses(className);
-        List<ClassObj> descendants = new ArrayList<ClassObj>();
+        List<ClassObj> descendants = new ArrayList<>();
         for (ClassObj ancestor : ancestorClasses) {
             descendants.addAll(ancestor.getDescendantClasses());
         }
@@ -489,7 +486,7 @@ public class Snapshot extends Capture {
 
     @NonNull
     public List<Instance> getReachableInstances() {
-        List<Instance> result = new ArrayList<Instance>(mTopSort.size());
+        List<Instance> result = new ArrayList<>(mTopSort.size());
         for (Instance node : mTopSort) {
             if (node.getImmediateDominator() != null) {
                 result.add(node);
