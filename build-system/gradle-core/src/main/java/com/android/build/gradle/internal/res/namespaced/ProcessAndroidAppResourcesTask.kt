@@ -20,7 +20,7 @@ import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.api.artifact.singlePath
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
-import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.OutputScope
@@ -35,11 +35,13 @@ import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
@@ -63,7 +65,7 @@ import javax.inject.Inject
  * as well as the generated R classes for this app that can be compiled against.
  */
 @CacheableTask
-open class ProcessAndroidAppResourcesTask
+abstract class ProcessAndroidAppResourcesTask
 @Inject constructor(objects: ObjectFactory, workerExecutor: WorkerExecutor) : NonIncrementalTask() {
     private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
@@ -78,8 +80,12 @@ open class ProcessAndroidAppResourcesTask
     var convertedLibraryDependencies: BuildableArtifact? = null
         private set
     @get:InputFiles @get:PathSensitive(PathSensitivity.NONE) lateinit var sharedLibraryDependencies: FileCollection private set
-    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection private set
+
+    @get:Input
+    lateinit var aapt2Version: String
+        private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -195,7 +201,9 @@ open class ProcessAndroidAppResourcesTask
                     FileUtils.join(
                             variantScope.globalScope.intermediatesDir, "res-process-intermediate", variantScope.variantConfiguration.dirName)
             task.resourceApUnderscore = resourceApUnderscore
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+            val (aapt2FromMaven, aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
             task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
             task.errorFormatMode = SyncOptions.getErrorFormatMode(
                 variantScope.globalScope.projectOptions

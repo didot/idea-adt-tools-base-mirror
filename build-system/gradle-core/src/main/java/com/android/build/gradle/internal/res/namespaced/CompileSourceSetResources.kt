@@ -18,7 +18,7 @@ package com.android.build.gradle.internal.res.namespaced
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.res.Aapt2CompileRunnable
-import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
@@ -30,15 +30,13 @@ import com.android.builder.internal.aapt.v2.Aapt2RenamingConventions
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.ide.common.resources.FileStatus
 import com.android.utils.FileUtils
-import org.gradle.api.file.Directory
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.FileCollection
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.SkipWhenEmpty
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.workers.WorkerExecutor
@@ -52,12 +50,13 @@ import javax.inject.Inject
  *
  * The link step handles resource overlays.
  */
-open class CompileSourceSetResources
+abstract class CompileSourceSetResources
 @Inject constructor(workerExecutor: WorkerExecutor, objects: ObjectFactory) : IncrementalTask() {
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection
+    @get:Input
+    lateinit var aapt2Version: String
         private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
     @get:InputFiles
     @get:SkipWhenEmpty
@@ -225,7 +224,10 @@ open class CompileSourceSetResources
             task.isPngCrunching = variantScope.isCrunchPngs
             task.isPseudoLocalize =
                     variantScope.variantData.variantConfiguration.buildType.isPseudoLocalesEnabled
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+
+            val (aapt2FromMaven,aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
 
             task.dependsOn(variantScope.taskContainer.resourceGenTask)
 

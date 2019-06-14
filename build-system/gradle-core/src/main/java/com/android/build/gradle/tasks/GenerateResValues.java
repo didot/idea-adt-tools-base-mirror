@@ -88,9 +88,10 @@ public class GenerateResValues extends NonIncrementalTask {
         File folder = getResOutputDir();
         List<Object> resolvedItems = getItems();
 
-        if (resolvedItems.isEmpty()) {
-            FileUtils.cleanOutputDir(folder);
-        } else {
+        // Always clean up the directory before use.
+        FileUtils.cleanOutputDir(folder);
+
+        if (!resolvedItems.isEmpty()) {
             ResValueGenerator generator = new ResValueGenerator(folder);
             generator.addItems(getItems());
 

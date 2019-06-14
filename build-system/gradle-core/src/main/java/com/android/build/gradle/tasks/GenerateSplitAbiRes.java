@@ -63,12 +63,15 @@ import java.util.Set;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import javax.inject.Inject;
+import kotlin.Pair;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.RegularFile;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
@@ -77,7 +80,7 @@ import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.workers.WorkerExecutor;
 
 /** Generates all metadata (like AndroidManifest.xml) necessary for a ABI dimension split APK. */
-public class GenerateSplitAbiRes extends NonIncrementalTask {
+public abstract class GenerateSplitAbiRes extends NonIncrementalTask {
 
     @NonNull private final WorkerExecutorFacade workers;
 
@@ -105,7 +108,10 @@ public class GenerateSplitAbiRes extends NonIncrementalTask {
     private VariantType variantType;
     @VisibleForTesting @Nullable Supplier<String> featureNameSupplier;
     @Nullable private FileCollection applicationIdOverride;
-    private FileCollection aapt2FromMaven;
+    private String aapt2Version;
+
+    @Internal
+    public abstract ConfigurableFileCollection getAapt2FromMaven();
 
     private File mergeBlameFolder;
 
@@ -171,10 +177,9 @@ public class GenerateSplitAbiRes extends NonIncrementalTask {
         return applicationIdOverride;
     }
 
-    @InputFiles
-    @PathSensitive(PathSensitivity.RELATIVE)
-    public FileCollection getAapt2FromMaven() {
-        return aapt2FromMaven;
+    @Input
+    public String getAapt2Version() {
+        return aapt2Version;
     }
 
     @Override
@@ -199,7 +204,7 @@ public class GenerateSplitAbiRes extends NonIncrementalTask {
 
                 Aapt2ServiceKey aapt2ServiceKey =
                         Aapt2DaemonManagerService.registerAaptService(
-                                aapt2FromMaven, new LoggerWrapper(getLogger()));
+                                getAapt2FromMaven(), new LoggerWrapper(getLogger()));
                 Aapt2ProcessResourcesRunnable.Params params =
                         new Aapt2ProcessResourcesRunnable.Params(
                                 aapt2ServiceKey,
@@ -377,7 +382,10 @@ public class GenerateSplitAbiRes extends NonIncrementalTask {
             task.debuggable = config.getBuildType().isDebuggable();
             task.aaptOptions =
                     DslAdaptersKt.convert(scope.getGlobalScope().getExtension().getAaptOptions());
-            task.aapt2FromMaven = Aapt2MavenUtils.getAapt2FromMaven(scope.getGlobalScope());
+            Pair<FileCollection, String> aapt2AndVersion =
+                    Aapt2MavenUtils.getAapt2FromMavenAndVersion(scope.getGlobalScope());
+            task.getAapt2FromMaven().from(aapt2AndVersion.getFirst());
+            task.aapt2Version = aapt2AndVersion.getSecond();
 
             task.androidJarProvider =
                     scope.getGlobalScope().getSdkComponents().getAndroidJarProvider();

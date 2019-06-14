@@ -19,7 +19,9 @@ package com.android.build.gradle.tasks;
 import static com.android.build.VariantOutput.OutputType.FULL_SPLIT;
 import static com.android.build.VariantOutput.OutputType.MAIN;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.JAR;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.LINT;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
 import static com.android.build.gradle.internal.scope.AnchorOutputType.ALL_CLASSES;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.LIBRARY_MANIFEST;
@@ -31,6 +33,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.dsl.LintOptions;
+import com.android.build.gradle.internal.ide.dependencies.ArtifactUtils;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
@@ -39,6 +42,9 @@ import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
+import com.android.build.gradle.internal.variant.TestVariantData;
+import com.android.build.gradle.internal.variant.TestedVariantData;
+import com.android.builder.core.VariantType;
 import com.android.builder.model.Version;
 import com.android.repository.Revision;
 import com.android.tools.lint.gradle.api.ReflectiveLintRunner;
@@ -47,9 +53,11 @@ import com.google.common.collect.Streams;
 import java.io.File;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.ArtifactCollection;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileSystemLocation;
@@ -102,6 +110,7 @@ public abstract class LintBaseTask extends DefaultTask {
 
     protected abstract class LintBaseTaskDescriptor extends
             com.android.tools.lint.gradle.api.LintExecutionRequest {
+
         @Override
         @Nullable
         public File getSdkHome() {
@@ -147,6 +156,42 @@ public abstract class LintBaseTask extends DefaultTask {
         @Override
         public String getGradlePluginVersion() {
             return Version.ANDROID_GRADLE_PLUGIN_VERSION;
+        }
+    }
+
+    /**
+     * The jar artifacts are used in ModelBuilder eventually, we add them to inputs here so Gradle
+     * would make sure they are resolved before starting the task.
+     */
+    protected static void addJarArtifactsToInputs(
+            @NonNull ConfigurableFileCollection inputs, @NonNull VariantScope variantScope) {
+        inputs.from(ArtifactUtils.computeArtifactList(variantScope, COMPILE_CLASSPATH, ALL, JAR));
+        inputs.from(ArtifactUtils.computeArtifactList(variantScope, RUNTIME_CLASSPATH, ALL, JAR));
+
+        if (variantScope.getVariantData() instanceof TestedVariantData) {
+            for (VariantType variantType : VariantType.Companion.getTestComponents()) {
+                TestVariantData testVariantData =
+                        ((TestedVariantData) variantScope.getVariantData())
+                                .getTestVariantData(variantType);
+                if (testVariantData != null) {
+                    inputs.from(
+                            (Callable<ArtifactCollection>)
+                                    (() ->
+                                            ArtifactUtils.computeArtifactList(
+                                                    testVariantData.getScope(),
+                                                    COMPILE_CLASSPATH,
+                                                    ALL,
+                                                    JAR)));
+                    inputs.from(
+                            (Callable<ArtifactCollection>)
+                                    (() ->
+                                            ArtifactUtils.computeArtifactList(
+                                                    testVariantData.getScope(),
+                                                    RUNTIME_CLASSPATH,
+                                                    ALL,
+                                                    JAR)));
+                }
+            }
         }
     }
 
@@ -201,6 +246,8 @@ public abstract class LintBaseTask extends DefaultTask {
             // these inputs are only there to ensure that the lint task runs after these build
             // intermediates are built.
             allInputs.from(artifacts.getFinalArtifactFiles(ALL_CLASSES));
+
+            addJarArtifactsToInputs(allInputs, variantScope);
         }
 
         @NonNull

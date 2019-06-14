@@ -42,6 +42,10 @@ public class GenerateResValuesTest {
     @Test
     public void test () throws IOException, ParserConfigurationException {
         File testDir = temporaryFolder.newFolder();
+        File dummyFile = new File(testDir, "dummy.txt");
+        dummyFile.createNewFile();
+        assertThat(dummyFile).exists();
+
         Project project = ProjectBuilder.builder().withProjectDir(testDir).build();
 
         GenerateResValues task =  project.getTasks().create("test", GenerateResValues.class);
@@ -60,5 +64,7 @@ public class GenerateResValuesTest {
                         + "    <string name=\"VALUE_DEFAULT\" translatable=\"false\">1</string>\n"
                 + "\n"
                 + "</resources>");
+
+        assertThat(dummyFile).doesNotExist();
     }
 }

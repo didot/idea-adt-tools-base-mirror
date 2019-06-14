@@ -20,6 +20,7 @@ import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.api.artifact.singleFile
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.NonIncrementalTask
@@ -32,6 +33,7 @@ import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.utils.FileUtils
 import com.google.common.base.Suppliers
 import com.google.common.collect.ImmutableList
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.FileCollection
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
@@ -53,7 +55,7 @@ import javax.inject.Inject
  * Task to link the resources in a library project into an AAPT2 static library.
  */
 @CacheableTask
-open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: WorkerExecutor) :
+abstract class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: WorkerExecutor) :
     NonIncrementalTask() {
 
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var manifestFile: BuildableArtifact private set
@@ -72,9 +74,11 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
     @get:Internal lateinit var packageForRSupplier: Supplier<String> private set
     @Input fun getPackageForR() = packageForRSupplier.get()
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection private set
+    @get:Input
+    lateinit var aapt2Version: String
+        private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
     @get:OutputDirectory lateinit var aaptIntermediateDir: File private set
     @get:OutputFile lateinit var staticLibApk: File private set
@@ -176,7 +180,9 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
                             variantScope.globalScope.intermediatesDir, "res-link-intermediate", variantScope.variantConfiguration.dirName)
             task.staticLibApk = staticLibApk
             task.packageForRSupplier = Suppliers.memoize(variantScope.variantConfiguration::getOriginalApplicationId)
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+            val (aapt2FromMaven, aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
 
             task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
 
