@@ -298,7 +298,14 @@ class Aapt2DaemonImpl(
         private var foundError: Boolean = false
 
         override fun out(line: String?) {
-            line?.let { logger.lifecycle("%1\$s: %2\$s", displayName, it) }
+            line?.let {
+                if (line.contains("resources.arsc") && line.contains("is compressed")) {
+                    // Ignore information about android.jar symbols being compressed (std out)
+                    // b/130617130
+                    return
+                }
+                logger.lifecycle("%1\$s: %2\$s", displayName, it)
+            }
         }
 
         override fun err(line: String?) {
@@ -331,6 +338,11 @@ class Aapt2DaemonImpl(
                     }
                 }
                 else -> {
+                    if (line.contains("resources.arsc") && line.contains("is compressed")) {
+                        // Ignore information about android.jar symbols being compressed (std err)
+                        // b/130617130
+                        return
+                    }
                     if (errors == null) {
                         errors = StringBuilder()
                     }
