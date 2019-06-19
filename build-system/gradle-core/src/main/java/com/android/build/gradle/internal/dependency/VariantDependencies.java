@@ -271,10 +271,14 @@ public class VariantDependencies {
             runtimeAttributes.attribute(Usage.USAGE_ATTRIBUTE, runtimeUsage);
             runtimeAttributes.attribute(AndroidTypeAttr.ATTRIBUTE, consumeType);
 
+            // setup constraints if the flag isn't off and if the moduleis not a dynamic feature
+            // or a test app (ie consumingType is not an APK).
+            // see b/123781255
             if (variantScope
-                    .getGlobalScope()
-                    .getProjectOptions()
-                    .get(BooleanOption.USE_DEPENDENCY_CONSTRAINTS)) {
+                            .getGlobalScope()
+                            .getProjectOptions()
+                            .get(BooleanOption.USE_DEPENDENCY_CONSTRAINTS)
+                    && !consumeType.getName().equals(AndroidTypeAttr.APK)) {
                 // make compileClasspath match runtimeClasspath
                 compileClasspath
                         .getIncoming()
