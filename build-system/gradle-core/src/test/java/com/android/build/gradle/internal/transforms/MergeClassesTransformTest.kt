@@ -91,11 +91,23 @@ class MergeClassesTransformTest {
         val jarFile1 = tmp.newFile("foo.jar")
         TestInputsGenerator.writeJarWithEmptyEntries(
             jarFile1.toPath(),
-            listOf("Foo.class", "foo.txt", "META-INF/duplicate.kotlin_module"))
+            listOf(
+                "Foo.class",
+                "foo.txt",
+                "META-INF/duplicate.kotlin_module",
+                "duplicate/module-info.class"
+            )
+        )
         val jarFile2 = tmp.newFile("bar.jar")
         TestInputsGenerator.writeJarWithEmptyEntries(
             jarFile2.toPath(),
-            listOf("Bar.class", "bar.txt", "META-INF/duplicate.kotlin_module"))
+            listOf(
+                "Bar.class",
+                "bar.txt",
+                "META-INF/duplicate.kotlin_module",
+                "duplicate/module-info.class"
+            )
+        )
 
         val invocation =
             invocationBuilder()
@@ -122,6 +134,7 @@ class MergeClassesTransformTest {
             assertThat(it).doesNotContain("foo.txt")
             assertThat(it).doesNotContain("bar.txt")
             assertThat(it).doesNotContain("META-INF/duplicate.kotlin_module")
+            assertThat(it).doesNotContain("duplicate/module-info.class")
         }
     }
 }

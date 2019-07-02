@@ -18,9 +18,11 @@ package com.android.build.gradle.internal.tasks.databinding
 
 import android.databinding.tool.CompilerArguments
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_BASE_CLASS_LOG_ARTIFACT
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_MERGE
+import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_PACKAGE
 import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_DATA_BINDING_BASE_FEATURE_INFO
 import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_DATA_BINDING_FEATURE_INFO
 import com.android.build.gradle.internal.scope.VariantScope
@@ -193,7 +195,7 @@ class DataBindingCompilerArguments constructor(
                 dependencyArtifactsDir =
                         artifacts.getFinalArtifactFiles(DATA_BINDING_DEPENDENCY_ARTIFACTS),
                 layoutInfoDir =
-                        artifacts.getFinalArtifactFiles(DATA_BINDING_LAYOUT_INFO_TYPE_MERGE),
+                        artifacts.getFinalArtifactFiles(getLayoutInfoArtifactType(variantScope)),
                 classLogDir = artifacts.getFinalArtifactFiles(DATA_BINDING_BASE_CLASS_LOG_ARTIFACT),
                 baseFeatureInfoDir =
                         artifacts.getFinalArtifactFilesIfPresent(
@@ -208,6 +210,19 @@ class DataBindingCompilerArguments constructor(
                 isEnabledForTests = globalScope.extension.dataBinding.isEnabledForTests,
                 isEnableV2 = true
             )
+        }
+
+        /**
+         * Returns the appropriate artifact type of the layout info directory so that it does not
+         * trigger unnecessary computations (see bug 133092984 and 110412851).
+         */
+        @JvmStatic
+        fun getLayoutInfoArtifactType(variantScope: VariantScope): InternalArtifactType {
+            return if (variantScope.variantData.type.isAar) {
+                DATA_BINDING_LAYOUT_INFO_TYPE_PACKAGE
+            } else {
+                DATA_BINDING_LAYOUT_INFO_TYPE_MERGE
+            }
         }
     }
 }

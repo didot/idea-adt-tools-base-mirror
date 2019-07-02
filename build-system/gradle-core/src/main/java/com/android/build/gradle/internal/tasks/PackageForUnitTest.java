@@ -21,8 +21,11 @@ import static com.android.build.gradle.internal.scope.InternalArtifactType.MERGE
 import static com.android.build.gradle.internal.scope.InternalArtifactType.PROCESSED_RES;
 
 import com.android.annotations.NonNull;
+import com.android.build.VariantOutput;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
+import com.android.build.gradle.internal.scope.BuildElements;
+import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
@@ -100,10 +103,37 @@ public class PackageForUnitTest extends NonIncrementalTask {
     }
 
     @NonNull
-    private static File apkFrom(BuildableArtifact compiledResourcesZip) {
-        return Iterables.getOnlyElement(
-                ExistingBuildElements.from(PROCESSED_RES, compiledResourcesZip))
-                .getOutputFile();
+    static File apkFrom(BuildableArtifact compiledResourcesZip) {
+        BuildElements builtElements =
+                ExistingBuildElements.from(PROCESSED_RES, compiledResourcesZip);
+
+        if (builtElements.size() == 1) {
+            return Iterables.getOnlyElement(builtElements).getOutputFile();
+        }
+        for (BuildOutput buildOutput : builtElements.getElements()) {
+            if (buildOutput.getFilters().isEmpty()) {
+                // universal APK, take it !
+                return buildOutput.getOutputFile();
+            }
+            if (buildOutput.getFilters().size() == 1
+                    && buildOutput.getFilter(VariantOutput.FilterType.ABI.name()) != null) {
+
+                // the only filter is ABI, good enough for getting all resources.
+                return buildOutput.getOutputFile();
+            }
+        }
+
+        // if we are here, we could not find an appropriate build output, raise this as an error.
+        if (builtElements.isEmpty()) {
+            throw new RuntimeException("No resources build output, please file a bug.");
+        }
+        StringBuilder sb = new StringBuilder("Found following build outputs : \n");
+        builtElements.forEach(
+                it -> {
+                    sb.append("BuildOutput: ${Joiner.on(',').join(it.filters)}\n");
+                });
+        sb.append("Cannot find a build output with all resources, please file a bug.");
+        throw new RuntimeException(sb.toString());
     }
 
     public static class CreationAction extends VariantTaskCreationAction<PackageForUnitTest> {
