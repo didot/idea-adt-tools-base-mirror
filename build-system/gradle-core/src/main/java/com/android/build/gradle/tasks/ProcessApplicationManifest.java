@@ -373,19 +373,9 @@ public abstract class ProcessApplicationManifest extends ManifestProcessorTask {
     @Optional
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
-    public FileCollection getLocalLibraries() {
-        if (resourcesComputer.getLocalLibraries() != null) {
-            return resourcesComputer.getLocalLibraries().getArtifactFiles();
-        }
-        return null;
-    }
-
-    @Optional
-    @InputFiles
-    @PathSensitive(PathSensitivity.RELATIVE)
-    public FileCollection getRemoteLibraries() {
-        if (resourcesComputer.getRemoteLibraries() != null) {
-            return resourcesComputer.getRemoteLibraries().getArtifactFiles();
+    public FileCollection getLibraries() {
+        if (resourcesComputer.getLibraries() != null) {
+            return resourcesComputer.getLibraries().getArtifactFiles();
         }
         return null;
     }
