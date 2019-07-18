@@ -73,17 +73,15 @@ bool DeltaPreinstallCommand::SendApkToPackageManager(
   std::string apk = patch.src_absolute_path();
   parameters.push_back(apk.substr(apk.rfind("/") + 1));
 
-  int pm_stdout, pm_stderr, pm_stdin, pid;
-  workspace_.GetExecutor().ForkAndExec("cmd", parameters, &pm_stdin, &pm_stdout,
-                                       &pm_stderr, &pid);
+  int pm_stdin, pid;
+  workspace_.GetExecutor().ForkAndExec("cmd", parameters, &pm_stdin, nullptr,
+                                       nullptr, &pid);
 
   PatchApplier patchApplier(workspace_.GetRoot());
   patchApplier.ApplyPatchToFD(patch, pm_stdin);
 
   // Clean up
   close(pm_stdin);
-  close(pm_stdout);
-  close(pm_stderr);
   int status;
   waitpid(pid, &status, 0);
 
