@@ -64,7 +64,7 @@ public class ApkSwapper {
         // multiple applications to swap. This could happen if an instrumentation package targets
         // multiple other packages; we may elect to fix this limitation in the future.
         if (dump.packagePids.size() > 1) {
-            throw DeployerException.swapFailed("Cannot swap multiple packages");
+            throw DeployerException.swapMultiplePackages();
         }
 
         // TODO: Add a new installer command? Add a new flag?
@@ -201,7 +201,7 @@ public class ApkSwapper {
             } else if (details.getType() == Deploy.JvmtiErrorDetails.Type.FIELD_REMOVED) {
                 throw DeployerException.removedResources(details.getName(), resType);
             } else {
-                throw DeployerException.swapFailed("Invalid error code");
+                throw DeployerException.unknownJvmtiError(details.getType().name());
             }
         }
     }
