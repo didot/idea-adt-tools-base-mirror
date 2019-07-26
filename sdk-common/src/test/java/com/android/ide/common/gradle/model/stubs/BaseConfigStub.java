@@ -23,7 +23,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.io.File;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 
 public class BaseConfigStub extends BaseStub implements BaseConfig {

@@ -21,7 +21,6 @@ import static com.google.common.truth.Truth.assertThat;
 import com.android.repository.impl.meta.TypeDetails;
 import com.android.repository.testframework.FakePackage;
 import com.android.repository.testframework.FakeProgressIndicator;
-import com.android.resources.Keyboard;
 import com.android.resources.Navigation;
 import com.android.sdklib.TempSdkManager;
 import com.android.sdklib.devices.Device.Builder;
