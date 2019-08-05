@@ -18,19 +18,23 @@ package com.android.build.gradle.internal.tasks.databinding
 
 import android.databinding.tool.BaseDataBinder
 import android.databinding.tool.DataBindingBuilder
+import android.databinding.tool.processing.ScopedException
 import android.databinding.tool.store.LayoutInfoInput
+import android.databinding.tool.util.L
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_BASE_CLASS_LOGS_DEPENDENCY_ARTIFACTS
-import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_MERGE
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.AndroidVariantTask
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.BooleanOption
 import com.android.utils.FileUtils
-import org.gradle.api.DefaultTask
+import org.gradle.api.logging.LogLevel
+import org.gradle.api.logging.Logger
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
@@ -41,6 +45,7 @@ import java.io.File
 import java.io.Serializable
 import java.util.ArrayList
 import javax.inject.Inject
+import javax.tools.Diagnostic
 import kotlin.reflect.KFunction
 
 /**
@@ -54,6 +59,7 @@ import kotlin.reflect.KFunction
  * errors to the user if the compilation fails before annotation processor output classes are
  * compiled.
  */
+@CacheableTask
 open class DataBindingGenBaseClassesTask : AndroidVariantTask() {
     // where xml info files are
     @get:InputFiles
@@ -61,25 +67,22 @@ open class DataBindingGenBaseClassesTask : AndroidVariantTask() {
     lateinit var layoutInfoDirectory: BuildableArtifact
         private set
     // the package name for the module / app
-    lateinit var packageNameSupplier: KFunction<String>
-        private set
+    private lateinit var packageNameSupplier: KFunction<String>
     @get:Input val packageName: String
         get() = packageNameSupplier.call()
     // list of artifacts from dependencies
-    @get:InputFiles lateinit var mergedArtifactsFromDependencies: BuildableArtifact
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    lateinit var mergedArtifactsFromDependencies: BuildableArtifact
         private set
     // list of v1 artifacts from dependencies
     @get:Optional
     @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
     lateinit var v1Artifacts: BuildableArtifact
         private set
     // where to keep the log of the task
     @get:OutputDirectory lateinit var logOutFolder: File
-        private set
-    // should we generate sources? true if v2 is enabled. it is still a task input because if
-    // it changes, we need to clear the source gen folder
-    @get:Input
-    var generateSources: Boolean = false
         private set
     // where to write the new files
     @get:OutputDirectory lateinit var sourceOutFolder: File
@@ -89,36 +92,21 @@ open class DataBindingGenBaseClassesTask : AndroidVariantTask() {
     @get:Input
     var useAndroidX: Boolean = false
         private set
+    @get:Internal
+    var encodeErrors: Boolean = false
+        private set
 
     @TaskAction
     fun writeBaseClasses(inputs: IncrementalTaskInputs) {
-        if (generateSources) {
+        // TODO extend NewIncrementalTask when moved to new API so that we can remove the manual call to recordTaskAction
+
+        recordTaskAction {
             // TODO figure out why worker execution makes the task flake.
             // Some files cannot be accessed even though they show up when directory listing is
             // invoked.
             // b/69652332
             val args = buildInputArgs(inputs)
-            CodeGenerator(args, sourceOutFolder).run()
-        } else {
-            FileUtils.cleanOutputDir(sourceOutFolder)
-            FileUtils.cleanOutputDir(logOutFolder)
-            // check if there are any v2 if so, fail the build.
-            val v2Dependencies = mergedArtifactsFromDependencies
-                .get()
-                .asFileTree
-                .files
-                .filter {
-                    it.name.endsWith(DataBindingBuilder.BINDING_CLASS_LIST_SUFFIX) &&
-                            !BASE_ADAPTERS_ARTIFACTS.any {
-                                    artifact -> it.name.startsWith(artifact)
-                            } // ignore our libs
-                }
-                .map {
-                    it.name.substringBefore(DataBindingBuilder.BINDING_CLASS_LIST_SUFFIX)
-                }
-            if (v2Dependencies.isNotEmpty()) {
-                throw IncompatibleDependencyError(v2Dependencies)
-            }
+            CodeGenerator(args, sourceOutFolder, project.logger, encodeErrors).run()
         }
     }
 
@@ -192,7 +180,7 @@ open class DataBindingGenBaseClassesTask : AndroidVariantTask() {
 
             task.layoutInfoDirectory =
                     variantScope.artifacts.getFinalArtifactFiles(
-                            DATA_BINDING_LAYOUT_INFO_TYPE_MERGE)
+                        DataBindingCompilerArguments.getLayoutInfoArtifactType(variantScope))
             val variantData = variantScope.variantData
             val artifacts = variantScope.artifacts
             task.packageNameSupplier = variantData.variantConfiguration::getOriginalApplicationId
@@ -202,26 +190,49 @@ open class DataBindingGenBaseClassesTask : AndroidVariantTask() {
                     InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS
             )
             task.logOutFolder = variantScope.getIncrementalDir(task.name)
-            task.generateSources = variantScope.globalScope.projectOptions.get(
-                    BooleanOption.ENABLE_DATA_BINDING_V2)
             task.sourceOutFolder = sourceOutFolder
             task.classInfoBundleDir = classInfoBundleDir
-            task.useAndroidX = variantScope.globalScope.projectOptions.get(
-                BooleanOption.USE_ANDROID_X)
+            task.useAndroidX = variantScope.globalScope.projectOptions[BooleanOption.USE_ANDROID_X]
+            // needed to decide whether data binding should encode errors or not
+            task.encodeErrors = variantScope.globalScope
+                .projectOptions[BooleanOption.IDE_INVOKED_FROM_IDE]
         }
     }
 
-    class CodeGenerator @Inject constructor(val args: LayoutInfoInput.Args,
-            private val sourceOutFolder: File) : Runnable, Serializable {
+    class CodeGenerator @Inject constructor(
+        val args: LayoutInfoInput.Args,
+        private val sourceOutFolder: File,
+        private val logger: Logger,
+        private val encodeErrors: Boolean
+    ) : Runnable, Serializable {
         override fun run() {
-            BaseDataBinder(LayoutInfoInput(args))
+            try {
+                initLogger()
+                BaseDataBinder(LayoutInfoInput(args))
                     .generateAll(DataBindingBuilder.GradleFileWriter(sourceOutFolder.absolutePath))
+            } finally {
+                clearLogger()
+            }
         }
-    }
 
-    companion object {
-        private val BASE_ADAPTERS_ARTIFACTS = listOf(
-            "com.android.databinding.library.baseAdapters",
-            "androidx.databinding.library.baseAdapters")
+        private fun initLogger() {
+            ScopedException.encodeOutput(encodeErrors)
+            L.setClient { kind, message, _ ->
+                logger.log(
+                    kind.toLevel(),
+                    message
+                )
+            }
+        }
+
+        private fun Diagnostic.Kind.toLevel() = when (this) {
+            Diagnostic.Kind.ERROR -> LogLevel.ERROR
+            Diagnostic.Kind.WARNING -> LogLevel.WARN
+            else -> LogLevel.INFO
+        }
+
+        private fun clearLogger() {
+            L.setClient(null)
+        }
     }
 }

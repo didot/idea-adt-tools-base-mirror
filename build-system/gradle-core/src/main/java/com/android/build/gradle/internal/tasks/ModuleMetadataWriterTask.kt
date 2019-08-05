@@ -16,7 +16,7 @@
 
 package com.android.build.gradle.internal.tasks
 
-import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE
+import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.METADATA_BASE_MODULE_DECLARATION
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.METADATA_VALUES
 import com.android.build.gradle.internal.scope.InternalArtifactType
@@ -24,15 +24,12 @@ import com.android.build.gradle.internal.scope.OutputScope
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import org.gradle.api.file.FileCollection
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
-import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.TaskAction
 import java.io.File
-import java.io.IOException
-import java.util.function.Supplier
 
 /**
  * Task responsible for publishing this module metadata (like its application ID) for other modules
@@ -46,10 +43,9 @@ import java.util.function.Supplier
  * Both dynamic-feature and feature modules consumes it, from the application module and the base
  * feature module respectively.
  */
-open class ModuleMetadataWriterTask : AndroidVariantTask() {
+open class ModuleMetadataWriterTask : NonIncrementalTask() {
 
-    @get:Internal lateinit var applicationIdSupplier: Supplier<String> private set
-    @get:Input val applicationId get() = applicationIdSupplier.get()
+    @get:Input lateinit var applicationId: Provider<String> private set
 
     private lateinit var outputScope: OutputScope
 
@@ -75,15 +71,13 @@ open class ModuleMetadataWriterTask : AndroidVariantTask() {
     lateinit var outputFile: File
         private set
 
-    @TaskAction
-    @Throws(IOException::class)
-    fun fullTaskAction() {
+    override fun doTaskAction() {
         val declaration =
             if (metadataFromInstalledModule != null && !metadataFromInstalledModule!!.isEmpty) {
                 ModuleMetadata.load(metadataFromInstalledModule!!.singleFile)
             } else {
                 ModuleMetadata(
-                    applicationId = applicationId,
+                    applicationId = applicationId.get(),
                     versionCode = versionCode.toString(),
                     versionName = versionName,
                     debuggable = debuggable
@@ -127,7 +121,7 @@ open class ModuleMetadataWriterTask : AndroidVariantTask() {
 
             // default value of the app ID to publish. This may get overwritten by something
             // coming from an application module.
-            task.applicationIdSupplier = TaskInputHelper.memoize {
+            task.applicationId = TaskInputHelper.memoizeToProvider(task.project) {
                 variantScope.variantConfiguration.applicationId
             }
 
@@ -141,7 +135,7 @@ open class ModuleMetadataWriterTask : AndroidVariantTask() {
             if (variantScope.type.isHybrid) {
                 //if this is a feature, get the Application ID from the metadata config
                 task.metadataFromInstalledModule = variantScope.getArtifactFileCollection(
-                    METADATA_VALUES, MODULE, METADATA_BASE_MODULE_DECLARATION
+                    METADATA_VALUES, PROJECT, METADATA_BASE_MODULE_DECLARATION
                 )
             }
         }

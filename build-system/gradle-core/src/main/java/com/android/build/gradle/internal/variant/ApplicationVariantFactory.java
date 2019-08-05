@@ -21,6 +21,7 @@ import static com.android.builder.core.BuilderConstants.RELEASE;
 
 import com.android.annotations.NonNull;
 import com.android.build.OutputFile;
+import com.android.build.VariantOutput.FilterType;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.BuildTypeData;
 import com.android.build.gradle.internal.ProductFlavorData;
@@ -32,6 +33,7 @@ import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.dsl.BuildType;
 import com.android.build.gradle.internal.dsl.ProductFlavor;
 import com.android.build.gradle.internal.dsl.SigningConfig;
+import com.android.build.gradle.internal.scope.ApkData;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.OutputFactory;
 import com.android.build.gradle.options.BooleanOption;
@@ -43,13 +45,13 @@ import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.profile.Recorder;
-import com.android.ide.common.build.ApkData;
 import com.android.ide.common.build.SplitOutputMatcher;
 import com.android.resources.Density;
 import com.android.utils.Pair;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -80,11 +82,20 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
         ApplicationVariantData variant =
                 new ApplicationVariantData(
                         globalScope, extension, taskManager, variantConfiguration, recorder);
+        computeOutputs(variantConfiguration, variant, true);
 
+        return variant;
+    }
+
+    protected void computeOutputs(
+            @NonNull GradleVariantConfiguration variantConfiguration,
+            @NonNull ApplicationVariantData variant,
+            boolean includeMainApk) {
         variant.calculateFilters(extension.getSplits());
 
         Set<String> densities = variant.getFilters(OutputFile.FilterType.DENSITY);
         Set<String> abis = variant.getFilters(OutputFile.FilterType.ABI);
+        Set<String> languages = variant.getFilters(OutputFile.FilterType.LANGUAGE);
 
         checkSplitsConflicts(variant, abis);
 
@@ -95,51 +106,103 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
 
         OutputFactory outputFactory = variant.getOutputFactory();
 
-        // create its output
-        if (variant.getMultiOutputPolicy() == MultiOutputPolicy.MULTI_APK) {
-
-            // if the abi list is not empty and we must generate a universal apk, add it.
-            if (abis.isEmpty()) {
-                // create the main APK or universal APK depending on whether or not we are going
-                // to produce full splits.
-                if (densities.isEmpty()) {
-                    outputFactory.addMainApk();
-                } else {
-                    outputFactory.addUniversalApk();
-                }
-            } else {
-                if (extension.getSplits().getAbi().isEnable()
-                        && extension.getSplits().getAbi().isUniversalApk()) {
-                    outputFactory.addUniversalApk();
-                }
-                // for each ABI, create a specific split that will contain all densities.
-                abis.forEach(
-                        abi ->
-                                outputFactory.addFullSplit(
-                                        ImmutableList.of(Pair.of(OutputFile.FilterType.ABI, abi))));
-            }
-
-            // create its outputs
-            for (String density : densities) {
-                if (!abis.isEmpty()) {
-                    for (String abi : abis) {
-                        outputFactory.addFullSplit(
-                                ImmutableList.of(
-                                        Pair.of(OutputFile.FilterType.ABI, abi),
-                                        Pair.of(OutputFile.FilterType.DENSITY, density)));
-                    }
-                } else {
-                    outputFactory.addFullSplit(
-                            ImmutableList.of(Pair.of(OutputFile.FilterType.DENSITY, density)));
-                }
-            }
-        } else {
-            outputFactory.addMainApk();
+        switch (variant.getMultiOutputPolicy()) {
+            case MULTI_APK:
+                populateMultiApkOutputs(abis, densities, outputFactory, includeMainApk);
+                break;
+            case SPLITS:
+                populatePureSplitsOutputs(
+                        abis,
+                        densities,
+                        languages,
+                        outputFactory,
+                        variantConfiguration,
+                        includeMainApk);
+                break;
         }
 
         restrictEnabledOutputs(variantConfiguration, variant.getOutputScope().getApkDatas());
+    }
 
-        return variant;
+    private void populateMultiApkOutputs(
+            Set<String> abis,
+            Set<String> densities,
+            OutputFactory outputFactory,
+            boolean includeMainApk) {
+        if (densities.isEmpty() && abis.isEmpty()) {
+            // If both are empty, we will have only the main Apk.
+            if (includeMainApk) {
+                outputFactory.addMainApk();
+            }
+            return;
+        }
+
+        boolean universalApkForAbi =
+                extension.getSplits().getAbi().isEnable()
+                        && extension.getSplits().getAbi().isUniversalApk();
+        if (universalApkForAbi) {
+            outputFactory.addUniversalApk();
+        } else {
+            if (abis.isEmpty() && includeMainApk) {
+                outputFactory.addUniversalApk();
+            }
+        }
+
+        if (!abis.isEmpty()) {
+            // TODO(b/117973371): Check if this is still needed/used, as BundleTool don't do this.
+            // for each ABI, create a specific split that will contain all densities.
+            abis.forEach(
+                    abi ->
+                            outputFactory.addFullSplit(
+                                    ImmutableList.of(Pair.of(OutputFile.FilterType.ABI, abi))));
+        }
+
+        // create its outputs
+        for (String density : densities) {
+            if (!abis.isEmpty()) {
+                for (String abi : abis) {
+                    outputFactory.addFullSplit(
+                            ImmutableList.of(
+                                    Pair.of(OutputFile.FilterType.ABI, abi),
+                                    Pair.of(OutputFile.FilterType.DENSITY, density)));
+                }
+            } else {
+                outputFactory.addFullSplit(
+                        ImmutableList.of(Pair.of(OutputFile.FilterType.DENSITY, density)));
+            }
+        }
+    }
+
+    private void populatePureSplitsOutputs(
+            Set<String> abis,
+            Set<String> densities,
+            Set<String> languages,
+            OutputFactory outputFactory,
+            GradleVariantConfiguration variantConfiguration,
+            boolean includeMainApk) {
+        // Pure splits always have a main apk.
+        if (includeMainApk) {
+            outputFactory.addMainApk();
+        }
+
+        Iterable<ApkData> producedApks =
+                Iterables.concat(
+                        generateApkDataFor(FilterType.ABI, abis, outputFactory),
+                        generateApkDataFor(FilterType.DENSITY, densities, outputFactory),
+                        generateApkDataFor(FilterType.LANGUAGE, languages, outputFactory));
+
+        producedApks.forEach(
+                apk -> {
+                    apk.setVersionCode(variantConfiguration.getVersionCodeSerializableSupplier());
+                    apk.setVersionName(variantConfiguration.getVersionNameSerializableSupplier());
+                });
+    }
+
+    private ImmutableList<ApkData> generateApkDataFor(
+            FilterType filterType, Set<String> filters, OutputFactory outputFactory) {
+        return filters.stream()
+                .map(f -> outputFactory.addConfigurationSplit(filterType, f))
+                .collect(ImmutableList.toImmutableList());
     }
 
     private void checkSplitsConflicts(
@@ -163,7 +226,7 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
         }
 
         // if we have any ABI splits, whether it's a full or pure ABI splits, it's an error.
-        EvalIssueReporter issueReporter = globalScope.getAndroidBuilder().getIssueReporter();
+        EvalIssueReporter issueReporter = globalScope.getErrorHandler();
         issueReporter.reportError(
                 EvalIssueReporter.Type.GENERIC,
                 new EvalIssueException(
@@ -206,8 +269,7 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
                             .filter(Objects::nonNull)
                             .collect(Collectors.toList());
             globalScope
-                    .getAndroidBuilder()
-                    .getIssueReporter()
+                    .getErrorHandler()
                     .reportWarning(
                             EvalIssueReporter.Type.GENERIC,
                             String.format(
@@ -262,7 +324,7 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
             return;
         }
 
-        EvalIssueReporter issueReporter = globalScope.getAndroidBuilder().getIssueReporter();
+        EvalIssueReporter issueReporter = globalScope.getErrorHandler();
         for (BuildTypeData buildType : model.getBuildTypes().values()) {
             if (buildType.getBuildType().isMinifyEnabled()) {
                 issueReporter.reportError(
@@ -291,7 +353,7 @@ public class ApplicationVariantFactory extends BaseVariantFactory implements Var
 
     private void validateVersionCodes(@NonNull VariantModel model) {
 
-        EvalIssueReporter issueReporter = globalScope.getAndroidBuilder().getIssueReporter();
+        EvalIssueReporter issueReporter = globalScope.getErrorHandler();
 
         Integer versionCode = model.getDefaultConfig().getProductFlavor().getVersionCode();
         if (versionCode != null && versionCode < 1) {

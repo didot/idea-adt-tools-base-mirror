@@ -136,90 +136,23 @@ filegroup(
 )
 
 filegroup(
-    name = "constraint-layout_latest",
-    srcs = [":constraint-layout_1.0.2"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "constraint-layout_1.0.2",
-    srcs = sdk_glob(
-        [
-            "extras/m2repository/com/android/support/constraint/constraint-layout/1.0.2/**",
-            "extras/m2repository/com/android/support/constraint/constraint-layout-solver/1.0.2/**",
-        ],
-    ),
-)
-
-filegroup(
-    name = "support_latest",
-    srcs = [":support_25.3.1"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "support_25.3.1",
-    srcs = sdk_glob([
-        "extras/android/m2repository/com/android/support/*/25.3.1/**",
-    ]),
-)
-
-filegroup(
-    name = "uiautomator_latest",
-    srcs = [":uiautomator_2.1.1"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "uiautomator_2.1.1",
-    srcs = sdk_glob([
-        "extras/android/m2repository/com/android/support/test/uiautomator/uiautomator-v18/2.1.1/**",
-    ]),
-)
-
-filegroup(
-    name = "gms_latest",
-    srcs = [":gms_9.6.1"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "gms_9.6.1",
-    srcs = sdk_glob(["extras/google/m2repository/com/google/android/gms/*/9.6.1/**"]),
-)
-
-filegroup(
-    name = "databinding_latest",
-    srcs = sdk_glob(["extras/android/m2repository/com/android/databinding/*/1.3.1/**"]),
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "multidex",
-    srcs = sdk_glob(["extras/android/m2repository/com/android/support/multidex*/1.0.1/**"]),
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
     name = "platforms/latest",
-    srcs = [":platforms/android-27"],
+    srcs = [":platforms/android-28"],
     visibility = ["//visibility:public"],
 )
 
 filegroup(
     name = "platforms/latest-preview",
-    srcs = [":platforms/android-27"],
+    srcs = [":platforms/android-Q"],
     visibility = ["//visibility:public"],
 )
 
 java_import(
     name = "platforms/latest_jar",
-    jars = sdk_path(["platforms/android-27/android.jar"]),
+    jars = sdk_path(["platforms/android-28/android.jar"]),
     neverlink = 1,
     visibility = [
-        "//tools/base/build-system/instant-run-instrumentation:__pkg__",
         "//tools/base/deploy/agent/instrumentation:__pkg__",
-        "//tools/base/instant-run/instant-run-server:__pkg__",
         "//tools/base/profiler/app:__pkg__",
     ],
 )
@@ -244,12 +177,15 @@ platform_filegroup(
 )
 
 platform_filegroup(
-    name = "platforms/android-P",
+    name = "platforms/android-Q",
     visibility = [
-        "//tools/adt/idea/android-uitests:__pkg__",
-        "//tools/base/build-system/integration-test:__subpackages__",
-        "//tools/data-binding:__pkg__",
+        "//tools/base/build-system/integration-test:__subpackages__"
     ],
+)
+
+platform_filegroup(
+    name = "platforms/android-28",
+    visibility = ["//visibility:public"],  # TODO: revert visibility when platforms/latest becomes android-28
 )
 
 platform_filegroup(
@@ -297,54 +233,6 @@ filegroup(
 )
 
 filegroup(
-    name = "espresso_latest",
-    srcs = [":espresso-2.2.2"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "espresso-2.2.2",
-    srcs = sdk_glob(
-        include = [
-            "extras/android/m2repository/com/android/support/test/espresso/espresso-core/2.2.2/**",
-            "extras/android/m2repository/com/android/support/test/espresso/espresso-idling-resource/2.2.2/**",
-        ],
-    ),
-)
-
-filegroup(
-    name = "test-runner_latest",
-    srcs = [":test-runner-0.5"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "test-runner-0.5",
-    srcs = sdk_glob(
-        include = [
-            "extras/android/m2repository/com/android/support/test/exposed-instrumentation-api-publish/0.5/**",
-            "extras/android/m2repository/com/android/support/test/rules/0.5/**",
-            "extras/android/m2repository/com/android/support/test/runner/0.5/**",
-        ],
-    ),
-)
-
-filegroup(
-    name = "wearable_latest",
-    srcs = [":wearable-2.0.1"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "wearable-2.0.1",
-    srcs = sdk_glob(
-        include = [
-            "extras/google/m2repository/com/google/android/*/wearable/2.0.1/**",
-        ],
-    ),
-)
-
-filegroup(
     name = "docs",
     srcs = sdk_glob(["docs/**"]),
     visibility = ["//visibility:public"],
@@ -358,6 +246,14 @@ filegroup(
             "ndk-bundle/platforms/android-19/**",
             "ndk-bundle/platforms/android-21/**",
         ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "ndk",
+    srcs = sdk_glob(
+        include = ["ndk/**"],
     ),
     visibility = ["//visibility:public"],
 )

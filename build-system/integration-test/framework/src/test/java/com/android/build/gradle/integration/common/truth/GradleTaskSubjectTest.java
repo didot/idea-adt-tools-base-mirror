@@ -16,13 +16,18 @@
 
 package com.android.build.gradle.integration.common.truth;
 
-import static com.android.build.gradle.integration.common.truth.GradleTaskSubject.FACTORY;
-import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
+
+import static com.android.build.gradle.integration.common.truth.GradleTaskSubject.assertThat;
+import static com.google.common.truth.Truth.assertThat;
 
 import com.android.annotations.NonNull;
 import com.google.common.collect.ImmutableList;
-import java.util.function.Consumer;
+import com.google.common.truth.ExpectFailure;
+import java.util.Scanner;
+import java.util.Set;
+import javax.annotation.Nullable;
 import org.gradle.tooling.events.OperationDescriptor;
+import org.gradle.tooling.events.PluginIdentifier;
 import org.gradle.tooling.events.ProgressEvent;
 import org.gradle.tooling.events.task.TaskOperationDescriptor;
 import org.gradle.tooling.events.task.TaskProgressEvent;
@@ -30,6 +35,7 @@ import org.gradle.tooling.events.task.internal.DefaultTaskFailureResult;
 import org.gradle.tooling.events.task.internal.DefaultTaskFinishEvent;
 import org.gradle.tooling.events.task.internal.DefaultTaskSkippedResult;
 import org.gradle.tooling.events.task.internal.DefaultTaskSuccessResult;
+import org.gradle.tooling.model.UnsupportedMethodException;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -62,181 +68,86 @@ public class GradleTaskSubjectTest {
         events.add(skipped(":skippedTask"));
         events.add(failed(":failedTask"));
 
-        taskStateList = new TaskStateList(events.build(), fakeGradleOutput);
-    }
 
-    @Test
-    public void wasPlannedForExecution() {
-        assertSuccess(":didWorkTask", GradleTaskSubject::wasPlannedForExecution);
-        assertFailure(
-                ":taskThatDidNotRun",
-                GradleTaskSubject::wasPlannedForExecution,
-                "Not true that :taskThatDidNotRun was executed");
-    }
-
-    @Test
-    public void wasExecuted() {
-        assertSuccess(":didWorkTask", GradleTaskSubject::wasExecuted);
-        assertFailure(
-                ":taskThatDidNotRun",
-                GradleTaskSubject::wasExecuted,
-                "Not true that :taskThatDidNotRun was executed");
-    }
-
-    @Test
-    public void wasNotPlannedForExecution() {
-        assertSuccess(":taskThatDidNotRun", GradleTaskSubject::wasNotPlannedForExecution);
-        assertFailure(
-                ":didWorkTask",
-                GradleTaskSubject::wasNotPlannedForExecution,
-                "Not true that :didWorkTask was not executed");
-    }
-
-    @Test
-    public void wasNotExecuted() {
-        assertSuccess(":taskThatDidNotRun", GradleTaskSubject::wasNotExecuted);
-        assertFailure(
-                ":didWorkTask",
-                GradleTaskSubject::wasNotExecuted,
-                "Not true that :didWorkTask was not executed");
+        taskStateList = new TaskStateList(events.build(), new Scanner(fakeGradleOutput));
     }
 
     @Test
     public void wasUpToDate() {
-        assertSuccess(":upToDateTask", GradleTaskSubject::wasUpToDate);
+        assertThat(taskStateList.getTask(":upToDateTask")).wasUpToDate();
         assertFailure(
-                ":didWorkTask",
-                GradleTaskSubject::wasUpToDate,
-                "Not true that :didWorkTask was UP-TO-DATE");
-    }
-
-    @Test
-    public void wasNotUpToDate() {
-        assertSuccess(":didWorkTask", GradleTaskSubject::wasNotUpToDate);
-        assertFailure(
-                ":upToDateTask",
-                GradleTaskSubject::wasNotUpToDate,
-                "Not true that :upToDateTask was not UP-TO-DATE");
+                whenTesting ->
+                        whenTesting.that(taskStateList.getTask(":didWorkTask")).wasUpToDate(),
+                "Not true that <:didWorkTask> was UP-TO-DATE");
     }
 
     @Test
     public void wasFromCache() {
-        assertSuccess(":fromCacheTask", GradleTaskSubject::wasFromCache);
+        assertThat(taskStateList.getTask(":fromCacheTask")).wasFromCache();
         assertFailure(
-                ":didWorkTask",
-                GradleTaskSubject::wasFromCache,
-                "Not true that :didWorkTask was FROM-CACHE");
-    }
-
-    @Test
-    public void wasNotFromCache() {
-        assertSuccess(":didWorkTask", GradleTaskSubject::wasNotFromCache);
-        assertFailure(
-                ":fromCacheTask",
-                GradleTaskSubject::wasNotFromCache,
-                "Not true that :fromCacheTask was not FROM-CACHE");
+                whenTesting ->
+                        whenTesting.that(taskStateList.getTask(":didWorkTask")).wasFromCache(),
+                "Not true that <:didWorkTask> was FROM-CACHE");
     }
 
     @Test
     public void didWork() {
-        assertSuccess(":didWorkTask", GradleTaskSubject::didWork);
+        assertThat(taskStateList.getTask(":didWorkTask")).didWork();
         assertFailure(
-                ":upToDateTask",
-                GradleTaskSubject::didWork,
-                "Not true that :upToDateTask did work");
-    }
-
-    @Test
-    public void didNoWork() {
-        assertSuccess(":upToDateTask", GradleTaskSubject::didNoWork);
-        assertFailure(
-                ":didWorkTask",
-                GradleTaskSubject::didNoWork,
-                "Not true that :didWorkTask did no work");
+                whenTesting -> whenTesting.that(taskStateList.getTask(":upToDateTask")).didWork(),
+                "Not true that <:upToDateTask> did work");
     }
 
     @Test
     public void wasSkipped() {
-        assertSuccess(":skippedTask", GradleTaskSubject::wasSkipped);
+        assertThat(taskStateList.getTask(":skippedTask")).wasSkipped();
         assertFailure(
-                ":didWorkTask",
-                GradleTaskSubject::wasSkipped,
-                "Not true that :didWorkTask was skipped");
-    }
-
-    @Test
-    public void wasNotSkipped() {
-        assertSuccess(":didWorkTask", GradleTaskSubject::wasNotSkipped);
-        assertFailure(
-                ":skippedTask",
-                GradleTaskSubject::wasNotSkipped,
-                "Not true that :skippedTask was not skipped");
+                whenTesting -> whenTesting.that(taskStateList.getTask(":didWorkTask")).wasSkipped(),
+                "Not true that <:didWorkTask> was skipped");
     }
 
     @Test
     public void failed() {
-        assertSuccess(":failedTask", GradleTaskSubject::failed);
+        assertThat(taskStateList.getTask(":failedTask")).failed();
         assertFailure(
-                ":didWorkTask", GradleTaskSubject::failed, "Not true that :didWorkTask failed ");
-    }
-
-    @Test
-    public void didNotFail() {
-        assertSuccess(":didWorkTask", GradleTaskSubject::didNotFail);
-        assertFailure(
-                ":failedTask",
-                GradleTaskSubject::didNotFail,
-                "Not true that :failedTask did not fail");
+                whenTesting -> whenTesting.that(taskStateList.getTask(":didWorkTask")).failed(),
+                "Not true that <:didWorkTask> failed ");
     }
 
     @Test
     public void ranBefore() {
-        FakeFailureStrategy failureStrategy = new FakeFailureStrategy();
-        GradleTaskSubject taskSubject =
-                FACTORY.getSubject(failureStrategy, taskStateList.getTask(":upToDateTask"));
-        taskSubject.ranBefore(":didWorkTask");
-        assertThat(failureStrategy.message).isNull();
+        assertThat(taskStateList.getTask(":upToDateTask")).ranBefore(":didWorkTask");
 
-        failureStrategy = new FakeFailureStrategy();
-        taskSubject = FACTORY.getSubject(failureStrategy, taskStateList.getTask(":didWorkTask"));
-        taskSubject.ranBefore(":upToDateTask");
-        assertThat(failureStrategy.message)
-                .isEqualTo("Not true that :didWorkTask was executed before <:upToDateTask>");
+        assertFailure(
+                whenTesting ->
+                        whenTesting
+                                .that(taskStateList.getTask(":didWorkTask"))
+                                .ranBefore(":upToDateTask"),
+                "Not true that <:didWorkTask> was executed before <:upToDateTask>");
     }
+
 
     @Test
     public void ranAfter() {
-        FakeFailureStrategy failureStrategy = new FakeFailureStrategy();
-        GradleTaskSubject taskSubject =
-                FACTORY.getSubject(failureStrategy, taskStateList.getTask(":didWorkTask"));
-        taskSubject.ranAfter(":upToDateTask");
-        assertThat(failureStrategy.message).isNull();
+        assertThat(taskStateList.getTask(":didWorkTask")).ranAfter(":upToDateTask");
 
-        failureStrategy = new FakeFailureStrategy();
-        taskSubject = FACTORY.getSubject(failureStrategy, taskStateList.getTask(":upToDateTask"));
-        taskSubject.ranAfter(":didWorkTask");
-        assertThat(failureStrategy.message)
-                .isEqualTo("Not true that :upToDateTask was executed after <:didWorkTask>");
-    }
-
-    private void assertSuccess(
-            @NonNull String taskName, @NonNull Consumer<GradleTaskSubject> taskSubjectConsumer) {
-        FakeFailureStrategy failureStrategy = new FakeFailureStrategy();
-        GradleTaskSubject taskSubject =
-                FACTORY.getSubject(failureStrategy, taskStateList.getTask(taskName));
-        taskSubjectConsumer.accept(taskSubject);
-        assertThat(failureStrategy.message).isNull();
+        assertFailure(
+                whenTesting ->
+                        whenTesting
+                                .that(taskStateList.getTask(":upToDateTask"))
+                                .ranAfter(":didWorkTask"),
+                "Not true that <:upToDateTask> was executed after <:didWorkTask>");
     }
 
     private void assertFailure(
-            @NonNull String taskName,
-            @NonNull Consumer<GradleTaskSubject> taskSubjectConsumer,
+            @NonNull
+                    ExpectFailure.SimpleSubjectBuilderCallback<
+                                    GradleTaskSubject, TaskStateList.TaskInfo>
+                            callback,
             @NonNull String failureMessage) {
-        FakeFailureStrategy failureStrategy = new FakeFailureStrategy();
-        GradleTaskSubject taskSubject =
-                FACTORY.getSubject(failureStrategy, taskStateList.getTask(taskName));
-        taskSubjectConsumer.accept(taskSubject);
-        assertThat(failureStrategy.message).isEqualTo(failureMessage);
+        AssertionError assertionError =
+                ExpectFailure.expectFailureAbout(GradleTaskSubject.gradleTasks(), callback);
+        assertThat(assertionError.toString()).isEqualTo(failureMessage);
     }
 
     private static TaskProgressEvent upToDate(String name) {
@@ -244,7 +155,7 @@ public class GradleTaskSubjectTest {
                 0,
                 "Task :" + name + " UP-TO-DATE",
                 new FakeTaskOperationDescriptor(name),
-                new DefaultTaskSuccessResult(0, 5, true, false));
+                new DefaultTaskSuccessResult(0, 5, true, false, null));
     }
 
     private static TaskProgressEvent fromCache(String name) {
@@ -254,7 +165,7 @@ public class GradleTaskSubjectTest {
                 0,
                 "Task :" + name + " FROM_CACHE",
                 new FakeTaskOperationDescriptor(name),
-                new DefaultTaskSuccessResult(0, 5, true, true));
+                new DefaultTaskSuccessResult(0, 5, true, true, null));
     }
 
     private static TaskProgressEvent didWork(String name) {
@@ -262,7 +173,7 @@ public class GradleTaskSubjectTest {
                 0,
                 "Task :" + name + " SUCCESS",
                 new FakeTaskOperationDescriptor(name),
-                new DefaultTaskSuccessResult(0, 5, false, false));
+                new DefaultTaskSuccessResult(0, 5, false, false, null));
     }
 
     private static TaskProgressEvent skipped(String name) {
@@ -278,7 +189,7 @@ public class GradleTaskSubjectTest {
                 0,
                 "Task :" + name + " FAILED",
                 new FakeTaskOperationDescriptor(name),
-                new DefaultTaskFailureResult(0, 5, null));
+                new DefaultTaskFailureResult(0, 5, null, null));
     }
 
     private static class FakeTaskOperationDescriptor
@@ -293,6 +204,18 @@ public class GradleTaskSubjectTest {
         @Override
         public String getTaskPath() {
             return name;
+        }
+
+        @Override
+        public Set<? extends OperationDescriptor> getDependencies()
+                throws UnsupportedMethodException {
+            return null;
+        }
+
+        @Nullable
+        @Override
+        public PluginIdentifier getOriginPlugin() {
+            return null;
         }
 
         @Override

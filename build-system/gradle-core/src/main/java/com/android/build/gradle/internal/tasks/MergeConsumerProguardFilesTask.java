@@ -16,11 +16,14 @@
 
 package com.android.build.gradle.internal.tasks;
 
+import static com.android.build.gradle.internal.scope.InternalArtifactType.GENERATED_PROGUARD_FILE;
+
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.FeaturePlugin;
 import com.android.build.gradle.ProguardFiles;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
@@ -34,7 +37,8 @@ import java.util.Map;
 import java.util.function.Consumer;
 import org.gradle.api.Project;
 import org.gradle.api.file.ConfigurableFileCollection;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.file.RegularFile;
+import org.gradle.api.provider.Provider;
 
 /** Configuration action for a merge-Proguard-files task. */
 public class MergeConsumerProguardFilesTask extends MergeFileTask {
@@ -45,8 +49,7 @@ public class MergeConsumerProguardFilesTask extends MergeFileTask {
     private List<File> consumerProguardFiles;
 
     @Override
-    @TaskAction
-    public void mergeFiles() throws IOException {
+    public void doTaskAction() throws IOException {
         final Project project = getProject();
 
         // We check for default files unless it's a base feature, which can include default files.
@@ -60,7 +63,7 @@ public class MergeConsumerProguardFilesTask extends MergeFileTask {
                         throw exception;
                     });
         }
-        super.mergeFiles();
+        super.doTaskAction();
     }
 
     public static void checkProguardFiles(
@@ -100,7 +103,7 @@ public class MergeConsumerProguardFilesTask extends MergeFileTask {
     public static class CreationAction extends TaskCreationAction<MergeConsumerProguardFilesTask> {
 
         @NonNull private final VariantScope variantScope;
-        private File outputFile;
+        private Provider<RegularFile> outputFile;
 
         public CreationAction(@NonNull VariantScope variantScope) {
             this.variantScope = variantScope;
@@ -124,8 +127,9 @@ public class MergeConsumerProguardFilesTask extends MergeFileTask {
             outputFile =
                     variantScope
                             .getArtifacts()
-                            .appendArtifact(
+                            .createArtifactFile(
                                     InternalArtifactType.CONSUMER_PROGUARD_FILE,
+                                    BuildArtifactsHolder.OperationType.APPEND,
                                     taskName,
                                     SdkConstants.FN_PROGUARD_TXT);
         }
@@ -146,7 +150,12 @@ public class MergeConsumerProguardFilesTask extends MergeFileTask {
 
             task.consumerProguardFiles = variantScope.getConsumerProguardFilesForFeatures();
 
-            ConfigurableFileCollection inputFiles = project.files(task.consumerProguardFiles);
+            ConfigurableFileCollection inputFiles =
+                    project.files(
+                            task.consumerProguardFiles,
+                            variantScope
+                                    .getArtifacts()
+                                    .getFinalArtifactFiles(GENERATED_PROGUARD_FILE));
             if (variantScope.getType().isFeatureSplit()) {
                 inputFiles.from(
                         variantScope.getArtifactFileCollection(

@@ -16,9 +16,9 @@
 
 package com.android.build.gradle.internal.scope
 
-import com.android.ide.common.build.ApkInfo
 import org.gradle.tooling.BuildException
 import java.io.File
+import java.util.concurrent.Callable
 
 /**
  * Helper class to schedule action on {@link BuildElement}
@@ -28,27 +28,12 @@ abstract class BuildElementActionScheduler {
     abstract fun into(type : InternalArtifactType) : BuildElements
 
     @Throws(BuildException::class)
-    fun into(type : InternalArtifactType, folder: File) : BuildElements {
-        return into(type).save(folder)
+    open fun intoCallable(type: InternalArtifactType): Callable<BuildElements> {
+        return Callable { into(type) }
     }
 
-    class Synchronous(
-            val elements: BuildElements,
-            val action : (apkInfo: ApkInfo, input: File) -> File?) : BuildElementActionScheduler() {
-
-        override fun into(type: InternalArtifactType): BuildElements {
-            return BuildElements(elements
-                    .asSequence()
-                    .map({ input ->
-                        val output = action.invoke(input.apkInfo, input.outputFile)
-                        if (output == null) null
-                        else BuildOutput(
-                                type,
-                                input.apkInfo,
-                                output)
-                    })
-                    .filterNotNull()
-                    .toList())
-        }
+    @Throws(BuildException::class)
+    fun into(type : InternalArtifactType, folder: File) : BuildElements {
+        return into(type).save(folder)
     }
 }

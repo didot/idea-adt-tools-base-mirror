@@ -16,18 +16,20 @@
 #ifndef PERFD_NETWORK_NETWORK_PROFILER_COMPONENT_H_
 #define PERFD_NETWORK_NETWORK_PROFILER_COMPONENT_H_
 
+#include "daemon/service_component.h"
 #include "perfd/network/internal_network_service.h"
 #include "perfd/network/network_collector.h"
 #include "perfd/network/network_service.h"
-#include "perfd/profiler_component.h"
+#include "utils/daemon_config.h"
 #include "utils/file_cache.h"
 
 namespace profiler {
 
-class NetworkProfilerComponent final : public ProfilerComponent {
+class NetworkProfilerComponent final : public ServiceComponent {
  public:
-  explicit NetworkProfilerComponent(Clock* clock, FileCache* file_cache)
-      : public_service_(clock, &network_cache_),
+  explicit NetworkProfilerComponent(const DaemonConfig& config, Clock* clock,
+                                    FileCache* file_cache)
+      : public_service_(config, clock, &network_cache_),
         internal_service_(file_cache, &network_cache_) {}
 
   // Returns the service that talks to desktop clients (e.g., Studio).

@@ -801,29 +801,6 @@ src/test/pkg/ConstructorTest.java:14: Error: Expected resource of type drawable 
         ).run().expectClean()
     }
 
-    fun testHalfFloatConstruction() {
-        // Regression test for https://issuetracker.google.com/72509078
-        lint().files(
-                kotlin("""
-                    package test.pkg
-
-                    import android.os.Build
-                    import android.support.annotation.RequiresApi
-                    import android.util.Half
-
-                    @Suppress("unused", "UNUSED_VARIABLE")
-                    @RequiresApi(Build.VERSION_CODES.O)
-                    fun halfFloat(x: Short) {
-                        val v1 = Half.valueOf(x)
-                        val v2 = Half(x)
-                    }
-                    """).indented(),
-                SUPPORT_ANNOTATIONS_CLASS_PATH,
-                SUPPORT_ANNOTATIONS_JAR)
-            .run()
-            .expectClean()
-    }
-
     fun testAnyRes() {
         // Make sure error messages for @AnyRes are handled right since it's now an
         // enum set containing all possible resource types
@@ -1721,6 +1698,38 @@ src/test/pkg/ConstructorTest.java:14: Error: Expected resource of type drawable 
                     import android.support.annotation.StringRes
 
                     fun Context.foobar(@StringRes msgId: Int, @DrawableRes imgId: Int) {  }
+                """
+            ).indented(),
+            SUPPORT_ANNOTATIONS_CLASS_PATH,
+            SUPPORT_ANNOTATIONS_JAR
+        ).run().expectClean()
+    }
+
+    fun test127955232() {
+        // Regression test for https://issuetracker.google.com/127955232
+        // 127955232: Unexpected failure during lint analysis - NullPointerException
+        lint().files(
+            kotlin(
+                """
+                package com.example.myapplication
+
+                import android.content.Context
+
+                data class Test(val context: Context,
+                                val testInt: Int,
+                                val testString: String = context.getString(if (testInt == 0) R.string.test_string_1 else R.string.test_string_2))
+                """
+            ).indented(),
+            java(
+                """
+                package test.pkg;
+
+                public final class R {
+                    public static final class string {
+                        public static final int test_string_1 = 0x7f0a000e;
+                        public static final int test_string_2 = 0x7f020057;
+                    }
+                }
                 """
             ).indented(),
             SUPPORT_ANNOTATIONS_CLASS_PATH,

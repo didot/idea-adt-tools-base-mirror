@@ -18,13 +18,13 @@
 
 #include <unordered_map>
 
+#include "daemon/service_component.h"
 #include "internal_memory_service.h"
 #include "memory_service.h"
-#include "perfd/profiler_component.h"
 
 namespace profiler {
 
-class MemoryProfilerComponent final : public ProfilerComponent {
+class MemoryProfilerComponent final : public ServiceComponent {
  public:
   explicit MemoryProfilerComponent(Clock* clock, FileCache* file_cache)
       : private_service_(&collectors_),

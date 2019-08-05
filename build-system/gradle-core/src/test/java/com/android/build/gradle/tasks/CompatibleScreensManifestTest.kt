@@ -34,6 +34,7 @@ import com.google.common.base.Joiner
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableSet
 import com.google.common.truth.Truth.assertThat
+import org.gradle.api.provider.Provider
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.Before
 import org.junit.Rule
@@ -108,13 +109,13 @@ class CompatibleScreensManifestTest {
     @Test
     fun testNoSplit() {
 
-        val outputFactory = OutputFactory(PROJECT, variantConfiguration, outputScope)
+        val outputFactory = OutputFactory(PROJECT, variantConfiguration)
         val mainApk = outputFactory.addMainApk()
         `when`(outputScope.apkDatas).thenReturn(ImmutableList.of(mainApk))
 
         task.variantName = "variant"
         task.outputFolder = temporaryFolder.root
-        task.minSdkVersion = Supplier { "22" }
+        task.minSdkVersion = task.project.provider { "22" }
         task.screenSizes = ImmutableSet.of("mdpi", "xhdpi")
 
         task.generate(mainApk)
@@ -126,7 +127,7 @@ class CompatibleScreensManifestTest {
     @Throws(IOException::class)
     fun testSingleSplitWithMinSdkVersion() {
 
-        val outputFactory = OutputFactory(PROJECT, variantConfiguration, outputScope)
+        val outputFactory = OutputFactory(PROJECT, variantConfiguration)
         val splitApk = outputFactory.addFullSplit(
                 ImmutableList.of<Pair<VariantOutput.FilterType, String>>(
                         Pair.of<VariantOutput.FilterType, String>(
@@ -139,7 +140,7 @@ class CompatibleScreensManifestTest {
 
         task.variantName = "variant"
         task.outputFolder = temporaryFolder.root
-        task.minSdkVersion = Supplier { "22" }
+        task.minSdkVersion = task.project.provider { "22" }
         task.screenSizes = ImmutableSet.of("xhdpi")
 
         task.generate(splitApk)
@@ -159,7 +160,7 @@ class CompatibleScreensManifestTest {
     @Throws(IOException::class)
     fun testSingleSplitWithoutMinSdkVersion() {
 
-        val outputFactory = OutputFactory(PROJECT, variantConfiguration, outputScope)
+        val outputFactory = OutputFactory(PROJECT, variantConfiguration)
         val splitApk = outputFactory.addFullSplit(
                 ImmutableList.of<Pair<VariantOutput.FilterType, String>>(
                         Pair.of<VariantOutput.FilterType, String>(
@@ -172,7 +173,7 @@ class CompatibleScreensManifestTest {
 
         task.variantName = "variant"
         task.outputFolder = temporaryFolder.root
-        task.minSdkVersion = Supplier { null }
+        task.minSdkVersion = task.project.provider { null }
         task.screenSizes = ImmutableSet.of("xhdpi")
 
         task.generate(splitApk)
@@ -190,7 +191,7 @@ class CompatibleScreensManifestTest {
     @Throws(IOException::class)
     fun testMultipleSplitsWithMinSdkVersion() {
 
-        val outputFactory = OutputFactory(PROJECT, variantConfiguration, outputScope)
+        val outputFactory = OutputFactory(PROJECT, variantConfiguration)
         val xhdpiSplit = outputFactory.addFullSplit(
                 ImmutableList.of<Pair<VariantOutput.FilterType, String>>(
                         Pair.of<VariantOutput.FilterType, String>(
@@ -211,7 +212,7 @@ class CompatibleScreensManifestTest {
 
         task.variantName = "variant"
         task.outputFolder = temporaryFolder.root
-        task.minSdkVersion = Supplier { "23" }
+        task.minSdkVersion = task.project.provider { "23" }
         task.screenSizes = ImmutableSet.of("xhdpi", "xxhdpi")
 
         task.generate(xhdpiSplit)

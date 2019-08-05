@@ -19,6 +19,8 @@ package com.android.tools.lint.gradle;
 import static com.android.SdkConstants.ANDROIDX_APPCOMPAT_LIB_ARTIFACT;
 import static com.android.SdkConstants.ANDROIDX_LEANBACK_ARTIFACT;
 import static com.android.SdkConstants.ANDROIDX_SUPPORT_LIB_ARTIFACT;
+import static com.android.SdkConstants.FN_R_CLASS_JAR;
+import static java.io.File.separator;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -37,6 +39,8 @@ import com.android.builder.model.ProductFlavor;
 import com.android.builder.model.ProductFlavorContainer;
 import com.android.builder.model.SourceProvider;
 import com.android.builder.model.Variant;
+import com.android.ide.common.gradle.model.GradleModelConverterUtil;
+import com.android.projectmodel.ProjectType;
 import com.android.sdklib.AndroidTargetHash;
 import com.android.sdklib.AndroidVersion;
 import com.android.sdklib.IAndroidTarget;
@@ -67,12 +71,10 @@ import org.gradle.api.artifacts.ExternalDependency;
 import org.gradle.api.artifacts.FileCollectionDependency;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.file.SourceDirectorySet;
-import org.gradle.api.plugins.ExtraPropertiesExtension;
 import org.gradle.api.plugins.JavaPluginConvention;
 import org.gradle.api.plugins.PluginContainer;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
-import org.gradle.tooling.provider.model.ToolingModelBuilder;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 import org.w3c.dom.Document;
 
@@ -248,6 +250,17 @@ public class LintGradleProject extends Project {
         @Override
         public AndroidProject getGradleProjectModel() {
             return mProject;
+        }
+
+        @NonNull
+        @Override
+        public ProjectType getProjectType() {
+            return GradleModelConverterUtil.getProjectType(mProject.getProjectType());
+        }
+
+        @Override
+        public boolean hasDynamicFeatures() {
+            return getProjectType() == ProjectType.APP && !mProject.getDynamicFeatures().isEmpty();
         }
 
         @Override
@@ -431,7 +444,7 @@ public class LintGradleProject extends Project {
         @Override
         public List<File> getJavaClassFolders() {
             if (javaClassFolders == null) {
-                javaClassFolders = new ArrayList<>(1);
+                javaClassFolders = new ArrayList<>(3); // common: javac, kotlinc, rjar
                 AndroidArtifact mainArtifact = mVariant.getMainArtifact();
                 File outputClassFolder = mainArtifact.getClassesFolder();
                 if (outputClassFolder.exists()) {
@@ -440,6 +453,12 @@ public class LintGradleProject extends Project {
                         if (file.isDirectory()) {
                             javaClassFolders.add(file);
                         }
+                    }
+
+                    // R.jar file? Sadly not part of the builder-model.
+                    File rJar = findRjar(outputClassFolder);
+                    if (rJar != null) {
+                        javaClassFolders.add(rJar);
                     }
                 } else if (isLibrary()) {
                     // For libraries we build the release variant instead
@@ -454,6 +473,13 @@ public class LintGradleProject extends Project {
                                         javaClassFolders.add(file);
                                     }
                                 }
+
+                                // R.jar file? Sadly not part of the builder-model.
+                                File rJar = findRjar(outputClassFolder);
+                                if (rJar != null) {
+                                    javaClassFolders.add(rJar);
+                                }
+
                                 break;
                             }
                         }
@@ -462,6 +488,37 @@ public class LintGradleProject extends Project {
             }
 
             return javaClassFolders;
+        }
+
+        /**
+         * Locates the R.jar file relative to a given javac class folder. Temporary until this is
+         * added to the builder-model (or the upcoming lint-model). Tracked in b/133326990.
+         */
+        @Nullable
+        private static File findRjar(@NonNull File f) {
+            // from classes/debug/ go to
+            // ../../../compile_and_runtime_not_namespaced_r_class_jar/debug/R.jar
+            File p1 = f.getParentFile();
+            if (p1 == null) {
+                return null;
+            }
+            String variant = p1.getName();
+            File p2 = p1.getParentFile(); // classes
+            if (p2 == null) {
+                return null;
+            }
+            File p3 = p2.getParentFile();
+            if (p3 == null) {
+                return null;
+            }
+            // From gradle-core
+            // String root =InternalArtifactType.COMPILE_AND_RUNTIME_NOT_NAMESPACED_R_CLASS_JAR;
+            String root = "compile_and_runtime_not_namespaced_r_class_jar";
+            File rJar = new File(p3, root + separator + variant + separator + FN_R_CLASS_JAR);
+            if (rJar.isFile()) {
+                return rJar;
+            }
+            return null;
         }
 
         @NonNull
@@ -821,31 +878,7 @@ public class LintGradleProject extends Project {
                 if (p instanceof ToolingRegistryProvider) {
                     ToolingModelBuilderRegistry registry;
                     registry = ((ToolingRegistryProvider) p).getModelBuilderRegistry();
-                    String modelName = AndroidProject.class.getName();
-                    ToolingModelBuilder builder = registry.getBuilder(modelName);
-                    assert builder.canBuild(modelName) : modelName;
-
-                    // setup the level 3 sync.
-                    final ExtraPropertiesExtension ext =
-                            gradleProject.getExtensions().getExtraProperties();
-                    // Ensure that projects are constructed serially since otherwise
-                    // it's possible for a race condition on the below property
-                    // to trigger occasional NPE's like the one in b.android.com/38117575
-                    //noinspection SynchronizationOnLocalVariableOrMethodParameter
-                    synchronized (ext) {
-                        ext.set(
-                                AndroidProject.PROPERTY_BUILD_MODEL_ONLY_VERSIONED,
-                                Integer.toString(
-                                        AndroidProject.MODEL_LEVEL_3_VARIANT_OUTPUT_POST_BUILD));
-                        ext.set(AndroidProject.PROPERTY_BUILD_MODEL_DISABLE_SRC_DOWNLOAD, true);
-
-                        try {
-                            return (AndroidProject) builder.buildAll(modelName, gradleProject);
-                        } finally {
-                            ext.set(AndroidProject.PROPERTY_BUILD_MODEL_ONLY_VERSIONED, null);
-                            ext.set(AndroidProject.PROPERTY_BUILD_MODEL_DISABLE_SRC_DOWNLOAD, null);
-                        }
-                    }
+                    return LintGradleExecution.createAndroidProject(gradleProject, registry);
                 }
             }
 

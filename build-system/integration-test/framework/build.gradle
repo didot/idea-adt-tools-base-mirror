@@ -21,7 +21,6 @@ dependencies {
     compile project(':base:builder')
     compile project(':base:builder-model')
     compile project(':base:gradle-core')
-    compile project(':base:instant-run:instant-run-client')
     compile project(':base:sdk-common')
     compile project(':base:testing-infrastructure:device-pool:device-provider')
     compile project(':base:testutils')
@@ -39,6 +38,7 @@ dependencies {
     compile libs.protobuf
     compile libs.protobuf_util
     compile libs.truth
+    compile libs.truth_java8_extension
 
     testCompile libs.mockito_core
 
@@ -50,6 +50,18 @@ dependencies {
     // Groovy versions.
     compile(project(':base:gradle-core')) {
         transitive = false
+    }
+}
+
+compileKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
+    }
+}
+
+compileTestKotlin {
+    kotlinOptions {
+        jvmTarget = "1.8"
     }
 }
 

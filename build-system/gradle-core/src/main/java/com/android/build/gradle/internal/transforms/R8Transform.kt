@@ -18,6 +18,7 @@ package com.android.build.gradle.internal.transforms
 
 import com.android.build.api.transform.Format
 import com.android.build.api.transform.QualifiedContent
+import com.android.build.api.transform.QualifiedContent.DefaultContentType.CLASSES
 import com.android.build.api.transform.QualifiedContent.DefaultContentType.RESOURCES
 import com.android.build.api.transform.SecondaryFile
 import com.android.build.api.transform.TransformInvocation
@@ -27,13 +28,16 @@ import com.android.build.gradle.internal.pipeline.TransformManager
 import com.android.build.gradle.internal.pipeline.TransformManager.CONTENT_DEX_WITH_RESOURCES
 import com.android.build.gradle.internal.pipeline.TransformManager.CONTENT_JARS
 import com.android.build.gradle.internal.scope.VariantScope
+import com.android.build.gradle.internal.tasks.getPlatformRules
 import com.android.build.gradle.internal.transforms.TransformInputUtil.getAllFiles
 import com.android.build.gradle.options.BooleanOption
 import com.android.builder.core.VariantType
+import com.android.builder.dexing.DexingType
 import com.android.builder.dexing.MainDexListConfig
 import com.android.builder.dexing.ProguardConfig
 import com.android.builder.dexing.R8OutputType
 import com.android.builder.dexing.ToolConfig
+import com.android.builder.dexing.getR8Version
 import com.android.builder.dexing.runR8
 import com.android.ide.common.blame.MessageReceiver
 import org.gradle.api.file.ConfigurableFileCollection
@@ -51,7 +55,7 @@ import java.nio.file.Path
  * is dex or class files, depending on whether we are building an APK, or AAR.
  */
 class R8Transform(
-    private val bootClasspath: Lazy<List<File>>,
+    private val bootClasspath: FileCollection,
     private val minSdkVersion: Int,
     private val isDebuggable: Boolean,
     private val java8Support: VariantScope.Java8LangSupport,
@@ -61,11 +65,11 @@ class R8Transform(
     private val mainDexRulesFiles: FileCollection,
     private val inputProguardMapping: FileCollection,
     private val outputProguardMapping: File,
-    private val typesToOutput: MutableSet<out QualifiedContent.ContentType>,
     proguardConfigurationFiles: ConfigurableFileCollection,
     variantType: VariantType,
     includeFeaturesInScopes: Boolean,
     private val messageReceiver: MessageReceiver,
+    private val dexingType: DexingType,
     private val useFullR8: Boolean = false
 ) :
         ProguardConfigurable(proguardConfigurationFiles, variantType, includeFeaturesInScopes) {
@@ -83,7 +87,7 @@ class R8Transform(
         outputProguardMapping: File
     ) :
             this(
-                lazy { scope.globalScope.androidBuilder.getBootClasspath(true) },
+                scope.globalScope.fullBootClasspath,
                 scope.minSdkVersion.featureLevel,
                 scope.variantConfiguration.buildType.isDebuggable,
                 scope.java8LangSupportType,
@@ -93,11 +97,11 @@ class R8Transform(
                 mainDexRulesFiles,
                 inputProguardMapping,
                 outputProguardMapping,
-                if (scope.variantData.type.isAar) CONTENT_JARS else CONTENT_DEX_WITH_RESOURCES,
                 scope.globalScope.project.files(),
                 scope.variantData.type,
                 scope.consumesFeatureJars(),
                 scope.globalScope.messageReceiver,
+                scope.dexingType,
                 scope.globalScope.projectOptions[BooleanOption.FULL_R8]
             )
 
@@ -105,7 +109,13 @@ class R8Transform(
 
     override fun getInputTypes(): MutableSet<out QualifiedContent.ContentType> = CONTENT_JARS
 
-    override fun getOutputTypes(): MutableSet<out QualifiedContent.ContentType> = typesToOutput
+    override fun getOutputTypes(): MutableSet<out QualifiedContent.ContentType> {
+        return if (variantType.isAar) {
+            CONTENT_JARS
+        } else {
+            CONTENT_DEX_WITH_RESOURCES
+        }
+    }
 
     override fun isIncremental(): Boolean = false
 
@@ -113,7 +123,8 @@ class R8Transform(
         mutableListOf(
                 SecondaryFile.nonIncremental(allConfigurationFiles),
                 SecondaryFile.nonIncremental(mainDexListFiles),
-                SecondaryFile.nonIncremental(mainDexRulesFiles)
+                SecondaryFile.nonIncremental(mainDexRulesFiles),
+                SecondaryFile.nonIncremental(inputProguardMapping)
         )
 
     override fun getParameterInputs(): MutableMap<String, Any> =
@@ -124,7 +135,8 @@ class R8Transform(
                 "java8Support" to (java8Support == VariantScope.Java8LangSupport.R8),
                 "disableMinification" to disableMinification,
                 "proguardConfiguration" to proguardConfigurations,
-                "fullMode" to useFullR8
+                "fullMode" to useFullR8,
+                "dexingType" to dexingType
         )
 
     override fun getSecondaryFileOutputs(): MutableCollection<File> =
@@ -152,11 +164,12 @@ class R8Transform(
 
     override fun transform(transformInvocation: TransformInvocation) {
         LoggerWrapper.getLogger(R8Transform::class.java)
-            .lifecycle(
+            .info(
                 """
-                |R8 is an experimental feature. If you experience any issues, please file a bug at
+                |R8 is a new Android code shrinker. If you experience any issues, please file a bug at
                 |https://issuetracker.google.com, using 'Shrinker (R8)' as component name. You can
                 |disable R8 by updating gradle.properties with 'android.enableR8=false'.
+                |Current version is: ${getR8Version()}.
                 |""".trimMargin()
             )
 
@@ -168,20 +181,22 @@ class R8Transform(
 
         val r8OutputType: R8OutputType
         val outputFormat: Format
-        if (typesToOutput == TransformManager.CONTENT_JARS) {
+        if (variantType.isAar) {
             r8OutputType = R8OutputType.CLASSES
             outputFormat = Format.JAR
         } else {
             r8OutputType = R8OutputType.DEX
             outputFormat = Format.DIRECTORY
         }
+        val enableDesugaring = java8Support == VariantScope.Java8LangSupport.R8
+                && r8OutputType == R8OutputType.DEX
         val toolConfig = ToolConfig(
-                minSdkVersion = minSdkVersion,
-                isDebuggable = isDebuggable,
-                disableTreeShaking = disableTreeShaking,
-                disableDesugaring = java8Support != VariantScope.Java8LangSupport.R8,
-                disableMinification = disableMinification,
-                r8OutputType = r8OutputType
+            minSdkVersion = minSdkVersion,
+            isDebuggable = isDebuggable,
+            disableTreeShaking = disableTreeShaking,
+            disableDesugaring = !enableDesugaring,
+            disableMinification = disableMinification,
+            r8OutputType = r8OutputType
         )
 
         val proguardMappingInput =
@@ -193,35 +208,45 @@ class R8Transform(
                 proguardConfigurations
         )
 
-        val mainDexListConfig = MainDexListConfig(
-            mainDexRulesFiles.files.map { it.toPath() },
-            mainDexListFiles.files.map { it.toPath() },
-            getPlatformRules(),
-            mainDexListOutput?.toPath()
-        )
+        val mainDexListConfig = if (dexingType == DexingType.LEGACY_MULTIDEX) {
+            MainDexListConfig(
+                mainDexRulesFiles.files.map { it.toPath() },
+                mainDexListFiles.files.map { it.toPath() },
+                getPlatformRules(),
+                mainDexListOutput?.toPath()
+            )
+        } else {
+            MainDexListConfig()
+        }
 
         val output = outputProvider.getContentLocation(
                 "main",
-                TransformManager.CONTENT_DEX,
+                if (variantType.isAar) TransformManager.CONTENT_CLASS else TransformManager.CONTENT_DEX ,
                 scopes,
                 outputFormat
         )
-        Files.createDirectories(output.toPath())
+
+        when (outputFormat) {
+            Format.JAR -> Files.createDirectories(output.parentFile.toPath())
+            Format.DIRECTORY -> Files.createDirectories(output.toPath())
+        }
 
         val inputJavaResources = mutableListOf<Path>()
         val inputClasses = mutableListOf<Path>()
         transformInvocation.inputs.forEach {
             it.directoryInputs.forEach { dirInput ->
-                if (dirInput.contentTypes.contains(QualifiedContent.DefaultContentType.RESOURCES)) {
+                if (dirInput.contentTypes.contains(RESOURCES)) {
                     inputJavaResources.add(dirInput.file.toPath())
-                } else {
+                }
+                if (dirInput.contentTypes.contains(CLASSES)){
                     inputClasses.add(dirInput.file.toPath())
                 }
             }
             it.jarInputs.forEach { jarInput ->
-                if (jarInput.contentTypes.contains(QualifiedContent.DefaultContentType.RESOURCES)) {
+                if (jarInput.contentTypes.contains(RESOURCES)) {
                     inputJavaResources.add(jarInput.file.toPath())
-                } else {
+                }
+                if (jarInput.contentTypes.contains(CLASSES)) {
                     inputClasses.add(jarInput.file.toPath())
                 }
             }
@@ -231,7 +256,7 @@ class R8Transform(
         Files.createDirectories(javaResources.toPath().parent)
 
         val bootClasspathInputs =
-            getAllFiles(transformInvocation.referencedInputs) + bootClasspath.value
+            getAllFiles(transformInvocation.referencedInputs) + bootClasspath
 
         runR8(
             inputClasses,

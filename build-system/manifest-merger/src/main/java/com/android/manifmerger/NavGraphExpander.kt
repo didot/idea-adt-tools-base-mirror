@@ -29,7 +29,7 @@ import com.android.SdkConstants.ATTR_SCHEME
 import com.android.SdkConstants.TAG_ACTION
 import com.android.SdkConstants.TAG_CATEGORY
 import com.android.SdkConstants.TAG_DATA
-import com.android.annotations.VisibleForTesting
+import com.google.common.annotations.VisibleForTesting
 import com.android.ide.common.blame.SourceFilePosition
 import com.android.utils.XmlUtils
 import com.google.common.collect.ImmutableList
@@ -132,7 +132,7 @@ object NavGraphExpander {
             navigationXmlId: String,
             loadedNavigationMap: Map<String, NavigationXmlDocument>,
             mergingReportBuilder: MergingReport.Builder) {
-        val deepLinkList = try {
+        val deepLinks = try {
             findDeepLinks(navigationXmlId, loadedNavigationMap)
         } catch (e: NavGraphException) {
             mergingReportBuilder.addMessage(
@@ -142,7 +142,9 @@ object NavGraphExpander {
             return
         }
         val actionRecorder = mergingReportBuilder.actionRecorder
-        for (deepLink in deepLinkList) {
+        val deepLinkGroups = deepLinks.groupBy { getDeepLinkUriBody(it, false) }
+        for (deepLinkGroup in deepLinkGroups.values) {
+            val deepLink = deepLinkGroup.first()
             // first create <intent-filter> element
             val intentFilterElement =
                     addChildElement(SdkConstants.TAG_INTENT_FILTER, xmlElement.xml)
@@ -158,7 +160,7 @@ object NavGraphExpander {
                                     TAG_CATEGORY, ATTR_NAME, "android.intent.category.DEFAULT"),
                             ChildElementData(
                                     TAG_CATEGORY, ATTR_NAME, "android.intent.category.BROWSABLE"))
-            for (scheme in deepLink.schemes) {
+            for (scheme in deepLinkGroup.flatMap { it.schemes }.toSet()) {
                 childElementDataList.add(ChildElementData(TAG_DATA, ATTR_SCHEME, scheme))
             }
             if (deepLink.host != null) {
@@ -184,8 +186,10 @@ object NavGraphExpander {
             }
             // finally record all added elements and attributes
             val intentFilterXmlElement = XmlElement(intentFilterElement, xmlElement.document)
-            recordXmlElementAddition(
-                    intentFilterXmlElement, deepLink.sourceFilePosition, actionRecorder)
+            for (dl in deepLinkGroup) {
+                recordXmlElementAddition(
+                    intentFilterXmlElement, dl.sourceFilePosition, actionRecorder)
+            }
         }
     }
 
@@ -200,7 +204,7 @@ object NavGraphExpander {
             navigationXmlId: String,
             loadedNavigationMap: Map<String, NavigationXmlDocument>): List<DeepLink> {
         val deepLinkList: MutableList<DeepLink> = mutableListOf()
-        findDeepLinks(navigationXmlId, loadedNavigationMap, deepLinkList, mutableMapOf(), 0)
+        findDeepLinks(navigationXmlId, loadedNavigationMap, deepLinkList, mutableMapOf(), hashSetOf())
         return ImmutableList.copyOf(deepLinkList)
     }
 
@@ -216,11 +220,10 @@ object NavGraphExpander {
             loadedNavigationMap: Map<String, NavigationXmlDocument>,
             deepLinkList: MutableList<DeepLink>,
             deepLinkUriMap: MutableMap<String, DeepLink>,
-            numNavigationFilesVisited: Int) {
-        // This method tracks numNavigationFilesVisited to avoid an infinite loop caused by a
-        // circular reference among the navigation files. There's a circular reference if
-        // numNavigationFilesVisited > loadedNavigationMap.size
-        if (numNavigationFilesVisited > loadedNavigationMap.size) {
+            visitedNavigationFiles: MutableSet<String>) {
+        // This method tracks visitedNavigationFiles to avoid an infinite loop caused by a
+        // circular reference among the navigation files.
+        if (!visitedNavigationFiles.add(navigationXmlId)) {
             throw NavGraphException(
                     "Illegal circular reference among navigation files when traversing navigation" +
                             " file references starting with navigationXmlId: $navigationXmlId")
@@ -244,8 +247,15 @@ object NavGraphExpander {
                     loadedNavigationMap,
                     deepLinkList,
                     deepLinkUriMap,
-                    numNavigationFilesVisited + 1)
+                    visitedNavigationFiles)
         }
+    }
+
+    private fun getDeepLinkUriBody(deepLink: DeepLink, includeQuery: Boolean): String {
+        val hostString = if (deepLink.host == null) "//" else "//" + deepLink.host
+        val portString = if (deepLink.port == -1) "" else ":" + deepLink.port
+        val queryString = if (deepLink.query == null || !includeQuery) "" else "?${deepLink.query}"
+        return hostString + portString + deepLink.path + queryString
     }
 
     /**
@@ -257,10 +267,9 @@ object NavGraphExpander {
      */
     private fun getDeepLinkUris(deepLink: DeepLink): List<String> {
         val builder: ImmutableList.Builder<String> = ImmutableList.builder()
-        val hostString = if (deepLink.host == null) "//" else "//" + deepLink.host
-        val portString = if (deepLink.port == -1) "" else ":" + deepLink.port
+        val body = getDeepLinkUriBody(deepLink, true)
         for (scheme in deepLink.schemes) {
-            builder.add(scheme + ":" + hostString + portString + deepLink.path)
+            builder.add("$scheme:$body")
         }
         return builder.build()
     }

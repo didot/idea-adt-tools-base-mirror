@@ -16,7 +16,9 @@
 
 package com.android.testutils;
 
+import static com.android.testutils.WindowsPathUtilsKt.getWindowsShortNameFile;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeFalse;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
@@ -169,11 +171,12 @@ public class TestUtils {
             // root they provide us.
             String workspace = System.getenv("TEST_WORKSPACE");
             String workspaceParent = System.getenv("TEST_SRCDIR");
-            File currDir = new File("");
             if (workspace != null && workspaceParent != null) {
-                currDir = new File(workspaceParent, workspace);
-                workspaceRoot = currDir;
+                workspaceRoot = new File(workspaceParent, workspace);
+                return workspaceRoot;
             }
+
+            File currDir = new File("");
             File initialDir = currDir;
 
             // If we're using a non-Bazel build system. At this point, assume our working
@@ -222,7 +225,6 @@ public class TestUtils {
 
         if (!f.exists() && OsType.getHostOs() == OsType.WINDOWS) {
             // This file may be a binary with a .exe extension
-            // TODO: Confirm this works on Windows
             f = new File(f.getPath() + ".exe");
         }
 
@@ -230,7 +232,7 @@ public class TestUtils {
             throw new IllegalArgumentException("File \"" + path + "\" not found at \"" + getWorkspaceRoot() + "\"");
         }
 
-        return f;
+        return getWindowsShortNameFile(f);
     }
 
     /**
@@ -343,7 +345,7 @@ public class TestUtils {
 
     @NonNull
     public static String getLatestAndroidPlatform() {
-        return "android-27";
+        return "android-28";
     }
 
     /**
@@ -577,4 +579,10 @@ public class TestUtils {
         }
     }
 
+    // disable tests when running on Windows in Bazel.
+    public static void disableIfOnWindowsWithBazel() {
+        assumeFalse(
+                (SdkConstants.currentPlatform() == SdkConstants.PLATFORM_WINDOWS)
+                        && System.getenv("TEST_TMPDIR") != null);
+    }
 }

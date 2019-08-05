@@ -1,5 +1,6 @@
 load("//tools/base/bazel:android.bzl", "dex_library")
 load("//tools/base/profiler:perf_test.bzl", "perf_test")
+load("//tools/base/bazel:coverage.bzl", "coverage_java_test")
 
 package(
     default_testonly = True,
@@ -48,17 +49,17 @@ java_library(
     ],
 )
 
-java_test(
+coverage_java_test(
     name = "NativeBinarySizeTest",
     srcs = ["testSrcs/com/android/tools/profiler/performance/NativeBinarySizeTest.java"],
     data = [
-        "//tools/base/profiler/native/perfa:android/arm64-v8a/libperfa.so",
-        "//tools/base/profiler/native/perfa:android/armeabi-v7a/libperfa.so",
-        "//tools/base/profiler/native/perfa:android/x86/libperfa.so",
-        "//tools/base/profiler/native/perfa:android/x86_64/libperfa.so",
-        "//tools/base/profiler/native/perfd:android/arm64-v8a/perfd",
-        "//tools/base/profiler/native/perfd:android/armeabi-v7a/perfd",
-        "//tools/base/profiler/native/perfd:android/x86/perfd",
+        "//tools/base/transport:android/arm64-v8a/transport",
+        "//tools/base/transport:android/armeabi-v7a/transport",
+        "//tools/base/transport:android/x86/transport",
+        "//tools/base/transport/agent:android/arm64-v8a/libjvmtiagent.so",
+        "//tools/base/transport/agent:android/armeabi-v7a/libjvmtiagent.so",
+        "//tools/base/transport/agent:android/x86/libjvmtiagent.so",
+        "//tools/base/transport/agent:android/x86_64/libjvmtiagent.so",
     ],
     jvm_flags = ["-Dtest.suite.jar=NativeBinarySizeTest.jar"],
     tags = ["no_windows"],
@@ -73,7 +74,7 @@ java_test(
 
 perf_test(
     name = "BasicTest",
-    size = "medium",
+    size = "small",
     srcs = [
         "testSrcs/com/android/tools/profiler/BasicPerfTest.java",
     ],
@@ -93,6 +94,8 @@ perf_test(
     srcs = [
         "testSrcs/com/android/tools/profiler/network/HttpUrlTest.java",
         "testSrcs/com/android/tools/profiler/network/OkHttpTest.java",
+        "testSrcs/com/android/tools/profiler/network/UnifiedPipelineHttpUrlTest.java",
+        "testSrcs/com/android/tools/profiler/network/UnifiedPipelineOkHttpTest.java",
     ],
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
@@ -110,6 +113,7 @@ perf_test(
         "testSrcs/com/android/tools/profiler/memory/JniTest.java",
         "testSrcs/com/android/tools/profiler/memory/MemoryTest.java",
     ],
+    tags = ["manual"],  # b/80501379
     test_app = "//tools/base/profiler/tests/test-app:test-app",
     deps = [
         ":test_lib",

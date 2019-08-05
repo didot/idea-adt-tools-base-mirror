@@ -17,7 +17,7 @@ package com.android.tools.lint.checks;
 
 import static com.android.SdkConstants.ANDROID_URI;
 import static com.android.SdkConstants.ATTR_WIDTH;
-import static com.android.SdkConstants.NS_RESOURCES;
+import static com.android.SdkConstants.TAG_CLIP_PATH;
 import static com.android.SdkConstants.TAG_VECTOR;
 import static com.android.SdkConstants.UNIT_DIP;
 import static com.android.SdkConstants.UNIT_DP;
@@ -233,7 +233,7 @@ public class VectorDetector extends ResourceXmlDetector {
     }
 
     private static boolean containsFillType(Document document) {
-        return findElement(document, element -> element.hasAttributeNS(NS_RESOURCES, "fillType"))
+        return findElement(document, element -> element.hasAttributeNS(ANDROID_URI, "fillType"))
                 != null;
     }
 
@@ -279,7 +279,7 @@ public class VectorDetector extends ResourceXmlDetector {
             @NonNull XmlContext context, @NonNull Element element, int apiThreshold) {
         // Unsupported tags
         String tag = element.getTagName();
-        if ("clip-path".equals(tag)) {
+        if (TAG_CLIP_PATH.equals(tag)) {
             String message =
                     String.format(
                             "This tag is not supported in images generated from this vector icon for "

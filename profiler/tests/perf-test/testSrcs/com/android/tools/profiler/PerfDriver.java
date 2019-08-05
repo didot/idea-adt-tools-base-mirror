@@ -20,8 +20,10 @@ import com.android.tools.fakeandroid.FakeAndroidDriver;
 import com.android.tools.fakeandroid.ProcessRunner;
 import com.android.tools.profiler.proto.Agent;
 import com.android.tools.profiler.proto.Agent.AgentConfig.MemoryConfig;
+import com.android.tools.profiler.proto.Common;
 import com.android.tools.profiler.proto.Common.Session;
 import com.android.tools.profiler.proto.MemoryProfiler.AllocationSamplingRate;
+import com.android.tools.profiler.proto.Transport;
 import io.grpc.StatusRuntimeException;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -31,105 +33,80 @@ import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.regex.Pattern;
 import org.junit.Assert;
+import org.junit.rules.ExternalResource;
 import org.junit.rules.RuleChain;
 import org.junit.rules.TemporaryFolder;
-import org.junit.rules.TestRule;
 import org.junit.runner.Description;
 import org.junit.runners.model.Statement;
 
 /**
- * This class is the base class for all perf test. The management of test ports, processes, and
- * basic rpc calls that are shared between all perf test (jvmti and instrumented) should live in
- * this base class.
+ * This class is the test rule for all perf test. The management of test ports, processes, and basic
+ * rpc calls that are shared between all perf test (jvmti and instrumented) should live in this base
+ * class.
  */
-public class PerfDriver implements TestRule {
+public class PerfDriver extends ExternalResource {
     // Folder to create temporary config files, which is chained in TestRule and will be deleted
     // at the test's end.
     private final TemporaryFolder myTemporaryFolder = new TemporaryFolder();
     private final String myActivityClass;
 
-    public static final String LOCAL_HOST = "127.0.0.1";
-    private File myConfigFile;
+    private static final String LOCAL_HOST = "127.0.0.1";
     private int myPid = -1;
     private FakeAndroidDriver myMockApp;
     private PerfdDriver myPerfdDriver;
     private GrpcUtils myGrpc;
     private boolean myIsOPlusDevice;
+    private boolean myUnifiedPipeline;
     private DeviceProperties myPropertiesFile;
     private int mySdkLevel;
     private Session mySession;
+    private int myServerPort;
     private int myLiveAllocSamplingRate = 1;
 
     public PerfDriver(String activityClass, int sdkLevel) {
+        this(activityClass, sdkLevel, false);
+    }
+
+    public PerfDriver(String activityClass, int sdkLevel, boolean unifiedPipeline) {
         myActivityClass = activityClass;
         mySdkLevel = sdkLevel;
+        myUnifiedPipeline = unifiedPipeline;
         myIsOPlusDevice = TestUtils.isOPlusDevice(sdkLevel);
-        String codeName;
-        if (mySdkLevel >= 28) {
-            codeName = "P+";
-        } else if (mySdkLevel >= 26) {
-            codeName = "O";
-        } else {
-            codeName = "Pre-O";
-        }
         myPropertiesFile =
-                new DeviceProperties(
-                        codeName, String.valueOf(mySdkLevel), String.valueOf(mySdkLevel));
+                new DeviceProperties("", String.valueOf(mySdkLevel), String.valueOf(mySdkLevel));
         myPropertiesFile.writeFile();
     }
 
     @Override
     public Statement apply(Statement base, Description description) {
         return RuleChain.outerRule(myTemporaryFolder)
-                .apply(
-                        new Statement() {
-                            @Override
-                            public void evaluate() throws Throwable {
-                                try {
-                                    ruleBefore();
-                                    before();
-                                    base.evaluate();
-                                } finally {
-                                    after();
-                                    ruleAfter();
-                                }
-                            }
-
-                            private void ruleBefore() throws Throwable {
-                                // Logs in perf-test output to track the sdk level and test start.
-                                System.out.println(
-                                        String.format(
-                                                "Start test %s with sdk level %d",
-                                                myActivityClass, mySdkLevel));
-                                startPerfd();
-                                start(myActivityClass);
-                            }
-
-                            private void ruleAfter() {
-                                if (mySession != null) {
-                                    try {
-                                        getGrpc().endSession(mySession.getSessionId());
-                                    } catch (StatusRuntimeException e) {
-                                        // TODO(b/112274301): fix "connection closed" error.
-                                    }
-                                }
-                                myMockApp.stop();
-                                myPerfdDriver.stop();
-                                // Logs in perf-test output to track the sdk level and test end.
-                                System.out.println(
-                                        String.format(
-                                                "Finish test %s with sdk level %d",
-                                                myActivityClass, mySdkLevel));
-                            }
-                        },
-                        description);
+                .apply(super.apply(base, description), description);
     }
 
-    /** Override to set up the associated test. */
-    protected void before() throws Throwable {}
+    @Override
+    protected void before() throws Throwable {
+        // Logs in perf-test output to track the sdk level and test start.
+        System.out.println(
+                String.format("Start activity %s with sdk level %d", myActivityClass, mySdkLevel));
+        startPerfd();
+        start(myActivityClass);
+    }
 
-    /** Override to tear down the associated test. */
-    protected void after() {}
+    @Override
+    protected void after() {
+        if (mySession != null) {
+            try {
+                getGrpc().endSession(mySession.getSessionId());
+            } catch (StatusRuntimeException e) {
+                // TODO(b/112274301): fix "connection closed" error.
+            }
+        }
+        myMockApp.stop();
+        myPerfdDriver.stop();
+        // Logs in perf-test output to track the sdk level and test end.
+        System.out.println(
+                String.format("Finish activity %s with sdk level %d", myActivityClass, mySdkLevel));
+    }
 
     /**
      * Returns the port the app communicates over. Note: this will not be valid until after {@link
@@ -196,20 +173,25 @@ public class PerfDriver implements TestRule {
         }
 
         // Invoke beginSession to establish a session we can use to query data
+        File agentConfig = buildAgentConfig();
         mySession =
                 myIsOPlusDevice
-                        ? getGrpc().beginSessionWithAgent(getPid(), getCommunicationPort())
+                        ? getGrpc()
+                                .beginSessionWithAgent(
+                                        getPid(),
+                                        getCommunicationPort(),
+                                        agentConfig.getAbsolutePath())
                         : getGrpc().beginSession(getPid());
     }
 
     private void copyFilesForJvmti() {
         try {
-            File libPerfaFile = new File(ProcessRunner.getProcessPath("perfa.location"));
+            File libJvmtiAgentFile = new File(ProcessRunner.getProcessPath("perfa.location"));
             File perfaJarFile = new File(ProcessRunner.getProcessPath("perfa.jar.location"));
-            if (libPerfaFile.exists()) {
+            if (libJvmtiAgentFile.exists()) {
                 Files.copy(
-                        libPerfaFile.toPath(),
-                        new File("./libperfa.so").toPath(),
+                        libJvmtiAgentFile.toPath(),
+                        new File("./libjvmtiagent.so").toPath(),
                         StandardCopyOption.REPLACE_EXISTING);
             }
             if (perfaJarFile.exists()) {
@@ -237,11 +219,31 @@ public class PerfDriver implements TestRule {
      * Helper function to create and serialize AgentConfig for test to use, this is specific to each
      * test.
      */
-    private void buildAndSaveConfig(int sdkLevel) {
+    private File buildDaemonConfig() {
+        File file = null;
         try {
-            myConfigFile =
-                    File.createTempFile("agent_config", ".data", myTemporaryFolder.getRoot());
-            FileOutputStream outputStream = new FileOutputStream(myConfigFile);
+            file = myTemporaryFolder.newFile();
+            FileOutputStream outputStream = new FileOutputStream(file);
+            Transport.DaemonConfig config =
+                    Transport.DaemonConfig.newBuilder().setCommon(buildCommonConfig()).build();
+            config.writeTo(outputStream);
+            outputStream.flush();
+            outputStream.close();
+        } catch (IOException ex) {
+            Assert.fail("Failed to write config file: " + ex);
+        }
+        return file;
+    }
+
+    /**
+     * Helper function to create and serialize AgentConfig for test to use, this is specific to each
+     * test.
+     */
+    private File buildAgentConfig() {
+        File file = null;
+        try {
+            file = myTemporaryFolder.newFile();
+            FileOutputStream outputStream = new FileOutputStream(file);
             Agent.AgentConfig.MemoryConfig memConfig =
                     MemoryConfig.newBuilder()
                             .setUseLiveAlloc(true)
@@ -256,11 +258,8 @@ public class PerfDriver implements TestRule {
 
             Agent.AgentConfig config =
                     Agent.AgentConfig.newBuilder()
-                            .setMemConfig(memConfig)
-                            .setServiceAddress(LOCAL_HOST + ":" + getAvailablePort())
-                            .setSocketType(Agent.SocketType.UNSPECIFIED_SOCKET)
-                            .setEnergyProfilerEnabled(true)
-                            .setAndroidFeatureLevel(sdkLevel)
+                            .setMem(memConfig)
+                            .setCommon(buildCommonConfig())
                             .build();
             config.writeTo(outputStream);
             outputStream.flush();
@@ -268,6 +267,15 @@ public class PerfDriver implements TestRule {
         } catch (IOException ex) {
             Assert.fail("Failed to write config file: " + ex);
         }
+        return file;
+    }
+
+    private Common.CommonConfig buildCommonConfig() {
+        return Common.CommonConfig.newBuilder()
+                .setServiceAddress(LOCAL_HOST + ":" + myServerPort)
+                .setEnergyProfilerEnabled(true)
+                .setProfilerUnifiedPipeline(myUnifiedPipeline)
+                .build();
     }
 
     /**
@@ -277,8 +285,9 @@ public class PerfDriver implements TestRule {
      */
     private void startPerfd() throws IOException {
         while (myPerfdDriver == null || myPerfdDriver.getPort() == 0) {
-            buildAndSaveConfig(mySdkLevel);
-            myPerfdDriver = new PerfdDriver(myConfigFile.getAbsolutePath());
+            myServerPort = getAvailablePort();
+            File daemonConfig = buildDaemonConfig();
+            myPerfdDriver = new PerfdDriver(daemonConfig.getAbsolutePath());
             myPerfdDriver.start();
         }
     }

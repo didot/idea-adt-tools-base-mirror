@@ -16,14 +16,25 @@
 
 package com.android.build.gradle.tasks;
 
+import static com.android.build.gradle.internal.scope.InternalArtifactType.MERGED_SHADERS;
+import static com.google.common.base.Preconditions.checkNotNull;
+
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
+import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
+import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
+import com.android.build.gradle.internal.tasks.Workers;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
+import com.android.builder.internal.compiler.DirectoryWalker;
 import com.android.builder.internal.compiler.ShaderProcessor;
 import com.android.ide.common.process.LoggedProcessOutputHandler;
+import com.android.ide.common.process.ProcessOutputHandler;
+import com.android.ide.common.workers.WorkerExecutorFacade;
+import com.android.repository.Revision;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -31,19 +42,21 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileTree;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
-import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.util.PatternSet;
 
 /** Task to compile Shaders */
 @CacheableTask
-public class ShaderCompile extends AndroidBuilderTask {
+public class ShaderCompile extends NonIncrementalTask {
 
     private static final PatternSet PATTERN_SET = new PatternSet()
             .include("**/*." + ShaderProcessor.EXT_VERT)
@@ -58,48 +71,113 @@ public class ShaderCompile extends AndroidBuilderTask {
     // ----- PRIVATE TASK API -----
     private File outputDir;
 
-    @Input
-    public String getBuildToolsVersion() {
-        return getBuildTools().getRevision().toString();
+    private final WorkerExecutorFacade workers;
+
+    /**
+     * TODO(b/124424292)
+     *
+     * <p>We can not use gradle worker in this task as we use {@link GradleProcessExecutor} for
+     * compiling shader files, which should not be serialized.
+     */
+    public ShaderCompile() {
+        this.workers = Workers.INSTANCE.withThreads(getProject().getName(), getPath());
     }
 
-    private File sourceDir;
+    private Provider<Revision> buildToolInfoRevisionProvider;
+
+    @Input
+    public String getBuildToolsVersion() {
+        return buildToolInfoRevisionProvider.get().toString();
+    }
+
+    private Provider<File> ndkLocation;
+    private Provider<Directory> sourceDir;
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public Provider<Directory> getSourceDir() {
+        return sourceDir;
+    }
 
     @NonNull
     private List<String> defaultArgs = ImmutableList.of();
     private Map<String, List<String>> scopedArgs = ImmutableMap.of();
 
-    private File ndkLocation;
 
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
     public FileTree getSourceFiles() {
+        File sourceDirFile = sourceDir.get().getAsFile();
         FileTree src = null;
-        if (sourceDir.isDirectory()) {
-            src = getProject().files(sourceDir).getAsFileTree().matching(PATTERN_SET);
+        if (sourceDirFile.isDirectory()) {
+            src = getProject().files(sourceDirFile).getAsFileTree().matching(PATTERN_SET);
         }
         return src == null ? getProject().files().getAsFileTree() : src;
     }
 
-    @TaskAction
-    protected void compileShaders() throws IOException {
+    @Override
+    protected void doTaskAction() throws IOException {
         // this is full run, clean the previous output
         File destinationDir = getOutputDir();
         FileUtils.cleanOutputDir(destinationDir);
 
-        try {
-            getBuilder()
-                    .compileAllShaderFiles(
-                            sourceDir,
-                            getOutputDir(),
-                            defaultArgs,
-                            scopedArgs,
-                            ndkLocation,
-                            new LoggedProcessOutputHandler(getILogger()));
-        } catch (Exception e) {
-            throw  new RuntimeException(e);
+        try (WorkerExecutorFacade workers = this.workers) {
+            compileAllShaderFiles(
+                    sourceDir.get().getAsFile(),
+                    getOutputDir(),
+                    defaultArgs,
+                    scopedArgs,
+                    () -> ndkLocation.get(),
+                    new LoggedProcessOutputHandler(new LoggerWrapper(getLogger())),
+                    workers);
         }
     }
+
+    /**
+     * Compiles all the shader files found in the given source folders.
+     *
+     * @param sourceFolder the source folder with the merged shaders
+     * @param outputDir the output dir in which to generate the output
+     * @throws IOException failed
+     */
+    private void compileAllShaderFiles(
+            @NonNull File sourceFolder,
+            @NonNull File outputDir,
+            @NonNull List<String> defaultArgs,
+            @NonNull Map<String, List<String>> scopedArgs,
+            @Nullable Supplier<File> ndkLocation,
+            @NonNull ProcessOutputHandler processOutputHandler,
+            @NonNull WorkerExecutorFacade workers)
+            throws IOException {
+        checkNotNull(sourceFolder, "sourceFolder cannot be null.");
+        checkNotNull(outputDir, "outputDir cannot be null.");
+
+        Supplier<ShaderProcessor> processor =
+                () ->
+                        new ShaderProcessor(
+                                ndkLocation,
+                                sourceFolder,
+                                outputDir,
+                                defaultArgs,
+                                scopedArgs,
+                                new GradleProcessExecutor(getProject()),
+                                processOutputHandler,
+                                workers);
+
+        DirectoryWalker.builder()
+                .root(sourceFolder.toPath())
+                .extensions(
+                        ShaderProcessor.EXT_VERT,
+                        ShaderProcessor.EXT_TESC,
+                        ShaderProcessor.EXT_TESE,
+                        ShaderProcessor.EXT_GEOM,
+                        ShaderProcessor.EXT_FRAG,
+                        ShaderProcessor.EXT_COMP)
+                .action(processor)
+                .build()
+                .walk();
+    }
+
 
     @OutputDirectory
     public File getOutputDir() {
@@ -108,10 +186,6 @@ public class ShaderCompile extends AndroidBuilderTask {
 
     public void setOutputDir(File sourceOutputDir) {
         this.outputDir = sourceOutputDir;
-    }
-
-    public void setSourceDir(File sourceDir) {
-        this.sourceDir = sourceDir;
     }
 
     @NonNull
@@ -170,12 +244,15 @@ public class ShaderCompile extends AndroidBuilderTask {
 
             final GradleVariantConfiguration variantConfiguration = scope.getVariantConfiguration();
 
-            task.ndkLocation = scope.getGlobalScope().getNdkHandler().getNdkDirectory();
+            task.ndkLocation = scope.getGlobalScope().getSdkComponents().getNdkFolderProvider();
 
-            task.setSourceDir(scope.getMergeShadersOutputDir());
+            task.sourceDir = scope.getArtifacts().getFinalProduct(MERGED_SHADERS);
             task.setOutputDir(outputDir);
             task.setDefaultArgs(variantConfiguration.getDefautGlslcArgs());
             task.setScopedArgs(variantConfiguration.getScopedGlslcArgs());
+
+            task.buildToolInfoRevisionProvider =
+                    scope.getGlobalScope().getSdkComponents().getBuildToolsRevisionProvider();
         }
     }
 }

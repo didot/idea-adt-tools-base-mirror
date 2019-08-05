@@ -15,7 +15,7 @@
  */
 package com.android.build.gradle.internal.tasks
 
-import com.android.annotations.VisibleForTesting
+import com.google.common.annotations.VisibleForTesting
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.TaskManager
@@ -34,7 +34,11 @@ import com.android.utils.ILogger
 import org.gradle.api.GradleException
 import org.gradle.api.logging.Logger
 import org.gradle.api.logging.Logging
+import org.gradle.api.provider.Provider
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.workers.WorkerExecutor
@@ -47,11 +51,10 @@ import javax.inject.Inject
  * Task installing an app variant. It looks at connected device and install the best matching
  * variant output on each device.
  */
-open class InstallVariantViaBundleTask  @Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
+open class InstallVariantViaBundleTask  @Inject constructor(workerExecutor: WorkerExecutor) : NonIncrementalTask() {
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
-    private lateinit var adbExe: () -> File
     private lateinit var projectName: String
 
     private var minSdkVersion = 0
@@ -61,6 +64,11 @@ open class InstallVariantViaBundleTask  @Inject constructor(workerExecutor: Work
 
     private var installOptions = mutableListOf<String>()
 
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE) // We care about the binary itself, not where it is.
+    lateinit var adbExecutableProvider: Provider<File>
+        private set
+
     @get:InputFiles
     lateinit var apkBundle: BuildableArtifact
         private set
@@ -69,13 +77,12 @@ open class InstallVariantViaBundleTask  @Inject constructor(workerExecutor: Work
         this.outputs.upToDateWhen { false }
     }
 
-    @TaskAction
-    fun install() {
+    override fun doTaskAction() {
         workers.use {
             it.submit(
                 InstallRunnable::class.java,
                 Params(
-                    adbExe(),
+                    adbExecutableProvider.get(),
                     apkBundle.singleFile(),
                     timeOutInMs,
                     installOptions,
@@ -214,8 +221,7 @@ open class InstallVariantViaBundleTask  @Inject constructor(workerExecutor: Work
 
             task.timeOutInMs = variantScope.globalScope.extension.adbOptions.timeOutInMs
 
-            task.adbExe = { variantScope.globalScope.sdkHandler.sdkInfo?.adb!! }
-
+            task.adbExecutableProvider = variantScope.globalScope.sdkComponents.adbExecutableProvider
         }
 
         override fun handleProvider(taskProvider: TaskProvider<out InstallVariantViaBundleTask>) {

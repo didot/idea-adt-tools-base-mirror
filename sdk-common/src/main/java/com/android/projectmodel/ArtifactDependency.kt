@@ -13,10 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+@file:JvmName("ArtifactDependencyUtil")
 package com.android.projectmodel
 
 import com.android.ide.common.repository.GradleCoordinate
-import com.android.ide.common.util.PathString
 import java.util.IdentityHashMap
 
 /**
@@ -25,7 +25,7 @@ import java.util.IdentityHashMap
  * New properties may be added in the future; clients that invoke the constructor are encouraged to
  * use Kotlin named arguments to stay source compatible.
  */
-data class ArtifactDependency(
+data class ArtifactDependency @JvmOverloads constructor(
         /**
          * The dependency itself.
          */
@@ -44,14 +44,14 @@ data class ArtifactDependency(
          */
         val resolvedMavenCoordinate: GradleCoordinate? = null
 ) {
-    /**
-     * Constructs a new [ArtifactDependency] with no dependencies or gradle coordinates. Intended
-     * to simplify construction from Java.
-     */
-    constructor(library: Library) : this(library=library, dependencies=emptyList())
-
-    override fun toString(): String = printProperties(
-        this, ArtifactDependency(ExternalLibrary("")))
+    override fun toString(): String {
+        val props = ArrayList<String>()
+        props.add("library=$library")
+        if (dependencies.isNotEmpty()) props.add("dependencies.size=${dependencies.size}")
+        if (requestedMavenCoordinate != null) props.add("requestedMavenCoordinate=$requestedMavenCoordinate")
+        if (resolvedMavenCoordinate != null) props.add("resolvedMavenCoordinate=$resolvedMavenCoordinate")
+        return "ArtifactDependency(${props.joinToString(",")})"
+    }
 }
 
 /**

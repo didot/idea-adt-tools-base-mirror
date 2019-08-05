@@ -16,9 +16,6 @@
 
 package com.android.build.gradle.internal.ide.dependencies;
 
-import static com.android.SdkConstants.DOT_JAR;
-import static com.android.SdkConstants.FD_AAR_LIBS;
-import static com.android.SdkConstants.FD_JARS;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
 
@@ -41,9 +38,7 @@ import com.android.builder.model.JavaLibrary;
 import com.android.builder.model.SyncIssue;
 import com.android.builder.model.level2.DependencyGraphs;
 import com.android.builder.model.level2.GraphItem;
-import com.android.utils.FileUtils;
 import com.android.utils.ImmutableCollectors;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -53,15 +48,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.ArtifactCollection;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.artifacts.dsl.DependencyHandler;
 import org.gradle.api.artifacts.query.ArtifactResolutionQuery;
-import org.gradle.api.artifacts.result.ArtifactResolutionResult;
-import org.gradle.api.artifacts.result.ArtifactResult;
-import org.gradle.api.artifacts.result.ComponentArtifactsResult;
 import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.component.Artifact;
 import org.gradle.jvm.JvmLibrary;
@@ -102,7 +95,7 @@ class ArtifactDependencyGraph implements DependencyGraphBuilder {
                 Set<ComponentIdentifier> ids =
                         Sets.newHashSetWithExpectedSize(compileArtifacts.size());
                 for (ResolvedArtifact artifact : compileArtifacts) {
-                    ids.add(artifact.getId().getComponentIdentifier());
+                    ids.add(artifact.getComponentIdentifier());
                 }
 
                 handleSources(variantScope.getGlobalScope().getProject(), ids, failureConsumer);
@@ -141,7 +134,7 @@ class ArtifactDependencyGraph implements DependencyGraphBuilder {
                             new GraphItemImpl(artifact.computeModelAddress(), ImmutableList.of());
                     compileItems.add(graphItem);
                     LibraryUtils.getLibraryCache().get(artifact);
-                    if (!runtimeIdentifiers.contains(artifact.getId().getComponentIdentifier())) {
+                    if (!runtimeIdentifiers.contains(artifact.getComponentIdentifier())) {
                         providedAddresses.add(graphItem.getArtifactAddress());
                     }
                 }
@@ -235,9 +228,8 @@ class ArtifactDependencyGraph implements DependencyGraphBuilder {
                             COMPILE_CLASSPATH,
                             dependencyFailureHandler,
                             buildMapping);
-
             for (ResolvedArtifact artifact : artifacts) {
-                ComponentIdentifier id = artifact.getId().getComponentIdentifier();
+                ComponentIdentifier id = artifact.getComponentIdentifier();
 
                 boolean isProvided = !runtimeIdentifiers.contains(id);
 
@@ -295,7 +287,7 @@ class ArtifactDependencyGraph implements DependencyGraphBuilder {
                                     false, /* dependencyItem.isSkipped() */
                                     ImmutableList.of(), /* androidLibraries */
                                     ImmutableList.of(), /* javaLibraries */
-                                    findLocalJarsAsFiles(extractedFolder)));
+                                    LibraryUtils.getLocalJarCache().get(extractedFolder)));
                 }
             }
 
@@ -303,14 +295,34 @@ class ArtifactDependencyGraph implements DependencyGraphBuilder {
             if (downloadSources) {
                 Set<ComponentIdentifier> ids = Sets.newHashSetWithExpectedSize(artifacts.size());
                 for (ResolvedArtifact artifact : artifacts) {
-                    ids.add(artifact.getId().getComponentIdentifier());
+                    ids.add(artifact.getComponentIdentifier());
                 }
 
                 handleSources(variantScope.getGlobalScope().getProject(), ids, failureConsumer);
             }
 
+            // get runtime-only jars by filtering out compile dependencies from runtime artifacts.
+            Set<ComponentIdentifier> compileIdentifiers =
+                    artifacts
+                            .stream()
+                            .map(ResolvedArtifact::getComponentIdentifier)
+                            .collect(Collectors.toSet());
+            List<File> runtimeOnlyClasspath =
+                    runtimeArtifactCollection
+                            .getArtifacts()
+                            .stream()
+                            .filter(
+                                    it ->
+                                            !compileIdentifiers.contains(
+                                                    it.getId().getComponentIdentifier()))
+                            .map(ResolvedArtifactResult::getFile)
+                            .collect(Collectors.toList());
+
             return new DependenciesImpl(
-                    androidLibraries.build(), javaLibrary.build(), projects.build());
+                    androidLibraries.build(),
+                    javaLibrary.build(),
+                    projects.build(),
+                    runtimeOnlyClasspath);
         } finally {
             dependencyFailureHandler.collectIssues().forEach(failureConsumer);
         }
@@ -328,28 +340,10 @@ class ArtifactDependencyGraph implements DependencyGraphBuilder {
 
             @SuppressWarnings("unchecked")
             Class<? extends Artifact>[] artifactTypesArray =
-                    (Class<? extends Artifact>[]) new Class<?>[] {SourcesArtifact.class};
+                    (Class<? extends Artifact>[])
+                            new Class<?>[] {SourcesArtifact.class, JavadocArtifact.class};
             query.withArtifacts(JvmLibrary.class, artifactTypesArray);
-            ArtifactResolutionResult queryResult = query.execute();
-            Set<ComponentArtifactsResult> resolvedComponents = queryResult.getResolvedComponents();
-
-            // Create and execute another query to attempt javadoc resolution
-            // where sources are not available
-            Set<ComponentIdentifier> remainingToResolve = Sets.newHashSet();
-            for (ComponentArtifactsResult componentResult : resolvedComponents) {
-                Set<ArtifactResult> sourcesArtifacts =
-                        componentResult.getArtifacts(SourcesArtifact.class);
-                if (sourcesArtifacts.isEmpty()) {
-                    remainingToResolve.add(componentResult.getId());
-                }
-            }
-            if (!remainingToResolve.isEmpty()) {
-                artifactTypesArray[0] = JavadocArtifact.class;
-                query = dependencies.createArtifactResolutionQuery();
-                query.forComponents(remainingToResolve);
-                query.withArtifacts(JvmLibrary.class, artifactTypesArray);
-                query.execute().getResolvedComponents();
-            }
+            query.execute().getResolvedComponents();
         } catch (Throwable t) {
             DependencyFailureHandlerKt.processDependencyThrowable(
                     t,
@@ -365,22 +359,6 @@ class ArtifactDependencyGraph implements DependencyGraphBuilder {
                                                     messages.get(0)),
                                             messages)));
         }
-    }
-
-    @NonNull
-    private static List<File> findLocalJarsAsFiles(@NonNull File folder) {
-        File localJarRoot = FileUtils.join(folder, FD_JARS, FD_AAR_LIBS);
-
-        if (!localJarRoot.isDirectory()) {
-            return ImmutableList.of();
-        }
-
-        File[] jarFiles = localJarRoot.listFiles((dir, name) -> name.endsWith(DOT_JAR));
-        if (jarFiles != null && jarFiles.length > 0) {
-            return ImmutableList.copyOf(jarFiles);
-        }
-
-        return ImmutableList.of();
     }
 
     ArtifactDependencyGraph() {

@@ -17,17 +17,18 @@
 package com.android.tools.perflib.heap;
 
 import com.android.annotations.NonNull;
-import gnu.trove.TLongHashSet;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+
+import gnu.trove.TLongHashSet;
 
 /**
  * Non-recursive depth-first visitor, managing its own stack.
  */
 public class NonRecursiveVisitor implements Visitor {
 
-    protected final Deque<Instance> mStack = new ArrayDeque<>();
+    protected final Deque<Instance> mStack = new ArrayDeque<Instance>();
 
     // Marks nodes that have been visited.
     protected final TLongHashSet mSeen = new TLongHashSet();

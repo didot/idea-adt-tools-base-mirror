@@ -22,6 +22,7 @@ import static org.junit.Assert.fail;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.dsl.AnnotationProcessorOptions;
+import com.android.build.gradle.internal.tasks.Workers;
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
 import java.io.File;
@@ -33,6 +34,7 @@ import java.util.zip.ZipOutputStream;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.testfixtures.ProjectBuilder;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -56,7 +58,6 @@ public class JavaPreCompileTaskTest {
     private Configuration processorConfiguration;
     private Configuration compileConfiguration;
     private JavaPreCompileTask task;
-    private File outputFile;
 
     @BeforeClass
     public static void classSetUp() throws IOException {
@@ -70,7 +71,7 @@ public class JavaPreCompileTaskTest {
         assertThat(processorMetaInfFile.createNewFile()).isTrue();
 
         nonJarFile = temporaryFolder.newFile("notJar.txt");
-        Files.write("This is not a jar file", nonJarFile, Charsets.UTF_8);
+        Files.asCharSink(nonJarFile, Charsets.UTF_8).write("This is not a jar file");
 
         jar = temporaryFolder.newFile("dependency.jar");
         ZipOutputStream jarOut = new ZipOutputStream(new FileOutputStream(jar));
@@ -87,26 +88,31 @@ public class JavaPreCompileTaskTest {
 
     @Before
     public void setUp() throws IOException {
+        Workers.INSTANCE.setUseDirectWorkerExecutor(true);
         File testDir = temporaryFolder.newFolder();
-        outputFile = temporaryFolder.newFile();
         project = ProjectBuilder.builder().withProjectDir(testDir).build();
         task = project.getTasks().create("test", JavaPreCompileTask.class);
         processorConfiguration = project.getConfigurations().create("annotationProcessor");
         compileConfiguration = project.getConfigurations().create("api");
+        task.getProcessorListFile().set(temporaryFolder.newFile());
+    }
+
+    @After
+    public void shutdown() {
+        Workers.INSTANCE.setUseDirectWorkerExecutor(false);
     }
 
     @Test
     public void checkSuccessForNormalJar() throws IOException {
         project.getDependencies().add("api", project.files(jar, nonJarFile, directory));
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 new AnnotationProcessorOptions(),
                 false);
 
-        task.preCompile();
+        task.doTaskAction();
 
         assertThat(getProcessorNames()).isEmpty();
     }
@@ -124,14 +130,13 @@ public class JavaPreCompileTaskTest {
                         project.files(
                                 jarWithAnnotationProcessor, directoryWithAnnotationProcessor));
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 new AnnotationProcessorOptions(),
                 false);
 
-        task.preCompile();
+        task.doTaskAction();
 
         assertThat(getProcessorNames())
                 .containsExactly(
@@ -147,14 +152,13 @@ public class JavaPreCompileTaskTest {
                         project.files(
                                 jarWithAnnotationProcessor, directoryWithAnnotationProcessor));
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 new AnnotationProcessorOptions(),
                 false);
         try {
-            task.preCompile();
+            task.doTaskAction();
             fail("Expected to fail");
         } catch (RuntimeException e) {
             assertThat(e.getMessage()).contains(jarWithAnnotationProcessor.getName());
@@ -168,14 +172,13 @@ public class JavaPreCompileTaskTest {
         AnnotationProcessorOptions options = new AnnotationProcessorOptions();
         options.setIncludeCompileClasspath(false);
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 options,
                 false);
 
-        task.preCompile();
+        task.doTaskAction();
 
         assertThat(getProcessorNames()).isEmpty();
     }
@@ -186,14 +189,13 @@ public class JavaPreCompileTaskTest {
         AnnotationProcessorOptions options = new AnnotationProcessorOptions();
         options.setIncludeCompileClasspath(true);
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 options,
                 false);
 
-        task.preCompile();
+        task.doTaskAction();
 
         assertThat(getProcessorNames()).containsExactly(jarWithAnnotationProcessor.getName());
     }
@@ -204,13 +206,12 @@ public class JavaPreCompileTaskTest {
         project.getDependencies()
                 .add("annotationProcessor", project.files(jarWithAnnotationProcessor));
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 options,
                 false);
-        task.preCompile();
+        task.doTaskAction();
 
         assertThat(getProcessorNames()).containsExactly(jarWithAnnotationProcessor.getName());
     }
@@ -220,13 +221,12 @@ public class JavaPreCompileTaskTest {
         AnnotationProcessorOptions options = new AnnotationProcessorOptions();
         options.getClassNames().add(testProcessorName);
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 options,
                 false);
-        task.preCompile();
+        task.doTaskAction();
 
         assertThat(getProcessorNames()).containsExactly(testProcessorName);
     }
@@ -239,13 +239,12 @@ public class JavaPreCompileTaskTest {
         options.getClassNames().add(testProcessorName);
 
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 options,
                 false);
-        task.preCompile();
+        task.doTaskAction();
 
         // Since the processor name is explicitly specified via
         // AnnotationProcessorOptions.getClassNames(), only the annotation processor with that name
@@ -260,13 +259,12 @@ public class JavaPreCompileTaskTest {
         AnnotationProcessorOptions options = new AnnotationProcessorOptions();
 
         task.init(
-                outputFile,
                 "annotationProcessor",
                 processorConfiguration.getIncoming().getArtifacts(),
                 compileConfiguration.getIncoming().getArtifacts(),
                 options,
                 false);
-        task.preCompile();
+        task.doTaskAction();
 
         // Since the processor names are not explicitly specified via
         // AnnotationProcessorOptions.getClassNames(), any annotation processors on the annotation
@@ -276,6 +274,7 @@ public class JavaPreCompileTaskTest {
 
     @NonNull
     private Set<String> getProcessorNames() {
+        File outputFile = task.getProcessorListFile().get().getAsFile();
         assertThat(outputFile).isFile();
         return JavaCompileUtils.readAnnotationProcessorsFromJsonFile(outputFile).keySet();
     }

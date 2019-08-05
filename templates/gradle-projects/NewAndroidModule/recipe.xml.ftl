@@ -1,5 +1,8 @@
 <?xml version="1.0"?>
+<#import "root://activities/common/kotlin_macros.ftl" as kt>
 <recipe>
+    <@kt.addKotlinToBaseProject />
+
     <mkdir at="${escapeXmlAttribute(projectOut)}/libs" />
     <mkdir at="${escapeXmlAttribute(resOut)}/drawable" />
 
@@ -37,9 +40,7 @@
     <mkdir at="${escapeXmlAttribute(srcOut)}" />
 </#if>
 
-<#if backwardsCompatibility!true>
     <dependency mavenUrl="com.android.support:appcompat-v7:${buildApi}.+" />
-</#if>
 
 <#if makeIgnore>
     <copy from="root://gradle-projects/common/gitignore"

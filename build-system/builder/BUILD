@@ -23,7 +23,7 @@ kotlin_library(
     bundled_deps = [
         "//tools/base/build-system/profile",
         "//tools/dx/dalvik/dx",
-        "//prebuilts/r8:d8-master",
+        "//prebuilts/r8:r8-master",
     ],
     javacopts = ["-Xep:MissingCasesInEnumSwitch:WARN"],
     pom = ":pom",
@@ -54,6 +54,7 @@ kotlin_library(
         "//tools/base/third_party:com.squareup_javawriter",
         "//tools/base/third_party:commons-codec_commons-codec",
         "//tools/base/third_party:it.unimi.dsi_fastutil",
+        "//tools/base/third_party:javax.inject_javax.inject",
         "//tools/base/third_party:net.sf.jopt-simple_jopt-simple",
         "//tools/base/third_party:org.bouncycastle_bcpkix-jdk15on",
         "//tools/base/third_party:org.bouncycastle_bcprov-jdk15on",
@@ -75,6 +76,7 @@ maven_pom(
 kotlin_test(
     name = "tests",
     srcs = ["src/test/java"],
+    coverage = True,
     data = [
         "//prebuilts/studio/sdk:build-tools/latest",
         "//prebuilts/studio/sdk:platforms/latest",
@@ -84,7 +86,6 @@ kotlin_test(
     jvm_flags = ["-Dtest.suite.jar=tests.jar"],
     resources = glob(["src/test/resources/**"]),
     tags = [
-        "no_test_windows",  # b/77288863
         "slow",
     ],
     test_class = "com.android.testutils.JarTestSuite",

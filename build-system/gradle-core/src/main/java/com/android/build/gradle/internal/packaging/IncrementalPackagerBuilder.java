@@ -20,7 +20,8 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.internal.incremental.CapturingChangesApkCreator;
 import com.android.build.gradle.internal.incremental.FolderBasedApkCreator;
-import com.android.builder.errors.EvalIssueReporter;
+import com.android.builder.core.DefaultManifestParser;
+import com.android.builder.core.ManifestAttributeSupplier;
 import com.android.builder.internal.packaging.IncrementalPackager;
 import com.android.builder.model.SigningConfig;
 import com.android.builder.packaging.PackagerException;
@@ -28,6 +29,7 @@ import com.android.builder.packaging.PackagingUtils;
 import com.android.ide.common.signing.CertificateInfo;
 import com.android.ide.common.signing.KeystoreHelper;
 import com.android.ide.common.signing.KeytoolException;
+import com.android.tools.build.apkzlib.sign.SigningOptions;
 import com.android.tools.build.apkzlib.zfile.ApkCreatorFactory;
 import com.android.tools.build.apkzlib.zfile.NativeLibrariesPackagingMode;
 import com.google.common.base.Preconditions;
@@ -35,14 +37,10 @@ import com.google.common.collect.ImmutableSet;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.security.PrivateKey;
-import java.security.cert.X509Certificate;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.function.BooleanSupplier;
 import java.util.function.Predicate;
-import org.gradle.api.Project;
 
 /**
  * Factory class to create instances of {@link IncrementalPackager}. Since there are many options
@@ -53,23 +51,26 @@ import org.gradle.api.Project;
  * {@link #build()} method for information on which parameters are mandatory.
  */
 public class IncrementalPackagerBuilder {
+    private static int NO_V1_SDK = 24;
 
     /** Enums for all the supported output format. */
     public enum ApkFormat {
         /** Usual APK format. */
         FILE {
             @Override
-            ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild) {
-                return ApkCreatorFactories.fromProjectProperties(project, debuggableBuild);
+            ApkCreatorFactory factory(boolean keepTimestampsInApk, boolean debuggableBuild) {
+                return ApkCreatorFactories.fromProjectProperties(
+                        keepTimestampsInApk, debuggableBuild);
             }
         },
 
         FILE_WITH_LIST_OF_CHANGES {
             @SuppressWarnings({"OResourceOpenedButNotSafelyClosed", "resource"})
             @Override
-            ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild) {
+            ApkCreatorFactory factory(boolean keepTimestampsInApk, boolean debuggableBuild) {
                 ApkCreatorFactory apk =
-                        ApkCreatorFactories.fromProjectProperties(project, debuggableBuild);
+                        ApkCreatorFactories.fromProjectProperties(
+                                keepTimestampsInApk, debuggableBuild);
                 return creationData ->
                         new CapturingChangesApkCreator(creationData, apk.make(creationData));
             }
@@ -79,45 +80,35 @@ public class IncrementalPackagerBuilder {
         DIRECTORY {
             @SuppressWarnings({"OResourceOpenedButNotSafelyClosed", "resource"})
             @Override
-            ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild) {
+            ApkCreatorFactory factory(boolean keepTimestampsInApk, boolean debuggableBuild) {
                 return creationData ->
                         new CapturingChangesApkCreator(
                                 creationData, new FolderBasedApkCreator(creationData));
             }
         };
 
-        abstract ApkCreatorFactory factory(@NonNull Project project, boolean debuggableBuild);
+        abstract ApkCreatorFactory factory(boolean keepTimestampsInApk, boolean debuggableBuild);
     }
 
-    /** Signing key. {@code null} if not defined. */
-    @Nullable private PrivateKey key;
-
     /**
-     * Signing certificate. {@code null} if not defined
+     * Type of build that invokes the instance of IncrementalPackagerBuilder
+     *
+     * <p>This information is provided as a hint for possible performance optimizations
      */
-    private X509Certificate certificate;
+    public enum BuildType {
+        UNKNOWN,
+        CLEAN,
+        INCREMENTAL
+    }
 
-    /**
-     * Is V1 signing enabled?
-     */
-    private boolean v1SigningEnabled;
+    /** Builder for the data to create APK file. */
+    @NonNull
+    private ApkCreatorFactory.CreationData.Builder creationDataBuilder =
+            ApkCreatorFactory.CreationData.builder();
 
-    /**
-     * Is V2 signing enabled?
-     */
-    private boolean v2SigningEnabled;
-
-    /**
-     * The output file.
-     */
-    @Nullable
-    private File outputFile;
 
     /** Desired format of the output. */
     @NonNull private ApkFormat apkFormat;
-
-    /** The minimum SDK. */
-    private int minSdk;
 
     /**
      * How should native libraries be packaged. If not defined, it can be inferred if
@@ -127,30 +118,20 @@ public class IncrementalPackagerBuilder {
     private NativeLibrariesPackagingMode nativeLibrariesPackagingMode;
 
     /**
-     * The no-compress predicate: returns {@code true} for paths that should not be compressed.
-     * If not defined, but {@link #aaptOptions} and {@link #manifest} are both defined, it can be
-     * inferred.
+     * The no-compress predicate: returns {@code true} for paths that should not be compressed. If
+     * not defined, but {@link #aaptOptionsNoCompress} and {@link #manifest} are both defined, it
+     * can be inferred.
      */
-    @Nullable
-    private Predicate<String> noCompressPredicate;
+    @Nullable private Predicate<String> noCompressPredicate;
 
-    /**
-     * The project.
-     */
-    @Nullable
-    private Project project;
+    /** Whether the timestamps should be kept in the apk. */
+    @Nullable private Boolean keepTimestampsInApk;
 
     /**
      * Directory for intermediate contents.
      */
     @Nullable
     private File intermediateDir;
-
-    /**
-     * Created-By.
-     */
-    @Nullable
-    private String createdBy;
 
     /**
      * Is the build debuggable?
@@ -168,23 +149,25 @@ public class IncrementalPackagerBuilder {
     @NonNull
     private Set<String> abiFilters;
 
-    /**
-     * Manifest.
-     */
-    @Nullable
-    private File manifest;
+    /** Manifest. */
+    @Nullable private File manifestFile;
 
     /** aapt options no compress config. */
     @Nullable private Collection<String> aaptOptionsNoCompress;
 
-    @Nullable private EvalIssueReporter issueReporter;
-    @Nullable private BooleanSupplier canParseManifest;
+    @NonNull private BuildType buildType;
+
+    /** Creates a new builder. */
+    public IncrementalPackagerBuilder(@NonNull ApkFormat apkFormat, @NonNull BuildType buildType) {
+        abiFilters = new HashSet<>();
+        this.apkFormat = apkFormat;
+        this.buildType = buildType;
+        creationDataBuilder.setIncremental(buildType == BuildType.INCREMENTAL);
+    }
 
     /** Creates a new builder. */
     public IncrementalPackagerBuilder(@NonNull ApkFormat apkFormat) {
-        minSdk = 1;
-        abiFilters = new HashSet<>();
-        this.apkFormat = apkFormat;
+        this(apkFormat, BuildType.UNKNOWN);
     }
 
     /**
@@ -195,6 +178,33 @@ public class IncrementalPackagerBuilder {
      */
     @NonNull
     public IncrementalPackagerBuilder withSigning(@Nullable SigningConfig signingConfig) {
+        return withSigning(signingConfig, 1);
+    }
+
+    /**
+     * Sets the signing configuration information for the incremental packager.
+     *
+     * @param signingConfig the signing config; if {@code null} then the APK will not be signed
+     * @param minSdk the minimum SDK
+     * @return {@code this} for use with fluent-style notation
+     */
+    @NonNull
+    public IncrementalPackagerBuilder withSigning(
+            @Nullable SigningConfig signingConfig, int minSdk) {
+        return withSigning(signingConfig, minSdk, null);
+    }
+
+    /**
+     * Sets the signing configuration information for the incremental packager.
+     *
+     * @param signingConfig the signing config; if {@code null} then the APK will not be signed
+     * @param minSdk the minimum SDK
+     * @param targetApi optional injected target Api
+     * @return {@code this} for use with fluent-style notation
+     */
+    @NonNull
+    public IncrementalPackagerBuilder withSigning(
+            @Nullable SigningConfig signingConfig, int minSdk, @Nullable Integer targetApi) {
         if (signingConfig == null) {
             return this;
         }
@@ -214,15 +224,42 @@ public class IncrementalPackagerBuilder {
                                     signingConfig.getKeyPassword(), error, "keyPassword"),
                             Preconditions.checkNotNull(
                                     signingConfig.getKeyAlias(), error, "keyAlias"));
-            key = certificateInfo.getKey();
-            certificate = certificateInfo.getCertificate();
-            v1SigningEnabled = signingConfig.isV1SigningEnabled();
-            v2SigningEnabled = signingConfig.isV2SigningEnabled();
+            // V1 signature is useless if minSdk is 24+
+            boolean enableV1Signing =
+                    (targetApi == null || targetApi < NO_V1_SDK)
+                            && minSdk < NO_V1_SDK
+                            && signingConfig.isV1SigningEnabled();
+            boolean enableV2Signing =
+                    (targetApi == null || targetApi >= NO_V1_SDK)
+                            && signingConfig.isV2SigningEnabled();
+            creationDataBuilder.setSigningOptions(
+                    SigningOptions.builder()
+                            .setKey(certificateInfo.getKey())
+                            .setCertificates(certificateInfo.getCertificate())
+                            .setV1SigningEnabled(enableV1Signing)
+                            .setV2SigningEnabled(enableV2Signing)
+                            .setMinSdkVersion(minSdk)
+                            .setValidation(computeValidation())
+                            .build());
         } catch (KeytoolException|FileNotFoundException e) {
             throw new RuntimeException(e);
         }
 
         return this;
+    }
+
+    private SigningOptions.Validation computeValidation() {
+        switch (buildType) {
+            case INCREMENTAL:
+                return SigningOptions.Validation.ASSUME_VALID;
+            case CLEAN:
+                return SigningOptions.Validation.ASSUME_INVALID;
+            case UNKNOWN:
+                return SigningOptions.Validation.ALWAYS_VALIDATE;
+            default:
+                throw new RuntimeException(
+                        "Unknown IncrementalPackagerBuilder build type " + buildType);
+        }
     }
 
     /**
@@ -233,19 +270,7 @@ public class IncrementalPackagerBuilder {
      */
     @NonNull
     public IncrementalPackagerBuilder withOutputFile(@NonNull File f) {
-        outputFile = f;
-        return this;
-    }
-
-    /**
-     * Sets the minimum SDK.
-     *
-     * @param minSdk the minimum SDK
-     * @return {@code this} for use with fluent-style notation
-     */
-    @NonNull
-    public IncrementalPackagerBuilder withMinSdk(int minSdk) {
-        this.minSdk = minSdk;
+        creationDataBuilder.setApkPath(f);
         return this;
     }
 
@@ -270,7 +295,7 @@ public class IncrementalPackagerBuilder {
      * @return {@code this} for use with fluent-style notation
      */
     public IncrementalPackagerBuilder withManifest(@NonNull File manifest) {
-        this.manifest = manifest;
+        this.manifestFile = manifest;
         return this;
     }
 
@@ -302,14 +327,14 @@ public class IncrementalPackagerBuilder {
     }
 
     /**
-     * Sets the project.
+     * Sets whether the timestamps should be kept in the apk.
      *
-     * @param project the project
+     * @param keepTimestampsInApk whether the timestamps should be kept in the apk
      * @return {@code this} for use with fluent-style notation
      */
     @NonNull
-    public IncrementalPackagerBuilder withProject(@NonNull Project project) {
-        this.project = project;
+    public IncrementalPackagerBuilder withKeepTimestampsInApk(boolean keepTimestampsInApk) {
+        this.keepTimestampsInApk = keepTimestampsInApk;
         return this;
     }
 
@@ -333,7 +358,7 @@ public class IncrementalPackagerBuilder {
      */
     @NonNull
     public IncrementalPackagerBuilder withCreatedBy(@Nullable String createdBy) {
-        this.createdBy = createdBy;
+        creationDataBuilder.setCreatedBy(createdBy);
         return this;
     }
 
@@ -373,23 +398,11 @@ public class IncrementalPackagerBuilder {
     }
 
     /**
-     * Sets the issueReporter to report errors/warnings.
-     *
-     * @param issueReporter the EvalIssueReporter to use.
-     * @return {@code this} for use with fluent-style notation
-     */
-    public IncrementalPackagerBuilder withIssueReporter(@NonNull EvalIssueReporter issueReporter) {
-        this.issueReporter = issueReporter;
-        return this;
-    }
-
-    /**
      * Creates the packager, verifying that all the minimum data has been provided. The required
      * information are:
      *
      * <ul>
      *    <li>{@link #withOutputFile(File)}
-     *    <li>{@link #withProject(Project)}
      *    <li>{@link #withIntermediateDir(File)}
      * </ul>
      *
@@ -397,15 +410,18 @@ public class IncrementalPackagerBuilder {
      */
     @NonNull
     public IncrementalPackager build() {
-        Preconditions.checkState(outputFile != null, "outputFile == null");
-        Preconditions.checkState(project != null, "project == null");
+        Preconditions.checkState(keepTimestampsInApk != null, "keepTimestampsInApk == null");
         Preconditions.checkState(intermediateDir != null, "intermediateDir == null");
+
+        ManifestAttributeSupplier manifest =
+                this.manifestFile != null
+                        ? new DefaultManifestParser(this.manifestFile, () -> true, null)
+                        : null;
 
         if (noCompressPredicate == null) {
             if (manifest != null) {
                 noCompressPredicate =
-                        PackagingUtils.getNoCompressPredicate(
-                                aaptOptionsNoCompress, manifest, () -> true, issueReporter);
+                        PackagingUtils.getNoCompressPredicate(aaptOptionsNoCompress, manifest);
             } else {
                 noCompressPredicate = path -> false;
             }
@@ -414,31 +430,21 @@ public class IncrementalPackagerBuilder {
         if (nativeLibrariesPackagingMode == null) {
             if (manifest != null) {
                 nativeLibrariesPackagingMode =
-                        PackagingUtils.getNativeLibrariesLibrariesPackagingMode(
-                                manifest, canParseManifest, issueReporter);
+                        PackagingUtils.getNativeLibrariesLibrariesPackagingMode(manifest);
             } else {
                 nativeLibrariesPackagingMode = NativeLibrariesPackagingMode.COMPRESSED;
             }
         }
 
-        ApkCreatorFactory.CreationData creationData =
-                new ApkCreatorFactory.CreationData(
-                        outputFile,
-                        key,
-                        certificate,
-                        v1SigningEnabled,
-                        v2SigningEnabled,
-                        null,
-                        createdBy,
-                        minSdk,
-                        nativeLibrariesPackagingMode,
-                        noCompressPredicate::test);
+        creationDataBuilder
+                .setNativeLibrariesPackagingMode(nativeLibrariesPackagingMode)
+                .setNoCompressPredicate(noCompressPredicate::test);
 
         try {
             return new IncrementalPackager(
-                    creationData,
+                    creationDataBuilder.build(),
                     intermediateDir,
-                    apkFormat.factory(project, debuggableBuild),
+                    apkFormat.factory(keepTimestampsInApk, debuggableBuild),
                     abiFilters,
                     jniDebuggableBuild);
         } catch (PackagerException|IOException e) {

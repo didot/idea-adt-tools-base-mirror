@@ -1,11 +1,10 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.android.tools.perflib.heap.memoryanalyzer;
 
 import com.android.tools.perflib.analyzer.AnalysisResultEntry;
 import com.android.tools.perflib.heap.Instance;
 import com.android.tools.perflib.heap.Snapshot;
-
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -41,7 +40,7 @@ public final class TopMemoryOffendersAnalyzerTask extends MemoryAnalyzerTask {
                             "Offender #" + (entries.size() + 1) + " (" + instance
                                     + ") has total retained size " + instance.getTotalRetainedSize()
                                     + ".",
-                            Collections.singletonList(instance)));
+                            Arrays.asList(instance)));
         }
         return entries;
     }

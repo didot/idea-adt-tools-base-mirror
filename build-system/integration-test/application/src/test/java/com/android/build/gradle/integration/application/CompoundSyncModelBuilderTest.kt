@@ -54,6 +54,8 @@ class CompoundSyncModelBuilderTest {
                 "release"
             )
 
+            assertThat(androidProject.defaultVariant).isEqualTo("debug")
+
             // Verify that Variant models have the correct name.
             assertThat<String, Iterable<String>>(
                 variants.stream().map<String>{ it.name }.toList()
@@ -72,7 +74,13 @@ class CompoundSyncModelBuilderTest {
         }
 
         assertThat(latch.await(TimeUnit.SECONDS.toNanos(10))).isTrue()
-        generateSourcesTasks.forEach { assertThat(gradleBuildResult.getTask(it)).wasExecuted() }
+        generateSourcesTasks.forEach {
+            if (it == ":createMockableJar") {
+                assertThat(gradleBuildResult.getTask(it)).wasUpToDate()
+            } else {
+                assertThat(gradleBuildResult.getTask(it)).wasSkipped()
+            }
+        }
         assertThat(gradleBuildResult.exception).isNull()
     }
 }

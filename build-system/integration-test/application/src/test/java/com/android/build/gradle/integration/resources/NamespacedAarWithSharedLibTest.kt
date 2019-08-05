@@ -21,7 +21,6 @@ import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.fixture.app.MinimalSubProject
 import com.android.build.gradle.integration.common.fixture.app.MultiModuleTestProject
 import com.android.build.gradle.integration.common.truth.TruthHelper.assertThatApk
-import com.android.build.gradle.integration.common.utils.AssumeUtil
 import com.android.build.gradle.options.BooleanOption
 import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
@@ -154,7 +153,6 @@ class NamespacedAarWithSharedLibTest {
 
     @Before
     fun buildStaticLibAsApk() {
-        AssumeUtil.assumeNotWindowsBot() // https://issuetracker.google.com/70931936
         project.executor().run(":publishedLib:assembleRelease")
 
         val progress = FakeProgressIndicator()
@@ -164,7 +162,7 @@ class NamespacedAarWithSharedLibTest {
                         .getTargetFromHashString(GradleTestProject.getCompileSdkHash(), progress)!!
 
         // Take the aar and convert it in to a fake shared library.
-        ZFile(project.file("publishedLib/build/outputs/aar/publishedLib-release.aar")).use { previousAar ->
+        ZFile.openReadOnly(project.file("publishedLib/build/outputs/aar/publishedLib-release.aar")).use { previousAar ->
             // Extract bits needed for AAPT2 call
             val exploded = tempFolder.newFolder()
             val staticLib = File(exploded, "static.apk")
@@ -205,11 +203,11 @@ class NamespacedAarWithSharedLibTest {
             // Write new shared AAR
             Files.createDirectories(project.file("myFlatDir").toPath())
             val options = ZFileOptions().apply { noTimestamps = true; autoSortFiles = true }
-            ZFile(project.file("myFlatDir/sharedLib.aar"), options).use { sharedAar ->
+            ZFile.openReadWrite(project.file("myFlatDir/sharedLib.aar"), options).use { sharedAar ->
                 sharedAar.mergeFrom(previousAar) { false }
                 sharedAar.add(
                         SdkConstants.FN_SHARED_LIBRARY_ANDROID_MANIFEST_XML,
-                        manifestSnippet.byteInputStream(Charsets.UTF_8))
+                        manifestSnippet.byteInputStream(StandardCharsets.UTF_8))
                 sharedAar.add(SdkConstants.FN_RESOURCE_SHARED_STATIC_LIBRARY, sharedLib.inputStream().buffered())
             }
         }

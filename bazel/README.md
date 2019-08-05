@@ -3,6 +3,14 @@
 This directory contains the core files to run studio-master-dev tests using
 bazel.
 
+*** note
+**Warning**: This does not currently work for AOSP
+[Issue 126764883](https://issuetracker.google.com/126764883).
+The required binaries are checked in as prebuilts, so you can run tests using
+Intellij (tools/base and tools/idea projects), Ant (Studio only) and Gradle
+(Build system and command line tools).
+***
+
 ## Running bazel
 
 Bazel has the concept of a _workspace_: the root of all your source files. For
@@ -74,6 +82,25 @@ bazel test //tools/adt/idea/android/... --test_filter=AndroidLayoutDomTest --jav
    anything.
  * `--test_filter=<TestName>` to run a specific test
 
+## Running with coverage
+
+We currently do not use the in-built Bazel coverage support.
+
+To gather coverage from tests define `agent_coverage=true`, e.g.
+
+```
+bazel test --define agent_coverage=true //tools/...
+```
+
+To create the coverage reports (xml and html) from those test logs run
+
+```
+tools/base/bazel/agent_coverage_reports.py
+```
+
+The reports will be output to `out/agent-coverage/`
+
+
 ## BUILD files
 
 BUILD files define a package with a set build and test rules. In order to
@@ -81,8 +108,10 @@ support Android Studio we created a new kind of rule, that matches an IntelliJ
 module: the `iml_module` rule.
 
 > Note that we modify these BUILD files manually, so whenever you make a change
-> to an `.iml` file, its corresponding BUILD file will have to be changed. This should be
-> done using `bazel run //tools/base/bazel:iml_to_build`.
+> to an `.iml` file, its corresponding `BUILD` file will have to be changed. This should be
+> done using `bazel run //tools/base/bazel:iml_to_build`. If you create a new
+> `.iml` file, you must create the corresponding (empty) `BUILD` file before
+> running `iml_to_build`.
 
 ### iml_module
 
@@ -125,6 +154,8 @@ Attribute        | Description
 `test_srcs`      | A list of directories with the test sources.
 `test_resources` | A list of directories with the test resources.
 `test_data`      | A list of files needed to run the test.
+`exclude`        | A list of files to be excluded from both src and test_srcs. This requires a change to tools/idea/.idea/compiler.xml
+`test_timeout`   | The timeout value of the test, see: [blaze timeout](https://docs.bazel.build/versions/master/test-encyclopedia.html#timeout)
 
 > A major difference with actual iml modules is that in bazel we must specify
 > the files needed to run the tests. These files are known as _runfiles_ and are

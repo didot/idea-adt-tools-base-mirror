@@ -16,16 +16,16 @@
 
 package com.android.build.gradle.internal.tasks.featuresplit;
 
-import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_SET_METADATA;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.sdklib.AndroidVersion;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.io.Files;
@@ -126,7 +126,7 @@ public class FeatureSetMetadata {
     public void save(@NonNull File outputFile) throws IOException {
         GsonBuilder gsonBuilder = new GsonBuilder();
         Gson gson = gsonBuilder.create();
-        Files.write(gson.toJson(featureSplits), outputFile, Charsets.UTF_8);
+        Files.asCharSink(outputFile, Charsets.UTF_8).write(gson.toJson(featureSplits));
     }
 
     /**
@@ -165,7 +165,7 @@ public class FeatureSetMetadata {
             final FileCollection fc =
                     variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
-                            MODULE,
+                            PROJECT,
                             FEATURE_SET_METADATA);
 
             // make the task depends on the file collection so that it runs after the file we need
@@ -195,7 +195,7 @@ public class FeatureSetMetadata {
             final FileCollection fc =
                     variantScope.getArtifactFileCollection(
                             AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
-                            MODULE,
+                            PROJECT,
                             FEATURE_SET_METADATA);
 
             // make the task depends on the file collection so that it runs after the file we need

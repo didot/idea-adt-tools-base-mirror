@@ -34,7 +34,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -86,9 +85,8 @@ public class XmlElement extends OrphanXmlElement {
     @NonNull
     private final List<Selector> mOverrideUsesSdkLibrarySelectors;
 
-
     public XmlElement(@NonNull Element xml, @NonNull XmlDocument document) {
-        super(xml);
+        super(xml, document.getModel());
 
         mDocument = Preconditions.checkNotNull(document);
         Selector selector = null;
@@ -159,10 +157,13 @@ public class XmlElement extends OrphanXmlElement {
         }
         mAttributesOperationTypes = attributeOperationTypeBuilder.build();
         for (int i = 0; i < namedNodeMap.getLength(); i++) {
-            Node attribute = namedNodeMap.item(i);
-            XmlAttribute xmlAttribute = new XmlAttribute(
-                    this, (Attr) attribute, getType().getAttributeModel(XmlNode.fromXmlName(
-                            ((Attr) attribute).getName())));
+            Attr attribute = (Attr) namedNodeMap.item(i);
+            XmlAttribute xmlAttribute =
+                    new XmlAttribute(
+                            this,
+                            attribute,
+                            getType()
+                                    .getAttributeModel(XmlNode.fromXmlName((attribute).getName())));
             attributesListBuilder.add(xmlAttribute);
         }
         mNodeOperationType = lastNodeOperationType;
@@ -299,7 +300,7 @@ public class XmlElement extends OrphanXmlElement {
             // list will need to be checked for default value that may clash with a locally
             // defined attribute.
             List<AttributeModel> attributeModels =
-                    new ArrayList<AttributeModel>(lowerPriorityNode.getType().getAttributeModels());
+                    new ArrayList<>(lowerPriorityNode.getType().getAttributeModels());
 
             // merge explicit attributes from lower priority node.
             for (XmlAttribute lowerPriorityAttribute : lowerPriorityNode.getAttributes()) {
@@ -424,13 +425,15 @@ public class XmlElement extends OrphanXmlElement {
         XmlElement thisChild = thisChildOptional.get();
         switch (thisChild.getType().getMergeType()) {
             case CONFLICT:
-                addMessage(mergingReport, MergingReport.Record.Severity.ERROR, String.format(
-                        "Node %1$s cannot be present in more than one input file and it's "
-                                + "present at %2$s and %3$s",
-                        thisChild.getType(),
-                        thisChild.printPosition(),
-                        lowerPriorityChild.printPosition()
-                ));
+                mergingReport.addMessage(
+                        this,
+                        MergingReport.Record.Severity.ERROR,
+                        String.format(
+                                "Node %1$s cannot be present in more than one input file and it's "
+                                        + "present at %2$s and %3$s",
+                                thisChild.getType(),
+                                thisChild.printPosition(),
+                                lowerPriorityChild.printPosition()));
                 break;
             case ALWAYS:
 
@@ -438,12 +441,15 @@ public class XmlElement extends OrphanXmlElement {
                 // if the two elements are equal, just skip it.
 
                 // but check first that we are not supposed to replace or remove it.
-                @NonNull NodeOperationType operationType =
+                @NonNull
+                NodeOperationType operationType =
                         calculateNodeOperationType(thisChild, lowerPriorityChild);
-                if (operationType == NodeOperationType.REMOVE ||
-                        operationType == NodeOperationType.REPLACE) {
-                    mergingReport.getActionRecorder().recordNodeAction(thisChild,
-                            Actions.ActionType.REJECTED, lowerPriorityChild);
+                if (operationType == NodeOperationType.REMOVE
+                        || operationType == NodeOperationType.REPLACE) {
+                    mergingReport
+                            .getActionRecorder()
+                            .recordNodeAction(
+                                    thisChild, Actions.ActionType.REJECTED, lowerPriorityChild);
                     break;
                 }
 
@@ -540,10 +546,7 @@ public class XmlElement extends OrphanXmlElement {
 
         // See if the lowerPriorityChild's XmlDocument.Type is mergeable. For example, <dist:module>
         // elements are only mergeable from OVERLAY or MAIN types, not LIBRARY types.
-        EnumSet<XmlDocument.Type> mergeableLowerPriorityXmlTypes =
-                lowerPriorityChild.getType().getMergeableLowerPriorityTypes();
-        XmlDocument.Type lowerPriorityXmlType = lowerPriorityChild.getDocument().getFileType();
-        if (!mergeableLowerPriorityXmlTypes.contains(lowerPriorityXmlType)) {
+        if (!lowerPriorityChild.getType().canMergeWithLowerPriority(lowerPriorityChild)) {
             return true;
         }
 
@@ -562,9 +565,9 @@ public class XmlElement extends OrphanXmlElement {
                         || thisChild.mSelector.appliesTo(lowerPriorityChild));
         // if we should discard this child element, record the action.
         if (shouldDelete) {
-            mergingReport.getActionRecorder().recordNodeAction(thisChildElementOptional.get(),
-                    Actions.ActionType.REJECTED,
-                    lowerPriorityChild);
+            mergingReport
+                    .getActionRecorder()
+                    .recordNodeAction(thisChild, Actions.ActionType.REJECTED, lowerPriorityChild);
         }
         return shouldDelete;
     }
@@ -611,15 +614,17 @@ public class XmlElement extends OrphanXmlElement {
                 Optional<String> compareMessage = higherPriority.compareTo(lowerPriority);
                 if (compareMessage.isPresent()) {
                     // flag error.
-                    addMessage(mergingReport, MergingReport.Record.Severity.ERROR, String.format(
-                            "Node %1$s at %2$s is tagged with tools:node=\"strict\", yet "
-                                    + "%3$s at %4$s is different : %5$s",
-                            higherPriority.getId(),
-                            higherPriority.printPosition(),
-                            lowerPriority.getId(),
-                            lowerPriority.printPosition(),
-                            compareMessage.get()
-                    ));
+                    mergingReport.addMessage(
+                            this,
+                            MergingReport.Record.Severity.ERROR,
+                            String.format(
+                                    "Node %1$s at %2$s is tagged with tools:node=\"strict\", yet "
+                                            + "%3$s at %4$s is different : %5$s",
+                                    higherPriority.getId(),
+                                    higherPriority.printPosition(),
+                                    lowerPriority.getId(),
+                                    lowerPriority.printPosition(),
+                                    compareMessage.get()));
                 }
                 break;
             default:
@@ -914,13 +919,5 @@ public class XmlElement extends OrphanXmlElement {
             previousSibling = previousSibling.getPreviousSibling();
         }
         return nodesToAdopt.build().reverse();
-    }
-
-    void addMessage(@NonNull MergingReport.Builder mergingReport,
-            @NonNull MergingReport.Record.Severity severity,
-            @NonNull String message) {
-        mergingReport.addMessage(getSourceFilePosition(),
-                severity,
-                message);
     }
 }

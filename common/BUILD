@@ -22,7 +22,7 @@ iml_module(
     deps = [
         "//tools/idea/.idea/libraries:Guava",
         "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )
 
@@ -57,8 +57,8 @@ maven_pom(
 kotlin_test(
     name = "tools.tests",
     srcs = ["src/test/java"],
+    coverage = True,
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
-    tags = ["no_windows"],
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.common",
@@ -73,7 +73,7 @@ kotlin_test(
 iml_module(
     name = "studio.android.sdktools.common.tests",
     iml_files = ["android.sdktools.common.tests.iml"],
-    tags = ["no_windows"],
+    test_coverage = True,
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
@@ -89,6 +89,6 @@ iml_module(
         "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/idea/.idea/libraries:truth[test]",
         "//tools/base/common:studio.android.sdktools.common[module]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )

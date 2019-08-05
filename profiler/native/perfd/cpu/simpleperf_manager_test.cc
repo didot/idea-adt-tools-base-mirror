@@ -21,6 +21,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+using profiler::proto::CpuProfilingAppStopResponse;
 using std::string;
 using testing::HasSubstr;
 
@@ -88,8 +89,8 @@ TEST(SimpleperfManagerTest, StopProfilingProfiledApp) {
                                     &error);
   EXPECT_TRUE(simpleperf_manager.IsProfiling(app_name));
 
-  bool result = simpleperf_manager.StopProfiling(app_name, true, &error);
-  EXPECT_TRUE(result);
+  auto result = simpleperf_manager.StopProfiling(app_name, true, false, &error);
+  EXPECT_THAT(result, testing::Eq(CpuProfilingAppStopResponse::SUCCESS));
   EXPECT_FALSE(simpleperf_manager.IsProfiling(app_name));
 }
 
@@ -100,8 +101,9 @@ TEST(SimpleperfManagerTest, StopProfilingNotProfiledApp) {
   string error;
   string app_name = "app";  // App that is not currently being profiled
 
-  bool result = simpleperf_manager.StopProfiling(app_name, true, &error);
-  EXPECT_FALSE(result);
+  auto result = simpleperf_manager.StopProfiling(app_name, true, false, &error);
+  EXPECT_THAT(result,
+              testing::Eq(CpuProfilingAppStopResponse::NO_ONGOING_PROFILING));
   EXPECT_THAT(error, HasSubstr("This app was not being profiled"));
 }
 
@@ -122,8 +124,9 @@ TEST(SimpleperfManagerTest, StopProfilingFailToKillSimpleperf) {
                                     &error);
   EXPECT_TRUE(simpleperf_manager.IsProfiling(app_name));
 
-  bool result = simpleperf_manager.StopProfiling(app_name, true, &error);
-  EXPECT_FALSE(result);
+  auto result = simpleperf_manager.StopProfiling(app_name, true, false, &error);
+  EXPECT_THAT(result,
+              testing::Eq(CpuProfilingAppStopResponse::STOP_COMMAND_FAILED));
   EXPECT_THAT(error, HasSubstr("Failed to send SIGTERM to simpleperf"));
   // TODO (b/67630133): decide if we should keep profiling the app if we fail to
   // kill simpleperf.
@@ -148,8 +151,9 @@ TEST(SimpleperfManagerTest, StopProfilingFailToConvertProto) {
                                     &error);
   EXPECT_TRUE(simpleperf_manager.IsProfiling(app_name));
 
-  bool result = simpleperf_manager.StopProfiling(app_name, true, &error);
-  EXPECT_FALSE(result);
+  auto result = simpleperf_manager.StopProfiling(app_name, true, false, &error);
+  EXPECT_THAT(result,
+              testing::Eq(CpuProfilingAppStopResponse::CANNOT_FORM_FILE));
   EXPECT_THAT(error, HasSubstr("Unable to generate simpleperf report"));
   EXPECT_FALSE(simpleperf_manager.IsProfiling(app_name));
 }
@@ -167,8 +171,9 @@ TEST(SimpleperfManagerTest, StopSimpleperfProfiledApp) {
                                     &error);
   EXPECT_TRUE(simpleperf_manager.IsProfiling(app_name));
 
-  bool result = simpleperf_manager.StopProfiling(app_name, false, &error);
-  EXPECT_TRUE(result);
+  auto result =
+      simpleperf_manager.StopProfiling(app_name, false, false, &error);
+  EXPECT_THAT(result, testing::Eq(CpuProfilingAppStopResponse::SUCCESS));
   // App was being profiled when we stopped simpleperf. It shouldn't be on the
   // list of profiled apps anymore.
   EXPECT_FALSE(simpleperf_manager.IsProfiling(app_name));
@@ -191,12 +196,44 @@ TEST(SimpleperfManagerTest, StopSimpleperfFailToKillSimpleperf) {
                                     &error);
   EXPECT_TRUE(simpleperf_manager.IsProfiling(app_name));
 
-  bool result = simpleperf_manager.StopProfiling(app_name, false, &error);
-  EXPECT_FALSE(result);
+  auto result =
+      simpleperf_manager.StopProfiling(app_name, false, false, &error);
+  EXPECT_THAT(result,
+              testing::Eq(CpuProfilingAppStopResponse::STOP_COMMAND_FAILED));
   // If something goes wrong when we try to kill simpleplerf, we write that to
   // |error| and propagate it to the logs (CpuService will do the logging)
   EXPECT_THAT(error, HasSubstr("Failed to send SIGTERM to simpleperf"));
   EXPECT_FALSE(simpleperf_manager.IsProfiling(app_name));
+}
+
+TEST(SimpleperfManagerTest, ReportSampleNotCalledIfRunningOnHost) {
+  FakeClock fake_clock(0);
+  std::unique_ptr<FakeSimpleperf> simpleperf{new FakeSimpleperf()};
+  SimpleperfManager simpleperf_manager(&fake_clock, std::move(simpleperf));
+
+  string error;
+  string fake_trace_path = "/tmp/trace_path";
+  string app_name = "some_app_name";
+  string abi = "arm";
+
+  bool report_sample_on_host = true;
+  simpleperf_manager.StartProfiling(app_name, abi, 1000, &fake_trace_path,
+                                    &error);
+  simpleperf_manager.StopProfiling(app_name, true, report_sample_on_host,
+                                   &error);
+
+  auto* fake_simpleperf =
+      dynamic_cast<FakeSimpleperf*>(simpleperf_manager.simpleperf());
+  // ReportSample should not be called, as report-sample will be done on host
+  EXPECT_FALSE(fake_simpleperf->GetReportSampleCalled());
+
+  report_sample_on_host = false;
+  simpleperf_manager.StartProfiling(app_name, abi, 1000, &fake_trace_path,
+                                    &error);
+  simpleperf_manager.StopProfiling(app_name, true, report_sample_on_host,
+                                   &error);
+  // ReportSample should be called, as report-sample should run on device
+  EXPECT_TRUE(fake_simpleperf->GetReportSampleCalled());
 }
 
 }  // namespace profiler

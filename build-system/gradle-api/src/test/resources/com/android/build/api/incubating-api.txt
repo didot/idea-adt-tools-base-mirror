@@ -4,7 +4,7 @@ ATTENTION REVIEWER: If this needs to be changed, please make sure changes
 below are backwards compatible.
 -------------------------------------------------------------------------
 Sha256 of below classes:
-85d4fa4b424544218cb9a11773f2e554d53ff5ec151d9e1adc9e943104c7bded
+8edb3f2408a3f0e6406542b14c413cccaa5dfbfad1bcc24d3b23d16a523cd6dd
 -------------------------------------------------------------------------
 com.android.build.api.artifact.ArtifactConfigurationException
 com.android.build.api.artifact.ArtifactConfigurationException.<init>: com.android.build.api.artifact.ArtifactConfigurationException (java.lang.String)
@@ -18,7 +18,7 @@ com.android.build.api.artifact.BuildArtifactTransformBuilder
 com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction
 com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction.accept: void (T, com.android.build.api.artifact.InputArtifactProvider, com.android.build.api.artifact.OutputFileProvider)
 com.android.build.api.artifact.BuildArtifactTransformBuilder.append: com.android.build.api.artifact.BuildArtifactTransformBuilder<T> (com.android.build.api.artifact.ArtifactType) throws com.android.build.api.artifact.ArtifactConfigurationException
-com.android.build.api.artifact.BuildArtifactTransformBuilder.create: void (com.android.build.api.artifact.BuildArtifactTransformBuilder.com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction<? super T>)
+com.android.build.api.artifact.BuildArtifactTransformBuilder.create: void (com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction<? super T>)
 com.android.build.api.artifact.BuildArtifactTransformBuilder.create: void (kotlin.jvm.functions.Function3<? super T, ? super com.android.build.api.artifact.InputArtifactProvider, ? super com.android.build.api.artifact.OutputFileProvider, kotlin.Unit>)
 com.android.build.api.artifact.BuildArtifactTransformBuilder.input: com.android.build.api.artifact.BuildArtifactTransformBuilder<T> (com.android.build.api.artifact.ArtifactType) throws com.android.build.api.artifact.ArtifactConfigurationException
 com.android.build.api.artifact.BuildArtifactTransformBuilder.replace: com.android.build.api.artifact.BuildArtifactTransformBuilder<T> (com.android.build.api.artifact.ArtifactType) throws com.android.build.api.artifact.ArtifactConfigurationException
@@ -55,7 +55,7 @@ com.android.build.api.dsl.extension.BuildProperties
 com.android.build.api.dsl.extension.BuildProperties.getBuildToolsVersion: java.lang.String ()
 com.android.build.api.dsl.extension.BuildProperties.getCompileSdkVersion: java.lang.String ()
 com.android.build.api.dsl.extension.BuildProperties.getResourcePrefix: java.lang.String ()
-com.android.build.api.dsl.extension.BuildProperties.getSourceSets: org.gradle.api.NamedDomainObjectContainer<com.android.build.api.sourcesets.AndroidSourceSet> ()
+com.android.build.api.dsl.extension.BuildProperties.getSourceSets: org.gradle.api.NamedDomainObjectContainer<? extends com.android.build.api.sourcesets.AndroidSourceSet> ()
 com.android.build.api.dsl.extension.BuildProperties.getTransforms: java.util.List<com.android.build.api.transform.Transform> ()
 com.android.build.api.dsl.extension.BuildProperties.getTransformsDependencies: java.util.List<java.util.List<java.lang.Object>> ()
 com.android.build.api.dsl.extension.BuildProperties.registerTransform: void (com.android.build.api.transform.Transform)
@@ -64,7 +64,7 @@ com.android.build.api.dsl.extension.BuildProperties.setBuildToolsVersion: void (
 com.android.build.api.dsl.extension.BuildProperties.setCompileSdkVersion: void (int)
 com.android.build.api.dsl.extension.BuildProperties.setCompileSdkVersion: void (java.lang.String)
 com.android.build.api.dsl.extension.BuildProperties.setResourcePrefix: void (java.lang.String)
-com.android.build.api.dsl.extension.BuildProperties.sourceSets: void (org.gradle.api.Action<org.gradle.api.NamedDomainObjectContainer<com.android.build.api.sourcesets.AndroidSourceSet>>)
+com.android.build.api.dsl.extension.BuildProperties.sourceSets: void (org.gradle.api.Action<org.gradle.api.NamedDomainObjectContainer<? extends com.android.build.api.sourcesets.AndroidSourceSet>>)
 com.android.build.api.dsl.extension.BuildProperties.useLibrary: void (java.lang.String)
 com.android.build.api.dsl.extension.BuildProperties.useLibrary: void (java.lang.String, boolean)
 com.android.build.api.dsl.extension.EmbeddedTestProperties
@@ -325,10 +325,10 @@ com.android.build.api.dsl.options.AnnotationProcessorOptions.setArguments: void 
 com.android.build.api.dsl.options.AnnotationProcessorOptions.setClassNames: void (java.util.List<java.lang.String>)
 com.android.build.api.dsl.options.AnnotationProcessorOptions.setIncludeCompileClasspath: void (java.lang.Boolean)
 com.android.build.api.dsl.options.BuildArtifactsOptions
-com.android.build.api.dsl.options.BuildArtifactsOptions.appendTo: void (com.android.build.api.artifact.ArtifactType, java.lang.String, java.lang.Class<T>, com.android.build.api.artifact.BuildArtifactTransformBuilder.com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction<? super T>)
+com.android.build.api.dsl.options.BuildArtifactsOptions.appendTo: void (com.android.build.api.artifact.ArtifactType, java.lang.String, java.lang.Class<T>, com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction<? super T>)
 com.android.build.api.dsl.options.BuildArtifactsOptions.appendTo: void (com.android.build.api.artifact.ArtifactType, java.lang.String, java.lang.Class<T>, kotlin.jvm.functions.Function3<? super T, ? super com.android.build.api.artifact.BuildableArtifact, ? super java.io.File, kotlin.Unit>)
 com.android.build.api.dsl.options.BuildArtifactsOptions.builder: com.android.build.api.artifact.BuildArtifactTransformBuilder<T> (java.lang.String, java.lang.Class<T>)
-com.android.build.api.dsl.options.BuildArtifactsOptions.replace: void (com.android.build.api.artifact.ArtifactType, java.lang.String, java.lang.Class<T>, com.android.build.api.artifact.BuildArtifactTransformBuilder.com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction<? super T>)
+com.android.build.api.dsl.options.BuildArtifactsOptions.replace: void (com.android.build.api.artifact.ArtifactType, java.lang.String, java.lang.Class<T>, com.android.build.api.artifact.BuildArtifactTransformBuilder$ConfigurationAction<? super T>)
 com.android.build.api.dsl.options.BuildArtifactsOptions.replace: void (com.android.build.api.artifact.ArtifactType, java.lang.String, java.lang.Class<T>, kotlin.jvm.functions.Function3<? super T, ? super com.android.build.api.artifact.BuildableArtifact, ? super java.io.File, kotlin.Unit>)
 com.android.build.api.dsl.options.DensitySplitOptions
 com.android.build.api.dsl.options.DensitySplitOptions.getCompatibleScreens: java.util.Set<java.lang.String> ()
@@ -642,3 +642,10 @@ com.android.build.api.sourcesets.AndroidSourceSet.res: com.android.build.api.sou
 com.android.build.api.sourcesets.AndroidSourceSet.resources: com.android.build.api.sourcesets.AndroidSourceSet (org.gradle.api.Action<com.android.build.api.sourcesets.AndroidSourceDirectorySet>)
 com.android.build.api.sourcesets.AndroidSourceSet.setRoot: com.android.build.api.sourcesets.AndroidSourceSet (java.lang.String)
 com.android.build.api.sourcesets.AndroidSourceSet.shaders: com.android.build.api.sourcesets.AndroidSourceSet (org.gradle.api.Action<com.android.build.api.sourcesets.AndroidSourceDirectorySet>)
+com.android.build.api.transform.Transform.applyToVariant: boolean (com.android.build.api.variant.VariantInfo)
+com.android.build.api.variant.VariantInfo
+com.android.build.api.variant.VariantInfo.getBuildTypeName: java.lang.String ()
+com.android.build.api.variant.VariantInfo.getFlavorNames: com.google.common.collect.ImmutableList<java.lang.String> ()
+com.android.build.api.variant.VariantInfo.getFullVariantName: java.lang.String ()
+com.android.build.api.variant.VariantInfo.isDebuggable: boolean ()
+com.android.build.api.variant.VariantInfo.isTest: boolean ()

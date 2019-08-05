@@ -8,6 +8,12 @@
 
 load("//tools/base/bazel:maven.bzl", "maven_java_library")
 
+# Used by test
+exports_files(
+    ["BUILD"],
+    visibility = ["//tools/base/bazel:__pkg__"],
+)
+
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "cglib_cglib-nodep",
@@ -19,7 +25,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "com.android.tools.build.jetifier_jetifier-core",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/jetifier/jetifier-core/1.0.0-beta02:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/jetifier/jetifier-core/1.0.0-beta04:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":com.google.code.gson_gson",
@@ -30,7 +36,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "com.android.tools.build.jetifier_jetifier-processor",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/jetifier/jetifier-processor/1.0.0-beta02:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/jetifier/jetifier-processor/1.0.0-beta04:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":com.android.tools.build.jetifier_jetifier-core",
@@ -45,7 +51,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "com.android.tools.build_aapt2-proto",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/aapt2-proto/0.3.1:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/aapt2-proto/0.4.0:jar",
     visibility = ["//visibility:public"],
     exports = [":com.google.protobuf_protobuf-java"],
 )
@@ -53,7 +59,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "com.android.tools.build_bundletool",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/bundletool/0.6.0:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/android/tools/build/bundletool/0.9.0:jar",
     visibility = ["//visibility:public"],
     exports = [],
     runtime_deps = [
@@ -127,6 +133,14 @@ maven_java_library(
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
+    name = "com.google.auto.value_auto-value-annotations",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/auto/value/auto-value-annotations/1.6.2:jar",
+    visibility = ["//visibility:public"],
+    exports = [],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
     name = "com.google.code.findbugs_jsr305",
     export_artifact = "//prebuilts/tools/common/m2/repository/com/google/code/findbugs/jsr305/3.0.2:jar",
     visibility = ["//visibility:public"],
@@ -136,7 +150,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "com.google.code.gson_gson",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/code/gson/gson/2.8.0:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/code/gson/gson/2.8.5:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -144,7 +158,15 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "com.google.errorprone_error_prone_annotations",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/errorprone/error_prone_annotations/2.2.0:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/errorprone/error_prone_annotations/2.3.1:jar",
+    visibility = ["//visibility:public"],
+    exports = [],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "com.google.guava_failureaccess",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/guava/failureaccess/1.0.1:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -152,15 +174,25 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "com.google.guava_guava",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/guava/guava/26.0-jre:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/guava/guava/27.0.1-jre:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":com.google.code.findbugs_jsr305",
         ":com.google.errorprone_error_prone_annotations",
+        ":com.google.guava_failureaccess",
+        ":com.google.guava_listenablefuture",
         ":com.google.j2objc_j2objc-annotations",
         ":org.checkerframework_checker-qual",
         ":org.codehaus.mojo_animal-sniffer-annotations",
     ],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "com.google.guava_listenablefuture",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava:jar",
+    visibility = ["//visibility:public"],
+    exports = [],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
@@ -242,14 +274,37 @@ maven_java_library(
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
-    name = "com.google.truth_truth",
-    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/truth/truth/0.34:jar",
+    name = "com.google.truth.extensions_truth-java8-extension",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/truth/extensions/truth-java8-extension/0.42:jar",
     visibility = ["//visibility:public"],
     exports = [
+        ":com.google.truth_truth",
+        ":org.checkerframework_checker-compat-qual",
+    ],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "com.google.truth_truth",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/google/truth/truth/0.42:jar",
+    visibility = ["//visibility:public"],
+    exports = [
+        ":com.google.auto.value_auto-value-annotations",
         ":com.google.errorprone_error_prone_annotations",
         ":com.google.guava_guava",
+        ":com.googlecode.java-diff-utils_diffutils",
         ":junit_junit",
+        ":org.checkerframework_checker-compat-qual",
+        ":org.checkerframework_checker-qual",
     ],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "com.googlecode.java-diff-utils_diffutils",
+    export_artifact = "//prebuilts/tools/common/m2/repository/com/googlecode/java-diff-utils/diffutils/1.3.0:jar",
+    visibility = ["//visibility:public"],
+    exports = [],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
@@ -359,7 +414,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "commons-codec_commons-codec",
-    export_artifact = "//prebuilts/tools/common/m2/repository/commons-codec/commons-codec/1.9:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/commons-codec/commons-codec/1.10:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -386,6 +441,14 @@ maven_java_library(
     export_artifact = "//prebuilts/tools/common/m2/repository/commons-logging/commons-logging/1.2:jar",
     visibility = ["//visibility:public"],
     exports = [],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "de.undercouch_gradle-download-task",
+    export_artifact = "//prebuilts/tools/common/m2/repository/de/undercouch/gradle-download-task/3.4.3:jar",
+    visibility = ["//visibility:public"],
+    exports = [":org.apache.httpcomponents_httpclient"],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
@@ -745,7 +808,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.apache.httpcomponents_httpclient",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/apache/httpcomponents/httpclient/4.5.2:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/apache/httpcomponents/httpclient/4.5.6:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":commons-codec_commons-codec",
@@ -757,7 +820,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.apache.httpcomponents_httpcore",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/apache/httpcomponents/httpcore/4.4.5:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/apache/httpcomponents/httpcore/4.4.10:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -765,7 +828,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.apache.httpcomponents_httpmime",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/apache/httpcomponents/httpmime/4.5.2:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/apache/httpcomponents/httpmime/4.5.6:jar",
     visibility = ["//visibility:public"],
     exports = [":org.apache.httpcomponents_httpclient"],
 )
@@ -873,8 +936,16 @@ maven_java_library(
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
+    name = "org.checkerframework_checker-compat-qual",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/checkerframework/checker-compat-qual/2.5.3:jar",
+    visibility = ["//visibility:public"],
+    exports = [],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
     name = "org.checkerframework_checker-qual",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/checkerframework/checker-qual/2.5.2:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/checkerframework/checker-qual/2.5.3:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -890,7 +961,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.codehaus.mojo_animal-sniffer-annotations",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/codehaus/mojo/animal-sniffer-annotations/1.14:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/codehaus/mojo/animal-sniffer-annotations/1.17:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -1070,7 +1141,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.gradle_gradle-tooling-api",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/gradle/gradle-tooling-api/4.10.1:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/gradle/gradle-tooling-api/5.4.1:jar",
     visibility = ["//visibility:public"],
     exports = [],
     runtime_deps = [":org.slf4j_slf4j-api"],
@@ -1118,8 +1189,16 @@ maven_java_library(
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
+    name = "org.jetbrains.intellij.deps_trove4j",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/intellij/deps/trove4j/1.0.20181211:jar",
+    visibility = ["//visibility:public"],
+    exports = [],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-android-extensions",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-android-extensions/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-android-extensions/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [],
     runtime_deps = [":org.jetbrains.kotlin_kotlin-compiler-embeddable"],
@@ -1127,8 +1206,16 @@ maven_java_library(
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
+    name = "org.jetbrains.kotlin_kotlin-android-extensions-runtime",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-android-extensions-runtime/1.3.41:jar",
+    visibility = ["//visibility:public"],
+    exports = [":org.jetbrains.kotlin_kotlin-stdlib"],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-annotation-processing-gradle",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-annotation-processing-gradle/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-annotation-processing-gradle/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [":org.jetbrains.kotlin_kotlin-stdlib"],
     runtime_deps = [":org.jetbrains.kotlin_kotlin-compiler-embeddable"],
@@ -1137,7 +1224,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-build-common",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-build-common/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-build-common/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -1145,10 +1232,11 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-compiler-embeddable",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-compiler-embeddable/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-compiler-embeddable/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [],
     runtime_deps = [
+        ":org.jetbrains.intellij.deps_trove4j",
         ":org.jetbrains.kotlin_kotlin-reflect",
         ":org.jetbrains.kotlin_kotlin-script-runtime",
         ":org.jetbrains.kotlin_kotlin-stdlib",
@@ -1158,7 +1246,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-compiler-runner",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-compiler-runner/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-compiler-runner/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":org.jetbrains.kotlin_kotlin-build-common",
@@ -1169,7 +1257,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-daemon-client",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-daemon-client/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-daemon-client/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -1177,12 +1265,13 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-gradle-plugin",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-gradle-plugin/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-gradle-plugin/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [
+        ":com.google.code.gson_gson",
+        ":de.undercouch_gradle-download-task",
         ":org.jetbrains.kotlin_kotlin-gradle-plugin-api",
         ":org.jetbrains.kotlin_kotlin-gradle-plugin-model",
-        ":org.jetbrains.kotlin_kotlin-native-utils",
         ":org.jetbrains.kotlin_kotlin-stdlib",
     ],
     runtime_deps = [
@@ -1192,32 +1281,22 @@ maven_java_library(
         ":org.jetbrains.kotlin_kotlin-compiler-runner",
         ":org.jetbrains.kotlin_kotlin-reflect",
         ":org.jetbrains.kotlin_kotlin-scripting-compiler-embeddable",
+        ":org.jetbrains.kotlin_kotlin-scripting-compiler-impl-embeddable",
     ],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-gradle-plugin-api",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-gradle-plugin-api/1.3.11:jar",
-    visibility = ["//visibility:public"],
-    exports = [
-        ":org.jetbrains.kotlin_kotlin-native-utils",
-        ":org.jetbrains.kotlin_kotlin-stdlib",
-    ],
-)
-
-# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
-maven_java_library(
-    name = "org.jetbrains.kotlin_kotlin-gradle-plugin-model",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-gradle-plugin-model/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-gradle-plugin-api/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [":org.jetbrains.kotlin_kotlin-stdlib"],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
-    name = "org.jetbrains.kotlin_kotlin-native-utils",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-native-utils/1.3.11:jar",
+    name = "org.jetbrains.kotlin_kotlin-gradle-plugin-model",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-gradle-plugin-model/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [":org.jetbrains.kotlin_kotlin-stdlib"],
 )
@@ -1225,7 +1304,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-reflect",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-reflect/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-reflect/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [":org.jetbrains.kotlin_kotlin-stdlib"],
 )
@@ -1233,23 +1312,65 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-script-runtime",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-script-runtime/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-script-runtime/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "org.jetbrains.kotlin_kotlin-scripting-common",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-scripting-common/1.3.41:jar",
+    visibility = ["//visibility:public"],
+    exports = [
+        ":org.jetbrains.kotlin_kotlin-stdlib",
+        ":org.jetbrains.kotlinx_kotlinx-coroutines-core",
+    ],
+    runtime_deps = [":org.jetbrains.kotlin_kotlin-reflect"],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-scripting-compiler-embeddable",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-scripting-compiler-embeddable/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-scripting-compiler-embeddable/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [],
+    runtime_deps = [
+        ":org.jetbrains.kotlin_kotlin-scripting-compiler-impl-embeddable",
+        ":org.jetbrains.kotlin_kotlin-stdlib",
+    ],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "org.jetbrains.kotlin_kotlin-scripting-compiler-impl-embeddable",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-scripting-compiler-impl-embeddable/1.3.41:jar",
+    visibility = ["//visibility:public"],
+    exports = [],
+    runtime_deps = [
+        ":org.jetbrains.kotlin_kotlin-scripting-common",
+        ":org.jetbrains.kotlin_kotlin-scripting-jvm",
+        ":org.jetbrains.kotlin_kotlin-stdlib",
+        ":org.jetbrains.kotlinx_kotlinx-coroutines-core",
+    ],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "org.jetbrains.kotlin_kotlin-scripting-jvm",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-scripting-jvm/1.3.41:jar",
+    visibility = ["//visibility:public"],
+    exports = [
+        ":org.jetbrains.kotlin_kotlin-script-runtime",
+        ":org.jetbrains.kotlin_kotlin-scripting-common",
+        ":org.jetbrains.kotlin_kotlin-stdlib",
+    ],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-stdlib",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":org.jetbrains.kotlin_kotlin-stdlib-common",
@@ -1260,7 +1381,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-stdlib-common",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib-common/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib-common/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )
@@ -1268,7 +1389,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-stdlib-jdk7",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk7/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [":org.jetbrains.kotlin_kotlin-stdlib"],
 )
@@ -1276,7 +1397,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-stdlib-jdk8",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-stdlib-jdk8/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":org.jetbrains.kotlin_kotlin-stdlib",
@@ -1287,7 +1408,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-test",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-test/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-test/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [
         ":org.jetbrains.kotlin_kotlin-stdlib",
@@ -1298,9 +1419,17 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.jetbrains.kotlin_kotlin-test-common",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-test-common/1.3.11:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-test-common/1.3.41:jar",
     visibility = ["//visibility:public"],
     exports = [":org.jetbrains.kotlin_kotlin-stdlib-common"],
+)
+
+# ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
+maven_java_library(
+    name = "org.jetbrains.kotlinx_kotlinx-coroutines-core",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-core/1.1.1:jar",
+    visibility = ["//visibility:public"],
+    exports = [":org.jetbrains.kotlin_kotlin-stdlib"],
 )
 
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
@@ -1470,7 +1599,7 @@ maven_java_library(
 # ATTENTION: This file is generated from tools/buildSrc/base/dependencies.properties, see top of this file.
 maven_java_library(
     name = "org.slf4j_slf4j-api",
-    export_artifact = "//prebuilts/tools/common/m2/repository/org/slf4j/slf4j-api/1.7.16:jar",
+    export_artifact = "//prebuilts/tools/common/m2/repository/org/slf4j/slf4j-api/1.7.25:jar",
     visibility = ["//visibility:public"],
     exports = [],
 )

@@ -101,4 +101,28 @@ public class InstallReceiverTest {
         assertEquals(null, receiver.getErrorMessage());
         assertTrue(receiver.isSuccessfullyCompleted());
     }
+
+    @Test
+    public void testErrorCode() {
+        InstallReceiver receiver = new InstallReceiver();
+        // In case of recognized failure, the error message captures it.
+        receiver.processNewLines(new String[] {"Failure [INSTALL_ERROR_DESC: oups i failed]"});
+        assertFalse(receiver.isSuccessfullyCompleted());
+        assertEquals("INSTALL_ERROR_DESC", receiver.getErrorCode());
+
+        receiver.processNewLines(new String[] {"Failure [INSTALL_ERROR_NO_DESC]"});
+        assertFalse(receiver.isSuccessfullyCompleted());
+        assertEquals("INSTALL_ERROR_NO_DESC", receiver.getErrorCode());
+
+        receiver.processNewLines(new String[] {"Failure [INSTALL_ERROR_EMPTY_DESC:]"});
+        assertFalse(receiver.isSuccessfullyCompleted());
+        assertEquals("INSTALL_ERROR_EMPTY_DESC", receiver.getErrorCode());
+    }
+
+    @Test
+    public void testSuccessIfNoReply() {
+        InstallReceiver receiver = new InstallReceiver();
+        receiver.flush();
+        assertTrue(receiver.isSuccessfullyCompleted());
+    }
 }

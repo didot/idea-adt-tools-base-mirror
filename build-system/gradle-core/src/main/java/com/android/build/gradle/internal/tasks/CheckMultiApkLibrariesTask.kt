@@ -20,7 +20,6 @@ import com.android.annotations.NonNull
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction
-import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.utils.FileUtils
 import com.google.common.io.Files
 import org.apache.commons.io.Charsets
@@ -33,14 +32,13 @@ import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
 import java.io.File
 
 /**
  * Task to check that no two APKs in a multi-APK project package the same library
  */
 @CacheableTask
-open class CheckMultiApkLibrariesTask : AndroidVariantTask() {
+open class CheckMultiApkLibrariesTask : NonIncrementalTask() {
 
     private lateinit var featureTransitiveDeps : ArtifactCollection
 
@@ -54,8 +52,7 @@ open class CheckMultiApkLibrariesTask : AndroidVariantTask() {
     lateinit var fakeOutputDir: File
         private set
 
-    @TaskAction
-    fun taskAction() {
+    override fun doTaskAction() {
         // Build a map of libraries to their corresponding modules. If two modules package the same
         // library, we will use the map to output a user-friendly error message.
         val map = mutableMapOf<String, MutableList<String>>()
@@ -110,7 +107,7 @@ open class CheckMultiApkLibrariesTask : AndroidVariantTask() {
             task.featureTransitiveDeps =
                     variantScope.getArtifactCollection(
                         AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,
-                        AndroidArtifacts.ArtifactScope.MODULE,
+                        AndroidArtifacts.ArtifactScope.PROJECT,
                         AndroidArtifacts.ArtifactType.FEATURE_TRANSITIVE_DEPS
                     )
             task.fakeOutputDir =

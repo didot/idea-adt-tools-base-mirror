@@ -111,7 +111,7 @@ public class RecordingBuildListenerTest {
     @Test
     public void singleThreadInvocation() {
         TestProfileRecordWriter writer = new TestProfileRecordWriter();
-        RecordingBuildListener listener = new RecordingBuildListener(writer);
+        RecordingBuildListener listener = new RecordingBuildListener("test", writer);
 
         listener.beforeExecute(task);
         listener.afterExecute(task, taskState);
@@ -119,13 +119,14 @@ public class RecordingBuildListenerTest {
         GradleBuildProfileSpan record = writer.getRecords().get(0);
         assertEquals(1, record.getId());
         assertEquals(0, record.getParentId());
-        assertEquals(0, record.getThreadId());
+        assertEquals(Thread.currentThread().getId(), record.getThreadId());
     }
 
     @Test
     public void singleThreadWithMultipleSpansInvocation() throws Exception {
 
-        RecordingBuildListener listener = new RecordingBuildListener(ProcessProfileWriter.get());
+        RecordingBuildListener listener =
+                new RecordingBuildListener("test", ProcessProfileWriter.get());
 
         listener.beforeExecute(task);
         ThreadRecorder.get()
@@ -145,7 +146,7 @@ public class RecordingBuildListenerTest {
 
         GradleBuildProfileSpan record = getRecordForId(profile.getSpanList(), 2);
         assertEquals(0, record.getParentId());
-        assertEquals(0, record.getThreadId());
+        assertEquals(Thread.currentThread().getId(), record.getThreadId());
 
         record = getRecordForId(profile.getSpanList(), 3);
         assertNotNull(record);
@@ -156,7 +157,8 @@ public class RecordingBuildListenerTest {
 
     @Test
     public void simulateTasksUnorderedLifecycleEventsDelivery() throws Exception {
-        RecordingBuildListener listener = new RecordingBuildListener(ProcessProfileWriter.get());
+        RecordingBuildListener listener =
+                new RecordingBuildListener("test", ProcessProfileWriter.get());
 
         listener.beforeExecute(task);
         listener.beforeExecute(secondTask);
@@ -182,7 +184,7 @@ public class RecordingBuildListenerTest {
         record = getRecordForId(profile.getSpanList(), 3);
         assertEquals(0, record.getParentId());
         assertEquals(1, record.getProject());
-        assertEquals(0, record.getThreadId());
+        assertEquals(Thread.currentThread().getId(), record.getThreadId());
 
         record = getRecordForId(profile.getSpanList(), 4);
         assertNotNull(record);
@@ -193,7 +195,7 @@ public class RecordingBuildListenerTest {
     @Test
     public void multipleThreadsInvocation() {
         TestProfileRecordWriter writer = new TestProfileRecordWriter();
-        RecordingBuildListener listener = new RecordingBuildListener(writer);
+        RecordingBuildListener listener = new RecordingBuildListener("test", writer);
         Task secondTask = mock(Task.class);
         when(secondTask.getPath()).thenReturn(":projectName:secondTaskName");
         when(secondTask.getProject()).thenReturn(project);
@@ -214,19 +216,19 @@ public class RecordingBuildListenerTest {
         GradleBuildProfileSpan record = getRecordForId(writer.getRecords(), 1);
         assertEquals(1, record.getId());
         assertEquals(0, record.getParentId());
-        assertEquals(0, record.getThreadId());
+        assertEquals(Thread.currentThread().getId(), record.getThreadId());
 
         record = getRecordForId(writer.getRecords(), 2);
         assertEquals(2, record.getId());
         assertEquals(0, record.getParentId());
         assertEquals(1, record.getProject());
-        assertEquals(0, record.getThreadId());
+        assertEquals(Thread.currentThread().getId(), record.getThreadId());
     }
 
     @Test
     public void multipleThreadsOrderInvocation() {
         TestProfileRecordWriter writer = new TestProfileRecordWriter();
-        RecordingBuildListener listener = new RecordingBuildListener(writer);
+        RecordingBuildListener listener = new RecordingBuildListener("test", writer);
         Task secondTask = mock(Task.class);
         when(secondTask.getPath()).thenReturn(":projectName:secondTaskName");
         when(secondTask.getProject()).thenReturn(project);
@@ -248,19 +250,19 @@ public class RecordingBuildListenerTest {
         assertEquals(1, record.getId());
         assertEquals(0, record.getParentId());
         assertEquals(1, record.getProject());
-        assertEquals(0, record.getThreadId());
+        assertEquals(Thread.currentThread().getId(), record.getThreadId());
 
         record = getRecordForId(writer.getRecords(), 2);
         assertEquals(2, record.getId());
         assertEquals(0, record.getParentId());
         assertEquals(1, record.getProject());
-        assertEquals(0, record.getThreadId());
+        assertEquals(Thread.currentThread().getId(), record.getThreadId());
     }
 
     @Test
     public void ensureTaskStateRecorded() {
         TestProfileRecordWriter writer = new TestProfileRecordWriter();
-        RecordingBuildListener listener = new RecordingBuildListener(writer);
+        RecordingBuildListener listener = new RecordingBuildListener("test", writer);
 
         when(taskState.getDidWork()).thenReturn(true);
         when(taskState.getExecuted()).thenReturn(true);
@@ -310,7 +312,8 @@ public class RecordingBuildListenerTest {
         public void writeRecord(
                 @NonNull String project,
                 @Nullable String variant,
-                @NonNull GradleBuildProfileSpan.Builder executionRecord) {
+                @NonNull GradleBuildProfileSpan.Builder executionRecord,
+                @NonNull List<GradleBuildProfileSpan> taskExecutionPhases) {
             if (project.equals(":projectName")) {
                 executionRecord.setProject(1);
             }
@@ -319,6 +322,7 @@ public class RecordingBuildListenerTest {
             }
 
             records.add(executionRecord.build());
+            records.addAll(taskExecutionPhases);
         }
 
         public List<GradleBuildProfileSpan> getRecords() {

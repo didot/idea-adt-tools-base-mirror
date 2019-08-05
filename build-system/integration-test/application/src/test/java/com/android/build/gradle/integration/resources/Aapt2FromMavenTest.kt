@@ -18,18 +18,20 @@ package com.android.build.gradle.integration.resources
 
 import com.android.SdkConstants
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
-import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
 import com.android.build.gradle.internal.res.namespaced.registerAaptService
 import com.android.build.gradle.internal.res.namespaced.useAaptDaemon
 import com.android.build.gradle.internal.workeractions.WorkerActionServiceRegistry
 import com.android.builder.internal.aapt.v2.Aapt2RenamingConventions
 import com.android.ide.common.resources.CompileResourceRequest
+import com.google.common.truth.Truth.assertThat
 import com.android.testutils.truth.PathSubject.assertThat
 import com.android.utils.StdLogger
 import org.gradle.api.Project
 import org.gradle.api.file.FileCollection
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.Assume
+import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -45,7 +47,9 @@ class Aapt2FromMavenTest {
     val temporaryFolder = TemporaryFolder()
 
     /** Verify that the the artifact provided by the [getAapt2FromMaven] method is usable. */
+    // Turned off until Gradle supports released version of Groovy : bug 117293097
     @Test
+    @Ignore
     fun sanityTest() {
         // https://issuetracker.google.com/77321151
         Assume.assumeFalse(SdkConstants.currentPlatform() == SdkConstants.PLATFORM_WINDOWS)
@@ -68,9 +72,7 @@ class Aapt2FromMavenTest {
 
     private fun getAapt2FromMavenForTest(project: Project): FileCollection {
 
-        val artifact = getAapt2FromMaven(
-            project = project
-        )
+        val (artifact,_) = getAapt2FromMavenAndVersion(project)
 
         assertNotNull(artifact, "Artifact view should be created here.")
 
@@ -87,7 +89,7 @@ class Aapt2FromMavenTest {
         val registry = WorkerActionServiceRegistry()
 
         val serviceKey =
-            registerAaptService(artifact, null, StdLogger(StdLogger.Level.INFO), registry)
+            registerAaptService(artifact, StdLogger(StdLogger.Level.INFO), registry)
 
         val outDir = temporaryFolder.newFolder()
         val inFile = createFileToCompile()
@@ -111,7 +113,7 @@ class Aapt2FromMavenTest {
             .resolve("strings.xml")
             .apply {
                 Files.createDirectories(parent)
-                Files.write(this, "<resources></resources>".toByteArray(Charsets.UTF_8))
+                Files.write(this, "<resources></resources>".toByteArray(StandardCharsets.UTF_8))
             }
             .toFile()
 }

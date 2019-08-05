@@ -18,14 +18,17 @@ package com.android.tools.lint.client.api
 
 import com.android.SdkConstants
 import com.android.SdkConstants.CLASS_FOLDER
+import com.android.SdkConstants.CURRENT_PLATFORM
 import com.android.SdkConstants.DOT_AAR
 import com.android.SdkConstants.DOT_JAR
 import com.android.SdkConstants.DOT_SRCJAR
 import com.android.SdkConstants.DOT_XML
 import com.android.SdkConstants.FD_ASSETS
+import com.android.SdkConstants.FN_ANNOTATIONS_ZIP
 import com.android.SdkConstants.FN_BUILD_GRADLE
 import com.android.SdkConstants.GEN_FOLDER
 import com.android.SdkConstants.LIBS_FOLDER
+import com.android.SdkConstants.PLATFORM_LINUX
 import com.android.SdkConstants.RES_FOLDER
 import com.android.SdkConstants.SRC_FOLDER
 import com.android.builder.model.AndroidLibrary
@@ -37,13 +40,14 @@ import com.android.ide.common.resources.ResourceRepository
 import com.android.ide.common.util.PathString
 import com.android.manifmerger.Actions
 import com.android.prefs.AndroidLocation
+import com.android.repository.Revision
 import com.android.repository.api.ProgressIndicator
 import com.android.repository.api.ProgressIndicatorAdapter
-import com.android.sdklib.BuildToolInfo
 import com.android.sdklib.IAndroidTarget
 import com.android.sdklib.SdkVersionInfo
 import com.android.sdklib.repository.AndroidSdkHandler
 import com.android.tools.lint.detector.api.Context
+import com.android.tools.lint.detector.api.Desugaring
 import com.android.tools.lint.detector.api.Detector
 import com.android.tools.lint.detector.api.Issue
 import com.android.tools.lint.detector.api.LintFix
@@ -52,6 +56,7 @@ import com.android.tools.lint.detector.api.Project
 import com.android.tools.lint.detector.api.Severity
 import com.android.tools.lint.detector.api.TextFormat
 import com.android.tools.lint.detector.api.endsWith
+import com.android.tools.lint.detector.api.getLanguageLevel
 import com.android.tools.lint.detector.api.isManifestFolder
 import com.android.utils.CharSequences
 import com.android.utils.Pair
@@ -59,10 +64,14 @@ import com.android.utils.XmlUtils
 import com.google.common.annotations.Beta
 import com.google.common.base.Charsets.UTF_8
 import com.google.common.base.Splitter
+import com.google.common.collect.Lists
 import com.google.common.collect.Maps
 import com.google.common.collect.Sets
 import com.google.common.io.Files
 import com.intellij.openapi.util.Computable
+import com.intellij.pom.java.LanguageLevel
+import com.intellij.pom.java.LanguageLevel.JDK_1_7
+import com.intellij.pom.java.LanguageLevel.JDK_1_8
 import org.kxml2.io.KXmlParser
 import org.w3c.dom.Document
 import org.w3c.dom.Element
@@ -70,6 +79,7 @@ import org.w3c.dom.Node
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.File.separatorChar
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -80,6 +90,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Paths
 import java.util.ArrayList
 import java.util.HashMap
+import java.util.Locale
 import java.util.function.Predicate
 
 /**
@@ -451,13 +462,13 @@ abstract class LintClient {
             }
         }
 
-        val home = System.getenv("ANDROID_HOME") ?: return null
+        val home = System.getenv(SdkConstants.ANDROID_SDK_ROOT_ENV)
+            ?: System.getenv(SdkConstants.ANDROID_HOME_ENV) ?: return null
         return File(home)
     }
 
     /**
      * Locates an SDK resource (relative to the SDK root directory).
-     *
      *
      * TODO: Consider switching to a [URL] return type instead.
      *
@@ -468,11 +479,13 @@ abstract class LintClient {
      *         exist
      */
     open fun findResource(relativePath: String): File? {
-        val top = getSdkHome() ?: throw IllegalArgumentException(
-            "Lint must be invoked with " +
-                    "\$ANDROID_HOME set to point to the SDK, or the System property " +
-                    PROP_BIN_DIR + " pointing to the ANDROID_SDK tools directory"
-        )
+        val top = getSdkHome() ?: run {
+            val file = File(relativePath)
+            return when {
+                file.exists() -> file.absoluteFile
+                else -> null
+            }
+        }
 
         // Files looked up by ExternalAnnotationRepository and ApiLookup, respectively
         val isAnnotationZip = "annotations.zip" == relativePath
@@ -647,7 +660,8 @@ abstract class LintClient {
                 if (jars != null) {
                     for (jar in jars) {
                         if ((endsWith(jar.path, DOT_JAR) || endsWith(jar.path, DOT_SRCJAR)) &&
-                            !libraries.contains(jar)) {
+                            !libraries.contains(jar)
+                        ) {
                             libraries.add(jar)
                         }
                     }
@@ -953,7 +967,7 @@ abstract class LintClient {
      *
      * @return the build tools version in use by the project, or null if not known
      */
-    open fun getBuildTools(project: Project): BuildToolInfo? {
+    open fun getBuildToolsRevision(project: Project): Revision? {
         val sdk = getSdk()
         // Build systems like Eclipse and ant just use the latest available
         // build tools, regardless of project metadata. In Gradle, this
@@ -962,12 +976,23 @@ abstract class LintClient {
         if (sdk != null) {
             val compileTarget = getCompileTarget(project)
             if (compileTarget != null) {
-                return compileTarget.buildToolInfo
+                return compileTarget.buildToolInfo?.revision
             }
-            return sdk.getLatestBuildTool(getRepositoryLogger(), false)
+            return sdk.getLatestBuildTool(getRepositoryLogger(), false)?.revision
         }
 
         return null
+    }
+
+    /** Returns the set of desugaring operations in effect for the given project. */
+    open fun getDesugaring(project: Project): Set<Desugaring> {
+        // If there's no gradle version, you're using some other build system;
+        // the most likely candidate is bazel which already supports desugaring
+        // so we default to true. (Proper lint integration should extend LintClient
+        // anyway and override the getDesugaring method above; this is the default
+        // handling.)
+        val version = project.gradleModelVersion ?: return Desugaring.DEFAULT
+        return getGradleDesugaring(version, getLanguageLevel(project, JDK_1_7))
     }
 
     /**
@@ -1144,8 +1169,9 @@ abstract class LintClient {
                         // Soon we'll get these paths via the builder-model so we
                         // don't need to have hardcoded paths (b/66166521)
                         val lintPaths = arrayOf(
-                                Paths.get("intermediates", "lint"),
-                                Paths.get("intermediates", "lint_jar", "global", "prepareLintJar"))
+                            Paths.get("intermediates", "lint"),
+                            Paths.get("intermediates", "lint_jar", "global", "prepareLintJar")
+                        )
                         for (lintPath in lintPaths) {
                             val lintFolder = File(it, lintPath.toString())
                             if (lintFolder.exists()) {
@@ -1206,17 +1232,22 @@ abstract class LintClient {
             lintJars.add(lintJar)
         } else if (library.project != null) { // Local project: might have locally packaged lint jar
             // Temporary workaround for 66166521: Add lintChecks dependencies into the builder model
-            val path = library.folder.path
-            val index = path.indexOf("intermediate-jars")
-            if (index != -1) {
-                val manualPath = File(
-                    path.substring(
-                        0,
-                        index
-                    ) + "lint" + File.separator + SdkConstants.FN_LINT_JAR
+            val buildDir = library.folder.path.substringBefore("intermediates")
+            val lintPaths = arrayOf(
+                Paths.get(buildDir, "intermediates", "lint", SdkConstants.FN_LINT_JAR),
+                Paths.get(
+                    buildDir,
+                    "intermediates",
+                    "lint_publish_jar",
+                    "global",
+                    "prepareLintJarForPublish",
+                    SdkConstants.FN_LINT_JAR
                 )
-                if (manualPath.exists()) {
-                    lintJars.add(manualPath)
+            )
+            for (lintPath in lintPaths) {
+                val manualLintJar = lintPath.toFile()
+                if (manualLintJar.exists()) {
+                    lintJars.add(manualLintJar)
                 }
             }
         }
@@ -1542,12 +1573,18 @@ abstract class LintClient {
         }
         val parser = KXmlParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
-        parser.setInput(ByteArrayInputStream(bytes), Charsets.UTF_8.name())
+        parser.setInput(ByteArrayInputStream(bytes), StandardCharsets.UTF_8.name())
         return parser
     }
 
-    /** Returns the version number of this lint client, if known  */
+    /** Returns the version number of this lint client, if known */
     open fun getClientRevision(): String? = null
+
+    /** Returns the version number of this lint client, if known. This is the one
+     * meant to be displayed to users; e.g. for Studio, client revision may be
+     * "3.4.0.0" and display revision might be "3.4 Canary 1".
+     */
+    open fun getClientDisplayRevision(): String? = getClientRevision()
 
     /**
      * Runs the given runnable under a read lock such that it can access the PSI
@@ -1566,6 +1603,126 @@ abstract class LintClient {
 
     /** Returns a repository logger used by this client.  */
     open fun getRepositoryLogger(): ProgressIndicator = RepoLogger()
+
+    /**
+     * Returns the external annotation zip files for the given projects (transitively), if any.
+     */
+    open fun getExternalAnnotations(projects: Collection<Project>): List<File> {
+        val seen = Sets.newHashSet<AndroidLibrary>()
+        val files = Lists.newArrayListWithExpectedSize<File>(2)
+        for (project in projects) {
+            if (project.isGradleProject) {
+                val variant = project.currentVariant ?: continue
+                val dependencies = variant.mainArtifact.dependencies
+                for (library in dependencies.libraries) {
+                    addLibraries(files, library, seen)
+                }
+            }
+        }
+
+        return files
+    }
+
+    private fun addLibraries(
+        result: MutableList<File>,
+        library: AndroidLibrary,
+        seen: MutableSet<AndroidLibrary>
+    ) {
+        if (seen.contains(library)) {
+            return
+        }
+        seen.add(library)
+
+        // As of 1.2 this is available in the model:
+        //  https://android-review.googlesource.com/#/c/137750/
+        // Switch over to this when it's in more common usage
+        // (until it is, we'll pay for failed proxying errors)
+        try {
+            val zip = library.externalAnnotations
+            if (zip.exists()) {
+                result.add(zip)
+            }
+        } catch (ignore: Throwable) {
+            // Using some older version than 1.2
+            val zip = File(library.resFolder.parent, FN_ANNOTATIONS_ZIP)
+            if (zip.exists()) {
+                result.add(zip)
+            }
+        }
+
+        for (dependency in library.libraryDependencies) {
+            addLibraries(result, dependency, seen)
+        }
+    }
+
+    /** Returns the path to a given [file], given a [baseFile] to make it relative to. */
+    open fun getRelativePath(baseFile: File?, file: File?): String? {
+        // Based on similar code in com.intellij.openapi.util.io.FileUtilRt
+        var base = baseFile
+        if (base == null || file == null) {
+            return null
+        }
+        if (!base.isDirectory) {
+            base = base.parentFile
+            if (base == null) {
+                return null
+            }
+        }
+
+        if (base.path == file.path) {
+            return "."
+        }
+
+        val filePath = file.absolutePath
+        var basePath = base.absolutePath
+
+        // TODO: Make this return null if we go all the way to the root!
+
+        basePath = if (!basePath.isEmpty() && basePath[basePath.length - 1] == separatorChar)
+            basePath
+        else
+            basePath + separatorChar
+
+        // Whether filesystem is case sensitive. Technically on OSX you could create a
+        // sensitive one, but it's not the default.
+        val caseSensitive = CURRENT_PLATFORM == PLATFORM_LINUX
+        val l = Locale.getDefault()
+        val basePathToCompare = if (caseSensitive) basePath else basePath.toLowerCase(l)
+        val filePathToCompare = if (caseSensitive) filePath else filePath.toLowerCase(l)
+        if (basePathToCompare == (if (!filePathToCompare.isEmpty() &&
+                filePathToCompare[filePathToCompare.length - 1] == separatorChar)
+                filePathToCompare
+            else
+                filePathToCompare + separatorChar)
+        ) {
+            return "."
+        }
+        var len = 0
+        var lastSeparatorIndex = 0
+
+        while (len < filePath.length &&
+            len < basePath.length &&
+            filePathToCompare[len] == basePathToCompare[len]
+        ) {
+            if (basePath[len] == separatorChar) {
+                lastSeparatorIndex = len
+            }
+            len++
+        }
+        if (len == 0) {
+            return null
+        }
+
+        val relativePath = StringBuilder()
+        for (i in len until basePath.length) {
+            if (basePath[i] == separatorChar) {
+                relativePath.append("..")
+                relativePath.append(separatorChar)
+            }
+        }
+        relativePath.append(filePath.substring(lastSeparatorIndex + 1))
+        return relativePath.toString()
+    }
 
     private class RepoLogger : ProgressIndicatorAdapter() {
         // Intentionally not logging these: the SDK manager is
@@ -1702,6 +1859,27 @@ abstract class LintClient {
         @JvmStatic
         val isUnitTest: Boolean
             get() = CLIENT_UNIT_TESTS == clientName
+
+        /**
+         * Returns the desugaring operations that the Gradle plugin will use for a
+         * given version of Gradle and a given configured language source level.
+         */
+        @JvmStatic
+        fun getGradleDesugaring(
+            version: GradleVersion,
+            languageLevel: LanguageLevel?
+        ): Set<Desugaring> {
+            // Desugar runs if the Gradle plugin is 2.4.0 alpha 8 or higher...
+            if (!version.isAtLeast(2, 4, 0, "alpha", 8, true)) {
+                return Desugaring.NONE
+            }
+
+            // ... *and* the language level is at least 1.8
+            // NO: Try with resources applies to JDK_1_7, though in Gradle we don't
+            // kick in until Java 8!
+            return if (languageLevel != null && languageLevel.isAtLeast(JDK_1_8))
+                Desugaring.DEFAULT else Desugaring.NONE
+        }
 
         /**
          * Reports an issue where we don't (necessarily) have a [Context] or [Project].

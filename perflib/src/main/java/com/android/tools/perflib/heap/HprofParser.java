@@ -23,7 +23,6 @@ import com.google.common.primitives.UnsignedBytes;
 import com.google.common.primitives.UnsignedInts;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TLongObjectHashMap;
-
 import java.io.EOFException;
 import java.io.IOException;
 
@@ -135,13 +134,13 @@ class HprofParser {
      * heap data.
      */
     @NonNull
-    TLongObjectHashMap<String> mStrings = new TLongObjectHashMap<>();
+    TLongObjectHashMap<String> mStrings = new TLongObjectHashMap<String>();
 
     @NonNull
-    TLongObjectHashMap<String> mClassNamesById = new TLongObjectHashMap<>();
+    TLongObjectHashMap<String> mClassNamesById = new TLongObjectHashMap<String>();
 
     @NonNull
-    TIntObjectHashMap<String> mClassNamesBySerial = new TIntObjectHashMap<>();
+    TIntObjectHashMap<String> mClassNamesBySerial = new TIntObjectHashMap<String>();
 
     static void parseBuffer(@NonNull Snapshot snapshot, @NonNull DataBuffer buffer, @NonNull ProguardMap map) {
         new HprofParser(snapshot, buffer, map).parse();

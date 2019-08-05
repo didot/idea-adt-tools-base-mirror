@@ -29,10 +29,12 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Closer;
+import com.google.common.truth.Truth;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import org.junit.Rule;
 import org.junit.Test;
@@ -90,7 +92,7 @@ public class IncrementalRelativeFileSetsTest {
 
         Closer closer = Closer.create();
         try {
-            ZFile zf = closer.register(new ZFile(zipFile));
+            ZFile zf = closer.register(ZFile.openReadWrite(zipFile));
             zf.close();
         } catch (Throwable t) {
             throw closer.rethrow(t);
@@ -113,7 +115,7 @@ public class IncrementalRelativeFileSetsTest {
 
         Closer closer = Closer.create();
         try {
-            ZFile zf = closer.register(new ZFile(zipFile));
+            ZFile zf = closer.register(ZFile.openReadWrite(zipFile));
             zf.add("a/", new ByteArrayInputStream(new byte[0]));
             zf.add("a/b", new ByteArrayInputStream(new byte[0]));
             zf.add("a/c", new ByteArrayInputStream(new byte[0]));
@@ -156,7 +158,7 @@ public class IncrementalRelativeFileSetsTest {
 
         Closer closer = Closer.create();
         try {
-            ZFile zf1 = closer.register(new ZFile(zipFile));
+            ZFile zf1 = closer.register(ZFile.openReadWrite(zipFile));
             zf1.add("a/", new ByteArrayInputStream(new byte[0]));
             zf1.add("a/b", new ByteArrayInputStream(new byte[0]));
             zf1.add("d", new ByteArrayInputStream(new byte[0]));
@@ -167,7 +169,7 @@ public class IncrementalRelativeFileSetsTest {
             @SuppressWarnings("unused")
             boolean ignored = zipFile.delete();
 
-            ZFile zf2 = closer.register(new ZFile(zipFile));
+            ZFile zf2 = closer.register(ZFile.openReadWrite(zipFile));
             zf2.add("a/", new ByteArrayInputStream(new byte[0]));
             zf2.add("a/c", new ByteArrayInputStream(new byte[0]));
             zf2.add("d", new ByteArrayInputStream(new byte[0]));
@@ -196,68 +198,6 @@ public class IncrementalRelativeFileSetsTest {
         assertEquals(FileStatus.CHANGED, set.get(expectedC));
         FileStatus dStatus = set.get(expectedD);
         assertTrue(dStatus == FileStatus.NEW || dStatus == FileStatus.CHANGED);
-    }
-
-    @Test
-    public void baseDirectoryCountOnEmpty() {
-        ImmutableMap<RelativeFile, FileStatus> set = ImmutableMap.copyOf(
-                Maps.<RelativeFile, FileStatus>newHashMap());
-        assertEquals(0, IncrementalRelativeFileSets.getBaseDirectoryCount(set));
-    }
-
-    @Test
-    public void baseDirectoryCountOneDirectoryMultipleEntries() throws Exception {
-        File dir = temporaryFolder.newFolder("foo");
-        File f0 = new File(dir, "f0");
-        assertTrue(f0.createNewFile());
-        File f1 = new File(dir, "f1");
-        assertTrue(f1.createNewFile());
-
-        ImmutableMap<RelativeFile, FileStatus> set = IncrementalRelativeFileSets.fromDirectory(dir);
-        assertEquals(1, IncrementalRelativeFileSets.getBaseDirectoryCount(set));
-    }
-
-    @Test
-    public void baseDirectoryCountTwoDirectoriesTwoZipsMultipleEntries() throws Exception {
-        File foo = temporaryFolder.newFolder("foo");
-        File f0 = new File(foo, "f0");
-        assertTrue(f0.createNewFile());
-        File f1 = new File(foo, "f1");
-        assertTrue(f1.createNewFile());
-
-        File bar = temporaryFolder.newFolder("bar");
-        File b0 = new File(bar, "b0");
-        assertTrue(b0.createNewFile());
-        File b1 = new File(bar, "b1");
-        assertTrue(b1.createNewFile());
-
-        File fooz = new File(temporaryFolder.getRoot(), "fooz");
-        File barz = new File(temporaryFolder.getRoot(), "barz");
-
-        Closer closer = Closer.create();
-
-        try {
-            ZFile foozZip = closer.register(new ZFile(fooz));
-            foozZip.add("f0z", new ByteArrayInputStream(new byte[0]));
-            foozZip.close();
-
-            ZFile barzZip = closer.register(new ZFile(barz));
-            barzZip.add("f0z", new ByteArrayInputStream(new byte[0]));
-            barzZip.close();
-        } catch (Throwable t) {
-            throw closer.rethrow(t);
-        } finally {
-            closer.close();
-        }
-
-        ImmutableMap<RelativeFile, FileStatus> set1 = IncrementalRelativeFileSets.fromDirectory(bar);
-        ImmutableMap<RelativeFile, FileStatus> set2 = IncrementalRelativeFileSets.fromDirectory(foo);
-        ImmutableMap<RelativeFile, FileStatus> set3 = IncrementalRelativeFileSets.fromZip(fooz);
-        ImmutableMap<RelativeFile, FileStatus> set4 = IncrementalRelativeFileSets.fromZip(barz);
-        @SuppressWarnings("unchecked")
-        ImmutableMap<RelativeFile, FileStatus> set =
-                IncrementalRelativeFileSets.union(Sets.newHashSet(set1, set2, set3, set4));
-        assertEquals(2, IncrementalRelativeFileSets.getBaseDirectoryCount(set));
     }
 
     @Test
@@ -346,14 +286,14 @@ public class IncrementalRelativeFileSetsTest {
         FileCacheByPath cache = new FileCacheByPath(cacheDir);
 
         File foo = new File(temporaryFolder.getRoot(), "foo");
-        try (ZFile zffooz = new ZFile(foo)) {
+        try (ZFile zffooz = ZFile.openReadWrite(foo)) {
             zffooz.add("f0z", new ByteArrayInputStream(new byte[0]));
             zffooz.add("f1z", new ByteArrayInputStream(new byte[0]));
         }
 
         Set<Runnable> updates = new HashSet<>();
-        ImmutableMap<RelativeFile, FileStatus> m =
-                IncrementalRelativeFileSets.fromZip(foo, cache, updates);
+        Map<RelativeFile, FileStatus> m =
+                IncrementalRelativeFileSets.fromZip(new ZipCentralDirectory(foo), cache, updates);
         assertEquals(2, m.size());
 
         RelativeFile f0z = new RelativeFile(foo, "f0z");
@@ -365,7 +305,7 @@ public class IncrementalRelativeFileSetsTest {
         assertEquals(m.get(f1z), FileStatus.NEW);
 
         updates.forEach(Runnable::run);
-        m = IncrementalRelativeFileSets.fromZip(foo, cache, updates);
+        m = IncrementalRelativeFileSets.fromZip(new ZipCentralDirectory(foo), cache, updates);
         assertEquals(0, m.size());
     }
 
@@ -375,7 +315,7 @@ public class IncrementalRelativeFileSetsTest {
         FileCacheByPath cache = new FileCacheByPath(cacheDir);
 
         File foo = new File(temporaryFolder.getRoot(), "foo");
-        try (ZFile zffooz = new ZFile(foo)) {
+        try (ZFile zffooz = ZFile.openReadWrite(foo)) {
             zffooz.add("f0z", new ByteArrayInputStream(new byte[0]));
             zffooz.add("f1z", new ByteArrayInputStream(new byte[0]));
         }
@@ -384,8 +324,8 @@ public class IncrementalRelativeFileSetsTest {
         FileUtils.delete(foo);
 
         Set<Runnable> updates = new HashSet<>();
-        ImmutableMap<RelativeFile, FileStatus> m =
-                IncrementalRelativeFileSets.fromZip(foo, cache, updates);
+        Map<RelativeFile, FileStatus> m =
+                IncrementalRelativeFileSets.fromZip(new ZipCentralDirectory(foo), cache, updates);
         assertEquals(2, m.size());
 
         RelativeFile f0z = new RelativeFile(foo, "f0z");
@@ -397,7 +337,7 @@ public class IncrementalRelativeFileSetsTest {
         assertEquals(m.get(f1z), FileStatus.REMOVED);
 
         updates.forEach(Runnable::run);
-        m = IncrementalRelativeFileSets.fromZip(foo, cache, updates);
+        m = IncrementalRelativeFileSets.fromZip(new ZipCentralDirectory(foo), cache, updates);
         assertEquals(0, m.size());
     }
 
@@ -407,29 +347,28 @@ public class IncrementalRelativeFileSetsTest {
         FileCacheByPath cache = new FileCacheByPath(cacheDir);
 
         File foo = new File(temporaryFolder.getRoot(), "foo");
-        try (ZFile zffooz = new ZFile(foo)) {
+        try (ZFile zffooz = ZFile.openReadWrite(foo)) {
             zffooz.add("f0z/", new ByteArrayInputStream(new byte[0]));
             zffooz.add("f0z/a", new ByteArrayInputStream(new byte[0]));
             zffooz.add("f1z", new ByteArrayInputStream(new byte[0]));
         }
+        cache.add(new ZipCentralDirectory(foo));
 
-        cache.add(foo);
-
-        try (ZFile zffooz = new ZFile(foo)) {
+        try (ZFile zffooz = ZFile.openReadWrite(foo)) {
             zffooz.add("f0z/a", new ByteArrayInputStream(new byte[] {1, 2, 3}));
         }
 
         Set<Runnable> updates = new HashSet<>();
-        ImmutableMap<RelativeFile, FileStatus> m =
-                IncrementalRelativeFileSets.fromZip(foo, cache, updates);
-        assertEquals(1, m.size());
+        Map<RelativeFile, FileStatus> m =
+                IncrementalRelativeFileSets.fromZip(new ZipCentralDirectory(foo), cache, updates);
+        Truth.assertThat(m).hasSize(1);
 
         RelativeFile f0z = new RelativeFile(foo, "f0z/a");
         assertTrue(m.containsKey(f0z));
         assertEquals(m.get(f0z), FileStatus.CHANGED);
 
         updates.forEach(Runnable::run);
-        m = IncrementalRelativeFileSets.fromZip(foo, cache, updates);
-        assertEquals(0, m.size());
+        m = IncrementalRelativeFileSets.fromZip(new ZipCentralDirectory(foo), cache, updates);
+        Truth.assertThat(m).hasSize(0);
     }
 }

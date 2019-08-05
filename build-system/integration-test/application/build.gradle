@@ -14,7 +14,6 @@ dependencies {
     testCompile project(':apksig')
     testCompile project(':base:builder')
     testCompile project(':base:builder-model')
-    testCompile project(':base:instant-run:instant-run-client')
     testCompile project(':base:sdk-common')
     testCompile project(':base:testing-infrastructure:device-pool:device-provider')
     testCompile project(':base:testutils')
@@ -55,44 +54,7 @@ configurations {
     testCompile.exclude group: 'com.google.guava', module: 'guava-jdk5'
 }
 
-def testEnvironment =
-        /*
-         * We keep the following properties:
-         * - starting with CUSTOM_ e.g. CUSTOM_ANDROID_HOME
-         * - DEBUG_INNER_TEST: to allow us to debug tests
-         * - starting with LC_ or LANG_, so the locale is set up correctly
-         * - BUILDBOT_: to get BuildBot specific information
-         */
-        System.getenv().findAll { entry ->
-            String key = entry.key
-            key.startsWith("CUSTOM_") ||
-                    key.startsWith("ACTD_") || // environment variables for uploading to Dana
-                    key.startsWith("PERF_") || // environment variables for controlling perf tests
-                    key == "USE_GRADLE_NIGHTLY" ||
-                    key == "DEBUG_INNER_TEST" ||
-                    // For NDK tests on Windows. See init.mk.
-                    key == "OS" ||
-                    key == "PROCESSOR_ARCHITECTURE" ||
-                    key == "ProgramW6432" ||
-                    key == "ProgramFiles(x86)" ||
-                    key == "TMP" ||
-                    key == "TEMP" ||
-                    // For AccentCharacterAndProguardTest
-                    key.startsWith("LC_") ||
-                    key.startsWith("LANG") ||
-                    key.startsWith("BUILDBOT_")
-        }
-
-testEnvironment << [
-        TEST_TMPDIR:
-                System.env.TEST_TMPDIR != null
-                        ? new File(System.env.TEST_TMPDIR)
-                        : project.buildDir, // Use the same environment variable as Bazel for now.
-        CUSTOM_REPO: new File(rootProject.ext.androidHostOut, "repo").toString()
-                + File.pathSeparator
-                + rootProject.file("../prebuilts/tools/common/m2/repository/").toString(),
-        CUSTOM_IMPROVED_DEPENDENCY_RESOLUTION : "true"
-]
+apply from: '../integration-tests.gradle'
 
 // These tasks will not depend on publishLocal, so they will run integration
 // tests against whatever version of the plugin is in ../../../out/repo. This
@@ -148,6 +110,7 @@ task sanityTest(type: Test) {
     environment = testEnvironment
     dependsOn ':base:java-lib-model:publishLocal'
     dependsOn ':base:java-lib-model-builder:publishLocal'
+    dependsOn ':publishLocal'
 }
 
 task onlineTest(type: Test) {
@@ -161,8 +124,11 @@ task onlineTest(type: Test) {
 }
 
 check.dependsOn automaticTest
+check.dependsOn sanityTest
 
-task connectedIntegrationTest(type: Test)
+task connectedIntegrationTest(type: Test) {
+    dependsOn ':base:build-system:integration-test:native:publishLocal'
+}
 task connectedIntegrationTestQuarantine(type: Test)
 
 def allConnectedTestTasks = [
@@ -174,8 +140,9 @@ def allConnectedTestTasks = [
 
 
 configure(allConnectedTestTasks) {
-    testClassesDirs = sourceSets.test.output.classesDirs
-    classpath = sourceSets.test.runtimeClasspath
+    def nativeTestTask = tasks.findByPath(':base:build-system:integration-test:native:test')
+    testClassesDirs = sourceSets.test.output.classesDirs.plus(nativeTestTask.testClassesDirs)
+    classpath = sourceSets.test.runtimeClasspath.plus(nativeTestTask.classpath)
 
     description =
             "Runs the project integration tests with device tests. This requires an SDK either " +
@@ -222,10 +189,6 @@ configure([test, testPrebuilts, onlineTest, connectedIntegrationTest,
     }
 }
 
-task buildTestDependencies {
-    dependsOn ':base:instant-run:instant-run-server:jar'
-}
-
 DevicePool devicePool = new DevicePool();
 
 task('startDevicePool').doLast {
@@ -242,9 +205,8 @@ allConnectedTestTasks.forEach({task -> stopDevicePool.mustRunAfter(task)})
 
 automaticTest.dependsOn ':publishLocal'
 onlineTest.dependsOn ':publishLocal'
-test.dependsOn buildTestDependencies, ':publishAndroidGradleLocal'
-testPrebuilts.dependsOn buildTestDependencies
-allConnectedTestTasks.forEach({task -> task.dependsOn buildTestDependencies, startDevicePool, ':base:testing-infrastructure:device-pool:device-provider:publishLocal'})
+test.dependsOn ':publishAndroidGradleLocal'
+allConnectedTestTasks.forEach({task -> task.dependsOn startDevicePool, ':base:testing-infrastructure:device-pool:device-provider:publishLocal'})
 connectedIntegrationTest.dependsOn ':publishLocal'
 connectedIntegrationTestQuarantine.dependsOn ':publishLocal'
 

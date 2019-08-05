@@ -32,11 +32,14 @@ import com.android.tools.lint.detector.api.Severity
 import com.android.tools.lint.detector.api.SourceCodeScanner
 import com.android.tools.lint.detector.api.UastLintUtils
 import com.android.tools.lint.detector.api.UastLintUtils.containsAnnotation
+import com.android.tools.lint.detector.api.isKotlin
 import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiCompiledElement
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiMember
 import com.intellij.psi.PsiMethod
+import com.intellij.psi.util.PsiTypesUtil
 import org.jetbrains.uast.UAnnotated
 import org.jetbrains.uast.UAnnotation
 import org.jetbrains.uast.UCallExpression
@@ -45,6 +48,7 @@ import org.jetbrains.uast.UElement
 import org.jetbrains.uast.UExpression
 import org.jetbrains.uast.ULiteralExpression
 import org.jetbrains.uast.UReferenceExpression
+import org.jetbrains.uast.UTypeReferenceExpression
 import org.jetbrains.uast.getContainingUFile
 import org.jetbrains.uast.getParentOfType
 import org.jetbrains.uast.util.isArrayInitializer
@@ -59,6 +63,11 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         GUAVA_VISIBLE_FOR_TESTING
     )
 
+    override fun inheritAnnotation(annotation: String): Boolean {
+        // Require restriction annotations to be annotated everywhere
+        return false
+    }
+
     override fun visitAnnotationUsage(
         context: JavaContext,
         usage: UElement,
@@ -72,13 +81,23 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         allClassAnnotations: List<UAnnotation>,
         allPackageAnnotations: List<UAnnotation>
     ) {
+        if (type == AnnotationUsageType.EXTENDS && usage is UTypeReferenceExpression) {
+            // If it's a constructor reference we don't need to also check the type
+            // reference. Ideally we'd do a "parent is KtConstructorCalleeExpression"
+            // here, but that points to impl classes in its hierarchy which leads to
+            // class loading trouble.
+            val sourcePsi = usage.sourcePsi
+            if (isKotlin(sourcePsi) && sourcePsi?.parent?.toString() == "CONSTRUCTOR_CALLEE") {
+                return
+            }
+        }
 
         val member = method ?: referenced as? PsiMember
         when (qualifiedName) {
             RESTRICT_TO_ANNOTATION.oldName(), RESTRICT_TO_ANNOTATION.newName() -> {
                 checkRestrictTo(
-                        context, usage, member, annotation, allMemberAnnotations,
-                        allClassAnnotations, true
+                    context, usage, member, annotation, allMemberAnnotations,
+                    allClassAnnotations, true
                 )
             }
             GMS_HIDE_ANNOTATION -> {
@@ -286,8 +305,10 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
     ) {
 
         val containingClass = when {
+            node is UTypeReferenceExpression -> PsiTypesUtil.getPsiClass(node.type)
             member != null -> member.containingClass
             node is UCallExpression -> node.classReference?.resolve() as PsiClass?
+            node is PsiClass -> node
             else -> null
         }
 
@@ -322,10 +343,16 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         }
 
         if (scope and RESTRICT_TO_LIBRARY_GROUP != 0 && member != null) {
-            // TODO: Consult Project.getMavenCoordinates
             val evaluator = context.evaluator
-            val thisCoordinates = evaluator.getLibrary(node)
-            val methodCoordinates = evaluator.getLibrary(member)
+            val thisCoordinates = evaluator.getLibrary(node) ?: context.project.mavenCoordinates
+            val methodCoordinates = evaluator.getLibrary(member) ?: run {
+                if (thisCoordinates != null && member !is PsiCompiledElement) {
+                    // Local source?
+                    context.evaluator.getProject(member)?.mavenCoordinates
+                } else {
+                    null
+                }
+            }
             val thisGroup = thisCoordinates?.groupId
             val methodGroup = methodCoordinates?.groupId
             if (thisGroup != methodGroup && methodGroup != null) {
@@ -341,9 +368,8 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         }
 
         if (scope and RESTRICT_TO_LIBRARY != 0 && member != null) {
-            // TODO: Consult Project.getMavenCoordinates
             val evaluator = context.evaluator
-            val thisCoordinates = evaluator.getLibrary(node)
+            val thisCoordinates = evaluator.getLibrary(node) ?: context.project.mavenCoordinates
             val methodCoordinates = evaluator.getLibrary(member)
             val thisGroup = thisCoordinates?.groupId
             val methodGroup = methodCoordinates?.groupId
@@ -356,6 +382,23 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
                         methodGroup,
                         methodArtifact
                     )
+                    reportRestriction(
+                        where, containingClass, member, context,
+                        node, isClassAnnotation
+                    )
+                }
+            } else if (member !is PsiCompiledElement) {
+                // If the resolved method is source, make sure they're part
+                // of the same Gradle project
+                val project = context.evaluator.getProject(member)
+                if (project != null && project != context.project) {
+                    val coordinates = project.mavenCoordinates
+                    val name = if (coordinates != null) {
+                        "${coordinates.groupId}:${coordinates.artifactId}"
+                    } else {
+                        project.name
+                    }
+                    val where = "from within the same library ($name)"
                     reportRestriction(
                         where, containingClass, member, context,
                         node, isClassAnnotation
@@ -428,6 +471,8 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         var api: String
         api = if (member == null || member is PsiMethod && member.isConstructor) {
             member?.name ?: containingClass.name + " constructor"
+        } else if (containingClass == member) {
+            member.name ?: "class"
         } else {
             containingClass.name + "." + member.name
         }
@@ -464,7 +509,7 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
             if (where == "from within the same library (groupId=com.android.support)") {
                 // If this error message changes, you need to also update ResourceTypeInspection#guessLintIssue
                 message =
-                        "This API is marked as internal to the support library and should not be accessed from apps"
+                    "This API is marked as internal to the support library and should not be accessed from apps"
             }
         }
 
@@ -491,6 +536,7 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         )
 
         private const val ATTR_OTHERWISE = "otherwise"
+        private const val ATTR_PRODUCTION_VISIBILITY = "productionVisibility"
 
         // Must match constants in @VisibleForTesting:
         private const val VISIBILITY_PRIVATE = 2
@@ -501,6 +547,8 @@ class RestrictToDetector : AbstractAnnotationDetector(), SourceCodeScanner {
 
         private fun getVisibilityForTesting(annotation: UAnnotation): Int {
             val value = annotation.findDeclaredAttributeValue(ATTR_OTHERWISE)
+                // Guava within Google3:
+                ?: annotation.findDeclaredAttributeValue(ATTR_PRODUCTION_VISIBILITY)
             if (value is ULiteralExpression) {
                 val v = value.value
                 if (v is Int) {

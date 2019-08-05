@@ -16,13 +16,15 @@ build-tools;25.0.0
 build-tools;24.0.3
 
 # Platforms. There's no Google APIs for 25.
-platforms;android-P
+platforms;android-Q
+platforms;android-28
 platforms;android-27
 platforms;android-25
 platforms;android-24
 add-ons;addon-google_apis-google-24:**:docs/**
 
 # Sources
+sources;android-28:{package.xml,android/view/View.java}
 sources;android-27:{package.xml,android/view/View.java}
 sources;android-24:{package.xml,android/view/View.java}
 sources;android-25:{package.xml,android/view/View.java}
@@ -41,17 +43,12 @@ emulator:package.xml
 # Subset of docs happened to be used by tests
 docs:{package.xml,reference/android/*,reference/android/content/*,reference/android/widget/*}
 
-# Extra components picked to pass various AndroidGradleTestCase tests
-# TemplateTest uses a lot of them
-extras;android;m2repository:**{package.xml,/25.3.1/**,/databinding/*/1.3.1/**,/espresso-core/2.2.2/**,/espresso-idling-resource/2.2.2/**,/test/exposed-instrumentation-api-publish/0.5/**,/test/rules/0.5/**,/test/runner/0.5/**,/testing-support-lib/0.1/**,/multidex*/1.0.1/**,/uiautomator-v18/2.1.1/**}
-extras;google;m2repository:**{package.xml,/gms/**/9.6.1/**,/wearable/2.0.1/**}
-extras;m2repository;com;android;support;constraint;constraint-layout;1.0.2
-extras;m2repository;com;android;support;constraint;constraint-layout-solver;1.0.2
-
 cmake;3.6.4111459:**:docs/**
 
 # Instant apps sdk used in integration tests
 extras;google;instantapps
 
 # platforms/android-21 is included because it's needed to build lldb-server
-ndk-bundle:**:{platforms/android-9/**,platforms/android-10/**,platforms/android-11,platforms/android-12/**,platforms/android-13/**,platforms/android-14/**,platforms/android-15/**,platforms/android-16/**,platforms/android-17/**,platforms/android-18/**,platforms/android-20/**,platforms/android-22/**,platforms/android-23/**,sources/cxx-stl/**/test/**}
+#ndk-bundle:**:{platforms/android-9/**,platforms/android-10/**,platforms/android-11,platforms/android-12/**,platforms/android-13/**,platforms/android-14/**,platforms/android-15/**,platforms/android-16/**,platforms/android-17/**,platforms/android-18/**,platforms/android-20/**,platforms/android-22/**,platforms/android-23/**,sources/cxx-stl/**/test/**}
+
+ndk;19.0.5232133:**:{platforms/android-9/**,platforms/android-10/**,platforms/android-11,platforms/android-12/**,platforms/android-13/**,platforms/android-14/**,platforms/android-15/**,platforms/android-16/**,platforms/android-17/**,platforms/android-18/**,platforms/android-20/**,platforms/android-22/**,platforms/android-23/**,sources/cxx-stl/**/test/**}

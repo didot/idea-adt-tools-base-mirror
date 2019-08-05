@@ -42,8 +42,13 @@ class DeviceTest {
   val nexus5Phone = devMgr.getDevice("Nexus 5", "Google")
   val nexus5XPhone = devMgr.getDevice("Nexus 5X", "Google")
   val pixelPhone = devMgr.getDevice("pixel", "Google")
-  val pixel2Phone = devMgr.getDevice("pixel_2", "Google")
   val pixelXLPhone = devMgr.getDevice("pixel_xl", "Google")
+  val pixel2Phone = devMgr.getDevice("pixel_2", "Google")
+  val pixel2XLPhone = devMgr.getDevice("pixel_2_xl", "Google")
+  val pixel3Phone = devMgr.getDevice("pixel_3", "Google")
+  val pixel3XLPhone = devMgr.getDevice("pixel_3_xl", "Google")
+  val pixel3aPhone = devMgr.getDevice("pixel_3a", "Google")
+  val pixel3aXLPhone = devMgr.getDevice("pixel_3a_xl", "Google")
 
   @Test
   fun testGetDisplayName() {
@@ -51,8 +56,13 @@ class DeviceTest {
     assertThat(nexus5Phone?.getDisplayName()).isEqualTo("Nexus 5")
     assertThat(nexus5XPhone?.getDisplayName()).isEqualTo("Nexus 5X")
     assertThat(pixelPhone?.getDisplayName()).isEqualTo("Pixel")
-    assertThat(pixel2Phone?.getDisplayName()).isEqualTo("Pixel 2")
     assertThat(pixelXLPhone?.getDisplayName()).isEqualTo("Pixel XL")
+    assertThat(pixel2Phone?.getDisplayName()).isEqualTo("Pixel 2")
+    assertThat(pixel2XLPhone?.getDisplayName()).isEqualTo("Pixel 2 XL")
+    assertThat(pixel3Phone?.getDisplayName()).isEqualTo("Pixel 3")
+    assertThat(pixel3XLPhone?.getDisplayName()).isEqualTo("Pixel 3 XL")
+    assertThat(pixel3aPhone?.getDisplayName()).isEqualTo("Pixel 3a")
+    assertThat(pixel3aXLPhone?.getDisplayName()).isEqualTo("Pixel 3a XL")
   }
 
   @Test
@@ -61,8 +71,13 @@ class DeviceTest {
     assertThat(nexus5Phone?.hasPlayStore()).isTrue()
     assertThat(nexus5XPhone?.hasPlayStore()).isTrue()
     assertThat(pixelPhone?.hasPlayStore()).isTrue()
-    assertThat(pixel2Phone?.hasPlayStore()).isTrue()
     assertThat(pixelXLPhone?.hasPlayStore()).isFalse()
+    assertThat(pixel2Phone?.hasPlayStore()).isTrue()
+    assertThat(pixel2XLPhone?.hasPlayStore()).isFalse()
+    assertThat(pixel3Phone?.hasPlayStore()).isTrue()
+    assertThat(pixel3XLPhone?.hasPlayStore()).isFalse()
+    assertThat(pixel3aPhone?.hasPlayStore()).isTrue()
+    assertThat(pixel3aXLPhone?.hasPlayStore()).isFalse()
   }
 
   @Test
@@ -71,8 +86,13 @@ class DeviceTest {
     assertThat(nexus5Phone?.manufacturer).isEqualTo("Google")
     assertThat(nexus5XPhone?.manufacturer).isEqualTo("Google")
     assertThat(pixelPhone?.manufacturer).isEqualTo("Google")
-    assertThat(pixel2Phone?.manufacturer).isEqualTo("Google")
     assertThat(pixelXLPhone?.manufacturer).isEqualTo("Google")
+    assertThat(pixel2Phone?.manufacturer).isEqualTo("Google")
+    assertThat(pixel2XLPhone?.manufacturer).isEqualTo("Google")
+    assertThat(pixel3Phone?.manufacturer).isEqualTo("Google")
+    assertThat(pixel3XLPhone?.manufacturer).isEqualTo("Google")
+    assertThat(pixel3aPhone?.manufacturer).isEqualTo("Google")
+    assertThat(pixel3aXLPhone?.manufacturer).isEqualTo("Google")
   }
 
   @Test
@@ -81,8 +101,13 @@ class DeviceTest {
     assertThat(nexus5Phone?.getScreenSize(ScreenOrientation.PORTRAIT)).isEqualTo(Dimension(1080, 1920))
     assertThat(nexus5XPhone?.getScreenSize(ScreenOrientation.PORTRAIT)).isEqualTo(Dimension(1080, 1920))
     assertThat(pixelPhone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(1920, 1080))
-    assertThat(pixel2Phone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(1920, 1080))
     assertThat(pixelXLPhone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(2560, 1440))
+    assertThat(pixel2Phone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(1920, 1080))
+    assertThat(pixel2XLPhone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(2880, 1440))
+    assertThat(pixel3Phone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(2160, 1080))
+    assertThat(pixel3XLPhone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(2960, 1440))
+    assertThat(pixel3aPhone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(2220, 1080))
+    assertThat(pixel3aXLPhone?.getScreenSize(ScreenOrientation.LANDSCAPE)).isEqualTo(Dimension(2160, 1080))
   }
 
 }

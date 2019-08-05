@@ -20,22 +20,30 @@ import com.android.annotations.NonNull;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.BuildElements;
+import com.android.build.gradle.internal.scope.BuildElementsCopyParams;
+import com.android.build.gradle.internal.scope.BuildElementsCopyRunnable;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
+import com.android.build.gradle.internal.tasks.Workers;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
+import com.android.ide.common.workers.WorkerExecutorFacade;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import javax.inject.Inject;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskAction;
-import org.gradle.tooling.BuildException;
+import org.gradle.workers.WorkerExecutor;
 
 /**
  * Copy the location our various tasks outputs into a single location.
@@ -43,12 +51,19 @@ import org.gradle.tooling.BuildException;
  * <p>This is useful when having configuration or feature splits which are located in different
  * folders since they are produced by different tasks.
  */
-public class CopyOutputs extends AndroidVariantTask {
+public class CopyOutputs extends NonIncrementalTask {
 
-    BuildableArtifact fullApks;
-    BuildableArtifact abiSplits;
-    BuildableArtifact resourcesSplits;
-    File destinationDir;
+    private BuildableArtifact fullApks;
+    private BuildableArtifact abiSplits;
+    private BuildableArtifact resourcesSplits;
+    private File destinationDir;
+    private final WorkerExecutorFacade workers;
+
+    @Inject
+    public CopyOutputs(WorkerExecutor workerExecutor) {
+        this.workers =
+                Workers.INSTANCE.preferWorkers(getProject().getName(), getPath(), workerExecutor);
+    }
 
     @OutputDirectory
     public java.io.File getDestinationDir() {
@@ -73,39 +88,42 @@ public class CopyOutputs extends AndroidVariantTask {
     }
 
     // FIX ME : add incrementality
-    @TaskAction
-    protected void copy() throws IOException {
-
+    @Override
+    protected void doTaskAction() throws IOException, ExecutionException {
         FileUtils.cleanOutputDir(getDestinationDir());
-        // TODO : parallelize at this level.
-        ImmutableList.Builder<BuildOutput> allCopiedFiles = ImmutableList.builder();
-        allCopiedFiles.addAll(parallelCopy(InternalArtifactType.FULL_APK, fullApks.get()));
-        allCopiedFiles.addAll(
-                parallelCopy(InternalArtifactType.ABI_PACKAGED_SPLIT, abiSplits.get()));
-        allCopiedFiles.addAll(
-                parallelCopy(
+
+        List<Callable<BuildElements>> buildElementsCallables = new ArrayList<>();
+
+        buildElementsCallables.add(copy(InternalArtifactType.FULL_APK, fullApks.get()));
+        buildElementsCallables.add(copy(InternalArtifactType.ABI_PACKAGED_SPLIT, abiSplits.get()));
+        buildElementsCallables.add(
+                copy(
                         InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT,
                         resourcesSplits.get()));
-        // now save the merged list.
-        new BuildElements(allCopiedFiles.build()).save(getDestinationDir());
+
+        ImmutableList.Builder<BuildOutput> buildOutputs = ImmutableList.builder();
+
+        for (Callable<BuildElements> buildElementsCallable : buildElementsCallables) {
+            try {
+                buildOutputs.addAll(buildElementsCallable.call());
+            } catch (Exception e) {
+                throw new ExecutionException(e);
+            }
+        }
+
+        new BuildElements(buildOutputs.build()).save(getDestinationDir());
     }
 
-    // TODO : shouldn't this be in parallel?
-    private BuildElements parallelCopy(InternalArtifactType inputType, FileCollection inputs)
-            throws IOException {
-
+    private Callable<BuildElements> copy(InternalArtifactType inputType, FileCollection inputs) {
         return ExistingBuildElements.from(inputType, inputs)
                 .transform(
-                        (apkInfo, inputFile) -> {
-                            File destination = new File(getDestinationDir(), inputFile.getName());
-                            try {
-                                FileUtils.copyFile(inputFile, destination);
-                            } catch (IOException e) {
-                                throw new BuildException(e.getMessage(), e);
-                            }
-                            return destination;
-                        })
-                .into(InternalArtifactType.APK);
+                        workers,
+                        BuildElementsCopyRunnable.class,
+                        (apkInfo, inputFile) ->
+                                new BuildElementsCopyParams(
+                                        inputFile,
+                                        new File(getDestinationDir(), inputFile.getName())))
+                .intoCallable(InternalArtifactType.APK);
     }
 
     public static class CreationAction extends VariantTaskCreationAction<CopyOutputs> {
@@ -147,8 +165,9 @@ public class CopyOutputs extends AndroidVariantTask {
                     InternalArtifactType.FULL_APK);
             task.abiSplits = artifacts.getFinalArtifactFiles(
                     InternalArtifactType.ABI_PACKAGED_SPLIT);
-            task.resourcesSplits = artifacts.getFinalArtifactFiles(
-                                    InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT);
+            task.resourcesSplits =
+                    artifacts.getFinalArtifactFiles(
+                            InternalArtifactType.DENSITY_OR_LANGUAGE_PACKAGED_SPLIT);
             task.destinationDir = destinationDir;
         }
     }

@@ -3,15 +3,13 @@ package com.android.tools.profiler;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.android.tools.fakeandroid.FakeAndroidDriver;
-import com.android.tools.profiler.proto.Common.*;
-import com.android.tools.profiler.proto.EnergyServiceGrpc;
+import com.android.tools.profiler.proto.*;
+import com.android.tools.profiler.proto.Common.Session;
 import com.android.tools.profiler.proto.EventProfiler.ActivityDataResponse;
 import com.android.tools.profiler.proto.EventProfiler.EventDataRequest;
-import com.android.tools.profiler.proto.EventServiceGrpc;
-import com.android.tools.profiler.proto.MemoryServiceGrpc;
-import com.android.tools.profiler.proto.NetworkServiceGrpc;
-import com.android.tools.profiler.proto.Profiler.*;
-import com.android.tools.profiler.proto.ProfilerServiceGrpc;
+import com.android.tools.profiler.proto.Profiler.BeginSessionRequest;
+import com.android.tools.profiler.proto.Profiler.BeginSessionResponse;
+import com.android.tools.profiler.proto.Profiler.EndSessionRequest;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 
@@ -19,8 +17,8 @@ import io.grpc.ManagedChannelBuilder;
  * Test class for managing a connection to perfd.
  */
 public class GrpcUtils {
-
     private final ManagedChannel myChannel;
+    private final TransportServiceGrpc.TransportServiceBlockingStub myTransportServiceStub;
     private final ProfilerServiceGrpc.ProfilerServiceBlockingStub myProfilerServiceStub;
     private final EventServiceGrpc.EventServiceBlockingStub myEventServiceStub;
     private final NetworkServiceGrpc.NetworkServiceBlockingStub myNetworkServiceStub;
@@ -31,12 +29,17 @@ public class GrpcUtils {
     /** Connect to perfd using a socket and port, currently abstract sockets are not supported. */
     public GrpcUtils(String socket, int port, FakeAndroidDriver mockApp) {
         myChannel = connectGrpc(socket, port);
+        myTransportServiceStub = TransportServiceGrpc.newBlockingStub(myChannel);
         myProfilerServiceStub = ProfilerServiceGrpc.newBlockingStub(myChannel);
         myEventServiceStub = EventServiceGrpc.newBlockingStub(myChannel);
         myNetworkServiceStub = NetworkServiceGrpc.newBlockingStub(myChannel);
         myMemoryServiceStub = MemoryServiceGrpc.newBlockingStub(myChannel);
         myEnergyServiceStub = EnergyServiceGrpc.newBlockingStub(myChannel);
         myMockApp = mockApp;
+    }
+
+    public TransportServiceGrpc.TransportServiceBlockingStub getTransportStub() {
+        return myTransportServiceStub;
     }
 
     public ProfilerServiceGrpc.ProfilerServiceBlockingStub getProfilerStub() {
@@ -63,7 +66,7 @@ public class GrpcUtils {
         ClassLoader stashedContextClassLoader = Thread.currentThread().getContextClassLoader();
         Thread.currentThread().setContextClassLoader(ManagedChannelBuilder.class.getClassLoader());
         ManagedChannel channel =
-            ManagedChannelBuilder.forAddress(socket, port).usePlaintext(true).build();
+                ManagedChannelBuilder.forAddress(socket, port).usePlaintext(true).build();
         Thread.currentThread().setContextClassLoader(stashedContextClassLoader);
         return channel;
     }
@@ -74,8 +77,8 @@ public class GrpcUtils {
      */
     public ActivityDataResponse getActivity(Session session) {
         ActivityDataResponse response =
-            myEventServiceStub.getActivityData(
-                EventDataRequest.newBuilder().setSession(session).build());
+                myEventServiceStub.getActivityData(
+                        EventDataRequest.newBuilder().setSession(session).build());
         return response;
     }
 
@@ -91,25 +94,24 @@ public class GrpcUtils {
      * Begins the profiler session on the specified pid and attach the JVMTI agent via the
      * agentAttachPort.
      */
-    public Session beginSessionWithAgent(int pid, int agentAttachPort) {
-        Session session = beginSession(pid);
-
-        // The test infra calls attach-agent via the communication port instead of the app's pid.
-        // So here we are making an extra beginSession call with the attachPid (aka communication port) to allow the
-        // agent to attach.
-        BeginSessionRequest.Builder requestBuilder =
-                BeginSessionRequest.newBuilder()
-                        .setDeviceId(1234)
-                        .setPid(agentAttachPort)
-                        .setJvmtiConfig(
-                                BeginSessionRequest.JvmtiConfig.newBuilder()
-                                        .setAttachAgent(true)
-                                        .setAgentLibFileName("libperfa.so")
-                                        .build());
-        myProfilerServiceStub.beginSession(requestBuilder.build());
+    public Session beginSessionWithAgent(int pid, int agentAttachPort, String agentConfigPath) {
+        myTransportServiceStub.execute(
+                Transport.ExecuteRequest.newBuilder()
+                        .setCommand(
+                                Commands.Command.newBuilder()
+                                        .setType(Commands.Command.CommandType.ATTACH_AGENT)
+                                        .setPid(agentAttachPort)
+                                        .setStreamId(1234)
+                                        .setAttachAgent(
+                                                Commands.AttachAgent.newBuilder()
+                                                        .setAgentLibFileName("libjvmtiagent.so")
+                                                        .setAgentConfigPath(agentConfigPath))
+                                        .build())
+                        .build());
         // Block until we can verify the agent was fully attached, which takes a while.
-        assertThat(myMockApp.waitForInput("Perfa connected to Perfd.")).isTrue();
-
+        assertThat(myMockApp.waitForInput("Transport agent connected to daemon.")).isTrue();
+        Session session = beginSession(pid);
+        assertThat(myMockApp.waitForInput("Profiler initialization complete on agent.")).isTrue();
         return session;
     }
 

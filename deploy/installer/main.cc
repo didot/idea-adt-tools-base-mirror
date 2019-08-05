@@ -14,28 +14,33 @@
  * limitations under the License.
  */
 
-#include <getopt.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string>
-
 #include <algorithm>
 #include <iostream>
 #include <map>
+#include <sstream>
+#include <string>
 
+#include <getopt.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
 
-#include "command_cmd.h"
-#include "dump.h"
-#include "package_manager.h"
-#include "trace.h"
-#include "workspace.h"
+#include "tools/base/bazel/native/matryoshka/doll.h"
+#include "tools/base/deploy/common/event.h"
+#include "tools/base/deploy/common/log.h"
+#include "tools/base/deploy/common/utils.h"
+#include "tools/base/deploy/installer/command_cmd.h"
+#include "tools/base/deploy/installer/dump.h"
+#include "tools/base/deploy/installer/executor_impl.h"
+#include "tools/base/deploy/installer/package_manager.h"
+#include "tools/base/deploy/installer/redirect_executor.h"
+#include "tools/base/deploy/installer/workspace.h"
+#include "tools/base/deploy/proto/deploy.pb.h"
 
 using namespace deploy;
-
-extern const char* kVersion_hash;
 
 struct Parameters {
   const char* binary_name = nullptr;
@@ -43,26 +48,39 @@ struct Parameters {
   const char* cmd_path = nullptr;
   const char* pm_path = nullptr;
   const char* version = nullptr;
+  const char* shell = nullptr;
+  const char* shell_arg = nullptr;
+  const char* root_directory = nullptr;
   int consumed = 0;
 };
 
-void PrintUsage(const char* invoked_path) {
-  std::cerr << "Usage:" << std::endl
-            << invoked_path << " [env parameters] command [command_parameters]"
-            << std::endl
-            << std::endl
-            << "Environment parameters available:" << std::endl
-            << "  -cmd=X: Define path to cmd executable (to mock android)."
-            << std::endl
-            << "  -pm=X : Define path to package manager executable (to mock "
-               "android)."
-            << std::endl
-            << "  -version=X : Program will fail if version != X." << std::endl
-            << "Commands available:" << std::endl
-            << "   dump : Extract CDs and Signatures for a given applicationID."
-            << std::endl
-            << "   swap : Perform a hot-swap via JVMTI." << std::endl
-            << std::endl;
+std::string GetStringUsage(const char* invoked_path) {
+  std::stringstream buffer;
+  buffer << "Usage:" << std::endl
+         << invoked_path << " [env parameters] command [command_parameters]"
+         << std::endl
+         << std::endl
+         << "Environment parameters available:" << std::endl
+         << "  -cmd=X: Define path to cmd executable (to mock android)."
+         << std::endl
+         << "  -pm=X : Define path to package manager executable (to mock "
+            "android)."
+         << std::endl
+         << "  -shell=X : Define path to a shell-like executable (to mock "
+            "android)."
+         << std::endl
+         << "  -shell-arg=X : An argument to the custom shell before the "
+            "command (to mock android)."
+         << std::endl
+         << "  -root=X : The root directory to use (to mock android)."
+         << std::endl
+         << "  -version=X : Program will fail if version != X." << std::endl
+         << "Commands available:" << std::endl
+         << "   dump : Extract CDs and Signatures for a given applicationID."
+         << std::endl
+         << "   swap : Perform a hot-swap via JVMTI." << std::endl
+         << std::endl;
+  return buffer.str();
 }
 
 bool ParseParameters(int argc, char** argv, Parameters* parameters) {
@@ -76,8 +94,14 @@ bool ParseParameters(int argc, char** argv, Parameters* parameters) {
       parameters->cmd_path = strtok(nullptr, "=");
     } else if (!strncmp("-pm", argv[index], 3)) {
       parameters->pm_path = strtok(nullptr, "=");
+    } else if (!strncmp("-shell-arg", argv[index], 10)) {
+      parameters->shell_arg = strtok(nullptr, "=");
+    } else if (!strncmp("-shell", argv[index], 6)) {
+      parameters->shell = strtok(nullptr, "=");
     } else if (!strncmp("-version", argv[index], 8)) {
       parameters->version = strtok(nullptr, "=");
+    } else if (!strncmp("-root", argv[index], 5)) {
+      parameters->root_directory = strtok(nullptr, "=");
     } else {
       std::cerr << "environment parameter unknown:" << argv[index] << std::endl;
       return false;
@@ -85,7 +109,6 @@ bool ParseParameters(int argc, char** argv, Parameters* parameters) {
     parameters->consumed++;
     index++;
   }
-
   if (index < argc) {
     parameters->command_name = argv[index];
     parameters->consumed++;
@@ -108,66 +131,107 @@ std::string GetInstallerPath() {
   return std::string(dest);
 }
 
-int main(int argc, char** argv) {
-  Trace::Init();
-  Trace mainTrace("installer");
-  if (argc < 2) {
-    PrintUsage(argv[0]);
-    return EXIT_FAILURE;
+int Fail(proto::InstallerResponse_Status status, Workspace& workspace,
+         const std::string& message) {
+  workspace.GetResponse().set_status(status);
+  ErrEvent(message);
+  workspace.SendResponse();
+  return EXIT_FAILURE;
+}
+
+std::string GetVersion() {
+  static std::string version = "";
+
+  if (!version.empty()) {
+    return version;
   }
 
+  std::vector<std::unique_ptr<matryoshka::Doll>> dolls;
+  if (!matryoshka::Open(dolls)) {
+    return "UNMATRYOSHKAED";
+  }
+
+  for (auto& doll : dolls) {
+    if (doll->name == "version") {
+      return std::string((char*)doll->content, doll->content_len);
+    }
+  }
+
+  return "UNVERSIONED";
+}
+
+int main(int argc, char** argv) {
+  InitEventSystem();
+  BeginPhase("installer");
+
+  ExecutorImpl executor;
+  Workspace workspace(GetInstallerPath(), &executor);
+
+  // Check and parse parameters
+  if (argc < 2) {
+    std::string message = GetStringUsage(argv[0]);
+    return Fail(proto::InstallerResponse::ERROR_PARAMETER, workspace, message);
+  }
   Parameters parameters;
   bool parametersParsed = ParseParameters(argc, argv, &parameters);
   if (!parametersParsed) {
-    std::cerr << "Unable to parse env parameters." << std::endl;
-    return EXIT_FAILURE;
+    std::string message = GetStringUsage(argv[0]);
+    return Fail(proto::InstallerResponse::ERROR_PARAMETER, workspace, message);
   }
-
   if (parameters.cmd_path != nullptr) {
     CmdCommand::SetPath(parameters.cmd_path);
   }
   if (parameters.pm_path != nullptr) {
     PackageManager::SetPath(parameters.pm_path);
   }
+  std::string shell;
+  std::string shell_arg;
+  if (parameters.shell != nullptr && parameters.shell_arg != nullptr) {
+    shell = parameters.shell;
+    shell_arg = parameters.shell_arg;
+  }
+  RedirectExecutor redirect(shell, shell_arg, executor);
+  if (parameters.shell != nullptr && parameters.shell_arg != nullptr) {
+    workspace.SetExecutor(&redirect);
+  }
+  if (parameters.root_directory != nullptr) {
+    workspace.SetRoot(parameters.root_directory);
+  }
 
-  if (parameters.version != nullptr) {
-    if (strcmp(parameters.version, kVersion_hash)) {
-      // TODO: Output a Response object so version failure can be differentiated
-      // from actual error.
-      // For now fake a "not found" response so ddmlib client which cannot
-      // retrieve status code will push a new version
-      std::cerr << "/system/bin/sh: /data/local/tmp/.studio/bin/installer:"
-                << std::endl;
-      std::cerr << " Version mismatch, requested '" << parameters.version
-                << "' but this is '" << kVersion_hash << "'" << std::endl;
-      return EXIT_FAILURE;
-    }
+  // Verify that this program is the version the called expected.
+  if (parameters.version != nullptr &&
+      strcmp(parameters.version, GetVersion().c_str())) {
+    std::string message = "Version mismatch. Requested:"_s +
+                          parameters.version + "but have " + GetVersion();
+    return Fail(proto::InstallerResponse::ERROR_WRONG_VERSION, workspace,
+                message);
   }
 
   // Retrieve Command to be invoked.
-  auto task = GetCommand(parameters.command_name);
+  auto task = GetCommand(parameters.command_name, workspace);
   if (task == nullptr) {
-    std::cerr << "Command '" << parameters.command_name << "' unknown."
-              << std::endl;
-    PrintUsage(parameters.binary_name);
-    return EXIT_FAILURE;
+    return Fail(proto::InstallerResponse::ERROR_CMD, workspace,
+                "Unknown command");
   }
 
   // Allow command to parse its parameters and invoke it.
   task->ParseParameters(argc - parameters.consumed, argv + parameters.consumed);
   if (!task->ReadyToRun()) {
-    return EXIT_FAILURE;
+    std::string message =
+        "Command "_s + parameters.command_name + ": wrong parameters";
+    return Fail(proto::InstallerResponse::ERROR_PARAMETER, workspace, message);
   }
 
   // Create a workspace for filesystem operations.
-  Workspace workspace(GetInstallerPath());
   if (!workspace.Valid()) {
-    return EXIT_FAILURE;
+    return Fail(proto::InstallerResponse::ERROR_CMD, workspace,
+                "Bad workspace");
   }
 
-  if (!task->Run(workspace)) {
-    return EXIT_FAILURE;
-  }
-
+  // Finally! Run !
+  task->Run();
+  workspace.GetResponse().set_status(proto::InstallerResponse::OK);
+  EndPhase();
+  workspace.SendResponse();
   return EXIT_SUCCESS;
 }

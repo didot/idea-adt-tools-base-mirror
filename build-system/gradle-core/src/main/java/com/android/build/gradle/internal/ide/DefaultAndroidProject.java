@@ -60,8 +60,6 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
     @NonNull
     private final Collection<SyncIssue> syncIssues;
 
-    private final int generation;
-
     private final boolean baseSplit;
     private final Collection<String> dynamicFeatures;
 
@@ -87,6 +85,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
     private final Collection<ProductFlavorContainer> productFlavors;
     private final Collection<Variant> variants;
     private final Collection<String> variantNames;
+    @Nullable private final String defaultVariant;
 
     @NonNull
     private final Collection<String> flavorDimensions;
@@ -99,6 +98,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
             @NonNull Collection<ProductFlavorContainer> productFlavors,
             @NonNull Collection<Variant> variants,
             @NonNull Collection<String> variantNames,
+            @Nullable String defaultVariant,
             @NonNull String compileTarget,
             @NonNull Collection<String> bootClasspath,
             @NonNull Collection<File> frameworkSource,
@@ -114,7 +114,6 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
             @NonNull String buildToolsVersion,
             int projectType,
             int apiVersion,
-            int generation,
             boolean baseSplit,
             @NonNull Collection<String> dynamicFeatures) {
         this.name = name;
@@ -124,6 +123,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
         this.productFlavors = productFlavors;
         this.variants = variants;
         this.variantNames = variantNames;
+        this.defaultVariant = defaultVariant;
         this.compileTarget = compileTarget;
         this.bootClasspath = bootClasspath;
         this.frameworkSource = frameworkSource;
@@ -137,7 +137,6 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
         this.resourcePrefix = resourcePrefix;
         this.projectType = projectType;
         this.apiVersion = apiVersion;
-        this.generation = generation;
         this.nativeToolchains = nativeToolchains;
         this.buildToolsVersion = buildToolsVersion;
         this.baseSplit = baseSplit;
@@ -189,6 +188,12 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
     @Override
     public Collection<String> getVariantNames() {
         return variantNames;
+    }
+
+    @Nullable
+    @Override
+    public String getDefaultVariant() {
+        return defaultVariant;
     }
 
     @NonNull
@@ -293,7 +298,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
 
     @Override
     public int getPluginGeneration() {
-        return generation;
+        return GENERATION_ORIGINAL;
     }
 
     @Override
@@ -316,8 +321,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
             return false;
         }
         DefaultAndroidProject that = (DefaultAndroidProject) o;
-        return generation == that.generation
-                && projectType == that.projectType
+        return projectType == that.projectType
                 && apiVersion == that.apiVersion
                 && Objects.equals(name, that.name)
                 && Objects.equals(compileTarget, that.compileTarget)
@@ -337,6 +341,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
                 && Objects.equals(productFlavors, that.productFlavors)
                 && Objects.equals(variants, that.variants)
                 && Objects.equals(variantNames, that.variantNames)
+                && Objects.equals(defaultVariant, that.defaultVariant)
                 && Objects.equals(defaultConfig, that.defaultConfig)
                 && Objects.equals(flavorDimensions, that.flavorDimensions)
                 && Objects.equals(baseSplit, that.baseSplit)
@@ -354,7 +359,6 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
                 aaptOptions,
                 extraArtifacts,
                 syncIssues,
-                generation,
                 javaCompileOptions,
                 lintOptions,
                 buildFolder,
@@ -367,6 +371,7 @@ final class DefaultAndroidProject implements AndroidProject, Serializable {
                 productFlavors,
                 variants,
                 variantNames,
+                defaultVariant,
                 defaultConfig,
                 flavorDimensions,
                 baseSplit,

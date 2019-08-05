@@ -18,10 +18,10 @@ package com.android.ddmlib;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.annotations.concurrency.GuardedBy;
 import com.android.ddmlib.log.LogReceiver;
 import com.android.sdklib.AndroidVersion;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
@@ -32,8 +32,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -63,6 +65,9 @@ final class Device implements IDevice {
 
     /** True if ADB is running as root */
     private boolean mIsRoot = false;
+
+    /** Information about the most recent installation via this device */
+    private InstallMetrics lastInstallMetrics = null;
 
     /** Device properties. */
     private final PropertyFetcher mPropFetcher = new PropertyFetcher(this);
@@ -115,6 +120,8 @@ final class Device implements IDevice {
 
     /** Cached list of hardware characteristics */
     private Set<String> mHardwareCharacteristics;
+
+    @Nullable private Set<String> mAdbFeatures;
 
     @Nullable private AndroidVersion mVersion;
     private String mName;
@@ -305,9 +312,31 @@ final class Device implements IDevice {
                 return mHasScreenRecorder;
             case PROCSTATS:
                 return getVersion().isGreaterOrEqualThan(19);
+            case ABB_EXEC:
+                return getAdbFeatures().contains("abb_exec");
             default:
                 return false;
         }
+    }
+
+    @NonNull
+    Set<String> getAdbFeatures() {
+        if (mAdbFeatures != null) {
+            return mAdbFeatures;
+        }
+
+        try {
+            String response = AdbHelper.getFeatures(AndroidDebugBridge.getSocketAddress(), this);
+            mAdbFeatures = new HashSet<>(Arrays.asList(response.split(",")));
+            response = AdbHelper.getHostFeatures(AndroidDebugBridge.getSocketAddress(), this);
+            // We want features supported by both device and host.
+            mAdbFeatures.retainAll(Arrays.asList(response.split(",")));
+        } catch (TimeoutException | AdbCommandRejectedException | IOException e) {
+            Log.e(LOG_TAG, "Error obtaining features: " + e);
+            return new HashSet<String>();
+        }
+
+        return mAdbFeatures;
     }
 
     // The full list of features can be obtained from /etc/permissions/features*
@@ -502,9 +531,9 @@ final class Device implements IDevice {
         executeShellCommand(getScreenRecorderCommand(remoteFilePath, options), receiver, 0, null);
     }
 
-    @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
-    static String getScreenRecorderCommand(@NonNull String remoteFilePath,
-            @NonNull ScreenRecorderOptions options) {
+    @VisibleForTesting
+    static String getScreenRecorderCommand(
+            @NonNull String remoteFilePath, @NonNull ScreenRecorderOptions options) {
         StringBuilder sb = new StringBuilder();
 
         sb.append("screenrecord");
@@ -566,6 +595,36 @@ final class Device implements IDevice {
                 maxTimeToOutputResponse,
                 maxTimeUnits,
                 is);
+    }
+
+    @Override
+    public void executeBinderCommand(
+            String[] parameters,
+            IShellOutputReceiver receiver,
+            long maxTimeToOutputResponse,
+            TimeUnit maxTimeUnits,
+            @Nullable InputStream is)
+            throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+                    IOException {
+        if (supportsFeature(Feature.ABB_EXEC)) {
+            AdbHelper.executeRemoteCommand(
+                    AndroidDebugBridge.getSocketAddress(),
+                    AdbHelper.AdbService.ABB_EXEC,
+                    String.join("\u0000", parameters),
+                    this,
+                    receiver,
+                    0L,
+                    maxTimeToOutputResponse,
+                    maxTimeUnits,
+                    is);
+        } else {
+            executeShellCommand(
+                    "cmd " + String.join(" ", parameters),
+                    receiver,
+                    maxTimeToOutputResponse,
+                    maxTimeUnits,
+                    is);
+        }
     }
 
     @Override
@@ -863,8 +922,7 @@ final class Device implements IDevice {
     }
 
     @Override
-    public void installPackage(String packageFilePath, boolean reinstall,
-            String... extraArgs)
+    public void installPackage(String packageFilePath, boolean reinstall, String... extraArgs)
             throws InstallException {
         // Use default basic installReceiver
         installPackage(packageFilePath, reinstall, new InstallReceiver(), extraArgs);
@@ -899,7 +957,9 @@ final class Device implements IDevice {
             String... extraArgs)
             throws InstallException {
         try {
+            long uploadStartNs = System.nanoTime();
             String remoteFilePath = syncPackageToDevice(packageFilePath);
+            long uploadFinishNs = System.nanoTime();
             installRemotePackage(
                     remoteFilePath,
                     reinstall,
@@ -908,18 +968,69 @@ final class Device implements IDevice {
                     maxTimeToOutputResponse,
                     maxTimeUnits,
                     extraArgs);
+            long installFinishNs = System.nanoTime();
             removeRemotePackage(remoteFilePath);
+            lastInstallMetrics =
+                    new InstallMetrics(
+                            uploadStartNs, uploadFinishNs, uploadFinishNs, installFinishNs);
         } catch (IOException | AdbCommandRejectedException | TimeoutException | SyncException e) {
             throw new InstallException(e);
         }
     }
 
     @Override
-    public void installPackages(@NonNull List<File> apks, boolean reinstall,
-            @NonNull List<String> installOptions, long timeout, @NonNull TimeUnit timeoutUnit)
+    public void installPackages(
+            @NonNull List<File> apks,
+            boolean reinstall,
+            @NonNull List<String> installOptions,
+            long timeout,
+            @NonNull TimeUnit timeoutUnit)
             throws InstallException {
         try {
-            SplitApkInstaller.create(this, apks, reinstall, installOptions)
+            lastInstallMetrics =
+                    SplitApkInstaller.create(this, apks, reinstall, installOptions)
+                            .install(timeout, timeoutUnit);
+        } catch (InstallException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new InstallException(e);
+        }
+    }
+
+    @Override
+    public void installPackages(
+            @NonNull List<File> apks, boolean reinstall, @NonNull List<String> installOptions)
+            throws InstallException {
+        // Use the default single apk installer timeout.
+        installPackages(apks, reinstall, installOptions, INSTALL_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+    }
+
+    @Override
+    public InstallMetrics getLastInstallMetrics() {
+        return lastInstallMetrics;
+    }
+
+    @Override
+    public void installRemotePackages(
+            @NonNull List<String> remoteApks,
+            boolean reinstall,
+            @NonNull List<String> installOptions)
+            throws InstallException {
+        // Use the default installer timeout.
+        installRemotePackages(
+                remoteApks, reinstall, installOptions, INSTALL_TIMEOUT_MINUTES, TimeUnit.MINUTES);
+    }
+
+    @Override
+    public void installRemotePackages(
+            @NonNull List<String> remoteApks,
+            boolean reinstall,
+            @NonNull List<String> installOptions,
+            long timeout,
+            @NonNull TimeUnit timeoutUnit)
+            throws InstallException {
+        try {
+            RemoteSplitApkInstaller.create(this, remoteApks, reinstall, installOptions)
                     .install(timeout, timeoutUnit);
         } catch (InstallException e) {
             throw e;
@@ -1019,7 +1130,7 @@ final class Device implements IDevice {
             executeShellCommand(cmd, receiver, maxTimeout, maxTimeToOutputResponse, maxTimeUnits);
             String error = receiver.getErrorMessage();
             if (error != null) {
-                throw new InstallException(error);
+                throw new InstallException(error, receiver.getErrorCode());
             }
         } catch (TimeoutException
                 | AdbCommandRejectedException
@@ -1169,4 +1280,5 @@ final class Device implements IDevice {
     public String getRegion() {
         return getProperty(IDevice.PROP_DEVICE_REGION);
     }
+
 }

@@ -1,13 +1,12 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
+load("//tools/base/bazel:coverage.bzl", "coverage_java_test")
 
 # managed by go/iml_to_build
 iml_module(
     name = "studio.android.sdktools.analyzer",
     srcs = ["src/main/java"],
     iml_files = ["android.sdktools.analyzer.iml"],
-    tags = [
-        "no_test_windows",  # b/77288863
-    ],
+    test_coverage = True,
     test_resources = ["src/test/resources"],
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
@@ -52,19 +51,17 @@ java_library(
         "//tools/base/lint:tools.lint-checks",
         "//tools/base/sdk-common:tools.sdk-common",
         "//tools/base/sdklib:tools.sdklib",
-        "//tools/base/testutils:tools.testutils",
         "//tools/base/third_party:com.google.guava_guava",
         "//tools/base/third_party:org.smali_baksmali",
         "//tools/base/third_party:org.smali_dexlib2",
     ],
 )
 
-java_test(
+coverage_java_test(
     name = "tools.tests",
     srcs = glob(["src/test/java/**"]),
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
     resources = glob(["src/test/resources/**"]),
-    tags = ["no_test_windows"],  # b/77288863
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.analyzer",

@@ -61,11 +61,12 @@ import com.android.builder.model.Variant;
 import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.repository.GradleVersion;
 import com.android.ide.common.repository.ResourceVisibilityLookup;
+import com.android.projectmodel.ProjectType;
+import com.android.repository.Revision;
 import com.android.resources.Density;
 import com.android.resources.ResourceFolderType;
 import com.android.sdklib.AndroidTargetHash;
 import com.android.sdklib.AndroidVersion;
-import com.android.sdklib.BuildToolInfo;
 import com.android.sdklib.IAndroidTarget;
 import com.android.sdklib.SdkVersionInfo;
 import com.android.support.AndroidxNameUtils;
@@ -157,10 +158,12 @@ public class Project {
     protected Boolean leanback;
     protected GradleVersion gradleVersion;
     protected MavenCoordinates mavenCoordinates = null;
+    protected Set<Desugaring> desugaring;
     private Map<String, String> superClassMap;
     private ResourceVisibilityLookup resourceVisibility;
-    private BuildToolInfo buildTools;
+    private Revision buildToolsRevision;
     private Document mergedManifest;
+    private com.intellij.openapi.project.Project ideaProject;
 
     /**
      * Creates a new {@link Project} for the given directory.
@@ -208,6 +211,29 @@ public class Project {
     @Nullable
     public AndroidProject getGradleProjectModel() {
         return null;
+    }
+
+    /** Returns the set of desugaring operations in effect for this project. */
+    public Set<Desugaring> getDesugaring() {
+        if (desugaring == null) {
+            desugaring = client.getDesugaring(this);
+        }
+        return desugaring;
+    }
+
+    /** Returns true if the given desugaring operation is in effect for this project. */
+    public boolean isDesugaring(Desugaring type) {
+        return getDesugaring().contains(type);
+    }
+
+    /** Returns the corresponding IDE project. */
+    @Nullable
+    public com.intellij.openapi.project.Project getIdeaProject() {
+        return ideaProject;
+    }
+
+    public void setIdeaProject(@Nullable com.intellij.openapi.project.Project ideaProject) {
+        this.ideaProject = ideaProject;
     }
 
     /**
@@ -298,6 +324,10 @@ public class Project {
                     String target = properties.getProperty("target");
                     if (target != null) {
                         setBuildTargetHash(target);
+                    }
+
+                    if (VALUE_TRUE.equals(properties.getProperty("android_java8_libs"))) {
+                        desugaring = Desugaring.FULL;
                     }
 
                     for (int i = 1; i < 1000; i++) {
@@ -866,12 +896,12 @@ public class Project {
      * @return the build tools version in use, or null if not known
      */
     @Nullable
-    public BuildToolInfo getBuildTools() {
-        if (buildTools == null) {
-            buildTools = client.getBuildTools(this);
+    public Revision getBuildToolsRevision() {
+        if (buildToolsRevision == null) {
+            buildToolsRevision = client.getBuildToolsRevision(this);
         }
 
-        return buildTools;
+        return buildToolsRevision;
     }
 
     /**
@@ -1025,6 +1055,26 @@ public class Project {
             library.addLibraryProjects(collection, seen, path);
             path.remove(library);
         }
+    }
+
+    /** The type of artifact produced by this Android project. */
+    @NonNull
+    public ProjectType getProjectType() {
+        if (isLibrary()) {
+            return ProjectType.LIBRARY;
+        } else {
+            return ProjectType.APP;
+        }
+    }
+
+    /**
+     * Whether this project is a base application with dynamic features.
+     *
+     * @return true if this is an application project that has any dynamic features, false in all
+     *     other cases.
+     */
+    public boolean hasDynamicFeatures() {
+        return false;
     }
 
     /**

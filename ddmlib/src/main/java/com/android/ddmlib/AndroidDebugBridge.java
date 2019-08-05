@@ -16,11 +16,12 @@
 
 package com.android.ddmlib;
 
+import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.annotations.concurrency.GuardedBy;
 import com.android.ddmlib.Log.LogLevel;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -37,9 +38,10 @@ import java.io.InputStreamReader;
 import java.lang.Thread.State;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
 import java.security.InvalidParameterException;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -66,8 +68,10 @@ public class AndroidDebugBridge {
     private static final String SERVER_PORT_ENV_VAR = "ANDROID_ADB_SERVER_PORT"; //$NON-NLS-1$
 
     // Where to find the ADB bridge.
-    static final String DEFAULT_ADB_HOST = "localhost"; //$NON-NLS-1$
     static final int DEFAULT_ADB_PORT = 5037;
+
+    // ADB exit value when no Universal C Runtime on Windows
+    private static int STATUS_DLL_NOT_FOUND = (int) (long) 0xc0000135;
 
     // Only set when in unit testing mode. This is a hack until we move to devicelib.
     // http://b.android.com/221925
@@ -296,6 +300,7 @@ public class AndroidDebugBridge {
         }
 
         sInitialized = false;
+        sThis = null;
     }
 
     /**
@@ -633,9 +638,7 @@ public class AndroidDebugBridge {
             return;
         } catch (ExecutionException e) {
             Log.logAndDisplay(LogLevel.ERROR, ADB, e.getCause().getMessage());
-            if (e.getCause() instanceof IOException) {
-              throw ((IOException)e.getCause());
-            }
+            Throwables.propagateIfInstanceOf(e.getCause(), IOException.class);
             return;
         }
 
@@ -649,51 +652,121 @@ public class AndroidDebugBridge {
         }
     }
 
+    interface AdbOutputProcessor<T> {
+        T process(Process process, BufferedReader r) throws IOException;
+    }
+
+    private static <T> ListenableFuture<T> runAdb(
+            @NonNull final File adb, AdbOutputProcessor<T> resultParser, String... command) {
+        final SettableFuture<T> future = SettableFuture.create();
+        new Thread(
+                        () -> {
+                            List<String> args = new ArrayList<>();
+                            args.add(adb.getPath());
+                            args.addAll(Arrays.asList(command));
+                            ProcessBuilder pb = new ProcessBuilder(args);
+                            pb.redirectErrorStream(true);
+
+                            Process p;
+                            try {
+                                p = pb.start();
+                            } catch (IOException e) {
+                                future.setException(e);
+                                return;
+                            }
+
+                            try (BufferedReader br =
+                                    new BufferedReader(new InputStreamReader(p.getInputStream()))) {
+                                future.set(resultParser.process(p, br));
+                            } catch (IOException e) {
+                                future.setException(e);
+                                return;
+                            } catch (RuntimeException e) {
+                                future.setException(e);
+                            }
+                        },
+                        "Running adb")
+                .start();
+        return future;
+    }
+
     public static ListenableFuture<AdbVersion> getAdbVersion(@NonNull final File adb) {
-        final SettableFuture<AdbVersion> future = SettableFuture.create();
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                ProcessBuilder pb = new ProcessBuilder(adb.getPath(), "version");
-                pb.redirectErrorStream(true);
-
-                Process p = null;
-                try {
-                    p = pb.start();
-                } catch (IOException e) {
-                    future.setException(e);
-                    return;
-                }
-
-                StringBuilder sb = new StringBuilder();
-                BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream()));
-                try {
+        return runAdb(
+                adb,
+                (Process process, BufferedReader br) -> {
+                    StringBuilder sb = new StringBuilder();
                     String line;
                     while ((line = br.readLine()) != null) {
                         AdbVersion version = AdbVersion.parseFrom(line);
                         if (version != AdbVersion.UNKNOWN) {
-                            future.set(version);
-                            return;
+                            return version;
                         }
                         sb.append(line);
                         sb.append('\n');
                     }
-                } catch (IOException e) {
-                    future.setException(e);
-                    return;
-                } finally {
-                    try {
-                        br.close();
-                    } catch (IOException e) {
-                        future.setException(e);
-                    }
-                }
 
-                future.setException(new RuntimeException(
-                        "Unable to detect adb version, adb output: " + sb.toString()));
-            }
-        }, "Obtaining adb version").start();
-        return future;
+                    String errorMessage = "Unable to detect adb version";
+
+                    int exitValue = process.exitValue();
+                    if (exitValue != 0) {
+                        errorMessage += ", exit value: 0x" + Integer.toHexString(exitValue);
+
+                        // Display special message if it is the STATUS_DLL_NOT_FOUND code, and ignore adb output since it's empty anyway
+                        if (exitValue == STATUS_DLL_NOT_FOUND
+                                && SdkConstants.currentPlatform()
+                                        == SdkConstants.PLATFORM_WINDOWS) {
+                            errorMessage +=
+                                    ". ADB depends on the Windows Universal C Runtime,"
+                                            + " which is usually installed by default via Windows Update."
+                                            + " You may need to manually fetch and install the runtime package here:"
+                                            + " https://support.microsoft.com/en-ca/help/2999226/update-for-universal-c-runtime-in-windows";
+                            throw new RuntimeException(errorMessage);
+                        }
+                    }
+                    if (sb.length() > 0) {
+                        errorMessage += ", adb output: " + sb.toString();
+                    }
+                    throw new RuntimeException(errorMessage);
+                },
+                "version");
+    }
+
+    private static ListenableFuture<List<AdbDevice>> getRawDeviceList(@NonNull final File adb) {
+        return runAdb(
+                adb,
+                (Process process, BufferedReader br) -> {
+                    // The first line of output is a header, not part of the device list. Skip it.
+                    br.readLine();
+                    List<AdbDevice> result = new ArrayList<>();
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        AdbDevice device = AdbDevice.parseAdbLine(line);
+
+                        if (device != null) {
+                            result.add(device);
+                        }
+                    }
+
+                    return result;
+                },
+                "devices",
+                "-l");
+    }
+
+    /**
+     * Returns the set of devices reported by the adb command-line. This is mainly intended for the
+     * Connection Assistant or other diagnostic tools that need to validate the state of the {@link
+     * #getDevices()} list via another channel. Code that just needs to access the list of devices
+     * should call {@link #getDevices()} instead.
+     */
+    public ListenableFuture<List<AdbDevice>> getRawDeviceList() {
+        if (mAdbOsLocation == null) {
+            SettableFuture<List<AdbDevice>> result = SettableFuture.create();
+            result.set(Collections.emptyList());
+            return result;
+        }
+        File adb = new File(mAdbOsLocation);
+        return getRawDeviceList(adb);
     }
 
     /**
@@ -1114,18 +1187,12 @@ public class AndroidDebugBridge {
      * Instantiates sSocketAddr with the address of the host's adb process.
      */
     private static void initAdbSocketAddr() {
-        try {
-            // If we're in unit test mode, we already manually set sAdbServerPort.
-            if (!sUnitTestMode) {
-                sAdbServerPort = getAdbServerPort();
-            }
-            sHostAddr = InetAddress.getByName(DEFAULT_ADB_HOST);
-            sSocketAddr = new InetSocketAddress(sHostAddr, sAdbServerPort);
-        } catch (UnknownHostException e) {
-            // localhost should always be known, but if it is not we would
-            // like to know.
-            Log.e(DDMS, "Unable to resolve: " + DEFAULT_ADB_HOST + ", due to:" + e);
+        // If we're in unit test mode, we already manually set sAdbServerPort.
+        if (!sUnitTestMode) {
+            sAdbServerPort = getAdbServerPort();
         }
+        sHostAddr = InetAddress.getLoopbackAddress();
+        sSocketAddr = new InetSocketAddress(sHostAddr, sAdbServerPort);
     }
 
     /**

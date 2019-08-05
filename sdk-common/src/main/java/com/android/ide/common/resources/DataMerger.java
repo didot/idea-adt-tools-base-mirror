@@ -17,8 +17,8 @@ package com.android.ide.common.resources;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.utils.XmlUtils;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.io.Files;
@@ -345,7 +345,7 @@ abstract class DataMerger<I extends DataItem<F>, F extends DataFile<I>, S extend
             }
             File file = new File(blobRootFolder, FN_MERGER_XML);
             try {
-                Files.write(content, file, StandardCharsets.UTF_8);
+                Files.asCharSink(file, StandardCharsets.UTF_8).write(content);
             } catch (IOException ioe) {
                 throw MergingException.wrapException(ioe).withFile(file).build();
             }

@@ -18,12 +18,12 @@ package com.android.manifmerger;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.annotations.concurrency.Immutable;
 import com.android.ide.common.blame.SourceFile;
 import com.android.ide.common.blame.SourceFilePosition;
 import com.android.ide.common.blame.SourcePosition;
 import com.android.utils.ILogger;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
@@ -285,17 +285,10 @@ public class MergingReport {
         @NonNull
         private ActionRecorder mActionRecorder = new ActionRecorder();
         @NonNull private final ILogger mLogger;
-        @Nullable private final ManifestMerger2 mManifestMerger;
         private String packageName;
 
-        @VisibleForTesting
         Builder(@NonNull ILogger logger) {
-            this(logger, null);
-        }
-
-        Builder(@NonNull ILogger logger, @Nullable ManifestMerger2 manifestMerger) {
             mLogger = logger;
-            mManifestMerger = manifestMerger;
         }
 
         Builder setMergedDocument(@NonNull MergedManifestKind mergedManifestKind, @NonNull String mergedDocument) {
@@ -328,6 +321,34 @@ public class MergingReport {
                 @NonNull String message) {
             return addMessage(
                     new SourceFilePosition(sourceFile, SourcePosition.UNKNOWN),
+                    severity,
+                    message);
+        }
+
+        void addMessage(
+                @NonNull XmlElement element,
+                @NonNull MergingReport.Record.Severity severity,
+                @NonNull String message) {
+            addMessage(element.getSourceFilePosition(), severity, message);
+        }
+
+        @NonNull
+        Builder addMessage(
+                @NonNull XmlAttribute attribute,
+                @NonNull MergingReport.Record.Severity severity,
+                @NonNull String message) {
+            return addMessage(attribute, attribute.getPosition(), severity, message);
+        }
+
+        @NonNull
+        Builder addMessage(
+                @NonNull XmlAttribute attribute,
+                @NonNull SourcePosition position,
+                @NonNull MergingReport.Record.Severity severity,
+                @NonNull String message) {
+            return addMessage(
+                    new SourceFilePosition(
+                            attribute.getOwnerElement().getDocument().getSourceFile(), position),
                     severity,
                     message);
         }
@@ -382,11 +403,6 @@ public class MergingReport {
                     mIntermediaryStages.build(),
                     mActionRecorder.build(),
                     packageName);
-        }
-
-        @Nullable
-        public ManifestMerger2 getManifestMerger() {
-            return mManifestMerger;
         }
 
         @NonNull

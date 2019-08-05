@@ -19,6 +19,7 @@ package com.android.build.gradle.internal.tasks;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.api.artifact.BuildableArtifact;
+import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.api.artifact.BuildableArtifactUtil;
 import com.android.build.gradle.internal.scope.BuildOutput;
@@ -27,7 +28,6 @@ import com.android.build.gradle.internal.scope.InstantAppOutputScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
-import com.android.builder.sdk.SdkInfo;
 import com.android.builder.testing.ConnectedDevice;
 import com.android.builder.testing.ConnectedDeviceProvider;
 import com.android.builder.testing.api.DeviceConnector;
@@ -42,21 +42,20 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Supplier;
 import org.gradle.api.GradleException;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
-import org.gradle.api.tasks.TaskAction;
 
 /**
  * Task side loading an instant app variant. It looks at connected device, checks if preO or postO
  * and either multi-install the feature APKs or upload the bundle.
  */
-public class InstantAppSideLoadTask extends AndroidBuilderTask {
+public class InstantAppSideLoadTask extends NonIncrementalTask {
 
-    private Supplier<File> adbExe;
+    private Provider<File> adbExecutableProvider;
 
     private BuildableArtifact bundleDir;
 
@@ -69,9 +68,9 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
                         });
     }
 
-    @TaskAction
-    public void sideLoad() throws DeviceException, InstantAppRunException, IOException {
-        if (adbExe.get() == null) {
+    @Override
+    protected void doTaskAction() throws DeviceException, InstantAppRunException, IOException {
+        if (!adbExecutableProvider.isPresent()) {
             throw new GradleException("No adb file found.");
         }
 
@@ -85,7 +84,9 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
                             + ".");
         }
 
-        DeviceProvider deviceProvider = new ConnectedDeviceProvider(adbExe.get(), 0, getILogger());
+        DeviceProvider deviceProvider =
+                new ConnectedDeviceProvider(
+                        adbExecutableProvider.get(), 0, new LoggerWrapper(getLogger()));
 
         RunListener runListener =
                 new RunListener() {
@@ -150,9 +151,8 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
     }
 
     @InputFile
-    @Nullable
-    public File getAdbExe() {
-        return adbExe.get();
+    public Provider<File> getAdbExe() {
+        return adbExecutableProvider;
     }
 
     @InputFiles
@@ -189,12 +189,8 @@ public class InstantAppSideLoadTask extends AndroidBuilderTask {
 
             task.setGroup(TaskManager.INSTALL_GROUP);
 
-            task.adbExe =
-                    TaskInputHelper.memoize(
-                            () -> {
-                                SdkInfo info = scope.getGlobalScope().getSdkHandler().getSdkInfo();
-                                return (info == null ? null : info.getAdb());
-                            });
+            task.adbExecutableProvider =
+                    scope.getGlobalScope().getSdkComponents().getAdbExecutableProvider();
             task.bundleDir =
                     scope.getArtifacts()
                             .getFinalArtifactFiles(InternalArtifactType.INSTANTAPP_BUNDLE);

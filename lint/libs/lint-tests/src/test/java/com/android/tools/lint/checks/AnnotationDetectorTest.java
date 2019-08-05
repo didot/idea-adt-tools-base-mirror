@@ -480,6 +480,54 @@ public class AnnotationDetectorTest extends AbstractCheckTest {
                                         + "}\n")));
     }
 
+    public void testMissingSwitchConstantsWithElse() {
+        // Regression test for
+        // 117854168: Wrong lint warning used for PlaybackStateCompat.STATE_* constants
+        lint().files(
+                        kotlin(
+                                ""
+                                        + "@file:Suppress(\"unused\")\n"
+                                        + "\n"
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "class PlayConstantsTest {\n"
+                                        + "    fun test(@PlaybackStateCompat.State playState: Int) {\n"
+                                        + "        when (playState) {\n"
+                                        + "            PlaybackStateCompat.STATE_PAUSED -> {\n"
+                                        + "                println(\"paused\")\n"
+                                        + "            }\n"
+                                        + "            PlaybackStateCompat.STATE_STOPPED -> {\n"
+                                        + "                println(\"paused\")\n"
+                                        + "            }\n"
+                                        + "            else -> {\n"
+                                        + "                println(\"Something else\")\n"
+                                        + "            }\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        java(
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import android.support.annotation.IntDef;\n"
+                                        + "\n"
+                                        + "public class PlaybackStateCompat {\n"
+                                        + "    @IntDef({STATE_NONE, STATE_STOPPED, STATE_PAUSED, STATE_PLAYING, STATE_FAST_FORWARDING})\n"
+                                        + "    public @interface State {\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    public static final int STATE_NONE = 0;\n"
+                                        + "    public static final int STATE_STOPPED = 1;\n"
+                                        + "    public static final int STATE_PAUSED = 2;\n"
+                                        + "    public static final int STATE_PLAYING = 3;\n"
+                                        + "    public static final int STATE_FAST_FORWARDING = 4;\n"
+                                        + "}"),
+                        SUPPORT_ANNOTATIONS_CLASS_PATH,
+                        SUPPORT_ANNOTATIONS_JAR)
+                .run()
+                .expectClean();
+    }
+
     public void testMatchEcjAndExternalFieldNames() throws Exception {
         assertEquals(
                 "No warnings.",
@@ -737,6 +785,101 @@ public class AnnotationDetectorTest extends AbstractCheckTest {
                                 + "    public int wrongType(@HalfFloat int wrongType) { // ERROR\n"
                                 + "                         ~~~~~~~~~~\n"
                                 + "2 errors, 0 warnings\n");
+    }
+
+    public void testRestrictToArgument() {
+        lint().files(
+                        kotlin(
+                                ""
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "import android.support.annotation.RestrictTo\n"
+                                        + "\n"
+                                        + "@RestrictTo\n"
+                                        + "class RestrictTest {\n"
+                                        + "}"),
+                        kotlin(
+                                ""
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "import android.support.annotation.RestrictTo\n"
+                                        + "\n"
+                                        + "@RestrictTo(RestrictTo.Scope.SUBCLASSES)\n"
+                                        + "class RestrictTest2 {\n"
+                                        + "}"),
+                        SUPPORT_ANNOTATIONS_CLASS_PATH,
+                        SUPPORT_ANNOTATIONS_JAR)
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/RestrictTest.kt:5: Error: Restrict to what? Expected at least one RestrictTo.Scope arguments. [SupportAnnotationUsage]\n"
+                                + "@RestrictTo\n"
+                                + "~~~~~~~~~~~\n"
+                                + "src/test/pkg/RestrictTest2.kt:5: Error: RestrictTo.Scope.SUBCLASSES should only be specified on methods and fields [SupportAnnotationUsage]\n"
+                                + "@RestrictTo(RestrictTo.Scope.SUBCLASSES)\n"
+                                + "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "2 errors, 0 warnings");
+    }
+
+    public void testUnknownTypes() {
+        // Regression test for
+        // 133280834: False positive with support annotations and kotlin when operator
+        // Can happen in editor before all when clauses are entered.
+        lint().files(
+                        kotlin(
+                                ""
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "import android.support.annotation.DrawableRes\n"
+                                        + "import test.pkg.R // unresolved for now\n"
+                                        + "\n"
+                                        + "enum class Foo {\n"
+                                        + "    NOT_STARTED, IN_PROGRESS, PENDING, IN_ERROR, ACCEPTED, REJECTED\n"
+                                        + "}\n"
+                                        + "\n"
+                                        + "fun test2(state: Foo) {\n"
+                                        + "    @DrawableRes val imageId: Int = when (state) {\n"
+                                        + "        Foo.NOT_STARTED -> R.drawable.ic_launcher_foreground\n"
+                                        + "        Foo.IN_PROGRESS -> R.drawable.ic_launcher_foreground\n"
+                                        + "        Foo.PENDING -> R.drawable.ic_launcher_foreground\n"
+                                        + "        Foo.IN_ERROR -> R.drawable.ic_launcher_foreground\n"
+                                        + "        Foo.ACCEPTED -> R.drawable.ic_launcher_foreground\n"
+                                        + "        Foo.REJECTED -> R.drawable.ic_launcher_foreground\n"
+                                        + "    }\n"
+                                        + "}"),
+                        SUPPORT_ANNOTATIONS_CLASS_PATH,
+                        SUPPORT_ANNOTATIONS_JAR)
+                .run()
+                .expectClean();
+    }
+
+    public void testPxOnFloats() {
+        // Regression test for
+        //  133205958: @Px annotation should support float
+        lint().files(
+                        java(
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import android.support.annotation.Px;\n"
+                                        + "\n"
+                                        + "public class PxTest {\n"
+                                        + "    public boolean fakeDragBy(@Px float offsetPxFloat) { // OK\n"
+                                        + "    }\n"
+                                        + "    public boolean fakeDragBy2(@Dimension(unit = Dimension.PX) float offset) { // OK\n"
+                                        + "    }\n"
+                                        + "    public boolean wrongPx(@Px char c) { // ERROR\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        SUPPORT_ANNOTATIONS_CLASS_PATH,
+                        SUPPORT_ANNOTATIONS_JAR)
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/PxTest.java:10: Error: This annotation does not apply for type char; expected int, long, float, or double [SupportAnnotationUsage]\n"
+                                + "    public boolean wrongPx(@Px char c) { // ERROR\n"
+                                + "                           ~~~\n"
+                                + "1 errors, 0 warnings");
     }
 
     @Override

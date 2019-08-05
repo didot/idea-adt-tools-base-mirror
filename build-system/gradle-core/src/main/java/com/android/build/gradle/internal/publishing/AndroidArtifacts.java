@@ -79,7 +79,10 @@ public class AndroidArtifacts {
     private static final String TYPE_DATA_BINDING_BASE_CLASS_LOG_ARTIFACT =
             "android-databinding-class-log";
     private static final String TYPE_EXPLODED_AAR = "android-exploded-aar";
+    private static final String TYPE_COMPILED_REMOTE_RESOURCES =
+            "android-compiled-remote-resources";
     private static final String TYPE_MODULE_BUNDLE = "android-module-bundle";
+    private static final String TYPE_LIB_DEPENDENCIES = "android-lib-dependencies";
 
     // types for additional artifacts to go with APK
     private static final String TYPE_MAPPING = "android-mapping";
@@ -151,8 +154,18 @@ public class AndroidArtifacts {
         BUNDLE_ELEMENTS,
     }
 
+    /** The provenance of artifacts to include. */
     public enum ArtifactScope {
-        ALL, EXTERNAL, MODULE
+        /** Include all artifacts */
+        ALL,
+        /** Include all 'external' artifacts, i.e. everything but PROJECT, i.e. FILE + MODULE */
+        EXTERNAL,
+        /** Include all artifacts built by subprojects */
+        PROJECT,
+        /** Include all file dependencies */
+        FILE,
+        /** Include all module (i.e. from a repository) dependencies */
+        REPOSITORY_MODULE,
     }
 
     /** Artifact published by modules for consumption by other modules. */
@@ -162,11 +175,11 @@ public class AndroidArtifacts {
         // be namespace aware.
         NON_NAMESPACED_CLASSES(TYPE_NON_NAMESPACED_CLASSES),
         SHARED_CLASSES(TYPE_SHARED_CLASSES),
-        // Jar file for annotation processor as both classes and resources are needed, and for
-        // building model
-        // NOTE: Consumers should generally use PROCESSED_JAR instead of JAR, as the jars may need
-        // to be processed (e.g., jetified to AndroidX) before they can be used. If JAR is used, the
-        // reason should be documented.
+        // Jar or processed jar, used for purposes such as computing the annotation processor
+        // classpath or building the model.
+        // IMPORTANT: Consumers should generally use PROCESSED_JAR instead of JAR, as the jars may
+        // need to be processed (e.g., jetified to AndroidX) before they can be used. Consuming JAR
+        // should be considered as an exception and the reason should be documented.
         JAR(TYPE_JAR),
         PROCESSED_JAR(TYPE_PROCESSED_JAR),
         // published dex folder for bundle
@@ -198,6 +211,7 @@ public class AndroidArtifacts {
         ASSETS(TYPE_ASSETS),
         SHARED_ASSETS(TYPE_SHARED_ASSETS),
         SYMBOL_LIST(TYPE_SYMBOL),
+        COMPILED_REMOTE_RESOURCES(TYPE_COMPILED_REMOTE_RESOURCES),
         /**
          * The symbol list with the package name as the first line. As the r.txt format in the AAR
          * cannot be changed, this is created by prepending the package name from the
@@ -226,6 +240,9 @@ public class AndroidArtifacts {
         APKS_FROM_BUNDLE(TYPE_APKS_FROM_BUNDLE),
         // the manifest to be used by bundle-tool
         BUNDLE_MANIFEST(TYPE_BUNDLE_MANIFEST),
+        // intermediate library dependencies on a per module basis for eventual packaging in the
+        // bundle.
+        LIB_DEPENDENCIES(TYPE_LIB_DEPENDENCIES),
 
         // Feature split related artifacts.
 

@@ -4,15 +4,11 @@ import android.os.Bundle;
 <#if includeCppSupport!false>
 import android.widget.TextView;
 </#if>
-<#if hasAppBar>
 import ${getMaterialComponentName('android.support.design.widget.FloatingActionButton', useMaterial2)};
 import ${getMaterialComponentName('android.support.design.widget.Snackbar', useMaterial2)};
 import ${getMaterialComponentName('android.support.v7.app.AppCompatActivity', useAndroidX)};
 import ${getMaterialComponentName('android.support.v7.widget.Toolbar', useAndroidX)};
 import android.view.View;
-<#else>
-import ${superClassFqcn};
-</#if>
 <#if isNewProject>
 import android.view.Menu;
 import android.view.MenuItem;
@@ -21,13 +17,12 @@ import android.view.MenuItem;
 import ${applicationPackage}.R;
 </#if>
 
-public class ${activityClass} extends ${superClass} {
+public class ${activityClass} extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.${layoutName});
-<#if hasAppBar>
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
@@ -39,9 +34,8 @@ public class ${activityClass} extends ${superClass} {
                         .setAction("Action", null).show();
             }
         });
-</#if>
 <#if parentActivityClass != "">
-        get${Support}ActionBar().setDisplayHomeAsUpEnabled(true);
+        getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 </#if>
 <#include "../../../../common/jni_code_usage.java.ftl">
     }

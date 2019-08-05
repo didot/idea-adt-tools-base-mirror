@@ -17,35 +17,37 @@
 package com.android.build.gradle.internal;
 
 import static com.android.SdkConstants.FD_JNI;
-import static com.android.SdkConstants.FN_CLASSES_JAR;
-import static com.android.SdkConstants.FN_INTERMEDIATE_RES_JAR;
 import static com.android.SdkConstants.FN_PUBLIC_TXT;
+import static com.android.build.api.transform.QualifiedContent.DefaultContentType.RESOURCES;
+import static com.android.build.gradle.internal.pipeline.ExtendedContentType.NATIVE_LIBS;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.JAVAC;
 
 import android.databinding.tool.DataBindingBuilder;
 import com.android.annotations.NonNull;
-import com.android.build.api.transform.QualifiedContent.DefaultContentType;
+import com.android.build.api.transform.QualifiedContent;
 import com.android.build.api.transform.QualifiedContent.Scope;
+import com.android.build.api.transform.QualifiedContent.ScopeType;
 import com.android.build.api.transform.Transform;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
-import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.build.gradle.internal.pipeline.OriginalStream;
 import com.android.build.gradle.internal.pipeline.TransformManager;
+import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.scope.AnchorOutputType;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.internal.tasks.BundleLibraryClasses;
+import com.android.build.gradle.internal.tasks.BundleLibraryJavaRes;
 import com.android.build.gradle.internal.tasks.LibraryDexingTask;
 import com.android.build.gradle.internal.tasks.MergeConsumerProguardFilesTask;
+import com.android.build.gradle.internal.tasks.MergeGeneratedProguardFilesCreationAction;
 import com.android.build.gradle.internal.tasks.PackageRenderscriptTask;
 import com.android.build.gradle.internal.tasks.factory.PreConfigAction;
 import com.android.build.gradle.internal.tasks.factory.TaskConfigAction;
 import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.transforms.LibraryAarJarsTransform;
-import com.android.build.gradle.internal.transforms.LibraryBaseTransform;
-import com.android.build.gradle.internal.transforms.LibraryIntermediateJarsTransform;
 import com.android.build.gradle.internal.transforms.LibraryJniLibsTransform;
 import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.internal.variant.VariantHelper;
@@ -61,12 +63,15 @@ import com.android.build.gradle.tasks.ZipMergingTask;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.profile.Recorder;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import java.io.File;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.gradle.api.Project;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
@@ -83,7 +88,6 @@ public class LibraryTaskManager extends TaskManager {
             @NonNull ProjectOptions projectOptions,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
-            @NonNull SdkHandler sdkHandler,
             @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
@@ -93,14 +97,15 @@ public class LibraryTaskManager extends TaskManager {
                 projectOptions,
                 dataBindingBuilder,
                 extension,
-                sdkHandler,
                 variantFactory,
                 toolingRegistry,
                 recorder);
     }
 
     @Override
-    public void createTasksForVariantScope(@NonNull final VariantScope variantScope) {
+    public void createTasksForVariantScope(
+            @NonNull final VariantScope variantScope,
+            @NonNull List<VariantScope> variantScopesForLint) {
         final GradleVariantConfiguration variantConfig = variantScope.getVariantConfiguration();
 
         GlobalScope globalScope = variantScope.getGlobalScope();
@@ -136,13 +141,7 @@ public class LibraryTaskManager extends TaskManager {
         // of the r.txt file to be directly in the bundle.
         createProcessResTask(
                 variantScope,
-                new File(
-                        globalScope.getIntermediatesDir(),
-                        "symbols/"
-                                + variantScope
-                                        .getVariantData()
-                                        .getVariantConfiguration()
-                                        .getDirName()),
+                variantScope.getSymbolTableFile(),
                 null,
                 // Switch to package where possible so we stop merging resources in
                 // libraries
@@ -170,14 +169,12 @@ public class LibraryTaskManager extends TaskManager {
         addJavacClassesStream(variantScope);
         TaskManager.setJavaCompilerTask(javacTask, variantScope);
 
-        // Add dependencies on NDK tasks if NDK plugin is applied.
-        createNdkTasks(variantScope);
+        taskFactory.register(new MergeGeneratedProguardFilesCreationAction(variantScope));
 
         // External native build
         createExternalNativeBuildJsonGenerators(variantScope);
         createExternalNativeBuildTasks(variantScope);
 
-        // TODO not sure what to do about this...
         createMergeJniLibFoldersTasks(variantScope);
         createStripNativeLibraryTask(taskFactory, variantScope);
 
@@ -193,9 +190,7 @@ public class LibraryTaskManager extends TaskManager {
             taskFactory.register(new ExtractAnnotations.CreationAction(extension, variantScope));
         }
 
-        final boolean instrumented =
-                variantConfig.getBuildType().isTestCoverageEnabled()
-                        && !variantScope.getInstantRunBuildContext().isInInstantRunMode();
+        final boolean instrumented = variantConfig.getBuildType().isTestCoverageEnabled();
 
         TransformManager transformManager = variantScope.getTransformManager();
 
@@ -220,8 +215,7 @@ public class LibraryTaskManager extends TaskManager {
             if (!difference.isEmpty()) {
                 String scopes = difference.toString();
                 globalScope
-                        .getAndroidBuilder()
-                        .getIssueReporter()
+                        .getErrorHandler()
                         .reportError(
                                 Type.GENERIC,
                                 new EvalIssueException(
@@ -252,37 +246,13 @@ public class LibraryTaskManager extends TaskManager {
                     });
         }
 
-        // Now add transforms for intermediate publishing (projects to projects).
-        File jarOutputFolder = variantScope.getIntermediateJarOutputFolder();
-        File mainClassJar = new File(jarOutputFolder, FN_CLASSES_JAR);
-        File mainResJar = new File(jarOutputFolder, FN_INTERMEDIATE_RES_JAR);
-        LibraryIntermediateJarsTransform intermediateTransform =
-                new LibraryIntermediateJarsTransform(
-                        mainClassJar,
-                        mainResJar,
-                        variantConfig::getPackageFromManifest,
-                        extension.getPackageBuildConfig());
-        excludeDataBindingClassesIfNecessary(variantScope, intermediateTransform);
-
-        BuildArtifactsHolder artifacts = variantScope.getArtifacts();
-        transformManager.addTransform(
-                taskFactory,
-                variantScope,
-                intermediateTransform,
-                taskName -> {
-                    // publish the intermediate classes.jar
-                    artifacts.appendArtifact(
-                            InternalArtifactType.LIBRARY_CLASSES,
-                            ImmutableList.of(mainClassJar),
-                            taskName);
-                    // publish the res jar
-                    artifacts.appendArtifact(
-                            InternalArtifactType.LIBRARY_JAVA_RES,
-                            ImmutableList.of(mainResJar),
-                            taskName);
-                },
-                null,
-                null);
+        // Create jar with library classes used for publishing to runtime elements.
+        taskFactory.register(
+                new BundleLibraryClasses.CreationAction(
+                        variantScope,
+                        AndroidArtifacts.PublishedConfigType.RUNTIME_ELEMENTS,
+                        excludeDataBindingClassesIfNecessary(variantScope)));
+        taskFactory.register(new BundleLibraryJavaRes.CreationAction(variantScope));
 
         taskFactory.register(new LibraryDexingTask.CreationAction(variantScope));
 
@@ -295,6 +265,7 @@ public class LibraryTaskManager extends TaskManager {
         // now add a transform that will take all the native libs and package
         // them into an intermediary folder. This processes only the PROJECT
         // scope.
+        File jarOutputFolder = variantScope.getIntermediateJarOutputFolder();
         final File intermediateJniLibsFolder = new File(jarOutputFolder, FD_JNI);
 
         LibraryJniLibsTransform intermediateJniTransform =
@@ -302,18 +273,17 @@ public class LibraryTaskManager extends TaskManager {
                         "intermediateJniLibs",
                         intermediateJniLibsFolder,
                         TransformManager.PROJECT_ONLY);
+        BuildArtifactsHolder artifacts = variantScope.getArtifacts();
         transformManager.addTransform(
                 taskFactory,
                 variantScope,
                 intermediateJniTransform,
                 taskName -> {
                     // publish the jni folder as intermediate
-                    variantScope
-                            .getArtifacts()
-                            .appendArtifact(
-                                    InternalArtifactType.LIBRARY_JNI,
-                                    ImmutableList.of(intermediateJniLibsFolder),
-                                    taskName);
+                    artifacts.appendArtifact(
+                            InternalArtifactType.LIBRARY_JNI,
+                            ImmutableList.of(intermediateJniLibsFolder),
+                            taskName);
                 },
                 null,
                 null);
@@ -321,9 +291,8 @@ public class LibraryTaskManager extends TaskManager {
         // Now go back to fill the pipeline with transforms used when
         // publishing the AAR
 
-        // first merge the resources. This takes the PROJECT and LOCAL_DEPS
-        // and merges them together.
-        createMergeJavaResTransform(variantScope);
+        // first merge the java resources.
+        createMergeJavaResTask(variantScope);
 
         // ----- Minify next -----
         maybeCreateJavaCodeShrinkerTransform(variantScope);
@@ -350,25 +319,21 @@ public class LibraryTaskManager extends TaskManager {
                         variantConfig::getPackageFromManifest,
                         extension.getPackageBuildConfig());
 
-        excludeDataBindingClassesIfNecessary(variantScope, transform);
+        transform.setExcludeListProvider(excludeDataBindingClassesIfNecessary(variantScope));
 
         transformManager.addTransform(
                 taskFactory,
                 variantScope,
                 transform,
                 taskName -> {
-                    variantScope
-                            .getArtifacts()
-                            .appendArtifact(
-                                    InternalArtifactType.AAR_MAIN_JAR,
-                                    ImmutableList.of(classesJar),
-                                    taskName);
-                    variantScope
-                            .getArtifacts()
-                            .appendArtifact(
-                                    InternalArtifactType.AAR_LIBS_DIRECTORY,
-                                    ImmutableList.of(libsDirectory),
-                                    taskName);
+                    artifacts.appendArtifact(
+                            InternalArtifactType.AAR_MAIN_JAR,
+                            ImmutableList.of(classesJar),
+                            taskName);
+                    artifacts.appendArtifact(
+                            InternalArtifactType.AAR_LIBS_DIRECTORY,
+                            ImmutableList.of(libsDirectory),
+                            taskName);
                 },
                 null,
                 null);
@@ -388,25 +353,18 @@ public class LibraryTaskManager extends TaskManager {
                 variantScope,
                 jniTransform,
                 taskName ->
-                        variantScope
-                                .getArtifacts()
-                                .appendArtifact(
-                                        InternalArtifactType.LIBRARY_AND_LOCAL_JARS_JNI,
-                                        ImmutableList.of(jniLibsFolder),
-                                        taskName),
+                        artifacts.appendArtifact(
+                                InternalArtifactType.LIBRARY_AND_LOCAL_JARS_JNI,
+                                ImmutableList.of(jniLibsFolder),
+                                taskName),
                 null,
                 null);
 
-        createLintTasks(variantScope);
+        createLintTasks(variantScope, variantScopesForLint);
         createBundleTask(variantScope);
     }
 
     private void registerRClassTransformStream(@NonNull VariantScope variantScope) {
-        if (!projectOptions.get(BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION)) {
-            return;
-        }
-        // TODO(b/115974418): Can we stop adding the compilation-only R class as a local classes?
-
         InternalArtifactType rClassJar;
 
         if (globalScope.getExtension().getAaptOptions().getNamespaced()) {
@@ -414,15 +372,24 @@ public class LibraryTaskManager extends TaskManager {
         } else {
             rClassJar = InternalArtifactType.COMPILE_ONLY_NOT_NAMESPACED_R_CLASS_JAR;
         }
+        QualifiedContent.ScopeType scopeType;
+        if (variantScope.getCodeShrinker() != null) {
+            // Add the R class classes as production classes. They are then removed by the library
+            // jar transform.
+            // TODO(b/115974418): Can we stop adding the compilation-only R class as a local classes?
+            scopeType = Scope.PROJECT;
+        } else {
+            scopeType = Scope.PROVIDED_ONLY;
+        }
 
         FileCollection compileRClass =
-                variantScope.getArtifacts().getFinalArtifactFiles(rClassJar).get();
+                project.files(variantScope.getArtifacts().getFinalProduct(rClassJar));
         variantScope
                 .getTransformManager()
                 .addStream(
                         OriginalStream.builder(project, "compile-only-r-class")
                                 .addContentTypes(TransformManager.CONTENT_CLASS)
-                                .addScope(Scope.PROJECT)
+                                .addScope(scopeType)
                                 .setFileCollection(compileRClass)
                                 .build());
     }
@@ -469,9 +436,7 @@ public class LibraryTaskManager extends TaskManager {
                 .getTransformManager()
                 .addStream(
                         OriginalStream.builder(project, "local-deps-native")
-                                .addContentTypes(
-                                        DefaultContentType.RESOURCES,
-                                        ExtendedContentType.NATIVE_LIBS)
+                                .addContentTypes(NATIVE_LIBS)
                                 .addScope(InternalScope.LOCAL_DEPS)
                                 .setFileCollection(variantScope.getLocalPackagedJars())
                                 .build());
@@ -540,35 +505,43 @@ public class LibraryTaskManager extends TaskManager {
                 scope.getGlobalScope()
                         .getProject()
                         .files(
-                                scope.getArtifacts().getArtifactFiles(JAVAC),
+                                scope.getArtifacts().getFinalProduct(JAVAC),
                                 scope.getVariantData().getAllPreJavacGeneratedBytecode(),
                                 scope.getVariantData().getAllPostJavacGeneratedBytecode());
         scope.getArtifacts().appendArtifact(AnchorOutputType.ALL_CLASSES, files);
+
+        // Create jar used for publishing to API elements (for other projects to compile against).
+        taskFactory.register(
+                new BundleLibraryClasses.CreationAction(
+                        scope,
+                        AndroidArtifacts.PublishedConfigType.API_ELEMENTS,
+                        excludeDataBindingClassesIfNecessary(scope)));
     }
 
-    private void excludeDataBindingClassesIfNecessary(
-            @NonNull VariantScope variantScope, @NonNull LibraryBaseTransform transform) {
+    @NonNull
+    private Supplier<List<String>> excludeDataBindingClassesIfNecessary(
+            @NonNull VariantScope variantScope) {
         if (!extension.getDataBinding().isEnabled()) {
-            return;
+            return Collections::emptyList;
         }
-        transform.addExcludeListProvider(
-                () -> {
-                    File excludeFile =
-                            variantScope.getVariantData().getType().isExportDataBindingClassList()
-                                    ? variantScope.getGeneratedClassListOutputFileForDataBinding()
-                                    : null;
-                    File dependencyArtifactsDir =
-                            variantScope
-                                    .getArtifacts()
-                                    .getFinalArtifactFiles(
-                                            InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS)
-                                    .get()
-                                    .getSingleFile();
-                    return dataBindingBuilder.getJarExcludeList(
-                            variantScope.getVariantData().getLayoutXmlProcessor(),
-                            excludeFile,
-                            dependencyArtifactsDir);
-                });
+
+        return () -> {
+            File excludeFile =
+                    variantScope.getVariantData().getType().isExportDataBindingClassList()
+                            ? variantScope.getGeneratedClassListOutputFileForDataBinding()
+                            : null;
+            File dependencyArtifactsDir =
+                    variantScope
+                            .getArtifacts()
+                            .getFinalArtifactFiles(
+                                    InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS)
+                            .get()
+                            .getSingleFile();
+            return dataBindingBuilder.getJarExcludeList(
+                    variantScope.getVariantData().getLayoutXmlProcessor(),
+                    excludeFile,
+                    dependencyArtifactsDir);
+        };
     }
 
     public void createLibraryAssetsTask(@NonNull VariantScope scope) {
@@ -577,10 +550,22 @@ public class LibraryTaskManager extends TaskManager {
 
     @NonNull
     @Override
-    protected Set<? super Scope> getResMergingScopes(@NonNull VariantScope variantScope) {
+    protected Set<ScopeType> getJavaResMergingScopes(
+            @NonNull VariantScope variantScope, @NonNull QualifiedContent.ContentType contentType) {
+        Preconditions.checkArgument(
+                contentType == RESOURCES || contentType == NATIVE_LIBS,
+                "contentType must be RESOURCES or NATIVE_LIBS");
         if (variantScope.getTestedVariantData() != null) {
+            if (contentType == RESOURCES) {
+                return TransformManager.SCOPE_FULL_PROJECT_WITH_LOCAL_JARS;
+            }
+            // contentType is NATIVE_LIBS
             return TransformManager.SCOPE_FULL_PROJECT;
         }
+        if (contentType == RESOURCES) {
+            return TransformManager.SCOPE_FULL_LIBRARY_WITH_LOCAL_JARS;
+        }
+        // contentType is NATIVE_LIBS
         return TransformManager.PROJECT_ONLY;
     }
 

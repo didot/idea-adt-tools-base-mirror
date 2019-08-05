@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.internal.cxx.configure
 
+import com.android.build.gradle.internal.cxx.logging.RecordingLoggingEnvironment
 import com.android.repository.Revision
 import com.android.repository.api.LocalPackage
 import com.android.repository.testframework.FakePackage
@@ -23,6 +24,7 @@ import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import java.io.File
 import java.io.IOException
+import java.util.function.Consumer
 
 class CmakeLocatorTest {
     private val newline = System.lineSeparator()
@@ -55,34 +57,38 @@ class CmakeLocatorTest {
         downloader: () -> Unit = {}
     ): FindCmakeEncounter {
         val encounter = FindCmakeEncounter()
-        val fileResult = findCmakePathLogic(
-            cmakeVersionFromDsl = cmakeVersionFromDsl,
-            cmakePathFromLocalProperties = cmakePathFromLocalProperties,
-            error = { message -> encounter.errors += message },
-            warn = { message -> encounter.warnings += message },
-            info = { message -> encounter.info += message },
-            environmentPaths = {
-                encounter.environmentPathsRetrieved = true
-                environmentPaths()
-            },
-            canarySdkPaths = { listOf() },
-            cmakeVersion = cmakeVersion,
-            repositoryPackages = {
-                encounter.sdkPackagesRetrieved = true
-                repositoryPackages()
-            },
-            downloader = {
-                encounter.downloadAttempts = encounter.downloadAttempts + 1
-                downloader()
+        RecordingLoggingEnvironment().use { logger ->
+            val fileResult = findCmakePathLogic(
+                cmakeVersionFromDsl = cmakeVersionFromDsl,
+                cmakePathFromLocalProperties = cmakePathFromLocalProperties,
+
+                environmentPaths = {
+                    encounter.environmentPathsRetrieved = true
+                    environmentPaths()
+                },
+                canarySdkPaths = { listOf() },
+                cmakeVersion = cmakeVersion,
+                repositoryPackages = {
+                    encounter.sdkPackagesRetrieved = true
+                    repositoryPackages()
+                },
+                downloader = Consumer {
+                    encounter.downloadAttempts = encounter.downloadAttempts + 1
+                    downloader()
+                }
+            )
+            if (fileResult != null) {
+                encounter.result = fileResult.toString().replace("\\", "/")
             }
-        )
-        if (fileResult != null) {
-            encounter.result = fileResult.toString().replace("\\", "/")
+            if (encounter.result != null) {
+                // Should be the cmake install folder without the "bin"
+                assertThat(encounter.result!!.endsWith("bin")).isFalse()
+            }
+            encounter.errors += logger.errors
+            encounter.warnings += logger.warnings
+            encounter.info += logger.infos
         }
-        if (encounter.result != null) {
-            // Should be the cmake install folder without the "bin"
-            assertThat(encounter.result!!.endsWith("bin")).isFalse()
-        }
+
         return encounter
     }
 

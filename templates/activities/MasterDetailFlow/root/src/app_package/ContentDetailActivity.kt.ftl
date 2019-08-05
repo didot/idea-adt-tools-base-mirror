@@ -2,9 +2,7 @@ package ${escapeKotlinIdentifiers(packageName)}
 
 import android.content.Intent
 import android.os.Bundle
-<#if hasAppBar>
 import ${getMaterialComponentName('android.support.design.widget.Snackbar', useMaterial2)}
-</#if>
 import ${superClassFqcn}
 <#if minApiLevel lt 16>
 import ${getMaterialComponentName('android.support.v4.app.NavUtils', useAndroidX)}
@@ -18,22 +16,20 @@ import kotlinx.android.synthetic.main.activity_${detail_name}.*
  * item details are presented side-by-side with a list of items
  * in a [${CollectionName}Activity].
  */
-class ${DetailName}Activity : ${superClass}() {
+class ${DetailName}Activity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_${detail_name})
-<#if hasAppBar>
         setSupportActionBar(detail_toolbar)
 
         fab.setOnClickListener { view ->
             Snackbar.make(view, "Replace with your own detail action", Snackbar.LENGTH_LONG)
                     .setAction("Action", null).show()
         }
-</#if>
 
         // Show the Up button in the action bar.
-        ${kotlinActionBar}?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         // savedInstanceState is non-null when there is fragment state
         // saved from previous configurations of this activity
@@ -54,7 +50,7 @@ class ${DetailName}Activity : ${superClass}() {
                 }
             }
 
-            ${kotlinFragmentManager}.beginTransaction()
+            supportFragmentManager.beginTransaction()
                     .add(R.id.${detail_name}_container, fragment)
                     .commit()
         }

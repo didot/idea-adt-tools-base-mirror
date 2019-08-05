@@ -18,9 +18,9 @@ package com.android.tools.apk.analyzer;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.sdklib.repository.AndroidSdkHandler;
 import com.android.utils.NullLogger;
+import com.google.common.annotations.VisibleForTesting;
 import java.io.File;
 import java.io.IOException;
 import java.io.PrintStream;
@@ -425,7 +425,7 @@ public class ApkAnalyzerCli {
                     PrintStream err,
                     @NonNull ApkAnalyzerImpl impl,
                     @NonNull String... args) {
-                OptionParser parser = super.getParser();
+                OptionParser parser = getParser();
                 OptionSet opts = parseOrPrintHelp(parser, err, args);
                 impl.filesList(
                         opts.valueOf(getFileSpec()).toPath(),

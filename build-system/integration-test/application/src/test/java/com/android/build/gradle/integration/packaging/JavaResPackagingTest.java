@@ -20,7 +20,6 @@ import static com.android.build.gradle.integration.common.fixture.TemporaryProje
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
 import static com.android.build.gradle.integration.common.utils.TestFileUtils.appendToFile;
 import static com.android.testutils.truth.PathSubject.assertThat;
-import static com.google.common.io.Files.write;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -28,6 +27,7 @@ import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.truth.AbstractAndroidSubject;
 import com.android.utils.FileUtils;
 import com.google.common.base.Charsets;
+import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
 import org.junit.After;
@@ -59,35 +59,39 @@ public class JavaResPackagingTest {
         testProject = project.getSubproject("test");
         jarProject = project.getSubproject("jar");
 
-        // rewrite settings.gradle to remove un-needed modules
-        write("include 'app'\n"
-                + "include 'library'\n"
-                + "include 'library2'\n"
-                + "include 'test'\n"
-                + "include 'jar'\n",
-                project.getSettingsFile(),
-                Charsets.UTF_8);
+        // Rewrite settings.gradle to remove un-needed modules. We include library3 so that
+        // testAppProjectTestWithRemovedResFile() also serves as a regression test for
+        // https://issuetracker.google.com/128858509
+        Files.asCharSink(project.getSettingsFile(), Charsets.UTF_8)
+                .write(
+                        "include 'app'\n"
+                                + "include 'library'\n"
+                                + "include 'library2'\n"
+                                + "include 'library3'\n"
+                                + "include 'test'\n"
+                                + "include 'jar'\n");
 
         // setup dependencies.
-        appendToFile(appProject.getBuildFile(),
+        appendToFile(
+                appProject.getBuildFile(),
                 "android {\n"
-                + "    publishNonDefault true\n"
-                + "}\n"
-                + "\n"
-                + "dependencies {\n"
-                + "    compile project(':library')\n"
-                + "    compile project(':jar')\n"
-                + "}\n");
+                        + "    publishNonDefault true\n"
+                        + "}\n"
+                        + "\n"
+                        + "dependencies {\n"
+                        + "    api project(':library')\n"
+                        + "    api project(':library3')\n"
+                        + "    api project(':jar')\n"
+                        + "}\n");
 
-        appendToFile(libProject.getBuildFile(),
+        appendToFile(
+                libProject.getBuildFile(),
                 "dependencies {\n"
-                + "    compile project(':library2')\n"
-                + "}\n");
+                        + "    api project(':library2')\n"
+                        + "    api files('libs/local.jar')\n"
+                        + "}\n");
 
-        appendToFile(testProject.getBuildFile(),
-                "android {\n"
-                + "    targetProjectPath ':app'\n"
-                + "}\n");
+        appendToFile(testProject.getBuildFile(), "android { targetProjectPath ':app' }\n");
 
         // put some default files in the 4 projects, to check non incremental packaging as well,
         // and to provide files to change to test incremental support.
@@ -109,7 +113,7 @@ public class JavaResPackagingTest {
         File jarDir = jarProject.getTestDir();
         File resFolder = FileUtils.join(jarDir, "src", "main", "resources", "com", "foo");
         FileUtils.mkdirs(resFolder);
-        write("jar:abcd",  new File(resFolder, "jar.txt"), Charsets.UTF_8);
+        Files.asCharSink(new File(resFolder, "jar.txt"), Charsets.UTF_8).write("jar:abcd");
     }
 
     @After
@@ -130,7 +134,7 @@ public class JavaResPackagingTest {
             throws Exception {
         File assetFolder = FileUtils.join(projectFolder, "src", dimension, "resources", "com", "foo");
         FileUtils.mkdirs(assetFolder);
-        write(content, new File(assetFolder, filename), Charsets.UTF_8);
+        Files.asCharSink(new File(assetFolder, filename), Charsets.UTF_8).write(content);
     }
 
     private void execute(String... tasks) throws IOException, InterruptedException {
@@ -147,11 +151,13 @@ public class JavaResPackagingTest {
         checkTestApk(libProject2, "library2test.txt", "library2Test:abcd");
 
         checkAar(    libProject,  "library.txt",     "library:abcd");
+        checkAar(    libProject,  "localjar.txt",    "localjar:abcd");
         // aar does not contain dependency's assets
         checkAar(    libProject, "library2.txt",     null);
-        // test apk contains both test-ony assets, lib assets, and dependency assets.
+        // test apk contains both test-only assets, lib assets, and dependency assets.
         checkTestApk(libProject, "library.txt",      "library:abcd");
         checkTestApk(libProject, "library2.txt",     "library2:abcd");
+        checkTestApk(libProject, "localjar.txt",     "localjar:abcd");
         checkTestApk(libProject, "librarytest.txt",  "libraryTest:abcd");
         // but not the assets of the dependency's own test
         checkTestApk(libProject, "library2test.txt", null);
@@ -161,8 +167,13 @@ public class JavaResPackagingTest {
         checkApk(    appProject, "library.txt",      "library:abcd");
         checkApk(    appProject, "library2.txt",     "library2:abcd");
         checkApk(    appProject, "jar.txt",          "jar:abcd");
+        checkApk(    appProject, "localjar.txt",     "localjar:abcd");
+        // app test contains test-ony assets (not app, dependency, or dependency test assets).
         checkTestApk(appProject, "apptest.txt",      "appTest:abcd");
-        // app test does not contain dependencies' own test assets.
+        checkTestApk(appProject, "app.txt",          null);
+        checkTestApk(appProject, "library.txt",      null);
+        checkTestApk(appProject, "library2.txt",     null);
+        checkTestApk(appProject, "localjar.txt",     null);
         checkTestApk(appProject, "librarytest.txt",  null);
         checkTestApk(appProject, "library2test.txt", null);
     }
@@ -191,6 +202,38 @@ public class JavaResPackagingTest {
 
             checkApk(appProject, "app.txt", null);
         });
+    }
+
+    @Test
+    public void testAppProjectWithRenamedResFile() throws Exception {
+        execute("app:clean", "app:assembleDebug");
+
+        doTest(
+                appProject,
+                project -> {
+                    project.removeFile("src/main/resources/com/foo/app.txt");
+                    project.addFile("src/main/resources/com/foo/moved_app.txt", "app:abcd");
+                    execute("app:assembleDebug");
+
+                    checkApk(appProject, "app.txt", null);
+                    checkApk(appProject, "moved_app.txt", "app:abcd");
+                });
+    }
+
+    @Test
+    public void testAppProjectWithMovedResFile() throws Exception {
+        execute("app:clean", "app:assembleDebug");
+
+        doTest(
+                appProject,
+                project -> {
+                    project.removeFile("src/main/resources/com/foo/app.txt");
+                    project.addFile("src/main/resources/com/bar/app.txt", "app:abcd");
+                    execute("app:assembleDebug");
+
+                    checkApk(appProject, "app.txt", null);
+                    checkApk(appProject, "com/bar", "app.txt", "app:abcd");
+                });
     }
 
     @Test
@@ -261,6 +304,33 @@ public class JavaResPackagingTest {
         checkApk(appProject, "app.txt", "app:abcd");
     }
 
+    /**
+     * Check for correct behavior when the order of pre-merged java resource jar files changes. This
+     * must be supported in order to use @Classpath annotations on the MergeJavaResourceTask inputs.
+     */
+    @Test
+    public void testAppProjectWithReorderedDeps() throws Exception {
+        execute("app:clean", "app:assembleDebug");
+
+        doTest(
+                appProject,
+                project -> {
+                    // change order of dependencies in app from (library, library3, jar) to
+                    // (library3, jar, library).
+                    project.replaceInFile("build.gradle", ":library3", ":tempLibrary3");
+                    project.replaceInFile("build.gradle", ":library", ":tempLibrary");
+                    project.replaceInFile("build.gradle", ":jar", ":tempJar");
+                    project.replaceInFile("build.gradle", ":tempLibrary3", ":jar");
+                    project.replaceInFile("build.gradle", ":tempLibrary", ":library3");
+                    project.replaceInFile("build.gradle", ":tempJar", ":library");
+                    execute("app:assembleDebug");
+
+                    checkApk(appProject, "library.txt", "library:abcd");
+                    checkApk(appProject, "library2.txt", "library2:abcd");
+                    checkApk(appProject, "jar.txt", "jar:abcd");
+                });
+    }
+
     @Test
     public void testAppProjectWithModifiedResInDependency() throws Exception {
         execute("app:clean", "library:clean", "app:assembleDebug");
@@ -273,6 +343,12 @@ public class JavaResPackagingTest {
         });
     }
 
+    /**
+     * Check for correct behavior when a java res source file get removed.
+     *
+     * Also, with app's dependency on library3, this serves as a regression test for
+     * https://issuetracker.google.com/128858509
+     */
     @Test
     public void testAppProjectWithAddedResInDependency() throws Exception {
         execute("app:clean", "library:clean", "app:assembleDebug");
@@ -291,9 +367,11 @@ public class JavaResPackagingTest {
 
         doTest(libProject, project -> {
             project.removeFile("src/main/resources/com/foo/library.txt");
+            project.replaceInFile("build.gradle", "api files(.*)", "");
             execute("app:assembleDebug");
 
             checkApk(appProject, "library.txt", null);
+            checkApk(appProject, "localjar.txt", null);
         });
     }
 
@@ -355,9 +433,11 @@ public class JavaResPackagingTest {
 
         doTest(libProject, project -> {
             project.removeFile("src/main/resources/com/foo/library.txt");
+            project.replaceInFile("build.gradle", "api files(.*)", "");
             execute("library:assembleDebug");
 
             checkAar(libProject, "library.txt", null);
+            checkAar(libProject, "localjar.txt", null);
         });
     }
 
@@ -410,9 +490,11 @@ public class JavaResPackagingTest {
 
         doTest(libProject, project -> {
             project.removeFile("src/androidTest/resources/com/foo/librarytest.txt");
+            project.replaceInFile("build.gradle", "api files(.*)", "");
             execute("library:assembleAT");
 
             checkTestApk(libProject, "librarytest.txt", null);
+            checkTestApk(libProject, "localjar.txt", null);
         });
     }
 
@@ -513,7 +595,27 @@ public class JavaResPackagingTest {
     private static void checkApk(
             @NonNull GradleTestProject project, @NonNull String filename, @Nullable String content)
             throws Exception {
-        check(assertThat(project.getApk("debug")), filename, content);
+        checkApk(project, "com/foo", filename, content);
+    }
+
+    /**
+     * check an apk has (or not) the given res file name.
+     *
+     * <p>If the content is non-null the file is expected to be there with the same content. If the
+     * content is null the file is not expected to be there.
+     *
+     * @param project the project
+     * @param parentDirRelativePath the relative path of the file's parent directory
+     * @param filename the filename
+     * @param content the content
+     */
+    private static void checkApk(
+            @NonNull GradleTestProject project,
+            @NonNull String parentDirRelativePath,
+            @NonNull String filename,
+            @Nullable String content)
+            throws Exception {
+        check(assertThat(project.getApk("debug")), parentDirRelativePath, filename, content);
     }
 
     /**
@@ -529,11 +631,11 @@ public class JavaResPackagingTest {
     private void checkTestApk(
             @NonNull GradleTestProject project, @NonNull String filename, @Nullable String content)
             throws Exception {
-        check(assertThat(project.getTestApk()), filename, content);
+        check(assertThat(project.getTestApk()), "com/foo", filename, content);
     }
 
     /**
-     * check an aat has (or not) the given res file name.
+     * check an aar has (or not) the given res file name.
      *
      * <p>If the content is non-null the file is expected to be there with the same content. If the
      * content is null the file is not expected to be there.
@@ -545,18 +647,31 @@ public class JavaResPackagingTest {
     private static void checkAar(
             @NonNull GradleTestProject project, @NonNull String filename, @Nullable String content)
             throws Exception {
-        check(assertThat(project.getAar("debug")), filename, content);
+        check(assertThat(project.getAar("debug")), "com/foo", filename, content);
     }
 
+    /**
+     * check an AbstractAndroidSubject has (or not) the given res file name.
+     *
+     * <p>If the content is non-null the file is expected to be there with the same content. If the
+     * content is null the file is not expected to be there.
+     *
+     * @param subject the AbstractAndroidSubject
+     * @param parentDirRelativePath the relative path of the file's parent directory
+     * @param filename the filename
+     * @param content the content
+     */
     private static void check(
             @NonNull AbstractAndroidSubject subject,
+            @NonNull String parentDirRelativePath,
             @NonNull String filename,
             @Nullable String content)
             throws Exception {
         if (content != null) {
-            subject.containsJavaResourceWithContent("com/foo/" + filename, content);
+            subject.containsJavaResourceWithContent(
+                    parentDirRelativePath + "/" + filename, content);
         } else {
-            subject.doesNotContainJavaResource("com/foo/" + filename);
+            subject.doesNotContainJavaResource(parentDirRelativePath + "/" + filename);
         }
     }
 }

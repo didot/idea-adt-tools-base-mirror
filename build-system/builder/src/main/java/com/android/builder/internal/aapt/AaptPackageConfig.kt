@@ -17,7 +17,6 @@
 package com.android.builder.internal.aapt
 
 import com.android.builder.core.VariantType
-import com.android.sdklib.IAndroidTarget
 import com.google.common.collect.ImmutableCollection
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableSet
@@ -53,7 +52,9 @@ data class AaptPackageConfig(
         val listResourceFiles: Boolean = false,
         val staticLibrary: Boolean = false,
         val staticLibraryDependencies: ImmutableList<File> = ImmutableList.of(),
-        val intermediateDir: File? = null
+        val intermediateDir: File? = null,
+        val useConditionalKeepRules: Boolean = false,
+        val useFinalIds: Boolean = true
 ) : Serializable {
 
     fun isStaticLibrary() = staticLibrary
@@ -69,7 +70,7 @@ data class AaptPackageConfig(
         private var librarySymbolTableFiles: ImmutableCollection<File> = ImmutableSet.of()
         private var symbolOutputDir: File? = null
         private var isVerbose: Boolean = false
-        private var resourceDirs: ImmutableList<File> = ImmutableList.of()
+        private var resourceDirsBuilder: ImmutableList.Builder<File> = ImmutableList.builder()
         private var proguardOutputFile: File? = null
         private var mainDexListProguardOutputFile: File? = null
         private var splits: ImmutableCollection<String>? = null
@@ -88,6 +89,8 @@ data class AaptPackageConfig(
         private var staticLibrary: Boolean = false
         private var staticLibraryDependencies: ImmutableList<File> = ImmutableList.of()
         private var intermediateDir: File? = null
+        private var useConditionalKeepRules: Boolean = false
+        private var useFinalIds: Boolean = true
 
         /**
          * Creates a new [AaptPackageConfig] from the data already placed in the builder.
@@ -96,32 +99,34 @@ data class AaptPackageConfig(
          */
         fun build(): AaptPackageConfig {
             return AaptPackageConfig(
-                    manifestFile = manifestFile!!,
-                    options = options!!,
-                    androidJarPath = androidJarPath!!,
-                    sourceOutputDir = sourceOutputDir,
-                    resourceOutputApk = resourceOutputApk,
-                    librarySymbolTableFiles = librarySymbolTableFiles,
-                    symbolOutputDir = symbolOutputDir,
-                    verbose = isVerbose,
-                    resourceDirs = resourceDirs,
-                    proguardOutputFile = proguardOutputFile,
-                    mainDexListProguardOutputFile = mainDexListProguardOutputFile,
-                    splits = splits,
-                    debuggable = debuggable,
-                    customPackageForR = customPackageForR,
-                    preferredDensity = preferredDensity,
-                    resourceConfigs = resourceConfigs,
-                    generateProtos = isGenerateProtos,
-                    variantType = variantType!!,
-                    imports = imports,
-                    packageId = packageId,
-                    allowReservedPackageId = allowReservedPackageId,
-                    dependentFeatures = dependentFeatures,
-                    listResourceFiles = listResourceFiles,
-                    staticLibrary = staticLibrary,
-                    staticLibraryDependencies = staticLibraryDependencies,
-                    intermediateDir = intermediateDir
+                manifestFile = manifestFile!!,
+                options = options!!,
+                androidJarPath = androidJarPath!!,
+                sourceOutputDir = sourceOutputDir,
+                resourceOutputApk = resourceOutputApk,
+                librarySymbolTableFiles = librarySymbolTableFiles,
+                symbolOutputDir = symbolOutputDir,
+                verbose = isVerbose,
+                resourceDirs = resourceDirsBuilder.build(),
+                proguardOutputFile = proguardOutputFile,
+                mainDexListProguardOutputFile = mainDexListProguardOutputFile,
+                splits = splits,
+                debuggable = debuggable,
+                customPackageForR = customPackageForR,
+                preferredDensity = preferredDensity,
+                resourceConfigs = resourceConfigs,
+                generateProtos = isGenerateProtos,
+                variantType = variantType!!,
+                imports = imports,
+                packageId = packageId,
+                allowReservedPackageId = allowReservedPackageId,
+                dependentFeatures = dependentFeatures,
+                listResourceFiles = listResourceFiles,
+                staticLibrary = staticLibrary,
+                staticLibraryDependencies = staticLibraryDependencies,
+                intermediateDir = intermediateDir,
+                useConditionalKeepRules = useConditionalKeepRules,
+                useFinalIds = useFinalIds
             )
         }
 
@@ -166,13 +171,18 @@ data class AaptPackageConfig(
             return this
         }
 
-        fun setResourceDir(resourceDir: File?): Builder {
+        fun addResourceDir(resourceDir: File?): Builder {
             if (resourceDir != null && !resourceDir.isDirectory) {
                 throw IllegalArgumentException("Path '" + resourceDir.absolutePath
                         + "' is not a readable directory.")
             }
 
-            this.resourceDirs = ImmutableList.of(resourceDir!!)
+            this.resourceDirsBuilder.add(resourceDir!!)
+            return this
+        }
+
+        fun addResourceDirectories(resourceDirectories: Iterable<File?>): Builder {
+            resourceDirectories.forEach { addResourceDir(it) }
             return this
         }
 
@@ -206,8 +216,8 @@ data class AaptPackageConfig(
             return this
         }
 
-        fun setAndroidTarget(androidTarget: IAndroidTarget): Builder {
-            this.androidJarPath = androidTarget.getPath(IAndroidTarget.ANDROID_JAR)
+        fun setAndroidTarget(androidJar: File): Builder {
+            this.androidJarPath = androidJar.absolutePath
             return this
         }
 
@@ -262,6 +272,16 @@ data class AaptPackageConfig(
          */
         fun setAllowReservedPackageId(value: Boolean): Builder {
             this.allowReservedPackageId = value
+            return this
+        }
+
+        fun setUseConditionalKeepRules(value: Boolean): Builder {
+            this.useConditionalKeepRules = value
+            return this
+        }
+
+        fun setUseFinalIds(value: Boolean): Builder {
+            this.useFinalIds = value
             return this
         }
     }

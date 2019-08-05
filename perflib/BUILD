@@ -5,6 +5,7 @@ iml_module(
     name = "studio.android.sdktools.perflib",
     srcs = ["src/main/java"],
     iml_files = ["android.sdktools.perflib.iml"],
+    test_coverage = True,
     test_resources = ["src/test/resources"],
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
@@ -16,6 +17,6 @@ iml_module(
         "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
         "//tools/idea/.idea/libraries:mockito[test]",
         "//tools/idea/.idea/libraries:truth[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime[test]",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8[test]",
     ],
 )

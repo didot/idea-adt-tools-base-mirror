@@ -16,6 +16,9 @@
 
 package com.android.ide.common.resources;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+
 import com.android.SdkConstants;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.ide.common.resources.configuration.FolderConfiguration;
@@ -25,17 +28,16 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
-import org.junit.Test;
-import org.w3c.dom.Document;
-
-import java.io.*;
-import java.nio.charset.StandardCharsets;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import org.junit.Test;
+import org.w3c.dom.Document;
 
 /**
  */
@@ -233,7 +235,7 @@ public class ValueResourceParser2Test extends BaseTestCase {
         String xml =
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                         + "<resources><public /></resources>";
-        Files.write(file.toPath(), xml.getBytes(StandardCharsets.UTF_8));
+        Files.write(file.toPath(), xml.getBytes());
 
         ValueResourceParser2 parser = new ValueResourceParser2(file, null, null);
         List<ResourceMergerItem> items = parser.parseFile();

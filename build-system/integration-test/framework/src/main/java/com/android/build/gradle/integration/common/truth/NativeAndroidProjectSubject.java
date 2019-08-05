@@ -16,7 +16,8 @@
 
 package com.android.build.gradle.integration.common.truth;
 
-import static com.google.common.truth.Truth.assert_;
+import static com.android.build.gradle.internal.cxx.configure.ConstantsKt.CXX_DEFAULT_CONFIGURATION_SUBFOLDER;
+import static com.google.common.truth.Truth.assertAbout;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -26,9 +27,8 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-import com.google.common.truth.FailureStrategy;
+import com.google.common.truth.FailureMetadata;
 import com.google.common.truth.Subject;
-import com.google.common.truth.SubjectFactory;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -36,7 +36,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -44,41 +43,27 @@ import java.util.stream.Stream;
  */
 public class NativeAndroidProjectSubject
         extends Subject<NativeAndroidProjectSubject, NativeAndroidProject> {
-    static class Factory
-            extends SubjectFactory<NativeAndroidProjectSubject, NativeAndroidProject> {
 
-        @NonNull
-        public static NativeAndroidProjectSubject.Factory get() {
-            return new NativeAndroidProjectSubject.Factory();
-        }
-
-        private Factory() {}
-
-        @NonNull
-        @Override
-        public NativeAndroidProjectSubject getSubject(
-                @NonNull FailureStrategy failureStrategy,
-                @NonNull NativeAndroidProject subject) {
-            return new NativeAndroidProjectSubject(failureStrategy, subject);
-        }
+    public static Subject.Factory<NativeAndroidProjectSubject, NativeAndroidProject>
+            nativeAndroidProjects() {
+        return NativeAndroidProjectSubject::new;
     }
 
     private NativeAndroidProjectSubject(
-            @NonNull FailureStrategy failureStrategy,
-            @NonNull NativeAndroidProject subject) {
-        super(failureStrategy, subject);
+            @NonNull FailureMetadata failureMetadata, @NonNull NativeAndroidProject subject) {
+        super(failureMetadata, subject);
     }
 
 
     @NonNull
     public static NativeAndroidProjectSubject assertThat(@Nullable NativeAndroidProject project) {
-        return assert_().about(NativeAndroidProjectSubject.Factory.get()).that(project);
+        return assertAbout(nativeAndroidProjects()).that(project);
     }
 
     @NonNull
     private Multimap<String, NativeArtifact> getArtifactsGroupedByGroupName() {
         Multimap<String, NativeArtifact> groupToArtifacts = ArrayListMultimap.create();
-        for (NativeArtifact artifact : getSubject().getArtifacts()) {
+        for (NativeArtifact artifact : actual().getArtifacts()) {
             groupToArtifacts.put(artifact.getGroupName(), artifact);
         }
         return groupToArtifacts;
@@ -87,7 +72,7 @@ public class NativeAndroidProjectSubject
     @NonNull
     private Multimap<String, NativeArtifact> getArtifactsByName() {
         Multimap<String, NativeArtifact> groupToArtifacts = ArrayListMultimap.create();
-        for (NativeArtifact artifact : getSubject().getArtifacts()) {
+        for (NativeArtifact artifact : actual().getArtifacts()) {
             groupToArtifacts.put(artifact.getName(), artifact);
         }
         return groupToArtifacts;
@@ -96,7 +81,7 @@ public class NativeAndroidProjectSubject
     @NonNull
     private List<File> getOutputs() {
         List<File> outputs = Lists.newArrayList();
-        for (NativeArtifact artifact : getSubject().getArtifacts()) {
+        for (NativeArtifact artifact : actual().getArtifacts()) {
             outputs.add(artifact.getOutputFile());
         }
         return outputs;
@@ -105,17 +90,17 @@ public class NativeAndroidProjectSubject
     @NonNull
     private Set<File> getIntermediatesFolders(@NonNull  String baseFolder) {
         Set<File> intermediatesFolders = Sets.newHashSet();
-        for (NativeArtifact artifact : getSubject().getArtifacts()) {
+        for (NativeArtifact artifact : actual().getArtifacts()) {
             File intermediatesBaseFolder = artifact.getOutputFile();
-            File externalNativeBuildFolder;
+            File cxxFolder;
             do {
                 if (intermediatesBaseFolder.getName().equals("project")) {
                     return intermediatesFolders;
                 }
                 intermediatesBaseFolder = intermediatesBaseFolder.getParentFile();
-                externalNativeBuildFolder = new File(intermediatesBaseFolder, baseFolder);
-            } while(!externalNativeBuildFolder.isDirectory());
-            intermediatesFolders.add(externalNativeBuildFolder);
+                cxxFolder = new File(intermediatesBaseFolder, baseFolder);
+            } while (!cxxFolder.isDirectory());
+            intermediatesFolders.add(cxxFolder);
         }
         return intermediatesFolders;
     }
@@ -183,9 +168,8 @@ public class NativeAndroidProjectSubject
     }
 
     @SuppressWarnings("NonBooleanMethodNameMayNotStartWithQuestion")
-    public void hasExactObjectFilesInExternalNativeBuildFolder(
-            String... baseName) throws IOException {
-        hasExactOutputFiles(".o", ".externalNativeBuild", baseName);
+    public void hasExactObjectFilesInCxxFolder(String... baseName) throws IOException {
+        hasExactOutputFiles(".o", CXX_DEFAULT_CONFIGURATION_SUBFOLDER, baseName);
     }
 
     @SuppressWarnings("NonBooleanMethodNameMayNotStartWithQuestion")
@@ -198,10 +182,9 @@ public class NativeAndroidProjectSubject
         List<File> buildOutputs = getOutputs();
 
         if (buildOutputs.size() != expectedCount) {
-            failWithRawMessage("Not true that %s build output count was %s. It was %s",
-                    getDisplaySubject(),
-                    expectedCount,
-                    buildOutputs.size());
+            failWithRawMessage(
+                    "Not true that %s build output count was %s. It was %s",
+                    actualAsString(), expectedCount, buildOutputs.size());
         }
     }
 
@@ -216,10 +199,9 @@ public class NativeAndroidProjectSubject
             }
         }
         if (!dontExist.isEmpty()) {
-            failWithRawMessage("Not true that %s build outputs <%s> exist. Existing build outputs are <%s>",
-                    getDisplaySubject(),
-                    dontExist,
-                    exist);
+            failWithRawMessage(
+                    "Not true that %s build outputs <%s> exist. Existing build outputs are <%s>",
+                    actualAsString(), dontExist, exist);
         }
     }
 
@@ -234,10 +216,27 @@ public class NativeAndroidProjectSubject
             }
         }
         if (!exist.isEmpty()) {
-            failWithRawMessage("Not true that %s build outputs <%s> don't exist. Nonexistent build outputs are <%s>",
-                    getDisplaySubject(),
-                    exist,
-                    dontExist);
+            failWithRawMessage(
+                    "Not true that %s build outputs <%s> don't exist. Nonexistent build outputs are <%s>",
+                    actualAsString(), exist, dontExist);
+        }
+    }
+
+    /**
+     * Asseerts that the this project has build files of names shortNames and no others. This checks
+     * just the file name and not the path.
+     */
+    @SuppressWarnings("NonBooleanMethodNameMayNotStartWithQuestion")
+    public void hasExactBuildFilesShortNames(String... shortNames) {
+        Set<String> expected = Sets.newHashSet();
+        for (File buildFile : actual().getBuildFiles()) {
+            expected.add(buildFile.getName());
+        }
+        Set<String> actual = Sets.newHashSet(shortNames);
+        if (!actual.equals(expected)) {
+            failWithRawMessage(
+                    "Not true that %s build files are <%s>. They are <%s>",
+                    actualAsString(), expected, actual);
         }
     }
 
@@ -246,10 +245,9 @@ public class NativeAndroidProjectSubject
         Set<String> expected = Sets.newHashSet(artifacts);
         Multimap<String, NativeArtifact> groups = getArtifactsGroupedByGroupName();
         if (!groups.keySet().equals(expected)) {
-            failWithRawMessage("Not true that %s artifact groups are <%s>. They are <%s>",
-                    getDisplaySubject(),
-                    expected,
-                    groups.keySet());
+            failWithRawMessage(
+                    "Not true that %s artifact groups are <%s>. They are <%s>",
+                    actualAsString(), expected, groups.keySet());
         }
     }
 
@@ -258,10 +256,9 @@ public class NativeAndroidProjectSubject
         Set<String> expected = Sets.newHashSet(artifacts);
         Multimap<String, NativeArtifact> groups = getArtifactsByName();
         if (!groups.keySet().equals(expected)) {
-            failWithRawMessage("Not true that %s that qualified targets are <%s>. They are <%s>",
-                    getDisplaySubject(),
-                    expected,
-                    groups.keySet());
+            failWithRawMessage(
+                    "Not true that %s that qualified targets are <%s>. They are <%s>",
+                    actualAsString(), expected, groups.keySet());
         }
     }
 
@@ -271,12 +268,9 @@ public class NativeAndroidProjectSubject
         Multimap<String, NativeArtifact> groups = getArtifactsGroupedByGroupName();
         for (String groupName : groups.keySet()) {
             if (groups.get(groupName).size() != size) {
-                failWithRawMessage("Not true that %s artifact group %s has size %s. "
-                        + "Actual size is <%s>",
-                        getDisplaySubject(),
-                        groupName,
-                        size,
-                        groups.get(groupName).size());
+                failWithRawMessage(
+                        "Not true that %s artifact group %s has size %s. " + "Actual size is <%s>",
+                        actualAsString(), groupName, size, groups.get(groupName).size());
             }
         }
     }

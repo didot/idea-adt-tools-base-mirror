@@ -25,6 +25,7 @@ import com.android.build.gradle.internal.publishing.AndroidArtifacts.MODULE_PATH
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.GlobalScope
 import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.InternalArtifactType.STRIPPED_NATIVE_LIBS
 import com.android.build.gradle.internal.scope.MutableTaskContainer
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.builder.core.VariantTypeImpl
@@ -34,7 +35,12 @@ import com.google.common.truth.Truth.assertThat
 import org.bouncycastle.util.io.Streams
 import org.gradle.api.Project
 import org.gradle.api.Task
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
+import org.gradle.api.file.ProjectLayout
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.testfixtures.ProjectBuilder
 import org.junit.Before
@@ -50,11 +56,14 @@ import java.util.zip.ZipFile
 
 class PerModuleBundleTaskTest {
 
-    @Mock private lateinit var assetsFiles: BuildableArtifact
+    @Mock private lateinit var assetsFilesProvider: Provider<Directory>
+    @Mock private lateinit var assetsFiles: Directory
     @Mock private lateinit var resFiles: BuildableArtifact
     @Mock private lateinit var dexFiles: FileCollection
+    @Mock private lateinit var javaResProvider: Provider<RegularFile>
     @Mock private lateinit var javaResFiles: FileCollection
-    @Mock private lateinit var nativeLibsFiles: FileCollection
+    @Mock private lateinit var nativeLibsProvider: Provider<Directory>
+    @Mock private lateinit var nativeLibsFiles: ConfigurableFileCollection
     @Mock private lateinit var variantScope: VariantScope
     @Mock private lateinit var artifacts: BuildArtifactsHolder
     @Mock private lateinit var featureSetMetadata: FileCollection
@@ -64,6 +73,8 @@ class PerModuleBundleTaskTest {
     @Mock private lateinit var project: Project
     @Mock private lateinit var taskContainer: MutableTaskContainer
     @Mock private lateinit var preBuildTask: TaskProvider<out Task>
+    @Mock private lateinit var projectLayout: ProjectLayout
+    @Mock private lateinit var projectFiles: ConfigurableFileCollection
 
     @get:Rule
     val testFolder = TemporaryFolder()
@@ -80,26 +91,34 @@ class PerModuleBundleTaskTest {
         Mockito.`when`(variantScope.variantConfiguration).thenReturn(variantConfiguration)
         Mockito.`when`(variantConfiguration.supportedAbis).thenReturn(setOf())
 
-        Mockito.`when`(artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_ASSETS))
-            .thenReturn(assetsFiles)
-        Mockito.`when`(assetsFiles.iterator()).thenReturn(
-            listOf(testFolder.newFolder("assets")).iterator())
+        Mockito.`when`(artifacts.getFinalProduct<Directory>(InternalArtifactType.MERGED_ASSETS))
+            .thenReturn(assetsFilesProvider)
+
+        Mockito.`when`(assetsFilesProvider.get()).thenReturn(assetsFiles)
+        Mockito.`when`(assetsFiles.asFile).thenReturn(
+            testFolder.newFolder("assets"))
         Mockito.`when`(artifacts.getFinalArtifactFiles(InternalArtifactType.LINKED_RES_FOR_BUNDLE))
             .thenReturn(resFiles)
         Mockito.`when`(resFiles.iterator()).thenReturn(
             listOf(testFolder.newFile("res")).iterator())
 
+        Mockito.`when`(variantScope.needsMergedJavaResStream).thenReturn(false)
+        Mockito.`when`(artifacts.getFinalProduct<RegularFile>(InternalArtifactType.MERGED_JAVA_RES))
+            .thenReturn(javaResProvider)
+        Mockito.`when`(project.layout).thenReturn(projectLayout)
+        Mockito.`when`(projectLayout.files(javaResProvider)).thenReturn(javaResFiles)
+
         Mockito.`when`(variantScope.transformManager).thenReturn(transformManager)
         Mockito.`when`(transformManager.getPipelineOutputAsFileCollection(StreamFilter.DEX))
             .thenReturn(dexFiles)
-        Mockito.`when`(transformManager.getPipelineOutputAsFileCollection(StreamFilter.RESOURCES))
-            .thenReturn(javaResFiles)
-        Mockito.`when`(transformManager.getPipelineOutputAsFileCollection(StreamFilter.NATIVE_LIBS))
-            .thenReturn(nativeLibsFiles)
+        Mockito.`when`(project.files()).thenReturn(projectFiles)
+        Mockito.`when`(artifacts.getFinalProduct<Directory>(STRIPPED_NATIVE_LIBS))
+            .thenReturn(nativeLibsProvider)
+        Mockito.`when`(projectFiles.from(nativeLibsProvider)).thenReturn(nativeLibsFiles)
 
         Mockito.`when`(variantScope.getArtifactFileCollection(
             AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
-            AndroidArtifacts.ArtifactScope.MODULE,
+            AndroidArtifacts.ArtifactScope.PROJECT,
             AndroidArtifacts.ArtifactType.FEATURE_SET_METADATA))
             .thenReturn(featureSetMetadata)
 
@@ -109,7 +128,7 @@ class PerModuleBundleTaskTest {
         Mockito.`when`(project.path).thenReturn(":foo:bar")
         Mockito.`when`(variantScope.getArtifactFileCollection(
             AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-            AndroidArtifacts.ArtifactScope.MODULE,
+            AndroidArtifacts.ArtifactScope.PROJECT,
             AndroidArtifacts.ArtifactType.FEATURE_DEX,
             mapOf(MODULE_PATH to ":foo:bar")))
             .thenReturn(dexFiles)
@@ -132,7 +151,7 @@ class PerModuleBundleTaskTest {
             .thenReturn(testFolder.newFolder("out"))
 
 
-        val configAction = PerModuleBundleTask.CreationAction(variantScope)
+        val configAction = PerModuleBundleTask.CreationAction(variantScope, false)
         configAction.preConfigure(task.name)
         configAction.configure(task)
     }
@@ -142,7 +161,7 @@ class PerModuleBundleTaskTest {
         val dexFolder = testFolder.newFolder("dex_files")
         Mockito.`when`(dexFiles.files).thenReturn(
             setOf(createDex(dexFolder, "classes.dex")))
-        task.zip()
+        task.doTaskAction()
         verifyOutputZip(task.outputDir.listFiles().single(), 1)
     }
 
@@ -154,7 +173,7 @@ class PerModuleBundleTaskTest {
                 createDex(dexFolder, "classes.dex"),
                 createDex(dexFolder, "classes2.dex"),
                 createDex(dexFolder, "classes3.dex")))
-        task.zip()
+        task.doTaskAction()
         verifyOutputZip(task.outputDir.listFiles().single(), 3)
     }
 
@@ -169,7 +188,7 @@ class PerModuleBundleTaskTest {
                 createDex(dexFolder0, "classes3.dex"),
                 createDex(dexFolder1, "classes.dex"),
                 createDex(dexFolder1, "classes2.dex")))
-        task.zip()
+        task.doTaskAction()
 
         // verify naming and shuffling of names.
         verifyOutputZip(task.outputDir.listFiles().single(), 5)
@@ -183,7 +202,7 @@ class PerModuleBundleTaskTest {
                 createDex(dexFolder0, "classes2.dex"),
                 createDex(dexFolder0, "classes.dex"),
                 createDex(dexFolder0, "classes3.dex")))
-        task.zip()
+        task.doTaskAction()
 
         // verify classes.dex has not been renamed.
         verifyOutputZip(task.outputDir.listFiles().single(), 3)

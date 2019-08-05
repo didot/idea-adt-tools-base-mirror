@@ -31,6 +31,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import org.gradle.api.DefaultTask;
 import org.gradle.api.artifacts.ArtifactCollection;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
@@ -38,17 +39,15 @@ import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.artifacts.result.ResolvedArtifactResult;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.CacheableTask;
-import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
-import org.gradle.api.tasks.TaskAction;
 import org.gradle.internal.component.local.model.OpaqueComponentArtifactIdentifier;
 
 /** Pre build task that does some checks for application variants */
 @CacheableTask
-public class AppPreBuildTask extends AndroidVariantTask {
+public class AppPreBuildTask extends NonIncrementalTask {
 
     // list of Android only compile and runtime classpath.
     private ArtifactCollection compileManifests;
@@ -56,7 +55,6 @@ public class AppPreBuildTask extends AndroidVariantTask {
     private ArtifactCollection runtimeManifests;
     private ArtifactCollection runtimeNonNamespacedManifests;
     private File fakeOutputDirectory;
-    private boolean isBaseModule;
 
     @InputFiles
     @PathSensitive(PathSensitivity.NAME_ONLY)
@@ -87,13 +85,8 @@ public class AppPreBuildTask extends AndroidVariantTask {
         return fakeOutputDirectory;
     }
 
-    @Input
-    public boolean isBaseModule() {
-        return isBaseModule;
-    }
-
-    @TaskAction
-    void run() {
+    @Override
+    protected void doTaskAction() {
         Set<ResolvedArtifactResult> compileArtifacts = new HashSet<>();
         compileArtifacts.addAll(compileManifests.getArtifacts());
         compileArtifacts.addAll(compileNonNamespacedManifests.getArtifacts());
@@ -120,21 +113,11 @@ public class AppPreBuildTask extends AndroidVariantTask {
                     (key, value) -> {
                         String runtimeVersion = runtimeIds.get(key);
                         if (runtimeVersion == null) {
-                            if (isBaseModule) {
-                                String display = compileId.getDisplayName();
-                                throw new RuntimeException(
-                                        "Android dependency '"
-                                                + display
-                                                + "' is set to compileOnly/provided which is not supported");
-                            }
-                        } else if (!runtimeVersion.isEmpty()) {
-                            // compare versions.
-                            if (!runtimeVersion.equals(value)) {
-                                throw new RuntimeException(
-                                        String.format(
-                                                "Android dependency '%s' has different version for the compile (%s) and runtime (%s) classpath. You should manually set the same version via DependencyResolution",
-                                                key, value, runtimeVersion));
-                            }
+                            String display = compileId.getDisplayName();
+                            throw new RuntimeException(
+                                    "Android dependency '"
+                                            + display
+                                            + "' is set to compileOnly/provided which is not supported");
                         }
                     });
         }
@@ -160,10 +143,34 @@ public class AppPreBuildTask extends AndroidVariantTask {
         }
     }
 
-    public static class CreationAction
+    public static TaskManager.AbstractPreBuildCreationAction getCreationAction(
+            @NonNull VariantScope variantScope) {
+        if (variantScope.getType().isBaseModule()
+                && variantScope.getGlobalScope().hasDynamicFeatures()) {
+            return new CheckCreationAction(variantScope);
+        }
+
+        return new EmptyCreationAction(variantScope);
+    }
+
+    private static class EmptyCreationAction
+            extends TaskManager.AbstractPreBuildCreationAction<DefaultTask> {
+
+        public EmptyCreationAction(@NonNull VariantScope variantScope) {
+            super(variantScope);
+        }
+
+        @NonNull
+        @Override
+        public Class<DefaultTask> getType() {
+            return DefaultTask.class;
+        }
+    }
+
+    private static class CheckCreationAction
             extends TaskManager.AbstractPreBuildCreationAction<AppPreBuildTask> {
 
-        public CreationAction(@NonNull VariantScope variantScope) {
+        public CheckCreationAction(@NonNull VariantScope variantScope) {
             super(variantScope);
         }
 
@@ -178,7 +185,6 @@ public class AppPreBuildTask extends AndroidVariantTask {
             super.configure(task);
             task.setVariantName(variantScope.getFullVariantName());
 
-            task.isBaseModule = variantScope.getType().isBaseModule();
             task.compileManifests =
                     variantScope.getArtifactCollection(COMPILE_CLASSPATH, ALL, MANIFEST);
             task.compileNonNamespacedManifests =

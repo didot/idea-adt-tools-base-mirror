@@ -360,12 +360,7 @@ abstract class Detector {
 
     // ---- Dummy implementations to make implementing XmlScanner easier: ----
 
-    open fun visitDocument(context: XmlContext, document: Document) {
-        // This method must be overridden if your detector does
-        // not return something from getApplicableElements or
-        // getApplicableAttributes
-        assert(false)
-    }
+    open fun visitDocument(context: XmlContext, document: Document) {}
 
     open fun visitElement(context: XmlContext, element: Element) {
         // This method must be overridden if your detector returns
@@ -416,6 +411,28 @@ abstract class Detector {
         valueCookie: Any,
         statementCookie: Any
     ) {
+    }
+
+    open fun checkDslPropertyAssignment(
+        context: GradleContext,
+        property: String,
+        value: String,
+        parent: String,
+        parentParent: String?,
+        propertyCookie: Any,
+        valueCookie: Any,
+        statementCookie: Any
+    ) {
+        // Backward compatibility
+        checkDslPropertyAssignment(
+            context,
+            property,
+            value,
+            parent,
+            parentParent,
+            valueCookie,
+            statementCookie
+        )
     }
 
     open fun checkMethodCall(
@@ -570,6 +587,8 @@ abstract class Detector {
         @Suppress("UseExpressionBody")
         return type != AnnotationUsageType.BINARY && type != AnnotationUsageType.EQUALITY
     }
+
+    open fun inheritAnnotation(annotation: String): Boolean = true
 
     open fun getApplicableElements(): Collection<String>? = null
 

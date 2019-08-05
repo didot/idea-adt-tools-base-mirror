@@ -19,8 +19,6 @@ package com.android.sdklib.internal.avd;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
-import com.android.annotations.VisibleForTesting.Visibility;
 import com.android.io.IAbstractFile;
 import com.android.io.StreamException;
 import com.android.prefs.AndroidLocation;
@@ -50,6 +48,7 @@ import com.android.utils.GrabProcessOutput;
 import com.android.utils.GrabProcessOutput.IProcessOutput;
 import com.android.utils.GrabProcessOutput.Wait;
 import com.android.utils.ILogger;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Maps;
@@ -808,6 +807,7 @@ public class AvdManager {
             if (!mFop.exists(avdFolder)) {
                 // create the AVD folder.
                 mFop.mkdirs(avdFolder);
+                inhibitCopyOnWrite(avdFolder, log);
                 // We're not editing an existing AVD.
                 editExisting = false;
             }
@@ -816,6 +816,7 @@ public class AvdManager {
                 // directory's content first (but not the directory itself).
                 try {
                     deleteContentOf(avdFolder);
+                    inhibitCopyOnWrite(avdFolder, log);
                 }
                 catch (SecurityException e) {
                     log.warning("Failed to delete %1$s: %2$s", avdFolder.getAbsolutePath(), e);
@@ -941,6 +942,7 @@ public class AvdManager {
 
         try {
             File destAvdFolder = new File(origAvd.getParent(), newAvdName + AVD_FOLDER_EXTENSION);
+            inhibitCopyOnWrite(destAvdFolder, log);
 
             ProgressIndicator progInd = new ConsoleProgressIndicator();
             progInd.setText("Copying files");
@@ -1087,7 +1089,7 @@ public class AvdManager {
         File androidFolder = mSdkHandler.getAndroidFolder();
         if (androidFolder == null) {
             throw new AndroidLocation.AndroidLocationException(
-                    "Can't locate ANDROID_HOME for the AVD .ini file.");
+                    "Can't locate Android SDK installation directory for the AVD .ini file.");
         }
         String androidPath = androidFolder.getAbsolutePath() + File.separator;
         if (absPath.startsWith(androidPath)) {
@@ -1658,7 +1660,7 @@ public class AvdManager {
      * @param log the log object to receive action logs. Cannot be null.
      * @return True if the sdcard could be created.
      */
-    @VisibleForTesting(visibility=Visibility.PRIVATE)
+    @VisibleForTesting
     protected boolean createSdCard(String toolLocation, String size, String location, ILogger log) {
         try {
             String[] command = new String[3];
@@ -1907,7 +1909,7 @@ public class AvdManager {
     private void createAvdSnapshot(
                       boolean            createSnapshot,
                       boolean            editExisting,
-            @Nullable Map<String,String> values,
+            @NonNull  Map<String,String> values,
             @NonNull  File               avdFolder,
             @NonNull  ILogger            log)
             throws IOException, AvdMgrException {
@@ -1934,8 +1936,6 @@ public class AvdManager {
             mFop.copyFile(snapshotBlank, snapshotDest);
         }
         values.put(AVD_INI_SNAPSHOT_PRESENT, "true");
-
-        return;
     }
 
     /**
@@ -1984,7 +1984,7 @@ public class AvdManager {
     private void createAvdSkin(
             @Nullable File               skinFolder,
             @Nullable String             skinName,
-            @Nullable Map<String,String> values,
+            @NonNull  Map<String,String> values,
             @NonNull  ILogger            log)
             throws AvdMgrException {
 
@@ -2044,7 +2044,7 @@ public class AvdManager {
     private void createAvdSdCard(
             @Nullable String             sdcard,
                       boolean            editExisting,
-            @Nullable Map<String,String> values,
+            @NonNull  Map<String,String> values,
             @NonNull  File               avdFolder,
             @NonNull  ILogger            log)
             throws AvdMgrException {
@@ -2133,7 +2133,6 @@ public class AvdManager {
         // add a property containing the size of the sdcard for display purpose
         // only when the dev does 'android list avd'
         values.put(AVD_INI_SDCARD_SIZE, sdcard);
-        return;
     }
 
     /**
@@ -2250,4 +2249,60 @@ public class AvdManager {
         return theAvdInfo;
     }
 
+
+    /**
+     * (Linux only) Sets the AVD folder to not be "Copy on Write"
+     *
+     * CoW at the file level conflicts with QEMU's explicit CoW
+     * operations and can hurt Emulator performance.
+     * NOTE: The "chatter +C" command does not impact existing
+     *       files in the folder. Thus this method should be
+     *       called before the folder is populated.
+     * This method is "best effort." Common failures are silently
+     * ignored. Other failures are logged and ignored.
+     * @param avdFolder where the AVD's files will be written
+     * @param log the log object to receive action logs
+     */
+    private static void inhibitCopyOnWrite(@NonNull File avdFolder, @NonNull ILogger log) {
+        if (SdkConstants.CURRENT_PLATFORM != SdkConstants.PLATFORM_LINUX) {
+            return;
+        }
+        try {
+            String[] chattrCommand = new String[3];
+            chattrCommand[0] = "chattr";
+            chattrCommand[1] = "+C";
+            chattrCommand[2] = avdFolder.getAbsolutePath();
+            Process chattrProcess = Runtime.getRuntime().exec(chattrCommand);
+
+            final ArrayList<String> errorOutput = new ArrayList<>();
+
+            GrabProcessOutput.grabProcessOutput(
+              chattrProcess,
+              Wait.WAIT_FOR_READERS,
+              new IProcessOutput() {
+                  @Override
+                  public void out(@Nullable String line) { }
+
+                  @Override
+                  public void err(@Nullable String line) {
+                      // Don't complain if this command is not supported. That just means
+                      // that the file system is not 'btrfs', and it does not support Copy
+                      // on Write. So we're happy.
+                      if (line != null && !line.startsWith("chattr: Operation not supported")) {
+                          errorOutput.add(line);
+                      }
+                  }
+              });
+
+            if (!errorOutput.isEmpty()) {
+                log.warning("Failed 'chattr' for %1$s:", avdFolder.getAbsolutePath());
+                for (String error : errorOutput) {
+                    log.warning(" -- %1$s", error);
+                }
+            }
+        }
+        catch (InterruptedException | IOException ee) {
+            log.warning("Failed 'chattr' for %1$s: %2$s", avdFolder.getAbsolutePath(), ee);
+        }
+    }
 }

@@ -5,13 +5,14 @@ iml_module(
     name = "studio.usb-devices",
     srcs = ["src"],
     iml_files = ["usb-devices.iml"],
+    test_coverage = True,
     test_data = glob(["testData/**"]),
     test_resources = ["testData"],
     test_srcs = ["testSrc"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     deps = [
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
         "//tools/idea/.idea/libraries:JUnit4",
         "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
     ],

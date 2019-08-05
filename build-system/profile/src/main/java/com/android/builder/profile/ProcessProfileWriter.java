@@ -22,7 +22,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.tools.analytics.CommonMetricsData;
 import com.android.tools.analytics.UsageTracker;
-import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -68,6 +68,9 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
 
     private final GradleBuildProfile.Builder mBuild;
 
+    private final List<AndroidStudioEvent.Builder> otherEvents =
+            Collections.synchronizedList(new ArrayList<>());
+
     private final LoadingCache<String, Project> mProjects;
 
     private final boolean mEnableChromeTracingOutput;
@@ -84,14 +87,9 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
         return lastRecordId.incrementAndGet();
     }
 
-    @VisibleForTesting
-    void resetForTests() {
-        lastRecordId.set(1);
-    }
-
     @NonNull
     public static ProcessProfileWriter get() {
-        return ProcessProfileWriterFactory.sINSTANCE.get();
+        return ProcessProfileWriterFactory.getFactory().get();
     }
 
 
@@ -109,13 +107,35 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
     public void writeRecord(
             @NonNull String project,
             @Nullable String variant,
-            @NonNull final GradleBuildProfileSpan.Builder executionRecord) {
+            @NonNull final GradleBuildProfileSpan.Builder executionRecord,
+            @NonNull List<GradleBuildProfileSpan> taskExecutionPhases) {
 
         executionRecord.setProject(mNameAnonymizer.anonymizeProjectPath(project));
         executionRecord.setVariant(mNameAnonymizer.anonymizeVariant(project, variant));
         spans.add(executionRecord.build());
+        if (!taskExecutionPhases.isEmpty()) {
+            GradleBuildProfileSpan firstPhase = taskExecutionPhases.get(0);
+            // add the gradle snapshot calculation span.
+            spans.add(
+                    GradleBuildProfileSpan.newBuilder()
+                            .setType(GradleBuildProfileSpan.ExecutionType.GRADLE_PRE_TASK_SPAN)
+                            .setParentId(executionRecord.getId())
+                            .setThreadId(executionRecord.getThreadId())
+                            .setStartTimeInMs(executionRecord.getStartTimeInMs())
+                            .setDurationInMs(
+                                    firstPhase.getStartTimeInMs()
+                                            - executionRecord.getStartTimeInMs())
+                            .build());
+        }
+        spans.addAll(taskExecutionPhases);
     }
 
+    /** Appends a generic event (e.g. test execution record) to be uploaded. */
+    public void recordEvent(@NonNull AndroidStudioEvent.Builder event) {
+        // TODO: do this per EVENT_TYPE?
+        Preconditions.checkArgument(event.hasProductDetails(), "Product details not set.");
+        otherEvents.add(event);
+    }
     /**
      * Finishes processing the outstanding {@link GradleBuildProfileSpan} publication and shuts down
      * the processing queue. Write the final output file to the given path.
@@ -186,6 +206,9 @@ public final class ProcessProfileWriter implements ProfileRecordWriter {
                         .setJavaProcessStats(CommonMetricsData.getJavaProcessStats())
                         .setJvmDetails(CommonMetricsData.getJvmDetails()));
 
+        for (AndroidStudioEvent.Builder otherEvent : otherEvents) {
+            UsageTracker.log(otherEvent);
+        }
     }
 
     @NonNull

@@ -3,7 +3,7 @@ package ${escapeKotlinIdentifiers(packageName)}
 <#if includeCallbacks>import android.content.Context
 import android.net.Uri</#if>
 import android.os.Bundle
-import ${getMaterialComponentName('android${SupportPackage}.app.Fragment', useAndroidX)}
+import ${getMaterialComponentName('android.support.v4.app.Fragment', useAndroidX)}
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -11,15 +11,15 @@ import android.view.ViewGroup
 <#if applicationPackage??>
 import ${applicationPackage}.R
 </#if>
-
+<#if includeFactory>
 // TODO: Rename parameter arguments, choose names that match
 // the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
 private const val ARG_PARAM1 = "param1"
 private const val ARG_PARAM2 = "param2"
-
+</#if>
 /**
  * A simple [Fragment] subclass.
- <#if includeCallbacks>
+<#if includeCallbacks>
  * Activities that contain this fragment must implement the
  * [${className}.OnFragmentInteractionListener] interface
  * to handle interaction events.
@@ -28,7 +28,6 @@ private const val ARG_PARAM2 = "param2"
  * Use the [${className}.newInstance] factory method to
  * create an instance of this fragment.
  </#if>
- *
  */
 class ${className} : Fragment() {
 <#if includeFactory>

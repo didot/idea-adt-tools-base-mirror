@@ -16,24 +16,29 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.api.artifact.singleFile
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
+import com.android.build.gradle.options.SyncOptions
 import com.android.builder.core.VariantTypeImpl
 import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.base.Suppliers
 import com.google.common.collect.ImmutableList
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.FileCollection
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Optional
@@ -41,7 +46,6 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.util.function.Supplier
@@ -51,8 +55,8 @@ import javax.inject.Inject
  * Task to link the resources in a library project into an AAPT2 static library.
  */
 @CacheableTask
-open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: WorkerExecutor) :
-        AndroidBuilderTask() {
+abstract class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: WorkerExecutor) :
+    NonIncrementalTask() {
 
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var manifestFile: BuildableArtifact private set
     @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE) lateinit var inputResourcesDirectories: BuildableArtifact private set
@@ -70,17 +74,24 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
     @get:Internal lateinit var packageForRSupplier: Supplier<String> private set
     @Input fun getPackageForR() = packageForRSupplier.get()
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection private set
+    @get:Input
+    lateinit var aapt2Version: String
+        private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
     @get:OutputDirectory lateinit var aaptIntermediateDir: File private set
     @get:OutputFile lateinit var staticLibApk: File private set
 
-    private val workers = Workers.getWorker(workerExecutor)
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
 
-    @TaskAction
-    fun taskAction() {
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
+    private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
+
+    override fun doTaskAction() {
 
         val imports = ImmutableList.builder<File>()
         // Link against library dependencies
@@ -91,7 +102,7 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
         imports.addAll(sharedLibraryDependencies.files)
 
         val request = AaptPackageConfig(
-                androidJarPath = builder.target.getPath(IAndroidTarget.ANDROID_JAR),
+                androidJarPath = androidJar.get().absolutePath,
                 manifestFile = manifestFile.single(),
                 options = AaptOptions(null, false, null),
                 resourceDirs = ImmutableList.copyOf(inputResourcesDirectories.asIterable()),
@@ -104,11 +115,13 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
 
         val aapt2ServiceKey = registerAaptService(
             aapt2FromMaven = aapt2FromMaven,
-            logger = iLogger
+            logger = LoggerWrapper(logger)
         )
         workers.use {
-            it.submit(Aapt2LinkRunnable::class.java,
-                Aapt2LinkRunnable.Params(aapt2ServiceKey, request))
+            it.submit(
+                Aapt2LinkRunnable::class.java,
+                Aapt2LinkRunnable.Params(aapt2ServiceKey, request, errorFormatMode)
+            )
         }
     }
 
@@ -166,9 +179,16 @@ open class LinkLibraryAndroidResourcesTask @Inject constructor(workerExecutor: W
                     FileUtils.join(
                             variantScope.globalScope.intermediatesDir, "res-link-intermediate", variantScope.variantConfiguration.dirName)
             task.staticLibApk = staticLibApk
-            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
             task.packageForRSupplier = Suppliers.memoize(variantScope.variantConfiguration::getOriginalApplicationId)
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+            val (aapt2FromMaven, aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
+
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
+
+            task.errorFormatMode = SyncOptions.getErrorFormatMode(
+                variantScope.globalScope.projectOptions
+            )
         }
     }
 

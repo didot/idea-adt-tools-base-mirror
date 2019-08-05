@@ -2,13 +2,14 @@ load("//tools/base/bazel:bazel.bzl", "fileset")
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 load("//tools/base/bazel:kotlin.bzl", "kotlin_test")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
+load(":sdk.bzl", "sdk_java_binary", "sdk_package", "combine_licenses")
 
 # managed by go/iml_to_build
 iml_module(
     name = "studio.android.sdktools.sdklib",
     srcs = ["src/main/java"],
     iml_files = ["android.sdktools.sdklib.iml"],
-    tags = ["no_test_windows"],  # b/116613514
+    test_coverage = True,
     test_data = ["//prebuilts/studio/sdk:platforms/latest"],
     test_resources = ["src/test/resources"],
     test_srcs = ["src/test/java"],
@@ -35,7 +36,7 @@ iml_module(
         "//tools/idea/.idea/libraries:gson",
         "//tools/base/repository:studio.android.sdktools.repository[module]",
         "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime[test]",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8[test]",
     ],
 )
 
@@ -94,6 +95,7 @@ kotlin_test(
     name = "tools.tests",
     # TODO: Why are the xml files not under resources?
     srcs = ["src/test/java"],
+    coverage = True,
     data = ["//prebuilts/studio/sdk:platforms/latest"],
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
     resources = glob(
@@ -106,7 +108,6 @@ kotlin_test(
             "src/test/java/**/*.kt",
         ],
     ),
-    tags = ["no_test_windows"],  # b/115982503
     test_class = "com.android.testutils.JarTestSuite",
     runtime_deps = ["//tools/base/testutils:tools.testutils"],
     deps = [
@@ -121,4 +122,45 @@ kotlin_test(
         "//tools/base/third_party:junit_junit",
         "//tools/base/third_party:org.apache.httpcomponents_httpcore",
     ],
+)
+
+sdk_java_binary(
+    name = "avdmanager",
+    default_jvm_opts = {
+        "linux": "-Dcom.android.sdkmanager.toolsdir=$APP_HOME",
+        "mac": "-Dcom.android.sdkmanager.toolsdir=$APP_HOME",
+        "win": "-Dcom.android.sdkmanager.toolsdir=%~dp0\..",
+    },
+    main_class = "com.android.sdklib.tool.AvdManagerCli",
+    runtime_deps = [":tools.sdklib"],
+)
+
+sdk_java_binary(
+    name = "sdkmanager",
+    default_jvm_opts = {
+        "linux": "-Dcom.android.sdklib.toolsdir=$APP_HOME",
+        "mac": "-Dcom.android.sdklib.toolsdir=$APP_HOME",
+        "win": "-Dcom.android.sdklib.toolsdir=%~dp0\..",
+    },
+    main_class = "com.android.sdklib.tool.sdkmanager.SdkManagerCli",
+    runtime_deps = [":tools.sdklib"],
+)
+
+sdk_package(
+    name = "commandlinetools",
+    binaries = [
+        ":avdmanager",
+        ":sdkmanager",
+        "//tools/base/apkparser/cli:apkanalyzer",
+        "//tools/base/jobb:jobb",
+        "//tools/base/lint/cli:lint",
+        "//tools/base/misc/screenshot2:screenshot2",
+    ],
+    sourceprops = "tools_source.properties",
+    visibility = ["//visibility:public"],
+)
+
+test_suite(
+    name = "commandlinetoolstest",
+    tests = ["//tools/base/sdklib/src/integrationTest:integration-test.test"],
 )

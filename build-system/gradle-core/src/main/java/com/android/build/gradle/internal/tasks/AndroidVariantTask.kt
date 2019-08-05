@@ -16,12 +16,34 @@
 
 package com.android.build.gradle.internal.tasks
 
+import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan
 import org.gradle.api.DefaultTask
 import org.gradle.api.tasks.Internal
 
-/** Base Android task with a variant name for analytics.  */
+/**
+ * Base Android task with a variant name and support for analytics
+ *
+ * DO NOT EXTEND THIS METHOD DIRECTLY. Instead extend:
+ * - [NewIncrementalTask]
+ * - [NonIncrementalTask]
+ *
+ * */
 abstract class AndroidVariantTask : DefaultTask(), VariantAwareTask {
 
     @Internal("No influence on output, this is for our build stats reporting mechanism")
     override lateinit var variantName: String
+
+    /**
+     * Called by subclasses that want to record something.
+     *
+     * The task execution will use [GradleBuildProfileSpan.ExecutionType.TASK_EXECUTION_ALL_PHASES]
+     * as the span type to record the [AndroidVariantTask.recordedTaskAction].
+     */
+    protected inline fun recordTaskAction(crossinline block: () -> Unit) {
+        Blocks.recordSpan<Unit, Exception>(
+            project.name,
+            path,
+            GradleBuildProfileSpan.ExecutionType.TASK_EXECUTION_ALL_PHASES
+        ) { block() }
+    }
 }

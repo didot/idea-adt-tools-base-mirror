@@ -16,18 +16,15 @@
  */
 #include "jvmti.h"
 
-#include <dlfcn.h>
-#include <unistd.h>
-#include <algorithm>
-#include <cassert>
 #include <string>
 #include <unordered_map>
 
 #include "agent/agent.h"
-#include "jvmti_helper.h"
+#include "agent/jvmti_helper.h"
+#include "agent/scoped_local_ref.h"
 #include "memory/memory_tracking_env.h"
-#include "scoped_local_ref.h"
-#include "utils/config.h"
+#include "proto/transport.grpc.pb.h"
+#include "utils/device_info.h"
 #include "utils/log.h"
 
 #include "slicer/reader.h"
@@ -60,6 +57,7 @@ using profiler::Log;
 using profiler::MemoryTrackingEnv;
 using profiler::ScopedLocalRef;
 using profiler::proto::AgentConfig;
+using profiler::proto::Command;
 
 namespace profiler {
 
@@ -81,14 +79,6 @@ std::unordered_map<std::string, Transform*>* GetClassTransforms() {
   static auto* transformations =
       new std::unordered_map<std::string, Transform*>();
   return transformations;
-}
-
-// Retrieve the app's data directory path
-static std::string GetAppDataPath() {
-  Dl_info dl_info;
-  dladdr((void*)Agent_OnAttach, &dl_info);
-  std::string so_path(dl_info.dli_fname);
-  return so_path.substr(0, so_path.find_last_of('/') + 1);
 }
 
 // ClassPrepare event callback to invoke transformation of selected classes.
@@ -148,18 +138,11 @@ void JNICALL OnClassFileLoaded(jvmtiEnv* jvmti_env, JNIEnv* jni_env,
   *new_class_data_len = new_image_size;
   *new_class_data = new_image;
   Log::V("Transformed class: %s", name);
-}  // namespace profiler
-
-void LoadDex(jvmtiEnv* jvmti, JNIEnv* jni) {
-  // Load in perfa.jar which should be in to data/data.
-  std::string agent_lib_path(GetAppDataPath());
-  agent_lib_path.append("perfa.jar");
-  jvmti->AddToBootstrapClassLoaderSearch(agent_lib_path.c_str());
 }
 
 // Populate the map of transforms we want to apply to different classes.
 void RegisterTransforms(
-    const proto::AgentConfig& config,
+    const AgentConfig& config,
     std::unordered_map<std::string, Transform*>* transforms) {
   transforms->insert({"Ljava/net/URL;", new JavaUrlTransform()});
   transforms->insert({"Lokhttp3/OkHttpClient;", new Okhttp3ClientTransform()});
@@ -173,7 +156,7 @@ void RegisterTransforms(
   transforms->insert(
       {"Landroidx/fragment/app/Fragment;", new AndroidXFragmentTransform()});
 
-  if (config.energy_profiler_enabled()) {
+  if (config.common().energy_profiler_enabled()) {
     transforms->insert({"Landroid/app/Instrumentation;",
                         new AndroidInstrumentationTransform()});
     transforms->insert(
@@ -208,36 +191,16 @@ void RegisterTransforms(
 }
 
 void ProfilerInitializationWorker(jvmtiEnv* jvmti, JNIEnv* jni, void* ptr) {
-  proto::AgentConfig* config = static_cast<proto::AgentConfig*>(ptr);
+  AgentConfig* config = static_cast<AgentConfig*>(ptr);
   jclass service =
       jni->FindClass("com/android/tools/profiler/support/ProfilerService");
   jmethodID initialize = jni->GetStaticMethodID(service, "initialize", "(Z)V");
-  bool log_live_alloc_count = config->mem_config().use_live_alloc();
+  bool log_live_alloc_count = config->mem().use_live_alloc();
   jni->CallStaticVoidMethod(service, initialize, !log_live_alloc_count);
 }
 
-extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
-                                                 void* reserved) {
-  jvmtiEnv* jvmti_env = CreateJvmtiEnv(vm);
-  if (jvmti_env == nullptr) {
-    return JNI_ERR;
-  }
-
-  if (options == nullptr) {
-    Log::E("Config file parameter was not specified");
-    return JNI_ERR;
-  }
-
-  SetAllCapabilities(jvmti_env);
-
-  // TODO: Update options to support more than one argument if needed.
-  static const auto* const config = new profiler::Config(options);
-  auto const& agent_config = config->GetAgentConfig();
-  Agent::Instance(config);
-
-  JNIEnv* jni_env = GetThreadLocalJNI(vm);
-  LoadDex(jvmti_env, jni_env);
-
+void InitializePerfa(jvmtiEnv* jvmti_env, JNIEnv* jni_env,
+                     const AgentConfig& agent_config) {
   auto class_transforms = GetClassTransforms();
   RegisterTransforms(agent_config, class_transforms);
 
@@ -253,7 +216,7 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
   // prepare). For P+ we want to keep the hook events always on to support
   // multiple retransforming agents (and therefore don't need to perform
   // retransformation on class prepare).
-  bool filter_class_load_hook = agent_config.android_feature_level() <= 27;
+  bool filter_class_load_hook = DeviceInfo::feature_level() < DeviceInfo::P;
   SetEventNotification(jvmti_env,
                        filter_class_load_hook ? JVMTI_ENABLE : JVMTI_DISABLE,
                        JVMTI_EVENT_CLASS_PREPARE);
@@ -302,29 +265,45 @@ extern "C" JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM* vm, char* options,
   }
   jvmti_env->Deallocate(reinterpret_cast<unsigned char*>(loaded_classes));
 
-  Agent::Instance().AddPerfdConnectedCallback([vm, &agent_config] {
-    // MemoryTackingEnv needs a connection to perfd, which may not be always the
-    // case. If we don't postpone until there is a connection, MemoryTackingEnv
-    // is going to busy-wait, so not allowing the application to finish
-    // initialization. This callback will be called each time perfd connects.
-    MemoryTrackingEnv::Instance(vm, agent_config.mem_config());
-    // Starts the heartbeat thread after MemoryTrackingEnv is fully initialized
-    // and has opened a grpc stream perfd. The order is important as a heartbeat
-    // will trigger Studio to start live allocation tracking.
-    Agent::Instance().StartHeartbeat();
-    // Perf-test currently waits on this message to determine that perfa is
-    // connected to perfd.
-    Log::V("Perfa connected to Perfd.");
-  });
-
   // ProfilerService#Initialize depends on JNI native methods being auto-binded
   // after the agent finishes attaching. Therefore we call initialize after
   // the VM is unpaused to make sure the runtime can auto-find the JNI methods.
   jvmti_env->RunAgentThread(AllocateJavaThread(jvmti_env, jni_env),
                             &ProfilerInitializationWorker, &agent_config,
                             JVMTI_THREAD_NORM_PRIORITY);
+}
 
-  return JNI_OK;
+void InitializeProfiler(JavaVM* vm, jvmtiEnv* jvmti_env,
+                        const AgentConfig& agent_config) {
+  JNIEnv* jni_env = GetThreadLocalJNI(vm);
+  Agent::Instance().InitializeProfilers();
+  // MemoryTrackingEnv needs to wait for the MemoryComponent in the agent,
+  // which blocks until the Daemon is connected, hence we delay initializing
+  // it in the callback below.
+  Agent::Instance().AddDaemonConnectedCallback([vm, agent_config] {
+    MemoryTrackingEnv::Instance(vm, agent_config.mem());
+  });
+  // Transformation of loaded classes may take long. Perform this after other
+  // tasks.
+  InitializePerfa(jvmti_env, jni_env, agent_config);
+  // Perf-test currently waits on this message to determine that agent
+  // has finished profiler initialization.
+  Log::V("Profiler initialization complete on agent.");
+}
+
+void SetupPerfa(JavaVM* vm, jvmtiEnv* jvmti_env,
+                const AgentConfig& agent_config) {
+  if (agent_config.startup_profiling_enabled()) {
+    InitializeProfiler(vm, jvmti_env, agent_config);
+  } else {
+    Agent::Instance().RegisterCommandHandler(
+        Command::BEGIN_SESSION,
+        [vm, jvmti_env, agent_config](const Command* command) -> void {
+          if (!Agent::Instance().IsProfilerInitalized()) {
+            InitializeProfiler(vm, jvmti_env, agent_config);
+          }
+        });
+  }
 }
 
 }  // namespace profiler

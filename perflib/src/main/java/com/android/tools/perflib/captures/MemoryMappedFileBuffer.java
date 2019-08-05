@@ -18,18 +18,15 @@ package com.android.tools.perflib.captures;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
-import sun.misc.Unsafe;
-import sun.nio.ch.DirectBuffer;
+import com.android.tools.perflib.captures.DataBuffer;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
-import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+
+import sun.nio.ch.DirectBuffer;
 
 public class MemoryMappedFileBuffer implements DataBuffer {
 
@@ -95,22 +92,10 @@ public class MemoryMappedFileBuffer implements DataBuffer {
     @Override
     public void dispose() {
         try {
-            if (System.getProperty("java.version", "").startsWith("1.8")) {
-                for (ByteBuffer buffer : mByteBuffers) {
-                    ((DirectBuffer)buffer).cleaner().clean();
-                }
+            for (int i = 0; i < mByteBuffers.length; i++) {
+                ((DirectBuffer) mByteBuffers[i]).cleaner().clean();
             }
-            else {
-                Field theUnsafe = Unsafe.class.getDeclaredField("theUnsafe");
-                theUnsafe.setAccessible(true);
-                Unsafe unsafe = (Unsafe)theUnsafe.get(null);
-                MethodType type = MethodType.methodType(void.class, ByteBuffer.class);
-                @SuppressWarnings("JavaLangInvokeHandleSignature") MethodHandle cleaner = MethodHandles.lookup().findVirtual(Unsafe.class, "invokeCleaner", type);
-                for (ByteBuffer buffer : mByteBuffers) {
-                    cleaner.invokeExact(unsafe, buffer);
-                }
-            }
-        } catch (Throwable t) {
+        } catch (Exception ex) {
             // ignore, this is a best effort attempt.
         }
     }

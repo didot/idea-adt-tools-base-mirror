@@ -36,12 +36,14 @@ import com.android.sdklib.AndroidTargetHash.PLATFORM_HASH_PREFIX
 import com.android.sdklib.SdkVersionInfo
 import com.android.tools.lint.client.api.IssueRegistry
 import com.android.tools.lint.client.api.LintClient
+import com.android.tools.lint.detector.api.Desugaring
 import com.android.tools.lint.detector.api.Location
 import com.android.tools.lint.detector.api.Platform
 import com.android.tools.lint.detector.api.Project
 import com.android.tools.lint.detector.api.Severity
 import com.android.utils.XmlUtils.getFirstSubTag
 import com.android.utils.XmlUtils.getNextTag
+import com.android.utils.usLocaleCapitalize
 import com.google.common.collect.ArrayListMultimap
 import com.google.common.collect.Multimap
 import com.google.common.io.ByteStreams
@@ -78,6 +80,7 @@ private const val TAG_MERGED_MANIFEST = "merged-manifest"
 private const val TAG_CACHE = "cache"
 private const val TAG_AIDL = "aidl"
 private const val TAG_PROGUARD = "proguard"
+private const val TAG_ANNOTATIONS = "annotations"
 private const val ATTR_COMPILE_SDK_VERSION = "compile-sdk-version"
 private const val ATTR_TEST = "test"
 private const val ATTR_GENERATED = "generated"
@@ -90,6 +93,8 @@ private const val ATTR_ANDROID = "android"
 private const val ATTR_LIBRARY = "library"
 private const val ATTR_MODULE = "module"
 private const val ATTR_INCOMPLETE = "incomplete"
+private const val ATTR_JAVA8_LIBS = "android_java8_libs"
+private const val ATTR_DESUGAR = "desugar"
 private const val DOT_SRCJAR = ".srcjar"
 
 /**
@@ -130,6 +135,8 @@ data class ProjectMetadata(
     val jdkBootClasspath: List<File> = emptyList(),
     /** Target platforms we're analyzing  */
     val platforms: EnumSet<Platform>? = null,
+    /** Set of external annotations.zip files or external annotation directories */
+    val externalAnnotations: List<File> = emptyList(),
     /**
      * If true, the project metadata being passed in only represents a small
      * subset of the real project sources, so only lint checks which can be run
@@ -172,6 +179,9 @@ private class ProjectInitializer(
     /** map from module to a list of custom lint rules to apply for that module, if any */
     private val lintChecks = mutableMapOf<Project, List<File>>()
 
+    /** External annotations */
+    private val externalAnnotations: MutableList<File> = mutableListOf()
+
     /** map from module to a baseline to use for a given module, if any */
     private val baselines = mutableMapOf<Project, File?>()
 
@@ -190,6 +200,9 @@ private class ProjectInitializer(
 
     /** Whether we're analyzing an Android project */
     private var android: Boolean = false
+
+    /** Desugaring operations to enable */
+    private var desugaring: EnumSet<Desugaring>? = null
 
     /** Compute a list of lint [Project] instances from the given XML descriptor */
     fun computeMetadata(): ProjectMetadata {
@@ -234,6 +247,7 @@ private class ProjectInitializer(
 
         val incomplete = projectElement.getAttribute(ATTR_INCOMPLETE) == VALUE_TRUE
         android = projectElement.getAttribute(ATTR_ANDROID) == VALUE_TRUE
+        desugaring = handleDesugaring(projectElement)
 
         val globalLintChecks = mutableListOf<File>()
 
@@ -255,6 +269,9 @@ private class ProjectInitializer(
                 }
                 TAG_LINT_CHECKS -> {
                     globalLintChecks.add(getFile(child, this.root))
+                }
+                TAG_ANNOTATIONS -> {
+                    externalAnnotations += getFile(child, this.root)
                 }
                 TAG_SDK -> {
                     sdk = getFile(child, this.root)
@@ -339,6 +356,7 @@ private class ProjectInitializer(
             baseline = baseline,
             globalLintChecks = globalLintChecks,
             lintChecks = lintChecks,
+            externalAnnotations = externalAnnotations,
             cache = cache,
             moduleBaselines = baselines,
             mergedManifests = mergedManifests,
@@ -346,6 +364,50 @@ private class ProjectInitializer(
             jdkBootClasspath = jdkBootClasspath,
             platforms = if (android) Platform.ANDROID_SET else Platform.JDK_SET
         )
+    }
+
+    private fun handleDesugaring(element: Element): EnumSet<Desugaring>? {
+        var desugaring: EnumSet<Desugaring>? = null
+
+        if (VALUE_TRUE == element.getAttribute(ATTR_JAVA8_LIBS)) {
+            desugaring = EnumSet.of(Desugaring.JAVA_8_LIBRARY)
+        }
+
+        val s = element.getAttribute(ATTR_DESUGAR)
+        if (!s.isEmpty()) {
+            for (option in s.split(",")) {
+                var found = false
+                for (v in Desugaring.values()) {
+                    if (option.equals(other = v.name, ignoreCase = true)) {
+                        if (desugaring == null) {
+                            desugaring = EnumSet.of(v)
+                        } else {
+                            desugaring.add(v)
+                        }
+                        found = true
+                        break
+                    }
+                }
+                if (!found) {
+                    // One of the built-in constants? Desugaring.FULL etc
+                    try {
+                        val fieldName = option.toUpperCase()
+                        val instance = Desugaring.Companion
+                        val cls = Desugaring::class.java
+                        @Suppress("UNCHECKED_CAST")
+                        val v =
+                            cls.getField(fieldName).get(null) as? EnumSet<Desugaring> ?: continue
+                        if (desugaring == null) {
+                            desugaring = EnumSet.noneOf(Desugaring::class.java)
+                        }
+                        desugaring?.addAll(v)
+                    } catch (ignore: Throwable) {
+                    }
+                }
+            }
+        }
+
+        return desugaring
     }
 
     private fun computeResourceVisibility() {
@@ -377,6 +439,7 @@ private class ProjectInitializer(
         val library = moduleElement.getAttribute(ATTR_LIBRARY) == VALUE_TRUE
         val android = moduleElement.getAttribute(ATTR_ANDROID) != VALUE_FALSE
         val buildApi: String = moduleElement.getAttribute(ATTR_COMPILE_SDK_VERSION)
+        val desugaring = handleDesugaring(moduleElement) ?: this.desugaring
 
         if (android) {
             this.android = true
@@ -453,6 +516,9 @@ private class ProjectInitializer(
                 TAG_LINT_CHECKS -> {
                     lintChecks.add(getFile(child, dir))
                 }
+                TAG_ANNOTATIONS -> {
+                    externalAnnotations += getFile(child, this.root)
+                }
                 TAG_DEP -> {
                     val target = child.getAttribute(ATTR_MODULE)
                     if (target.isEmpty()) {
@@ -500,6 +566,7 @@ private class ProjectInitializer(
         module.setSources(sourceRoots, sources)
         module.setClasspath(classes, true)
         module.setClasspath(classpath, false)
+        module.desugaring = desugaring
 
         module.setCompileSdkVersion(buildApi)
 
@@ -617,7 +684,7 @@ private class ProjectInitializer(
         val jarsDir = File(expanded, FD_JARS)
         if (jarsDir.isDirectory) {
             jarsDir.listFiles()?.let {
-                jarList.addAll(it.filter { name -> name.endsWith(DOT_JAR) }.toList())
+                jarList.addAll(it.filter { file -> file.name.endsWith(DOT_JAR) }.toList())
             }
         }
         val classesJar = File(expanded, "classes.jar")
@@ -690,7 +757,7 @@ private class ProjectInitializer(
                 for (root in typeSourceRoots) {
                     if (sourceRoots.contains(root)) {
                         reportError(
-                            "${type.capitalize()} sources cannot be in the same " +
+                            "${type.usLocaleCapitalize()} sources cannot be in the same " +
                                     "source root as production files; " +
                                     "source root $root is also a test root"
                         )
@@ -955,6 +1022,10 @@ constructor(
                 )
             }
         }
+    }
+
+    fun setDesugaring(desugaring: Set<Desugaring>?) {
+        this.desugaring = desugaring
     }
 
     private var resourceVisibility: ResourceVisibilityLookup? = null

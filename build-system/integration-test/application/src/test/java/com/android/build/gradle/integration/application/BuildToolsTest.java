@@ -1,6 +1,6 @@
 package com.android.build.gradle.integration.application;
 
-import static com.android.build.gradle.integration.common.utils.AssumeUtil.assumeBuildToolsGreaterThan;
+import static com.android.build.gradle.integration.common.utils.AssumeBuildToolsUtil.assumeBuildToolsGreaterThan;
 import static com.google.common.truth.Truth.assertThat;
 
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
@@ -8,7 +8,7 @@ import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
 import com.android.build.gradle.integration.common.truth.TruthHelper;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
-import com.android.builder.core.AndroidBuilder;
+import com.android.builder.core.ToolsRevisionUtils;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.SyncIssue;
 import com.android.utils.FileUtils;
@@ -29,11 +29,9 @@ public class BuildToolsTest {
     private static final List<String> COMMON_TASKS =
             ImmutableList.of(
                     ":compileDebugAidl",
-                    ":compileDebugRenderscript",
                     ":mergeDebugResources",
                     ":processDebugResources",
                     ":compileReleaseAidl",
-                    ":compileReleaseRenderscript",
                     ":mergeReleaseResources",
                     ":processReleaseResources");
 
@@ -87,7 +85,7 @@ public class BuildToolsTest {
     @Test
     public void invalidateBuildTools() throws IOException, InterruptedException {
         // We need at least 2 valid versions of the build tools for this test.
-        assumeBuildToolsGreaterThan(AndroidBuilder.MIN_BUILD_TOOLS_REV);
+        assumeBuildToolsGreaterThan(ToolsRevisionUtils.MIN_BUILD_TOOLS_REV);
 
         TestFileUtils.appendToFile(
                 project.getBuildFile(),
@@ -105,7 +103,7 @@ public class BuildToolsTest {
 
         project.executor().run("assemble");
 
-        String otherBuildToolsVersion = AndroidBuilder.MIN_BUILD_TOOLS_REV.toString();
+        String otherBuildToolsVersion = ToolsRevisionUtils.MIN_BUILD_TOOLS_REV.toString();
         // Sanity check:
         assertThat(otherBuildToolsVersion)
                 .isNotEqualTo(GradleTestProject.DEFAULT_BUILD_TOOL_VERSION);

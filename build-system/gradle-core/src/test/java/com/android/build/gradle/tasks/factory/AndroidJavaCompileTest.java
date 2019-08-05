@@ -18,9 +18,6 @@ package com.android.build.gradle.tasks.factory;
 
 import static com.google.common.truth.Truth.assertThat;
 
-import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl;
-import com.android.build.gradle.internal.api.artifact.BuildableArtifactUtil;
-import com.android.build.gradle.internal.api.dsl.DslScope;
 import com.android.build.gradle.tasks.AndroidJavaCompile;
 import com.android.build.gradle.tasks.JavaCompileUtils;
 import com.android.builder.profile.ProcessProfileWriter;
@@ -30,9 +27,8 @@ import com.google.wireless.android.sdk.stats.GradleBuildVariant;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Collection;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.gradle.api.Project;
 import org.gradle.testfixtures.ProjectBuilder;
@@ -40,7 +36,6 @@ import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
-import org.mockito.Mockito;
 
 /** Test for AndroidJavaCompileTest. */
 public class AndroidJavaCompileTest {
@@ -55,7 +50,6 @@ public class AndroidJavaCompileTest {
         File testDir = temporaryFolder.newFolder();
         project = ProjectBuilder.builder().withProjectDir(testDir).build();
         ProcessProfileWriterFactory.initializeForTests();
-        BuildableArtifactImpl.Companion.enableResolution();
     }
 
     @Test
@@ -65,18 +59,17 @@ public class AndroidJavaCompileTest {
         File inputFile = temporaryFolder.newFile();
         Files.write(inputFile.toPath(), "[]".getBytes("utf-8"));
         task.variantName = VARIANT_NAME;
-        task.processorListFile =
-                new BuildableArtifactImpl(project.files(inputFile), Mockito.mock(DslScope.class));
 
-        Set<String> annotationProcessors =
-                JavaCompileUtils.readAnnotationProcessorsFromJsonFile(
-                                BuildableArtifactUtil.singleFile(task.processorListFile))
-                        .keySet();
+        task.processorListFile =
+                project.getLayout().getBuildDirectory().file(inputFile.getAbsolutePath());
+
+        Map<String, Boolean> annotationProcessors =
+                JavaCompileUtils.readAnnotationProcessorsFromJsonFile(inputFile);
         JavaCompileUtils.recordAnnotationProcessorsForAnalytics(
                 annotationProcessors, project.getPath(), task.variantName);
 
-        Collection<String> processorNames = getProcessorList();
-        assertThat(processorNames).isEmpty();
+        Map<String, Boolean> processors = getProcessors();
+        assertThat(processors).isEmpty();
     }
 
     @Test
@@ -88,20 +81,27 @@ public class AndroidJavaCompileTest {
                 inputFile.toPath(), "{\"processor1\":false,\"processor2\":true}".getBytes("utf-8"));
         task.variantName = VARIANT_NAME;
         task.processorListFile =
-                new BuildableArtifactImpl(project.files(inputFile), Mockito.mock(DslScope.class));
+                project.getLayout().getBuildDirectory().file(inputFile.getAbsolutePath());
 
-        Set<String> annotationProcessors =
-                JavaCompileUtils.readAnnotationProcessorsFromJsonFile(
-                                BuildableArtifactUtil.singleFile(task.processorListFile))
-                        .keySet();
+        Map<String, Boolean> annotationProcessors =
+                JavaCompileUtils.readAnnotationProcessorsFromJsonFile(inputFile);
         JavaCompileUtils.recordAnnotationProcessorsForAnalytics(
                 annotationProcessors, project.getPath(), task.variantName);
 
-        Collection<String> processorNames = getProcessorList();
-        assertThat(processorNames).containsExactly("processor1", "processor2");
+        Map<String, Boolean> processors = getProcessors();
+        assertThat(processors).containsEntry("processor1", false);
+        assertThat(processors).containsEntry("processor2", true);
+        assertThat(annotationProcessingIncremental()).isFalse();
+
+        Files.write(
+                inputFile.toPath(), "{\"processor1\":true,\"processor2\":true}".getBytes("utf-8"));
+        annotationProcessors = JavaCompileUtils.readAnnotationProcessorsFromJsonFile(inputFile);
+        JavaCompileUtils.recordAnnotationProcessorsForAnalytics(
+                annotationProcessors, project.getPath(), task.variantName);
+        assertThat(annotationProcessingIncremental()).isTrue();
     }
 
-    private Collection<String> getProcessorList() {
+    private Map<String, Boolean> getProcessors() {
         GradleBuildVariant.Builder variant =
                 ProcessProfileWriter.getOrCreateVariant(project.getPath(), VARIANT_NAME);
 
@@ -109,6 +109,18 @@ public class AndroidJavaCompileTest {
         List<AnnotationProcessorInfo> procs = variant.getAnnotationProcessorsList();
         assertThat(procs).isNotNull();
 
-        return procs.stream().map(AnnotationProcessorInfo::getSpec).collect(Collectors.toList());
+        return procs.stream()
+                .collect(
+                        Collectors.toMap(
+                                AnnotationProcessorInfo::getSpec,
+                                AnnotationProcessorInfo::getIsIncremental));
+    }
+
+    private Boolean annotationProcessingIncremental() {
+        GradleBuildVariant.Builder variant =
+                ProcessProfileWriter.getOrCreateVariant(project.getPath(), VARIANT_NAME);
+
+        assertThat(variant).isNotNull();
+        return variant.getIsAnnotationProcessingIncremental();
     }
 }

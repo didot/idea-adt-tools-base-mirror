@@ -50,6 +50,7 @@ public class NativeSoPackagingTest {
     private GradleTestProject libProject2;
     private GradleTestProject testProject;
     private GradleTestProject jarProject;
+    private GradleTestProject jarProject2;
 
     private void execute(String... tasks) throws Exception {
         // TODO: Remove once we understand the cause of flakiness.
@@ -64,38 +65,40 @@ public class NativeSoPackagingTest {
         libProject2 = project.getSubproject("library2");
         testProject = project.getSubproject("test");
         jarProject = project.getSubproject("jar");
+        jarProject2 = project.getSubproject("jar2");
 
         // rewrite settings.gradle to remove un-needed modules
-        Files.write(
-                "include 'app'\n"
-                + "include 'library'\n"
-                + "include 'library2'\n"
-                + "include 'test'\n"
-                + "include 'jar'\n",
-                new File(project.getTestDir(), "settings.gradle"),
-                Charsets.UTF_8);
+        Files.asCharSink(new File(project.getTestDir(), "settings.gradle"), Charsets.UTF_8)
+                .write(
+                        "include 'app'\n"
+                                + "include 'library'\n"
+                                + "include 'library2'\n"
+                                + "include 'test'\n"
+                                + "include 'jar'\n"
+                                + "include 'jar2'\n");
 
         // setup dependencies.
-        TestFileUtils.appendToFile(appProject.getBuildFile(),
+        TestFileUtils.appendToFile(
+                appProject.getBuildFile(),
                 "android {\n"
-                + "    publishNonDefault true\n"
-                + "}\n"
-                + "\n"
-                + "dependencies {\n"
-                + "    compile project(':library')\n"
-                + "    compile project(':jar')\n"
-                + "}\n");
+                        + "    publishNonDefault true\n"
+                        + "}\n"
+                        + "\n"
+                        + "dependencies {\n"
+                        + "    api project(':library')\n"
+                        + "    api project(':jar')\n"
+                        + "    api project(':jar2')\n"
+                        + "}\n");
 
-        TestFileUtils.appendToFile(libProject.getBuildFile(),
-                "dependencies {\n"
-                + "    compile project(':library2')\n"
-                + "}\n");
+        TestFileUtils.appendToFile(
+                libProject.getBuildFile(), "dependencies { api project(':library2') }\n");
 
-        TestFileUtils.appendToFile(testProject.getBuildFile(),
+        TestFileUtils.appendToFile(
+                testProject.getBuildFile(),
                 "android {\n"
-                + "    targetProjectPath ':app'\n"
-                + "    targetVariant 'debug'\n"
-                + "}\n");
+                        + "    targetProjectPath ':app'\n"
+                        + "    targetVariant 'debug'\n"
+                        + "}\n");
 
         // put some default files in the 4 projects, to check non incremental packaging as well,
         // and to provide files to change to test incremental support.
@@ -117,7 +120,12 @@ public class NativeSoPackagingTest {
         File jarDir = jarProject.getTestDir();
         File resFolder = FileUtils.join(jarDir, "src", "main", "resources", "lib", "x86");
         FileUtils.mkdirs(resFolder);
-        Files.write("jar:abcd", new File(resFolder, "libjar.so"), Charsets.UTF_8);
+        Files.asCharSink(new File(resFolder, "libjar.so"), Charsets.UTF_8).write("jar:abcd");
+
+        File jar2Dir = jarProject2.getTestDir();
+        File res2Folder = FileUtils.join(jar2Dir, "src", "main", "resources", "lib", "x86");
+        FileUtils.mkdirs(res2Folder);
+        Files.asCharSink(new File(res2Folder, "libjar2.so"), Charsets.UTF_8).write("jar2:abcd");
     }
 
     private static void createOriginalSoFile(
@@ -128,7 +136,7 @@ public class NativeSoPackagingTest {
             throws Exception {
         File assetFolder = FileUtils.join(projectFolder, "src", dimension, "jniLibs", "x86");
         FileUtils.mkdirs(assetFolder);
-        Files.write(content, new File(assetFolder, filename), Charsets.UTF_8);
+        Files.asCharSink(new File(assetFolder, filename), Charsets.UTF_8).write(content);
     }
 
     @Test
@@ -155,6 +163,7 @@ public class NativeSoPackagingTest {
         checkApk(    appProject, "liblibrary.so",      "library:abcd");
         checkApk(    appProject, "liblibrary2.so",     "library2:abcd");
         checkApk(    appProject, "libjar.so",          "jar:abcd");
+        checkApk(appProject, "libjar2.so", "jar2:abcd");
         checkTestApk(appProject, "libapptest.so",     "appTest:abcd");
         // app test does not contain dependencies' own test assets.
         checkTestApk(appProject, "liblibrarytest.so",  null);
@@ -185,6 +194,38 @@ public class NativeSoPackagingTest {
 
             checkApk(appProject, "libapp.so", null);
         });
+    }
+
+    @Test
+    public void testAppProjectWithRenamedAssetFile() throws Exception {
+        execute("app:clean", "app:assembleDebug");
+
+        doTest(
+                appProject,
+                project -> {
+                    project.removeFile("src/main/jniLibs/x86/libapp.so");
+                    project.addFile("src/main/jniLibs/x86/moved_libapp.so", "app:abcd");
+                    execute("app:assembleDebug");
+
+                    checkApk(appProject, "libapp.so", null);
+                    checkApk(appProject, "moved_libapp.so", "app:abcd");
+                });
+    }
+
+    @Test
+    public void testAppProjectWithAssetFileWithChangedAbi() throws Exception {
+        execute("app:clean", "app:assembleDebug");
+
+        doTest(
+                appProject,
+                project -> {
+                    project.removeFile("src/main/jniLibs/x86/libapp.so");
+                    project.addFile("src/main/jniLibs/x86_64/libapp.so", "app:abcd");
+                    execute("app:assembleDebug");
+
+                    checkApk(appProject, "libapp.so", null);
+                    checkApk(appProject, "x86_64", "libapp.so", "app:abcd");
+                });
     }
 
     @Test
@@ -233,6 +274,31 @@ public class NativeSoPackagingTest {
 
             checkApk(appProject, "libapp.so", "app:abcd");
         });
+    }
+
+    /**
+     * Check for correct behavior when the order of pre-merged so files changes. This must be
+     * supported in order to use @Classpath annotations on the MergeNativeLibsTask inputs.
+     */
+    @Test
+    public void testAppProjectWithReorderedDeps() throws Exception {
+        execute("app:clean", "app:assembleDebug");
+
+        doTest(
+                appProject,
+                project -> {
+                    // change order of dependencies in app from (jar, jar2) to (jar2, jar).
+                    project.replaceInFile("build.gradle", ":jar2", ":tempJar2");
+                    project.replaceInFile("build.gradle", ":jar", ":tempJar");
+                    project.replaceInFile("build.gradle", ":tempJar2", ":jar");
+                    project.replaceInFile("build.gradle", ":tempJar", ":jar2");
+                    execute("app:assembleDebug");
+
+                    checkApk(appProject, "liblibrary.so", "library:abcd");
+                    checkApk(appProject, "liblibrary2.so", "library2:abcd");
+                    checkApk(appProject, "libjar.so", "jar:abcd");
+                    checkApk(appProject, "libjar2.so", "jar2:abcd");
+                });
     }
 
     @Test
@@ -503,8 +569,28 @@ public class NativeSoPackagingTest {
     private static void checkApk(
             @NonNull GradleTestProject project, @NonNull String filename, @Nullable String content)
             throws Exception {
+        checkApk(project, "x86", filename, content);
+    }
+
+    /**
+     * check an apk has (or not) the given asset file name.
+     *
+     * <p>If the content is non-null the file is expected to be there with the same content. If the
+     * content is null the file is not expected to be there.
+     *
+     * @param project the project
+     * @param abi the abi
+     * @param filename the filename
+     * @param content the content
+     */
+    private static void checkApk(
+            @NonNull GradleTestProject project,
+            @NonNull String abi,
+            @NonNull String filename,
+            @Nullable String content)
+            throws Exception {
         Apk apk = project.getApk("debug");
-        check(assertThatApk(apk), "lib", filename, content);
+        check(assertThatApk(apk), "lib", abi, filename, content);
         PackagingTests.checkZipAlign(apk);
     }
 
@@ -521,7 +607,7 @@ public class NativeSoPackagingTest {
     private void checkTestApk(
             @NonNull GradleTestProject project, @NonNull String filename, @Nullable String content)
             throws Exception {
-        check(TruthHelper.assertThat(project.getTestApk()), "lib", filename, content);
+        check(TruthHelper.assertThat(project.getTestApk()), "lib", "x86", filename, content);
     }
 
     /**
@@ -537,19 +623,20 @@ public class NativeSoPackagingTest {
     private static void checkAar(
             @NonNull GradleTestProject project, @NonNull String filename, @Nullable String content)
             throws Exception {
-        check(TruthHelper.assertThat(project.getAar("debug")), "jni", filename, content);
+        check(TruthHelper.assertThat(project.getAar("debug")), "jni", "x86", filename, content);
     }
 
     private static void check(
             @NonNull AbstractAndroidSubject subject,
             @NonNull String folderName,
+            @NonNull String abi,
             @NonNull String filename,
             @Nullable String content)
             throws Exception {
         if (content != null) {
-            subject.containsFileWithContent(folderName + "/x86/" + filename, content);
+            subject.containsFileWithContent(folderName + "/" + abi + "/" + filename, content);
         } else {
-            subject.doesNotContain(folderName + "/x86/" + filename);
+            subject.doesNotContain(folderName + "/" + abi + "/" + filename);
         }
     }
 }

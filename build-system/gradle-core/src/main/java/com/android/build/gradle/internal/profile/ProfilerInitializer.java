@@ -56,24 +56,31 @@ public final class ProfilerInitializer {
         //Static singleton class.
     }
 
+    @Nullable
+    public static RecordingBuildListener getListener() {
+        return recordingBuildListener;
+    }
+
     /**
      * Initialize the {@link ProcessProfileWriterFactory}. Idempotent.
      *
      * @param project the current Gradle {@link Project}.
      * @param projectOptions the options
      */
-    public static void init(@NonNull Project project, @NonNull ProjectOptions projectOptions) {
+    public static RecordingBuildListener init(
+            @NonNull Project project, @NonNull ProjectOptions projectOptions) {
         synchronized (lock) {
             //noinspection VariableNotUsedInsideIf
             if (recordingBuildListener != null) {
-                return;
+                return recordingBuildListener;
             }
             ProcessProfileWriterFactory.initialize(
                     project.getRootProject().getProjectDir(),
                     project.getGradle().getGradleVersion(),
                     new LoggerWrapper(project.getLogger()),
                     projectOptions.get(BooleanOption.ENABLE_PROFILE_JSON));
-            recordingBuildListener = new RecordingBuildListener(ProcessProfileWriter.get());
+            recordingBuildListener =
+                    new RecordingBuildListener(project.getName(), ProcessProfileWriter.get());
             project.getGradle().addListener(recordingBuildListener);
         }
 
@@ -83,6 +90,8 @@ public final class ProfilerInitializer {
                                 project.getGradle(),
                                 projectOptions.get(StringOption.PROFILE_OUTPUT_DIR),
                                 projectOptions.get(BooleanOption.ENABLE_PROFILE_JSON)));
+
+        return recordingBuildListener;
     }
 
     private static final class ProfileShutdownListener extends BuildAdapter
@@ -124,6 +133,7 @@ public final class ProfilerInitializer {
         @Override
         public void completed() {
             synchronized (lock) {
+                ProfileAgent.INSTANCE.unregister();
                 if (recordingBuildListener != null) {
                     gradle.removeListener(Objects.requireNonNull(recordingBuildListener));
                     recordingBuildListener = null;

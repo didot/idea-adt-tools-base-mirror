@@ -28,8 +28,11 @@ import com.android.tools.proguard.ProguardMap;
 import gnu.trove.THashSet;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TLongObjectHashMap;
-
-import java.util.*;
+import gnu.trove.TObjectProcedure;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.List;
 
 /*
  * A snapshot of all of the heaps, and related meta-data, for the runtime at a given instant.
@@ -88,22 +91,22 @@ public class Snapshot extends Capture {
     private final DataBuffer mBuffer;
 
     @NonNull
-    ArrayList<Heap> mHeaps = new ArrayList<>();
+    ArrayList<Heap> mHeaps = new ArrayList<Heap>();
 
     @NonNull
     Heap mCurrentHeap;
 
     //  Root objects such as interned strings, jni locals, etc
     @NonNull
-    ArrayList<RootObj> mRoots = new ArrayList<>();
+    ArrayList<RootObj> mRoots = new ArrayList<RootObj>();
 
     //  List stack traces, which are lists of stack frames
     @NonNull
-    TIntObjectHashMap<StackTrace> mTraces = new TIntObjectHashMap<>();
+    TIntObjectHashMap<StackTrace> mTraces = new TIntObjectHashMap<StackTrace>();
 
     //  List of individual stack frames
     @NonNull
-    TLongObjectHashMap<StackFrame> mFrames = new TLongObjectHashMap<>();
+    TLongObjectHashMap<StackFrame> mFrames = new TLongObjectHashMap<StackFrame>();
 
     private List<Instance> mTopSort;
 
@@ -113,7 +116,7 @@ public class Snapshot extends Capture {
             = DominatorComputationStage.INITIALIZING;
 
     //  The set of all classes that are (sub)class(es) of java.lang.ref.Reference.
-    private THashSet<ClassObj> mReferenceClasses = new THashSet<>();
+    private THashSet<ClassObj> mReferenceClasses = new THashSet<ClassObj>();
 
     private int[] mTypeSizes;
 
@@ -126,7 +129,7 @@ public class Snapshot extends Capture {
 
     @NonNull
     public static Snapshot createSnapshot(@NonNull DataBuffer buffer, @NonNull ProguardMap map) {
-        return createSnapshot(buffer, map, Collections.singletonList(new NativeRegistryPostProcessor()));
+        return createSnapshot(buffer, map, Arrays.asList(new NativeRegistryPostProcessor()));
     }
 
     @NonNull
@@ -350,7 +353,7 @@ public class Snapshot extends Capture {
      */
     @NonNull
     public final Collection<ClassObj> findClasses(String name) {
-        ArrayList<ClassObj> classObjs = new ArrayList<>();
+        ArrayList<ClassObj> classObjs = new ArrayList<ClassObj>();
 
         //noinspection ForLoopReplaceableByForEach
         for (int i = 0; i < mHeaps.size(); i++) {
@@ -381,12 +384,15 @@ public class Snapshot extends Capture {
             }
 
             final int heapId = heap.getId();
-            heap.forEachInstance(instance -> {
-                ClassObj classObj = instance.getClassObj();
-                if (classObj != null) {
-                    classObj.addInstance(heapId, instance);
+            heap.forEachInstance(new TObjectProcedure<Instance>() {
+                @Override
+                public boolean execute(Instance instance) {
+                    ClassObj classObj = instance.getClassObj();
+                    if (classObj != null) {
+                        classObj.addInstance(heapId, instance);
+                    }
+                    return true;
                 }
-                return true;
             });
         }
     }
@@ -405,18 +411,24 @@ public class Snapshot extends Capture {
             for (ClassObj clazz : heap.getClasses()) {
                 clazz.resolveReferences();
             }
-            heap.forEachInstance(instance -> {
-                instance.resolveReferences();
-                return true;
+            heap.forEachInstance(new TObjectProcedure<Instance>() {
+                @Override
+                public boolean execute(Instance instance) {
+                    instance.resolveReferences();
+                    return true;
+                }
             });
         }
     }
 
     public void compactMemory() {
         for (Heap heap : getHeaps()) {
-            heap.forEachInstance(instance -> {
-                instance.compactMemory();
-                return true;
+            heap.forEachInstance(new TObjectProcedure<Instance>() {
+                @Override
+                public boolean execute(Instance instance) {
+                    instance.compactMemory();
+                    return true;
+                }
             });
         }
     }
@@ -424,7 +436,7 @@ public class Snapshot extends Capture {
     @NonNull
     public List<ClassObj> findAllDescendantClasses(@NonNull String className) {
         Collection<ClassObj> ancestorClasses = findClasses(className);
-        List<ClassObj> descendants = new ArrayList<>();
+        List<ClassObj> descendants = new ArrayList<ClassObj>();
         for (ClassObj ancestor : ancestorClasses) {
             descendants.addAll(ancestor.getDescendantClasses());
         }
@@ -486,7 +498,7 @@ public class Snapshot extends Capture {
 
     @NonNull
     public List<Instance> getReachableInstances() {
-        List<Instance> result = new ArrayList<>(mTopSort.size());
+        List<Instance> result = new ArrayList<Instance>(mTopSort.size());
         for (Instance node : mTopSort) {
             if (node.getImmediateDominator() != null) {
                 result.add(node);

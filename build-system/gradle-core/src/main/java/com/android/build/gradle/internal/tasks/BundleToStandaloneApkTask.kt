@@ -19,21 +19,23 @@ package com.android.build.gradle.internal.tasks
 import com.android.SdkConstants
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.api.artifact.singleFile
-import com.android.build.gradle.internal.publishing.AndroidArtifacts
-import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.tools.build.bundletool.commands.BuildApksCommand
+import com.android.tools.build.bundletool.commands.BuildApksCommand.ApkBuildMode
 import com.android.tools.build.bundletool.model.Aapt2Command
 import com.android.utils.FileUtils
+import com.google.common.util.concurrent.MoreExecutors
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFile
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
@@ -45,24 +47,25 @@ import java.io.Serializable
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.ForkJoinPool
 import java.util.zip.ZipInputStream
 import javax.inject.Inject
 
 /**
  * Task that generates the standalone from a bundle.
  */
-open class BundleToStandaloneApkTask @Inject constructor(workerExecutor: WorkerExecutor) : AndroidVariantTask() {
+abstract class BundleToStandaloneApkTask @Inject constructor(workerExecutor: WorkerExecutor) : NonIncrementalTask() {
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NONE)
     lateinit var bundle: BuildableArtifact
         private set
 
-    @get:InputFiles
-    @get:org.gradle.api.tasks.Optional
-    @get:PathSensitive(PathSensitivity.NONE)
-    lateinit var aapt2FromMaven: FileCollection
+    @get:Input
+    lateinit var aapt2Version: String
         private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
     private lateinit var outputFile: Provider<RegularFile>
 
@@ -81,10 +84,9 @@ open class BundleToStandaloneApkTask @Inject constructor(workerExecutor: WorkerE
     lateinit var signingConfig: FileCollection
         private set
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
-    @TaskAction
-    fun generateApk() {
+    override fun doTaskAction() {
         val config = SigningConfigMetadata.load(signingConfig)
         workers.use {
             it.submit(
@@ -129,6 +131,9 @@ open class BundleToStandaloneApkTask @Inject constructor(workerExecutor: WorkerE
         private fun generateUniversalApkBundle(outputApksBundle: Path) {
             val command = BuildApksCommand
                 .builder()
+                .setExecutorService(
+                    MoreExecutors.listeningDecorator(
+                        ForkJoinPool.commonPool()))
                 .setBundlePath(params.bundleFile.toPath())
                 .setOutputFile(outputApksBundle)
                 .setAapt2Command(Aapt2Command.createFromExecutablePath(params.aapt2File.toPath()))
@@ -139,7 +144,7 @@ open class BundleToStandaloneApkTask @Inject constructor(workerExecutor: WorkerE
                     keyPassword = params.keyPassword
                 )
 
-            command.setGenerateOnlyUniversalApk(true)
+            command.setApkBuildMode(ApkBuildMode.UNIVERSAL)
 
             command.build().execute()
         }
@@ -195,8 +200,10 @@ open class BundleToStandaloneApkTask @Inject constructor(workerExecutor: WorkerE
             super.configure(task)
 
             task.outputFile = outputFile
-            task.bundle = variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.BUNDLE)
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+            task.bundle = variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.INTERMEDIARY_BUNDLE)
+            val (aapt2FromMaven,aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
             task.tempDirectory = variantScope.getIncrementalDir(name)
             task.signingConfig = variantScope.signingConfigFileCollection
         }

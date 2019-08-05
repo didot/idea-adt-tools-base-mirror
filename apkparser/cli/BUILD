@@ -1,3 +1,6 @@
+load("//tools/base/bazel:coverage.bzl", "coverage_java_test")
+load("//tools/base/sdklib:sdk.bzl", "sdk_java_binary")
+
 java_library(
     name = "tools.analyzer-cli",
     srcs = glob(["src/main/java/**"]),
@@ -14,12 +17,11 @@ java_library(
     ],
 )
 
-java_test(
+coverage_java_test(
     name = "tools.tests",
     srcs = glob(["src/test/java/**"]),
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
     resources = glob(["src/test/resources/**"]),
-    tags = ["no_test_windows"],  # b/77288863
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.analyzer-cli",
@@ -30,4 +32,11 @@ java_test(
         "//tools/base/third_party:junit_junit",
         "//tools/base/third_party:org.mockito_mockito-core",
     ],
+)
+
+sdk_java_binary(
+    name = "apkanalyzer",
+    main_class = "com.android.tools.apk.analyzer.ApkAnalyzerCli",
+    visibility = ["//visibility:public"],
+    runtime_deps = ["tools.analyzer-cli"],
 )

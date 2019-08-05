@@ -154,4 +154,94 @@ public class DeprecationDetectorTest extends AbstractCheckTest {
                             + "    <EditText android:editable=\"false\" />\n"
                             + "\n"
                             + "</AbsoluteLayout>\n");
+
+    public void testAndroidX() {
+        lint().files(
+                        xml(
+                                        "res/xml/preferences.xml",
+                                        "<androidx.preference.PreferenceScreen\n"
+                                                + "                        xmlns:app=\"http://schemas.android.com/apk/res-auto\">\n"
+                                                + "\n"
+                                                + "                        <SwitchPreferenceCompat\n"
+                                                + "                            app:key=\"notifications\"\n"
+                                                + "                            app:title=\"Enable message notifications\"/>\n"
+                                                + "\n"
+                                                + "                        <Preference\n"
+                                                + "                            app:key=\"feedback\"\n"
+                                                + "                            app:title=\"Send feedback\"\n"
+                                                + "                            app:summary=\"Report technical issues or suggest new features\"/>\n"
+                                                + "\n"
+                                                + "                    </androidx.preference.PreferenceScreen>")
+                                .indented())
+                .run()
+                .expectClean();
+    }
+
+    public void testFrameworkOldProject() {
+        lint().files(
+                        xml(
+                                        "res/xml/preferences.xml",
+                                        "<android.preference.PreferenceScreen xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+                                                + "                    <CheckBoxPreference>\n"
+                                                + "                    </CheckBoxPreference>\n"
+                                                + "                </android.preference.PreferenceScreen>")
+                                .indented(),
+                        manifest().targetSdk(29))
+                .run()
+                .expect(
+                        "res/xml/preferences.xml:1: Warning: The android.preference library is deprecated, it is recommended that you migrate to the AndroidX Preference library instead. [Deprecated]\n"
+                                + "<android.preference.PreferenceScreen xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+                                + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "0 errors, 1 warnings");
+    }
+
+    public void testFramworkNewProject() {
+        lint().files(
+                        xml(
+                                        "res/xml/preferences.xml",
+                                        "<android.preference.PreferenceScreen xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+                                                + "                    <CheckBoxPreference>\n"
+                                                + "                    </CheckBoxPreference>\n"
+                                                + "                </android.preference.PreferenceScreen>")
+                                .indented(),
+                        manifest().targetSdk(30))
+                .run()
+                .expect(
+                        "res/xml/preferences.xml:1: Warning: The android.preference library is deprecated, it is recommended that you migrate to the AndroidX Preference library instead. [Deprecated]\n"
+                                + "<android.preference.PreferenceScreen xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+                                + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "0 errors, 1 warnings");
+    }
+
+    public void testCustomFrameworkPreference() {
+        lint().files(
+                        java(
+                                "package android.preference;\n"
+                                        + "\n"
+                                        + "public class Preference {\n"
+                                        + "    public CustomOldPreference() {}"
+                                        + "}"),
+                        java(
+                                "package com.example.myapplication;\n"
+                                        + "\n"
+                                        + "public class CustomOldPreference extends android.preference.Preference {\n"
+                                        + "    public CustomOldPreference() {\n"
+                                        + "        super();\n"
+                                        + "    }\n"
+                                        + "}"),
+                        xml(
+                                        "res/xml/preferences.xml",
+                                        "<com.example.myapplication.CustomOldPreference xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+                                                + "                    <CheckBoxPreference>\n"
+                                                + "                    </CheckBoxPreference>\n"
+                                                + "                </com.example.myapplication.CustomOldPreference>")
+                                .indented(),
+                        manifest().targetSdk(30))
+                .run()
+                .expect(
+                        "res/xml/preferences.xml:1: Warning: com.example.myapplication.CustomOldPreference inherits from android.preference.Preference which is now deprecated, it is recommended that you migrate to the AndroidX Preference library. [Deprecated]\n"
+                                + "<com.example.myapplication.CustomOldPreference xmlns:android=\"http://schemas.android.com/apk/res/android\">\n"
+                                + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "0 errors, 1 warnings");
+    }
 }

@@ -31,6 +31,7 @@ import static com.android.tools.lint.client.api.JavaEvaluatorKt.TYPE_SHORT;
 import static com.android.tools.lint.client.api.JavaEvaluatorKt.TYPE_STRING;
 import static com.android.tools.lint.detector.api.Lint.getAutoBoxedType;
 import static com.android.tools.lint.detector.api.ResourceEvaluator.COLOR_INT_ANNOTATION;
+import static com.android.tools.lint.detector.api.ResourceEvaluator.DIMENSION_ANNOTATION;
 import static com.android.tools.lint.detector.api.ResourceEvaluator.PX_ANNOTATION;
 import static com.android.tools.lint.detector.api.ResourceEvaluator.RES_SUFFIX;
 import static com.android.tools.lint.detector.api.UastLintUtils.getAnnotationBooleanValue;
@@ -62,6 +63,8 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiArrayType;
 import com.intellij.psi.PsiClass;
@@ -77,6 +80,7 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiModifierListOwner;
 import com.intellij.psi.PsiReferenceExpression;
 import com.intellij.psi.PsiType;
+import com.intellij.psi.search.GlobalSearchScope;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -399,9 +403,12 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                                 mContext.getLocation(annotation),
                                 "The size can't be negative");
                     }
-                } else if (COLOR_INT_ANNOTATION.isEquals(type) || (PX_ANNOTATION.isEquals(type))) {
+                } else if (COLOR_INT_ANNOTATION.isEquals(type)) {
                     // Check that ColorInt applies to the right type
                     checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
+                } else if (DIMENSION_ANNOTATION.isEquals(type) || (PX_ANNOTATION.isEquals(type))) {
+                    // Check that @Dimension and @Px applies to the right type
+                    checkTargetType(annotation, TYPE_INT, TYPE_LONG, TYPE_FLOAT, TYPE_DOUBLE, true);
                 } else if (INT_DEF_ANNOTATION.isEquals(type)
                         || LONG_DEF_ANNOTATION.isEquals(type)) {
                     // Make sure IntDef constants are unique
@@ -451,6 +458,28 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 } else if (type.endsWith(RES_SUFFIX)) {
                     // Check that resource type annotations are on ints
                     checkTargetType(annotation, TYPE_INT, TYPE_LONG, true);
+                } else if (RESTRICT_TO_ANNOTATION.isEquals(type)) {
+                    UExpression attributeValue = annotation.findDeclaredAttributeValue(ATTR_VALUE);
+                    if (attributeValue == null) {
+                        attributeValue = annotation.findDeclaredAttributeValue(null);
+                    }
+                    if (attributeValue == null) {
+                        mContext.report(
+                                ANNOTATION_USAGE,
+                                annotation,
+                                mContext.getLocation(annotation),
+                                "Restrict to what? Expected at least one `RestrictTo.Scope` arguments.");
+                    } else {
+                        String values = attributeValue.asSourceString();
+                        if (values.contains("SUBCLASSES")
+                                && annotation.getUastParent() instanceof UClass) {
+                            mContext.report(
+                                    ANNOTATION_USAGE,
+                                    annotation,
+                                    mContext.getLocation(annotation),
+                                    "`RestrictTo.Scope.SUBCLASSES` should only be specified on methods and fields");
+                        }
+                    }
                 }
             } else {
                 // Look for typedefs (and make sure they're specified on the right type)
@@ -474,9 +503,24 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
         }
 
         private void checkTargetType(
+                @NonNull UAnnotation node, @NonNull String type, boolean allowCollection) {
+            checkTargetType(node, type, null, null, null, allowCollection);
+        }
+
+        private void checkTargetType(
                 @NonNull UAnnotation node,
                 @NonNull String type1,
                 @Nullable String type2,
+                boolean allowCollection) {
+            checkTargetType(node, type1, type2, null, null, allowCollection);
+        }
+
+        private void checkTargetType(
+                @NonNull UAnnotation node,
+                @NonNull String type1,
+                @Nullable String type2,
+                @Nullable String type3,
+                @Nullable String type4,
                 boolean allowCollection) {
             UElement parent = node.getUastParent();
             PsiType type;
@@ -534,20 +578,39 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
                 }
             }
 
+            if (!type.isValid()) {
+                return;
+            }
+
             String typeName = type.getCanonicalText();
             if (typeName.equals("error.NonExistentClass")) {
                 // Type not found. Not awesome.
                 // https://youtrack.jetbrains.com/issue/KT-20172
                 return;
             }
-            if (!typeName.equals(type1) && (type2 == null || !typeName.equals(type2))) {
+
+            if (!(typeName.equals(type1)
+                    || typeName.equals(type2)
+                    || typeName.equals(type3)
+                    || typeName.equals(type4))) {
                 // Autoboxing? You can put @DrawableRes on a java.lang.Integer for example
                 if (typeName.equals(getAutoBoxedType(type1))
-                        || type2 != null && typeName.equals(getAutoBoxedType(type2))) {
+                        || type2 != null && typeName.equals(getAutoBoxedType(type2))
+                        || type3 != null && typeName.equals(getAutoBoxedType(type3))
+                        || type4 != null && typeName.equals(getAutoBoxedType(type4))) {
                     return;
                 }
 
-                String expectedTypes = type2 == null ? type1 : type1 + " or " + type2;
+                String expectedTypes;
+                if (type4 != null) {
+                    expectedTypes = type1 + ", " + type2 + ", " + type3 + ", or " + type4;
+                } else if (type3 != null) {
+                    expectedTypes = type1 + ", " + type2 + ", or " + type3;
+                } else if (type2 != null) {
+                    expectedTypes = type1 + " or " + type2;
+                } else {
+                    expectedTypes = type1;
+                }
                 if (typeName.equals(TYPE_STRING)) {
                     typeName = "String";
                 }
@@ -850,6 +913,8 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
 
                 List<UExpression> caseValues = node.getCaseValues();
                 if (caseValues.isEmpty()) {
+                    // We had an else clause: don't report any as missing
+                    mFields.clear();
                     return true;
                 }
 
@@ -1109,15 +1174,21 @@ public class AnnotationDetector extends Detector implements SourceCodeScanner {
             // annotate it with @IntDef, and then use @foo.bar.Baz in your signatures.
             // Here we want to map from @foo.bar.Baz to the corresponding int def.
             // Don't need to compute this if performing @IntDef or @StringDef lookup
+            PsiClass cls = null;
             PsiJavaCodeReferenceElement ref = annotation.getNameReferenceElement();
-            if (ref == null) {
+            if (ref != null) {
+                PsiElement resolved = ref.resolve();
+                if (resolved instanceof PsiClass) {
+                    cls = (PsiClass) resolved;
+                }
+            } else {
+                Project project = annotation.getProject();
+                GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
+                cls = JavaPsiFacade.getInstance(project).findClass(signature, scope);
+            }
+            if (cls == null || !cls.isAnnotationType()) {
                 continue;
             }
-            PsiElement resolved = ref.resolve();
-            if (!(resolved instanceof PsiClass) || !((PsiClass) resolved).isAnnotationType()) {
-                continue;
-            }
-            PsiClass cls = (PsiClass) resolved;
             PsiAnnotation[] innerAnnotations = evaluator.getAllAnnotations(cls, false);
             for (int j = 0; j < innerAnnotations.length; j++) {
                 PsiAnnotation inner = innerAnnotations[j];

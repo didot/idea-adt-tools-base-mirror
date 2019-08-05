@@ -15,13 +15,17 @@
  */
 package com.android.ide.common.util;
 
-import javax.imageio.ImageIO;
-import java.awt.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+import java.awt.Color;
+import java.awt.Graphics;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
-
-import static org.junit.Assert.*;
+import javax.imageio.ImageIO;
 
 /**
  * Shared test infrastructure for asset (either bitmap or vector) generator.

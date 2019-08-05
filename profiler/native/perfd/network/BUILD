@@ -13,7 +13,6 @@ cc_library(
         "network_cache.cc",
         "network_collector.cc",
         "network_service.cc",
-        "speed_converter.cc",
         "speed_sampler.cc",
     ],
     hdrs = [
@@ -31,18 +30,21 @@ cc_library(
         "network_sampler.h",
         "network_service.h",
         "network_type_provider.h",
-        "speed_converter.h",
         "speed_sampler.h",
     ],
     copts = ANDROID_COPTS + [
         "-Itools/base/profiler/native",
-        "-I$(GENDIR)/tools/base/profiler",
+        "-Itools/base/transport",
+        "-I$(GENDIR)/tools/base/profiler/native/perfd",
+        "-I$(GENDIR)/tools/base/transport",
     ],
     tags = ["no_windows"],
     deps = [
         "//tools/base/profiler/native/perfd:perfd_internal_headers",
-        "//tools/base/profiler/native/utils:profiler_utils",
-        "//tools/base/profiler/proto:profiler_cc_proto",
+        "//tools/base/profiler/native/perfd/statsd",
+        "//tools/base/transport/daemon",
+        "//tools/base/transport/proto:cc_proto",
+        "//tools/base/transport/utils",
     ],
 )
 
@@ -52,11 +54,13 @@ cc_test(
         "connection_count_sampler_test.cc",
         "connectivity_sampler_test.cc",
         "net_stats_file_reader_test.cc",
-        "speed_converter_test.cc",
+        "network_collector_test.cc",
     ],
     copts = [
         "-Itools/base/profiler/native",
-        "-I$(GENDIR)/tools/base/profiler",
+        "-Itools/base/transport",
+        "-Itools/base/transport/tests",
+        "-I$(GENDIR)/tools/base/transport",
     ],
     data = [
         "//tools/base/profiler/native/testdata:perfd/network",
@@ -67,5 +71,6 @@ cc_test(
         ":profiler_network",
         "//external:gmock_main",
         "//tools/base/profiler/native/test:testutils",
+        "//tools/base/transport/tests/test:testutils",
     ],
 )

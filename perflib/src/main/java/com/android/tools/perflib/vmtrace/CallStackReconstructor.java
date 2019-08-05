@@ -31,10 +31,10 @@ public class CallStackReconstructor {
     private final long mTopLevelCallId;
 
     /** List of calls currently assumed to be at stack depth 0 (called from the top level) */
-    private final List<Call.Builder> mTopLevelCalls = new ArrayList<>();
+    private final List<Call.Builder> mTopLevelCalls = new ArrayList<Call.Builder>();
 
     /** Current call stack based on the sequence of received trace events. */
-    private final Stack<Call.Builder> mCallStack = new Stack<>();
+    private final Stack<Call.Builder> mCallStack = new Stack<Call.Builder>();
 
     /** The single top level call under which the entire reconstructed call stack nests. */
     private Call mTopLevelCall;
@@ -161,7 +161,7 @@ public class CallStackReconstructor {
         // Build calls from their respective builders
         // Now that we've added the top level call, there should be only 1 top level call
         assert mTopLevelCalls.size() == 1;
-        mTopLevelCall = mTopLevelCalls.get(0).build(new Stack<>());
+        mTopLevelCall = mTopLevelCalls.get(0).build(new Stack<Long>());
     }
 
     public Call getTopLevel() {

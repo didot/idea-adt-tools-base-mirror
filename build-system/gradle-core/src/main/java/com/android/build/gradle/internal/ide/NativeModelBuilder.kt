@@ -49,7 +49,7 @@ class NativeModelBuilder(
     private val scopes get() = variantManager.variantScopes
         .filter { it.taskContainer.externalNativeJsonGenerator != null }
         .filterNotNull()
-    private val generators get() = scopes.map { it.taskContainer.externalNativeJsonGenerator!! }
+    private val generators get() = scopes.map { it.taskContainer.externalNativeJsonGenerator!!.get() }
 
     /**
      * Indicates which model classes that buildAll can support.
@@ -89,7 +89,7 @@ class NativeModelBuilder(
         project: Project
     ): Any? {
         // Prevents parameter interface evolution from breaking the model builder.
-        var modelBuilderParameter = FailsafeModelBuilderParameter(parameter)
+        val modelBuilderParameter = FailsafeModelBuilderParameter(parameter)
         return when (modelName) {
             nativeAndroidProjectClass ->
                 if (modelBuilderParameter.shouldBuildVariant) buildFullNativeAndroidProject(project)
@@ -126,10 +126,10 @@ class NativeModelBuilder(
         builder: NativeAndroidProjectBuilder,
         generator: ExternalNativeJsonGenerator
     ) {
-        builder.addBuildSystem(generator.nativeBuildSystem.getName())
+        builder.addBuildSystem(generator.nativeBuildSystem.tag)
         builder.addVariantInfo(
             generator.variantName,
-            generator.config.abiConfigurations.map { it.abi.getName() }.distinct()
+            generator.abis.map { it.tag }.distinct()
         )
     }
 
@@ -209,7 +209,7 @@ class NativeModelBuilder(
             for (variantScope in variantManager.variantScopes) {
                 val generator = variantScope
                     .taskContainer
-                    .externalNativeJsonGenerator
+                    .externalNativeJsonGenerator?.orNull
                 if (generator != null) {
                     // This will generate any out-of-date or non-existent JSONs.
                     // When refreshExternalNativeModel() is true it will also

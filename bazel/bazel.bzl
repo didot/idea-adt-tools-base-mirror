@@ -2,6 +2,7 @@ load(":coverage.bzl", "coverage_java_test")
 load(":functions.bzl", "create_java_compiler_args_srcs", "create_option_file", "explicit_target", "label_workspace_path", "workspace_path")
 load(":groovy.bzl", "groovy_impl")
 load(":kotlin.bzl", "kotlin_impl")
+load(":lint.bzl", "lint_test")
 load(":utils.bzl", "fileset", "java_jarjar", "singlejar")
 
 # This is a custom implementation of label "tags".
@@ -48,7 +49,7 @@ def resources_impl(ctx, name, roots, resources, resources_jar):
         outputs = [resources_jar],
         executable = ctx.executable._zipper,
         arguments = zipper_args,
-        progress_message = "Creating zip...",
+        progress_message = "Creating resources zip...",
         mnemonic = "zipper",
     )
 
@@ -67,6 +68,7 @@ def _iml_module_jar_impl(
         groovy_srcs,
         form_srcs,
         resources,
+        res_zips,
         output_jar,
         java_deps,
         form_deps,
@@ -152,6 +154,8 @@ def _iml_module_jar_impl(
         resources_jar = ctx.actions.declare_file(name + ".res.jar")
         resources_impl(ctx, name, roots, resources, resources_jar)
         jars += [resources_jar]
+    if res_zips:
+        jars += res_zips
 
     ctx.action(
         inputs = jars,
@@ -240,6 +244,7 @@ def _iml_module_impl(ctx):
         ctx.files.groovy_srcs,
         ctx.files.form_srcs,
         ctx.files.resources,
+        ctx.files.res_zips,
         ctx.outputs.production_jar,
         java_deps,
         form_deps,
@@ -258,6 +263,7 @@ def _iml_module_impl(ctx):
         ctx.files.groovy_test_srcs,
         ctx.files.form_test_srcs,
         ctx.files.test_resources,
+        [],
         ctx.outputs.test_jar,
         [main_provider] + test_java_deps,
         test_form_deps,
@@ -299,6 +305,7 @@ _iml_module_ = rule(
         "form_test_srcs": attr.label_list(allow_files = True),
         "javacopts": attr.string_list(),
         "resources": attr.label_list(allow_files = True),
+        "res_zips": attr.label_list(allow_files = True),
         "test_resources": attr.label_list(allow_files = True),
         "package_prefixes": attr.string_dict(),
         "test_class": attr.string(),
@@ -325,6 +332,10 @@ _iml_module_ = rule(
             default = Label("//tools/base/bazel:kotlinc"),
             cfg = "host",
             executable = True,
+        ),
+        "_bootclasspath": attr.label(
+            default = Label("//prebuilts/studio/jdk:bootclasspath"),
+            cfg = "host",
         ),
         "_kotlin": attr.label(
             default = Label("//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-stdlib"),
@@ -472,14 +483,16 @@ def iml_module(
         test_timeout = "moderate",
         test_class = "com.android.testutils.JarTestSuite",
         test_shard_count = None,
+        test_coverage = False,
         tags = None,
         test_tags = None,
         back_target = 0,
         iml_files = None,
         bundle_data = [],
         test_main_class = None,
+        lint_baseline = None,
         back_deps = []):
-    if name == "intellij.groovy":
+    if name == "intellij.groovy" or name == "intellij.gradle.java.tests":
         test_srcs = []  # workaround for b/111900968
 
     prod_deps = []
@@ -501,6 +514,7 @@ def iml_module(
         groovy_srcs = srcs.groovies,
         form_srcs = srcs.forms,
         resources = srcs.resources,
+        res_zips = res_zips,
         roots = srcs.roots,
         java_test_srcs = split_test_srcs.javas,
         kotlin_test_srcs = split_test_srcs.kotlins,
@@ -541,6 +555,18 @@ def iml_module(
         ] + test_utils,
     )
 
+    lint_srcs = srcs.javas + srcs.kotlins
+    if lint_srcs and lint_baseline:
+        lint_test(
+            name = name + "_lint_test",
+            srcs = lint_srcs,
+            baseline = lint_baseline,
+            deps = prod_deps,
+            custom_rules = ["//tools/base/lint:studio-checks.lint-rules.jar"],
+            external_annotations = ["//tools/base/external-annotations:annotations.zip"],
+            tags = ["no_windows"],
+        )
+
     test_tags = tags + test_tags if tags and test_tags else (tags if tags else test_tags)
     if test_srcs:
         coverage_java_test(
@@ -554,6 +580,7 @@ def iml_module(
             test_class = test_class,
             visibility = visibility,
             main_class = test_main_class,
+            coverage = test_coverage,
         )
 
 def split_srcs(src_dirs, res_dirs, exclude):

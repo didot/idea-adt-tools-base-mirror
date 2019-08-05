@@ -357,7 +357,7 @@ fun UCallExpression.getDispatchReceivers(
 
         val ktDecl = getProperty("resolvedCall")
             ?.getProperty("variableCall")
-            ?.getProperty("candidateDescriptor")
+            ?.invokeMemberFunction("getCandidateDescriptor")
             ?.invokeMemberFunction("getSource")
             ?.getProperty("psi")
                 as? PsiElement

@@ -81,9 +81,6 @@ public interface AndroidProject {
     String PROPERTY_RESTRICT_VARIANT_PROJECT = "android.injected.restrict.variant.project";
     String PROPERTY_RESTRICT_VARIANT_NAME = "android.injected.restrict.variant.name";
 
-    // workaround for JNI AAPT2 not able to build apks in parallel.
-    String PROPERTY_INVOKE_JNI_AAPT2_LINK_SERIALLY = "android.injected.aapt2.serial";
-
     String PROPERTY_SIGNING_STORE_FILE = "android.injected.signing.store.file";
     String PROPERTY_SIGNING_STORE_PASSWORD = "android.injected.signing.store.password";
     String PROPERTY_SIGNING_KEY_ALIAS = "android.injected.signing.key.alias";
@@ -135,7 +132,7 @@ public interface AndroidProject {
     String FD_GENERATED = "generated";
 
     int GENERATION_ORIGINAL = 1;
-    int GENERATION_COMPONENT = 2;
+    int GENERATION_COMPONENT = 2; // component plugin is not supported since 3.5
 
     int MODEL_LEVEL_0_ORIGINAL = 0 ; // studio 1.0, no support for SyncIssue
     int MODEL_LEVEL_1_SYNC_ISSUE = 1; // studio 1.1+, with SyncIssue
@@ -246,6 +243,17 @@ public interface AndroidProject {
      */
     @NonNull
     Collection<String> getVariantNames();
+
+    /**
+     * Returns the name of the variant the IDE should use when opening the project for the first
+     * time.
+     *
+     * @return the name of a variant that exists under the presence of the variant filter. Only
+     *     returns null if all variants are removed.
+     * @since 3.5
+     */
+    @Nullable
+    String getDefaultVariant();
 
     /**
      * Returns a list of all the flavor dimensions, may be empty.
@@ -370,8 +378,8 @@ public interface AndroidProject {
     /**
      * Returns the generation of the plugin.
      *
-     * 1: original plugin
-     * 2: component based plugin (AKA experimental)
+     * <p>1 is original plugin, 2 is component based plugin (AKA experimental, not used anymore)
+     *
      * @return the generation value
      */
     int getPluginGeneration();

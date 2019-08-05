@@ -22,6 +22,7 @@ import com.android.ide.common.blame.SourceFilePosition;
 import com.android.ide.common.blame.SourcePosition;
 import com.android.tools.r8.Diagnostic;
 import com.android.tools.r8.DiagnosticsHandler;
+import com.android.tools.r8.errors.DesugarDiagnostic;
 import com.android.tools.r8.origin.ArchiveEntryOrigin;
 import com.android.tools.r8.origin.Origin;
 import com.android.tools.r8.origin.PathOrigin;
@@ -36,10 +37,16 @@ import java.util.Set;
 
 public class D8DiagnosticsHandler implements DiagnosticsHandler {
     private final MessageReceiver messageReceiver;
+    private final String toolTag;
     private final Set<String> pendingHints = new HashSet<>();
 
     public D8DiagnosticsHandler(MessageReceiver messageReceiver) {
+        this(messageReceiver, "D8");
+    }
+
+    public D8DiagnosticsHandler(MessageReceiver messageReceiver, String toolTag) {
         this.messageReceiver = messageReceiver;
+        this.toolTag = toolTag;
     }
 
     public static Origin getOrigin(ClassFileEntry entry) {
@@ -67,7 +74,13 @@ public class D8DiagnosticsHandler implements DiagnosticsHandler {
 
     @Override
     public void warning(Diagnostic warning) {
-        messageReceiver.receiveMessage(convertToMessage(Message.Kind.WARNING, warning));
+        Message.Kind kind;
+        if (warning instanceof DesugarDiagnostic) {
+            kind = Message.Kind.INFO;
+        } else {
+            kind = Message.Kind.WARNING;
+        }
+        messageReceiver.receiveMessage(convertToMessage(kind, warning));
     }
 
     @Override
@@ -107,15 +120,32 @@ public class D8DiagnosticsHandler implements DiagnosticsHandler {
                 endTextPosition = null;
             }
             if (startTextPosition != null) {
+                int startLine = startTextPosition.getLine();
+                if (startLine != -1) {
+                    startLine--;
+                }
+                int startColumn = startTextPosition.getColumn();
+                if (startColumn != -1) {
+                    startColumn--;
+                }
+                int endLine = endTextPosition.getLine();
+                if (endLine != -1) {
+                    endLine--;
+                }
+                int endColumn = endTextPosition.getColumn();
+                if (endColumn != -1) {
+                    endColumn--;
+                }
+
                 position =
                         new SourceFilePosition(
                                 originFile,
                                 new SourcePosition(
-                                        startTextPosition.getLine(),
-                                        startTextPosition.getColumn(),
+                                        startLine,
+                                        startColumn,
                                         toIntOffset(startTextPosition.getOffset()),
-                                        endTextPosition.getLine(),
-                                        endTextPosition.getColumn(),
+                                        endLine,
+                                        endColumn,
                                         toIntOffset(endTextPosition.getOffset())));
 
             } else {
@@ -131,7 +161,7 @@ public class D8DiagnosticsHandler implements DiagnosticsHandler {
             }
         }
 
-        return new Message(kind, textMessage, textMessage, "D8", position);
+        return new Message(kind, textMessage, textMessage, toolTag, position);
     }
 
     private static int toIntOffset(long offset) {

@@ -224,13 +224,17 @@ public class LintGradleExecution {
                         descriptor.getSdkHome(),
                         variant,
                         variantInputs,
-                        descriptor.getBuildTools(),
+                        descriptor.getBuildToolsRevision(),
                         isAndroid,
                         variant != null ? variant.getName() : null);
         boolean fatalOnly = descriptor.isFatalOnly();
         if (fatalOnly) {
             flags.setFatalOnly(true);
         }
+
+        // Explicit fix Gradle target?
+        boolean autoFixing = allowFix & descriptor.getAutoFix();
+
         LintOptions lintOptions = descriptor.getLintOptions();
         boolean fix = false;
         if (lintOptions != null) {
@@ -253,41 +257,44 @@ public class LintGradleExecution {
                     .add(
                             Reporter.createTextReporter(
                                     client, flags, null, new PrintWriter(System.out, true), false));
-            File html =
-                    validateOutputFile(
-                            createOutputPath(
-                                    descriptor.getProject(),
-                                    null,
-                                    ".html",
-                                    null,
-                                    flags.isFatalOnly()));
-            File xml =
-                    validateOutputFile(
-                            createOutputPath(
-                                    descriptor.getProject(),
-                                    null,
-                                    DOT_XML,
-                                    null,
-                                    flags.isFatalOnly()));
-            try {
-                flags.getReporters().add(Reporter.createHtmlReporter(client, html, flags));
-                flags.getReporters()
-                        .add(
-                                Reporter.createXmlReporter(
-                                        client, xml, false, flags.isIncludeXmlFixes()));
-            } catch (IOException e) {
-                throw new GradleException(e.getMessage(), e);
+            if (!autoFixing) {
+                File html =
+                        validateOutputFile(
+                                createOutputPath(
+                                        descriptor.getProject(),
+                                        null,
+                                        ".html",
+                                        null,
+                                        flags.isFatalOnly()));
+                File xml =
+                        validateOutputFile(
+                                createOutputPath(
+                                        descriptor.getProject(),
+                                        null,
+                                        DOT_XML,
+                                        null,
+                                        flags.isFatalOnly()));
+                try {
+                    flags.getReporters().add(Reporter.createHtmlReporter(client, html, flags));
+                    flags.getReporters()
+                            .add(
+                                    Reporter.createXmlReporter(
+                                            client, xml, false, flags.isIncludeXmlFixes()));
+                } catch (IOException e) {
+                    throw new GradleException(e.getMessage(), e);
+                }
             }
         }
         if (!report || fatalOnly) {
             flags.setQuiet(true);
         }
-        flags.setWriteBaselineIfMissing(report && !fatalOnly);
+        flags.setWriteBaselineIfMissing(report && !fatalOnly && !autoFixing);
 
         Pair<List<Warning>, LintBaseline> warnings;
 
-        if (allowFix & descriptor.getAutoFix()) { // Explicit fix Gradle target
+        if (autoFixing) {
             flags.setAutoFix(true);
+            flags.setSetExitCode(false);
         }
 
         try {
@@ -340,19 +347,26 @@ public class LintGradleExecution {
             @NonNull Project gradleProject, @NonNull ToolingModelBuilderRegistry toolingRegistry) {
         String modelName = AndroidProject.class.getName();
         ToolingModelBuilder modelBuilder = toolingRegistry.getBuilder(modelName);
+        assert modelBuilder.canBuild(modelName) : modelName;
 
-        // setup the level 3 sync.
         final ExtraPropertiesExtension ext = gradleProject.getExtensions().getExtraProperties();
-        ext.set(
-                AndroidProject.PROPERTY_BUILD_MODEL_ONLY_VERSIONED,
-                Integer.toString(AndroidProject.MODEL_LEVEL_3_VARIANT_OUTPUT_POST_BUILD));
-        ext.set(AndroidProject.PROPERTY_BUILD_MODEL_DISABLE_SRC_DOWNLOAD, true);
+        // setup the level 3 sync.
+        // Ensure that projects are constructed serially since otherwise
+        // it's possible for a race condition on the below property
+        // to trigger occasional NPE's like the one in b.android.com/38117575
+        //noinspection SynchronizationOnLocalVariableOrMethodParameter
+        synchronized (ext) {
+            ext.set(
+                    AndroidProject.PROPERTY_BUILD_MODEL_ONLY_VERSIONED,
+                    Integer.toString(AndroidProject.MODEL_LEVEL_3_VARIANT_OUTPUT_POST_BUILD));
+            ext.set(AndroidProject.PROPERTY_BUILD_MODEL_DISABLE_SRC_DOWNLOAD, true);
 
-        try {
-            return (AndroidProject) modelBuilder.buildAll(modelName, gradleProject);
-        } finally {
-            ext.set(AndroidProject.PROPERTY_BUILD_MODEL_ONLY_VERSIONED, null);
-            ext.set(AndroidProject.PROPERTY_BUILD_MODEL_DISABLE_SRC_DOWNLOAD, null);
+            try {
+                return (AndroidProject) modelBuilder.buildAll(modelName, gradleProject);
+            } finally {
+                ext.set(AndroidProject.PROPERTY_BUILD_MODEL_ONLY_VERSIONED, null);
+                ext.set(AndroidProject.PROPERTY_BUILD_MODEL_DISABLE_SRC_DOWNLOAD, null);
+            }
         }
     }
 
@@ -457,7 +471,7 @@ public class LintGradleExecution {
                             getSdkHome(),
                             variant,
                             variantInputs,
-                            descriptor.getBuildTools(),
+                            descriptor.getBuildToolsRevision(),
                             true,
                             isFatalOnly() ? VARIANT_FATAL : VARIANT_ALL);
             syncOptions(
@@ -474,6 +488,7 @@ public class LintGradleExecution {
             // When running the individual variant scans we turn off auto fixing
             // so perform it manually here when we have the merged results
             if (flags.isAutoFix()) {
+                flags.setSetExitCode(false);
                 new LintFixPerformer(client, !flags.isQuiet()).fix(mergedWarnings);
             }
 
@@ -482,7 +497,7 @@ public class LintGradleExecution {
             }
 
             File baselineFile = flags.getBaselineFile();
-            if (baselineFile != null && !baselineFile.exists()) {
+            if (baselineFile != null && !baselineFile.exists() && !flags.isAutoFix()) {
                 File dir = baselineFile.getParentFile();
                 boolean ok = true;
                 if (!dir.isDirectory()) {

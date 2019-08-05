@@ -1,9 +1,12 @@
+load("//tools/base/bazel:coverage.bzl", "coverage_java_test")
+load("//tools/base/bazel:coverage_report.bzl", "coverage_report")
+load("//tools/base/bazel:bazel.bzl", "iml_module")
+
 java_library(
     name = "utils",
     srcs = glob(["src/com/android/tools/utils/*.java"]),
     visibility = [
         "//tools/base/bazel/sdk:__pkg__",
-        "//tools/base/build-system/instant-run-instrumentation:__pkg__",
     ],
 )
 
@@ -67,8 +70,8 @@ java_binary(
     main_class = "com.android.tools.kotlin.KotlinCompiler",
     visibility = ["//visibility:public"],
     runtime_deps = [
-        "//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-reflect",
         "//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-stdlib",
+        "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-reflect/1.3.11:jar",
     ],
     deps = [
         ":utils",
@@ -98,6 +101,7 @@ java_library(
     deps = [
         "//tools/idea/.idea/libraries:Guava",
         "//tools/idea/.idea/libraries:Trove4j",
+        "//tools/idea/.idea/libraries:jetbrains-annotations-java5",
         "//tools/idea/build/lib:jps",
     ],
 )
@@ -151,6 +155,13 @@ java_library(
         "//tools/base/third_party:org.eclipse.aether_aether-connector-basic",
         "//tools/base/third_party:org.eclipse.aether_aether-transport-http",
     ],
+)
+
+java_binary(
+    name = "matryoshka",
+    srcs = ["src/com/android/tools/binaries/Matryoshka.java"],
+    main_class = "com.android.tools.binaries.Matryoshka",
+    visibility = ["//visibility:public"],
 )
 
 java_binary(
@@ -284,11 +295,22 @@ java_binary(
     runtime_deps = [":gradle"],
 )
 
+java_binary(
+    name = "apply_diff",
+    srcs = ["src/com/android/tools/binaries/ApplyDiff.java"],
+    main_class = "com.android.tools.binaries.ApplyDiff",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tools/base/testutils:tools.testutils",
+    ],
+)
+
 java_library(
     name = "gradle",
     srcs = glob(["src/com/android/tools/gradle/*.java"]),
     visibility = ["//visibility:public"],
     deps = [
+        ":utils",
         "//tools/base/annotations",
         "//tools/base/build-system:gradle-tooling-api",
         "//tools/base/common:tools.common",
@@ -300,13 +322,14 @@ java_library(
 java_library(
     name = "gradle_benchmarks",
     testonly = 1,
-    srcs = glob(["testSrc/com/android/tools/gradle/*.java"]),
+    srcs = glob(["testSrc/com/android/tools/gradle/**/*.java"]),
     visibility = ["//visibility:public"],
     deps = [
         "//tools/analytics-library/protos/src/main/proto",
         "//tools/analytics-library/shared:tools.analytics-shared",
         "//tools/base/annotations",
         "//tools/base/bazel:gradle",
+        "//tools/base/common:tools.common",
         "//tools/base/perf-logger:studio.perf-logger_testlib",
         "//tools/base/third_party:com.google.guava_guava",
     ],
@@ -333,6 +356,12 @@ config_setting(
 config_setting(
     name = "host_windows",
     values = {"host_cpu": "x64_windows"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "remote_windows",
+    values = {"define": "REMOTE_WINDOWS=true"},
     visibility = ["//visibility:public"],
 )
 
@@ -384,7 +413,7 @@ config_setting(
     visibility = ["//visibility:public"],
 )
 
-java_test(
+coverage_java_test(
     name = "iml_to_build_tests",
     srcs = ["testSrc/com/android/tools/binaries/ImlToBazelTest.java"],
     data = ["//tools/base/bazel/test:iml_to_bazel"],
@@ -400,7 +429,7 @@ java_test(
     ],
 )
 
-java_test(
+coverage_java_test(
     name = "bin2c_tests",
     srcs = ["testSrc/com/android/tools/binaries/Bin2CTest.java"],
     test_class = "com.android.tools.binaries.Bin2CTest",
@@ -408,5 +437,38 @@ java_test(
         ":bin2c",
         "//tools/base/third_party:com.google.guava_guava",
         "//tools/base/third_party:junit_junit",
+    ],
+)
+
+coverage_java_test(
+    name = "third_party_up_to_date",
+    srcs = ["testSrc/com/android/tools/binaries/ThirdPartyBuildConsistencyTest.java"],
+    data = [
+        "//tools/base/third_party:BUILD",
+        "//tools/buildSrc/base:dependencies.properties",
+    ],
+    tags = [
+        "no_test_windows",
+    ],
+    test_class = "com.android.tools.binaries.ThirdPartyBuildConsistencyTest",
+    deps = [
+        ":maven",
+        ":third_party_build_generator",
+        ":utils",
+        "//tools/base/testutils:tools.testutils",
+        "//tools/base/third_party:com.google.guava_guava",
+        "//tools/base/third_party:junit_junit",
+        "//tools/base/third_party:org.apache.maven_maven-aether-provider",
+    ],
+)
+
+java_binary(
+    name = "BazelLintWrapper",
+    srcs = ["src/com/android/tools/binaries/BazelLintWrapper.java"],
+    main_class = "com.android.tools.binaries.BazelLintWrapper",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//tools/base/lint/cli",
+        "//tools/base/third_party:com.google.guava_guava",
     ],
 )

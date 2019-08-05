@@ -18,17 +18,16 @@ package com.android.build.gradle;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.gradle.api.BaseVariant;
 import com.android.build.gradle.api.BaseVariantOutput;
 import com.android.build.gradle.internal.ExtraModelInfo;
-import com.android.build.gradle.internal.SdkHandler;
 import com.android.build.gradle.internal.dependency.SourceSetManager;
 import com.android.build.gradle.internal.dsl.BuildType;
 import com.android.build.gradle.internal.dsl.ProductFlavor;
 import com.android.build.gradle.internal.dsl.SigningConfig;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.options.ProjectOptions;
+import com.google.common.annotations.VisibleForTesting;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.Project;
 
@@ -38,7 +37,6 @@ class InstantAppExtension extends BaseExtension {
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
             @NonNull GlobalScope globalScope,
-            @NonNull SdkHandler sdkHandler,
             @NonNull NamedDomainObjectContainer<BuildType> buildTypes,
             @NonNull NamedDomainObjectContainer<ProductFlavor> productFlavors,
             @NonNull NamedDomainObjectContainer<SigningConfig> signingConfigs,
@@ -49,7 +47,6 @@ class InstantAppExtension extends BaseExtension {
                 project,
                 projectOptions,
                 globalScope,
-                sdkHandler,
                 buildTypes,
                 productFlavors,
                 signingConfigs,
@@ -68,7 +65,7 @@ class InstantAppExtension extends BaseExtension {
         return ANDROID_PLATFORM;
     }
 
-    @VisibleForTesting static final String ANDROID_PLATFORM = "android-27";
+    @VisibleForTesting static final String ANDROID_PLATFORM = "android-28";
 
     @Nullable
     @Override

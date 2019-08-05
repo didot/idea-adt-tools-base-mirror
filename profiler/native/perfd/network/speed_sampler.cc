@@ -23,7 +23,6 @@ void SpeedSampler::Refresh() { stats_reader_.Refresh(); }
 
 proto::NetworkProfilerData SpeedSampler::Sample(const uint32_t uid) {
   proto::NetworkProfilerData data;
-
   uint64_t bytes_sent = stats_reader_.bytes_tx(uid);
   uint64_t bytes_received = stats_reader_.bytes_rx(uid);
 
@@ -38,7 +37,7 @@ proto::NetworkProfilerData SpeedSampler::Sample(const uint32_t uid) {
     rx_speed_converters_.at(uid).Add(time, bytes_received);
   }
 
-  profiler::proto::SpeedData *speed_data = data.mutable_speed_data();
+  profiler::proto::SpeedData* speed_data = data.mutable_speed_data();
   speed_data->set_sent(tx_speed_converters_.at(uid).speed());
   speed_data->set_received(rx_speed_converters_.at(uid).speed());
   return data;

@@ -36,21 +36,22 @@ import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING
 import com.android.build.gradle.internal.scope.InternalArtifactType.DEFINED_ONLY_SYMBOL_LIST
 import com.android.build.gradle.internal.scope.InternalArtifactType.METADATA_BASE_MODULE_DECLARATION
 import com.android.build.gradle.internal.scope.InternalArtifactType.MODULE_AND_RUNTIME_DEPS_CLASSES
-import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_AND_RUNTIME_DEPS_JAVA_RES
 import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_SET_METADATA
 import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_RESOURCE_PKG
 import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_TRANSITIVE_DEPS
 import com.android.build.gradle.internal.scope.InternalArtifactType.FULL_JAR
 import com.android.build.gradle.internal.scope.InternalArtifactType.JAVA_RES
 import com.android.build.gradle.internal.scope.InternalArtifactType.LIBRARY_ASSETS
-import com.android.build.gradle.internal.scope.InternalArtifactType.LIBRARY_CLASSES
+import com.android.build.gradle.internal.scope.InternalArtifactType.RUNTIME_LIBRARY_CLASSES
 import com.android.build.gradle.internal.scope.InternalArtifactType.LIBRARY_JAVA_RES
 import com.android.build.gradle.internal.scope.InternalArtifactType.LIBRARY_JNI
 import com.android.build.gradle.internal.scope.InternalArtifactType.LIBRARY_MANIFEST
-import com.android.build.gradle.internal.scope.InternalArtifactType.LINT_JAR
+import com.android.build.gradle.internal.scope.InternalArtifactType.LINT_PUBLISH_JAR
 import com.android.build.gradle.internal.scope.InternalArtifactType.MANIFEST_METADATA
+import com.android.build.gradle.internal.scope.InternalArtifactType.MERGED_JAVA_RES
 import com.android.build.gradle.internal.scope.InternalArtifactType.METADATA_INSTALLED_BASE_DECLARATION
 import com.android.build.gradle.internal.scope.InternalArtifactType.METADATA_FEATURE_DECLARATION
+import com.android.build.gradle.internal.scope.InternalArtifactType.METADATA_LIBRARY_DEPENDENCIES_REPORT
 import com.android.build.gradle.internal.scope.InternalArtifactType.METADATA_FEATURE_MANIFEST
 import com.android.build.gradle.internal.scope.InternalArtifactType.SIGNING_CONFIG
 import com.android.build.gradle.internal.scope.InternalArtifactType.MODULE_BUNDLE
@@ -62,6 +63,7 @@ import com.android.build.gradle.internal.scope.InternalArtifactType.SYMBOL_LIST
 import com.android.build.gradle.internal.scope.InternalArtifactType.SYMBOL_LIST_WITH_PACKAGE_NAME
 import com.android.build.gradle.internal.scope.AnchorOutputType.ALL_CLASSES
 import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.InternalArtifactType.COMPILE_LIBRARY_CLASSES
 import com.android.build.gradle.internal.utils.toImmutableMap
 import com.android.build.gradle.internal.utils.toImmutableSet
 import com.android.builder.core.VariantType
@@ -102,7 +104,7 @@ class PublishingSpecs {
 
         fun getTestingSpec(variantType: VariantType): VariantSpec
 
-        fun getSpec(artifactType: ArtifactType): OutputSpec?
+        fun getSpec(artifactType: ArtifactType, publishConfigType: PublishedConfigType?): OutputSpec?
     }
 
     /**
@@ -189,12 +191,13 @@ class PublishingSpecs {
                 // The intermediate bundle containing only this module. Input for bundle-tool
                 metadata(MODULE_BUNDLE, ArtifactType.MODULE_BUNDLE)
                 metadata(BUNDLE_MANIFEST, ArtifactType.BUNDLE_MANIFEST)
+                metadata(METADATA_LIBRARY_DEPENDENCIES_REPORT, ArtifactType.LIB_DEPENDENCIES)
 
                 // this is only for non-base modules.
                 metadata(METADATA_FEATURE_DECLARATION, ArtifactType.METADATA_FEATURE_DECLARATION)
                 metadata(METADATA_FEATURE_MANIFEST, ArtifactType.METADATA_FEATURE_MANIFEST)
                 metadata(MODULE_AND_RUNTIME_DEPS_CLASSES, ArtifactType.METADATA_CLASSES)
-                metadata(FEATURE_AND_RUNTIME_DEPS_JAVA_RES, ArtifactType.METADATA_JAVA_RES)
+                metadata(MERGED_JAVA_RES, ArtifactType.METADATA_JAVA_RES)
                 metadata(CONSUMER_PROGUARD_FILE, ArtifactType.CONSUMER_PROGUARD_RULES)
                 metadata(AAPT_PROGUARD_FILE, ArtifactType.AAPT_PROGUARD_RULES)
                 metadata(FEATURE_TRANSITIVE_DEPS, ArtifactType.FEATURE_TRANSITIVE_DEPS)
@@ -223,6 +226,7 @@ class PublishingSpecs {
                         ArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR)
                 api(AIDL_PARCELABLE, ArtifactType.AIDL)
                 api(RENDERSCRIPT_HEADERS, ArtifactType.RENDERSCRIPT)
+                api(COMPILE_LIBRARY_CLASSES, ArtifactType.CLASSES)
 
                 // manifest is published to both to compare and detect provided-only library
                 // dependencies.
@@ -231,9 +235,9 @@ class PublishingSpecs {
                 output(DATA_BINDING_ARTIFACT, ArtifactType.DATA_BINDING_ARTIFACT)
                 output(DATA_BINDING_BASE_CLASS_LOG_ARTIFACT,
                         ArtifactType.DATA_BINDING_BASE_CLASS_LOG_ARTIFACT)
-                output(LIBRARY_CLASSES, ArtifactType.CLASSES)
                 output(FULL_JAR, ArtifactType.JAR)
 
+                runtime(RUNTIME_LIBRARY_CLASSES, ArtifactType.CLASSES)
                 runtime(LIBRARY_ASSETS, ArtifactType.ASSETS)
                 runtime(PACKAGED_RES, ArtifactType.ANDROID_RES)
                 runtime(PUBLIC_RES, ArtifactType.PUBLIC_RES)
@@ -243,10 +247,10 @@ class PublishingSpecs {
                 runtime(LIBRARY_JAVA_RES, ArtifactType.JAVA_RES)
                 runtime(CONSUMER_PROGUARD_FILE, ArtifactType.CONSUMER_PROGUARD_RULES)
                 runtime(LIBRARY_JNI, ArtifactType.JNI)
-                runtime(LINT_JAR, ArtifactType.LINT)
+                runtime(LINT_PUBLISH_JAR, ArtifactType.LINT)
 
                 testSpec(VariantTypeImpl.UNIT_TEST) {
-                    // unit test need ALL_CLASSES instead of LIBRARY_CLASSES to get
+                    // unit test need ALL_CLASSES instead of RUNTIME_LIBRARY_CLASSES to get
                     // access to the R class. Also scope should be API+Runtime.
                     output(ALL_CLASSES, ArtifactType.CLASSES)
                 }
@@ -277,11 +281,12 @@ class PublishingSpecs {
                 metadata(METADATA_FEATURE_DECLARATION, ArtifactType.METADATA_FEATURE_DECLARATION)
                 metadata(METADATA_FEATURE_MANIFEST, ArtifactType.METADATA_FEATURE_MANIFEST)
                 metadata(MODULE_AND_RUNTIME_DEPS_CLASSES, ArtifactType.METADATA_CLASSES)
-                metadata(FEATURE_AND_RUNTIME_DEPS_JAVA_RES, ArtifactType.METADATA_JAVA_RES)
+                metadata(MERGED_JAVA_RES, ArtifactType.METADATA_JAVA_RES)
                 metadata(CONSUMER_PROGUARD_FILE, ArtifactType.CONSUMER_PROGUARD_RULES)
                 metadata(AAPT_PROGUARD_FILE, ArtifactType.AAPT_PROGUARD_RULES)
                 metadata(FEATURE_TRANSITIVE_DEPS, ArtifactType.FEATURE_TRANSITIVE_DEPS)
                 metadata(MODULE_BUNDLE, ArtifactType.MODULE_BUNDLE)
+                metadata(METADATA_LIBRARY_DEPENDENCIES_REPORT, ArtifactType.LIB_DEPENDENCIES)
 
                 api(FEATURE_RESOURCE_PKG, ArtifactType.FEATURE_RESOURCE_PKG)
                 api(APP_CLASSES, ArtifactType.CLASSES)
@@ -372,13 +377,13 @@ private class VariantPublishingSpecImpl(
 ) : PublishingSpecs.VariantSpec {
 
     override val testingSpecs: Map<VariantType, PublishingSpecs.VariantSpec>
-    private var _artifactMap: Map<ArtifactType, PublishingSpecs.OutputSpec>? = null
+    private var _artifactMap: Map<ArtifactType, List<PublishingSpecs.OutputSpec>>? = null
 
-    private val artifactMap: Map<ArtifactType, PublishingSpecs.OutputSpec>
+    private val artifactMap: Map<ArtifactType, List<PublishingSpecs.OutputSpec>>
         get() {
             val map = _artifactMap
             return if (map == null) {
-                val map2 = outputs.associate { it.artifactType to it }
+                val map2 = outputs.groupBy { it.artifactType }
                 _artifactMap = map2
                 map2
             } else {
@@ -397,9 +402,26 @@ private class VariantPublishingSpecImpl(
         return testingSpec ?: this
     }
 
-    override fun getSpec(artifactType: ArtifactType): PublishingSpecs.OutputSpec? {
-        val spec = artifactMap[artifactType]
-        return spec ?: parentSpec?.getSpec(artifactType)
+    override fun getSpec(
+        artifactType: ArtifactType,
+        publishConfigType: PublishedConfigType?
+    ): PublishingSpecs.OutputSpec? {
+        return artifactMap[artifactType]?.let {specs ->
+            if (specs.size <= 1) {
+                specs.singleOrNull()
+            } else {
+                val matchingSpecs = if (publishConfigType != null) {
+                    specs.filter { it.publishedConfigTypes.contains(publishConfigType) }
+                } else {
+                    specs
+                }
+                if (matchingSpecs.size > 1) {
+                    throw IllegalStateException("Multiple output specs found for $artifactType and $publishConfigType")
+                } else {
+                    matchingSpecs.singleOrNull()
+                }
+            }
+        } ?: parentSpec?.getSpec(artifactType, publishConfigType)
     }
 }
 

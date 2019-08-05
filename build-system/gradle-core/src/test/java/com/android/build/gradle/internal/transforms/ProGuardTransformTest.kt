@@ -25,7 +25,6 @@ import com.android.build.gradle.internal.fixtures.FakeFileCollection
 import com.android.build.gradle.internal.scope.GlobalScope
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.variant.BaseVariantData
-import com.android.builder.core.AndroidBuilder
 import com.android.builder.core.VariantTypeImpl
 import com.android.testutils.TestClassesGenerator
 import com.android.testutils.TestInputsGenerator
@@ -37,7 +36,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import org.mockito.ArgumentMatchers.anyBoolean
 import org.mockito.Mockito
 import java.io.File
 import java.nio.file.Files
@@ -303,18 +301,16 @@ class ProGuardTransformTest {
     }
 
     private fun createScope(configFiles: Set<File> = setOf()) : VariantScope {
-        val androidBuilder = Mockito.mock(AndroidBuilder::class.java)
-        val bootClassPath = listOf(TestUtils.getPlatformFile("android.jar"))
-        Mockito.`when`(androidBuilder.getBootClasspath(anyBoolean())).thenReturn(bootClassPath)
+        val bootClassPath = FakeFileCollection(TestUtils.getPlatformFile("android.jar"))
 
         val project = Mockito.mock(Project::class.java)
         val configFilesCollection = FakeConfigurableFileCollection(configFiles)
         Mockito.`when`(project.files()).thenReturn(configFilesCollection)
 
         val globalScope = Mockito.mock(GlobalScope::class.java)
-        Mockito.`when`(globalScope.androidBuilder).thenReturn(androidBuilder)
         Mockito.`when`(globalScope.project).thenReturn(project)
         Mockito.`when`(globalScope.buildDir).thenReturn(outputDir.toFile())
+        Mockito.`when`(globalScope.fullBootClasspath).thenReturn(bootClassPath)
 
         val variantData = Mockito.mock(BaseVariantData::class.java)
         Mockito.`when`(variantData.type).thenReturn(VariantTypeImpl.BASE_APK)
@@ -327,6 +323,8 @@ class ProGuardTransformTest {
         Mockito.`when`(scope.variantData).thenReturn(variantData)
         Mockito.`when`(scope.variantConfiguration).thenReturn(variantConfig)
         Mockito.`when`(scope.bootClasspath).thenReturn(FakeFileCollection(bootClassPath))
+        Mockito.`when`(scope.outputProguardMappingFile)
+            .thenReturn(tmp.root.resolve("mapping/mapping.txt"))
         return scope
     }
 }

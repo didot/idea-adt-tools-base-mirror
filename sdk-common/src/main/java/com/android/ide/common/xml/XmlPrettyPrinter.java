@@ -30,10 +30,10 @@ import static com.android.utils.XmlUtils.XML_PROLOG;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.resources.ResourceFolderType;
 import com.android.utils.SdkUtils;
 import com.android.utils.XmlUtils;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.collect.Lists;
 import com.google.common.io.Files;
@@ -1264,7 +1264,7 @@ public class XmlPrettyPrinter {
                 if (stdout) {
                     System.out.println(formatted);
                 } else {
-                    Files.write(formatted, file, Charsets.UTF_8);
+                    Files.asCharSink(file, Charsets.UTF_8).write(formatted);
                 }
             } catch (IOException e) {
                 System.err.println("Could not read " + file);

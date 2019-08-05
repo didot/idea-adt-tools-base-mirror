@@ -23,18 +23,17 @@ import com.android.build.api.transform.QualifiedContent.Scope.PROJECT
 import com.android.build.api.transform.QualifiedContent.Scope.SUB_PROJECTS
 import com.android.build.gradle.internal.res.namespaced.JarRequest
 import com.android.build.gradle.internal.res.namespaced.JarWorkerRunnable
+import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.transforms.TransformTestHelper.invocationBuilder
 import com.android.build.gradle.internal.transforms.TransformTestHelper.singleJarBuilder
-import com.android.builder.packaging.JarMerger.MODULE_PATH
-import com.android.testutils.truth.MoreTruth
+import com.android.testutils.TestInputsGenerator
 import com.android.testutils.apk.Zip
+import com.android.testutils.truth.ZipFileSubject.assertThat
 import com.android.utils.FileUtils
-import com.google.common.truth.Truth
 import org.gradle.api.Action
 import org.gradle.workers.WorkerConfiguration
 import org.gradle.workers.WorkerExecutor
 import java.io.File
-import java.nio.file.Files
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -42,7 +41,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.mockito.ArgumentCaptor
 import org.mockito.Mockito
-import java.util.jar.JarFile
 
 class MergeClassesTransformTest {
 
@@ -58,10 +56,10 @@ class MergeClassesTransformTest {
             action: Action<in WorkerConfiguration>
         ) {
             val workerConfiguration = Mockito.mock(WorkerConfiguration::class.java)
-            val captor = ArgumentCaptor.forClass(JarRequest::class.java)
+            val captor = ArgumentCaptor.forClass(Workers.ActionParameters::class.java)
             action.execute(workerConfiguration)
             Mockito.verify<WorkerConfiguration>(workerConfiguration).params(captor.capture())
-            val workAction = JarWorkerRunnable(captor.value)
+            val workAction = JarWorkerRunnable(captor.value.delegateParameters as JarRequest)
             workAction.run()
         }
 
@@ -77,6 +75,8 @@ class MergeClassesTransformTest {
 
         context = Mockito.mock(Context::class.java)
         Mockito.`when`(context.workerExecutor).thenReturn(workerExecutor)
+        Mockito.`when`(context.projectName).thenReturn("test")
+        Mockito.`when`(context.path).thenReturn(":test")
     }
 
     @After
@@ -86,17 +86,40 @@ class MergeClassesTransformTest {
 
     @Test
     fun testBasic() {
+        // include duplicate .kotlin_module files as regression test for
+        // https://issuetracker.google.com/issues/125696148
+        val jarFile1 = tmp.newFile("foo.jar")
+        TestInputsGenerator.writeJarWithEmptyEntries(
+            jarFile1.toPath(),
+            listOf(
+                "Foo.class",
+                "foo.txt",
+                "META-INF/duplicate.kotlin_module",
+                "duplicate/module-info.class"
+            )
+        )
+        val jarFile2 = tmp.newFile("bar.jar")
+        TestInputsGenerator.writeJarWithEmptyEntries(
+            jarFile2.toPath(),
+            listOf(
+                "Bar.class",
+                "bar.txt",
+                "META-INF/duplicate.kotlin_module",
+                "duplicate/module-info.class"
+            )
+        )
+
         val invocation =
             invocationBuilder()
                 .setContext(context)
                 .setIncremental(false)
                 .addReferenceInput(
-                    singleJarBuilder(getInputFile("test-jar1.jar"))
+                    singleJarBuilder(jarFile1)
                         .setContentTypes(CLASSES, RESOURCES)
                         .setScopes(PROJECT)
                         .build())
                 .addReferenceInput(
-                    singleJarBuilder(getInputFile("test-jar2.jar"))
+                    singleJarBuilder(jarFile2)
                         .setContentTypes(CLASSES)
                         .setScopes(SUB_PROJECTS)
                         .build())
@@ -104,25 +127,14 @@ class MergeClassesTransformTest {
 
         transform.transform(invocation)
 
-        // outputJar should only contain classes, not java resources.
+        // outputJar should only contain classes, not java resources or .kotlin_module files
         Zip(outputJar).use {
-            MoreTruth.assertThat(it)
-                .contains("com/example/android/multiproject/person/People.class")
-            MoreTruth.assertThat(it).contains("com/example/android/multiproject/person/Foo.class")
-            MoreTruth.assertThat(it).doesNotContain("file1.txt")
-            MoreTruth.assertThat(it).doesNotContain("file2.txt")
+            assertThat(it).contains("Foo.class")
+            assertThat(it).contains("Bar.class")
+            assertThat(it).doesNotContain("foo.txt")
+            assertThat(it).doesNotContain("bar.txt")
+            assertThat(it).doesNotContain("META-INF/duplicate.kotlin_module")
+            assertThat(it).doesNotContain("duplicate/module-info.class")
         }
-    }
-
-    private fun getInputFile(name: String): File {
-        val stream = this.javaClass.getResourceAsStream(name)
-        val inputPath = Files.createTempFile(null, null)
-        val inputFile = inputPath.toFile()
-        inputFile.deleteOnExit()
-        FileUtils.deleteIfExists(inputFile)
-
-        Files.copy(stream, inputPath)
-
-        return inputFile
     }
 }

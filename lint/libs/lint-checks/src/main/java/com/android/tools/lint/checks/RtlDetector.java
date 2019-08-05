@@ -57,7 +57,6 @@ import static com.android.SdkConstants.TAG_APPLICATION;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.tools.lint.client.api.UElementHandler;
 import com.android.tools.lint.detector.api.Category;
 import com.android.tools.lint.detector.api.Context;
@@ -73,6 +72,7 @@ import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.SourceCodeScanner;
 import com.android.tools.lint.detector.api.XmlContext;
+import com.google.common.annotations.VisibleForTesting;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
 import java.io.File;
@@ -112,8 +112,8 @@ public class RtlDetector extends LayoutDetector implements SourceCodeScanner {
                             + "\n"
                             + "For XML attributes such as paddingLeft and `layout_marginLeft`, use `paddingStart` "
                             + "and `layout_marginStart`. **NOTE**: If your `minSdkVersion` is less than 17, you should "
-                            + "add **both** the older left/right attributes **as well as** the new start/right "
-                            + "attributes. On older platforms, where RTL is not supported and the start/right "
+                            + "add **both** the older left/right attributes **as well as** the new start/end "
+                            + "attributes. On older platforms, where RTL is not supported and the start/end "
                             + "attributes are unknown and therefore ignored, you need the older left/right "
                             + "attributes. There is a separate lint check which catches that type of error.\n"
                             + "\n"

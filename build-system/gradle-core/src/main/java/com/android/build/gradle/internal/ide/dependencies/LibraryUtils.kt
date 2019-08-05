@@ -70,7 +70,8 @@ fun clone(dependencies: Dependencies, modelLevel: Int): Dependencies {
     return DependenciesImpl(
         libraries,
         javaLibraries,
-        projects
+        projects,
+        Lists.newArrayList(dependencies.runtimeOnlyClasses)
     )
 }
 
@@ -119,6 +120,7 @@ fun Library.addToGlobalCache() {
 fun clearCaches() {
     globalLibrary.clear()
     libraryCache.clear()
+    localJarCache.clear()
 }
 
 fun getGlobalLibMap(): Map<String, Library> {
@@ -127,7 +129,7 @@ fun getGlobalLibMap(): Map<String, Library> {
 
 private fun instantiateLibrary(artifact: ResolvedArtifact): Library {
     val library: Library
-    val id = artifact.id.componentIdentifier
+    val id = artifact.componentIdentifier
     val address = artifact.computeModelAddress()
 
     if (id !is ProjectComponentIdentifier || artifact.isWrappedModule) {
@@ -190,7 +192,7 @@ fun findResStaticLibrary(
             return File(
                 convertedDirectory,
                 getAutoNamespacedLibraryFileName(
-                    explodedAar.id.componentIdentifier
+                    explodedAar.componentIdentifier
                 )
             )
         }
@@ -236,3 +238,16 @@ val libraryCache =
     })
 
 private val globalLibrary = Maps.newHashMap<String, Library>()
+
+val localJarCache = CreatingCache<File, List<File>>(CreatingCache.ValueFactory<File, List<File>> {
+    val localJarRoot = FileUtils.join(it, FD_JARS, FD_AAR_LIBS)
+
+    if (!localJarRoot.isDirectory) {
+        ImmutableList.of<File>()
+    } else {
+        val jarFiles = localJarRoot.listFiles { _, name -> name.endsWith(DOT_JAR) }
+        if (jarFiles != null && jarFiles.isNotEmpty()) {
+            ImmutableList.copyOf<File>(jarFiles)
+        } else ImmutableList.of<File>()
+    }
+})

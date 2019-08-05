@@ -19,7 +19,7 @@ iml_module(
         "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/idea/.idea/libraries:equalsverifier[test]",
         "//tools/idea/.idea/libraries:JUnit4[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )
 
@@ -55,6 +55,7 @@ maven_pom(
 kotlin_test(
     name = "builder_tests",
     srcs = ["src/test/java"],
+    coverage = True,
     jvm_flags = ["-Dtest.suite.jar=builder_tests.jar"],
     test_class = "com.android.testutils.JarTestSuite",
     deps = [

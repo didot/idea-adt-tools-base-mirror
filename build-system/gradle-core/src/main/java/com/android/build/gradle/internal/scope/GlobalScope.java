@@ -29,21 +29,21 @@ import com.android.annotations.Nullable;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.FeatureExtension;
 import com.android.build.gradle.internal.FeatureModelBuilder;
-import com.android.build.gradle.internal.SdkHandler;
+import com.android.build.gradle.internal.SdkComponents;
 import com.android.build.gradle.internal.api.dsl.DslScope;
 import com.android.build.gradle.internal.api.sourcesets.FilesProvider;
 import com.android.build.gradle.internal.dsl.BaseAppModuleExtension;
 import com.android.build.gradle.internal.errors.SyncIssueHandler;
-import com.android.build.gradle.internal.ndk.NdkHandler;
+import com.android.build.gradle.internal.process.GradleJavaProcessExecutor;
+import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.options.ProjectOptions;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.model.OptionalCompilationStep;
-import com.android.builder.sdk.TargetInfo;
 import com.android.builder.utils.FileCache;
 import com.android.ide.common.blame.MessageReceiver;
 import com.android.ide.common.process.ProcessExecutor;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.util.Set;
 import org.gradle.api.Action;
@@ -59,67 +59,73 @@ public class GlobalScope implements TransformGlobalScope {
 
     @NonNull private final Project project;
     @NonNull private final FilesProvider filesProvider;
-    @NonNull private final AndroidBuilder androidBuilder;
+    @NonNull private final GradleProcessExecutor processExecutor;
+    @NonNull private final GradleJavaProcessExecutor javaProcessExecutor;
     @NonNull private AndroidConfig extension;
-    @NonNull private final SdkHandler sdkHandler;
-    @NonNull private NdkHandler ndkHandler;
+    @NonNull private final SdkComponents sdkComponents;
     @NonNull private final ToolingModelBuilderRegistry toolingRegistry;
     @NonNull private final Set<OptionalCompilationStep> optionalCompilationSteps;
     @NonNull private final ProjectOptions projectOptions;
     @Nullable private final FileCache buildCache;
+    @NonNull private final MessageReceiver messageReceiver;
 
+    @NonNull private final String createdBy;
     @NonNull private final DslScope dslScope;
 
     @NonNull private Configuration lintChecks;
+    @NonNull private Configuration lintPublish;
 
     private Configuration androidJarConfig;
 
-    @Nullable private ConfigurableFileCollection java8LangSupportJar = null;
-
     @NonNull private final BuildArtifactsHolder globalArtifacts;
+
+    @Nullable private ConfigurableFileCollection bootClasspath = null;
 
     public GlobalScope(
             @NonNull Project project,
+            @NonNull String createdBy,
             @NonNull FilesProvider filesProvider,
             @NonNull ProjectOptions projectOptions,
             @NonNull DslScope dslScope,
-            @NonNull AndroidBuilder androidBuilder,
-            @NonNull SdkHandler sdkHandler,
+            @NonNull SdkComponents sdkComponents,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
-            @Nullable FileCache buildCache) {
+            @Nullable FileCache buildCache,
+            @NonNull MessageReceiver messageReceiver) {
         // Attention: remember that this code runs early in the build lifecycle, project may not
         // have been fully configured yet (e.g. buildDir can still change).
         this.project = checkNotNull(project);
+        this.createdBy = createdBy;
         this.dslScope = checkNotNull(dslScope);
         this.filesProvider = filesProvider;
-        this.androidBuilder = checkNotNull(androidBuilder);
-        this.sdkHandler = checkNotNull(sdkHandler);
+        this.sdkComponents = checkNotNull(sdkComponents);
         this.toolingRegistry = checkNotNull(toolingRegistry);
         this.optionalCompilationSteps = checkNotNull(projectOptions.getOptionalCompilationSteps());
         this.projectOptions = checkNotNull(projectOptions);
         this.buildCache = buildCache;
+        this.messageReceiver = messageReceiver;
         this.globalArtifacts = new GlobalBuildArtifactsHolder(project, this::getBuildDir, dslScope);
 
         // Create empty configurations before these have been set.
         this.lintChecks = project.getConfigurations().detachedConfiguration();
+
+        processExecutor = new GradleProcessExecutor(project);
+        javaProcessExecutor = new GradleJavaProcessExecutor(project);
+
     }
 
     public void setExtension(@NonNull AndroidConfig extension) {
         this.extension = checkNotNull(extension);
-        ndkHandler =
-                new NdkHandler(
-                        extension.getNdkVersion(),
-                        project.getRootDir(),
-                        null, /* compileSkdVersion, this will be set in afterEvaluate */
-                        "gcc",
-                        "" /*toolchainVersion*/,
-                        false /* useUnifiedHeaders */);
     }
 
     @NonNull
     @Override
     public Project getProject() {
         return project;
+    }
+
+    @NonNull
+    public String getCreatedBy() {
+        return createdBy;
     }
 
     @NonNull
@@ -133,22 +139,13 @@ public class GlobalScope implements TransformGlobalScope {
     }
 
     @NonNull
-    public AndroidBuilder getAndroidBuilder() {
-        return androidBuilder;
-    }
-
-    @NonNull
-    public TargetInfo getTargetInfo() {
-        // Workaround to give access to task that they need without knowing about the
-        // androidbuilder which will be removed in the long term.
-        return Preconditions.checkNotNull(androidBuilder.getTargetInfo(), "TargetInfo unavailable");
-    }
-
-    @NonNull
     public ProcessExecutor getProcessExecutor() {
-        // Workaround to give access to task that they need without knowing about the
-        // androidbuilder which will be removed in the long term.
-        return androidBuilder.getProcessExecutor();
+        return processExecutor;
+    }
+
+    @NonNull
+    public GradleJavaProcessExecutor getJavaProcessExecutor() {
+        return javaProcessExecutor;
     }
 
     @NonNull
@@ -157,13 +154,8 @@ public class GlobalScope implements TransformGlobalScope {
     }
 
     @NonNull
-    public SdkHandler getSdkHandler() {
-        return sdkHandler;
-    }
-
-    @NonNull
-    public NdkHandler getNdkHandler() {
-        return ndkHandler;
+    public SdkComponents getSdkComponents() {
+        return sdkComponents;
     }
 
     @NonNull
@@ -246,6 +238,10 @@ public class GlobalScope implements TransformGlobalScope {
         this.lintChecks = lintChecks;
     }
 
+    public void setLintPublish(@NonNull Configuration lintPublish) {
+        this.lintPublish = lintPublish;
+    }
+
     public void setAndroidJarConfig(@NonNull Configuration androidJarConfig) {
         this.androidJarConfig = androidJarConfig;
     }
@@ -288,7 +284,7 @@ public class GlobalScope implements TransformGlobalScope {
 
     @NonNull
     public SyncIssueHandler getErrorHandler() {
-        return (SyncIssueHandler) androidBuilder.getIssueReporter();
+        return (SyncIssueHandler) dslScope.getIssueReporter();
     }
 
     @NonNull
@@ -298,9 +294,14 @@ public class GlobalScope implements TransformGlobalScope {
 
     @NonNull
     public MessageReceiver getMessageReceiver() {
-        return androidBuilder.getMessageReceiver();
+        return messageReceiver;
     }
 
+    /**
+     * Gets the lint JAR from the lint checking configuration.
+     *
+     * @return the resolved lint.jar ArtifactFile from the lint checking configuration
+     */
     @NonNull
     public FileCollection getLocalCustomLintChecks() {
         // Query for JAR instead of PROCESSED_JAR as we want to get the original lint.jar
@@ -310,6 +311,26 @@ public class GlobalScope implements TransformGlobalScope {
                                 ARTIFACT_TYPE, AndroidArtifacts.ArtifactType.JAR.getType());
 
         return lintChecks
+                .getIncoming()
+                .artifactView(config -> config.attributes(attributes))
+                .getArtifacts()
+                .getArtifactFiles();
+    }
+
+    /**
+     * Gets the lint JAR from the lint publishing configuration.
+     *
+     * @return the resolved lint.jar ArtifactFile from the lint publishing configuration
+     */
+    @NonNull
+    public FileCollection getPublishedCustomLintChecks() {
+        // Query for JAR instead of PROCESSED_JAR as we want to get the original lint.jar
+        Action<AttributeContainer> attributes =
+                container ->
+                        container.attribute(
+                                ARTIFACT_TYPE, AndroidArtifacts.ArtifactType.JAR.getType());
+
+        return lintPublish
                 .getIncoming()
                 .artifactView(config -> config.attributes(attributes))
                 .getArtifacts()
@@ -330,5 +351,62 @@ public class GlobalScope implements TransformGlobalScope {
             return !FeatureModelBuilder.getDynamicFeatures(this).isEmpty();
         }
         return false;
+    }
+
+    /**
+     * Returns the boot classpath to be used during compilation with the core lambdas stubs.
+     *
+     * @return {@link FileCollection} for the boot classpath.
+     */
+    @NonNull
+    public FileCollection getBootClasspath() {
+        if (bootClasspath == null) {
+            bootClasspath = project.files(getFilteredBootClasspath());
+            if (extension.getCompileOptions().getTargetCompatibility().isJava8Compatible()) {
+                bootClasspath.from(getSdkComponents().getCoreLambdaStubsProvider());
+            }
+        }
+        return bootClasspath;
+    }
+
+    /**
+     * Returns the boot classpath to be used during compilation with all available additional jars
+     * but only the requested optional ones.
+     *
+     * <p>Requested libraries not found will be reported to the issue handler.
+     *
+     * @return a {@link FileCollection} that forms the filtered classpath.
+     */
+    public FileCollection getFilteredBootClasspath() {
+        return BootClasspathBuilder.INSTANCE.computeClasspath(
+                project,
+                getDslScope().getIssueReporter(),
+                getSdkComponents().getTargetBootClasspathProvider(),
+                getSdkComponents().getTargetAndroidVersionProvider(),
+                getSdkComponents().getAdditionalLibrariesProvider(),
+                getSdkComponents().getOptionalLibrariesProvider(),
+                getSdkComponents().getAnnotationsJarProvider(),
+                false,
+                ImmutableList.copyOf(getExtension().getLibraryRequests()));
+    }
+
+    /**
+     * Returns the boot classpath to be used during compilation with all available additional jars
+     * including all optional libraries.
+     *
+     * @return a {@link FileCollection} that forms the filtered classpath.
+     */
+    @NonNull
+    public FileCollection getFullBootClasspath() {
+        return BootClasspathBuilder.INSTANCE.computeClasspath(
+                project,
+                getDslScope().getIssueReporter(),
+                getSdkComponents().getTargetBootClasspathProvider(),
+                getSdkComponents().getTargetAndroidVersionProvider(),
+                getSdkComponents().getAdditionalLibrariesProvider(),
+                getSdkComponents().getOptionalLibrariesProvider(),
+                getSdkComponents().getAnnotationsJarProvider(),
+                true,
+                ImmutableList.of());
     }
 }

@@ -17,7 +17,12 @@ package com.android.tools.perflib.heap.memoryanalyzer;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.tools.perflib.analyzer.*;
+import com.android.tools.perflib.analyzer.AnalysisReport;
+import com.android.tools.perflib.analyzer.AnalysisResultEntry;
+import com.android.tools.perflib.analyzer.Analyzer;
+import com.android.tools.perflib.analyzer.AnalyzerTask;
+import com.android.tools.perflib.analyzer.Capture;
+import com.android.tools.perflib.analyzer.CaptureGroup;
 import com.android.tools.perflib.heap.Heap;
 import com.android.tools.perflib.heap.Snapshot;
 import com.google.common.util.concurrent.FutureCallback;
@@ -29,12 +34,13 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 
 public class MemoryAnalyzer extends Analyzer {
 
-    private Set<MemoryAnalyzerTask> mTasks = new HashSet<>();
+    private Set<MemoryAnalyzerTask> mTasks = new HashSet<MemoryAnalyzerTask>();
 
     private AnalysisReport mOutstandingReport;
 
@@ -89,7 +95,7 @@ public class MemoryAnalyzer extends Analyzer {
         mOutstandingReport.addResultListeners(listeners);
 
         List<ListenableFutureTask<List<AnalysisResultEntry<?>>>> futuresList
-                = new ArrayList<>();
+                = new ArrayList<ListenableFutureTask<List<AnalysisResultEntry<?>>>>();
 
         for (final Capture capture : captureGroup.getCaptures()) {
             if (accept(capture)) {
@@ -98,7 +104,7 @@ public class MemoryAnalyzer extends Analyzer {
                     continue;
                 }
 
-                List<Heap> heapsToUse = new ArrayList<>(snapshot.getHeaps().size());
+                List<Heap> heapsToUse = new ArrayList<Heap>(snapshot.getHeaps().size());
                 for (Heap heap : snapshot.getHeaps()) {
                     if ("app".equals(heap.getName())) {
                         heapsToUse.add(heap);
@@ -110,12 +116,15 @@ public class MemoryAnalyzer extends Analyzer {
 
                 for (final MemoryAnalyzerTask task : mTasks) {
                     final ListenableFutureTask<List<AnalysisResultEntry<?>>> futureTask =
-                            ListenableFutureTask.create(() -> {
-                                if (mCancelAnalysis) {
-                                    return null;
-                                }
+                            ListenableFutureTask.create(new Callable<List<AnalysisResultEntry<?>>>() {
+                                @Override
+                                public List<AnalysisResultEntry<?>> call() throws Exception {
+                                    if (mCancelAnalysis) {
+                                        return null;
+                                    }
 
-                                return task.analyze(configuration, snapshot);
+                                    return task.analyze(configuration, snapshot);
+                                }
                             });
                     Futures.addCallback(futureTask,
                             new FutureCallback<List<AnalysisResultEntry<?>>>() {

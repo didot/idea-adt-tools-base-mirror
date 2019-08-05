@@ -20,14 +20,12 @@ import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.FeatureExtension
 import com.android.build.gradle.internal.api.artifact.singleFile
 import com.android.build.gradle.internal.dsl.BaseAppModuleExtension
-import com.android.build.gradle.internal.process.JarSigner
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.options.BooleanOption
-import com.android.build.gradle.options.StringOption
 import com.android.builder.packaging.PackagingUtils
 import com.android.bundle.Config
 import com.android.tools.build.bundletool.commands.BuildBundleCommand
@@ -38,14 +36,12 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.file.RegularFile
 import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Nested
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.io.Serializable
@@ -53,12 +49,12 @@ import java.nio.file.Path
 import javax.inject.Inject
 
 /**
- * Task that generates the final bundle (.aab) with all the modules.
+ * Task that generates the bundle (.aab) with all the modules.
  */
 open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor) :
-    AndroidVariantTask() {
+    NonIncrementalTask() {
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NAME_ONLY)
@@ -68,6 +64,11 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NAME_ONLY)
     lateinit var featureZips: FileCollection
+        private set
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var bundleDeps: BuildableArtifact
         private set
 
     @get:InputFiles
@@ -94,11 +95,6 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
     lateinit var bundleFlags: BundleFlags
         private set
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.ABSOLUTE)
-    lateinit var signingConfig: FileCollection
-        private set
-
     @get:OutputDirectory
     @get:PathSensitive(PathSensitivity.NONE)
     val bundleLocation: File
@@ -110,14 +106,7 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
 
     private lateinit var bundleFile: Provider<RegularFile>
 
-    @TaskAction
-    fun bundleModules() {
-        val config = SigningConfigMetadata.load(signingConfig)
-        val signature = if (config != null && config.storeFile != null)
-            JarSigner.Signature(
-                config.storeFile!!, config.storePassword, config.keyAlias, config.keyPassword)
-        else null
-
+    override fun doTaskAction() {
         workers.use {
             it.submit(
                 BundleToolRunnable::class.java,
@@ -129,8 +118,8 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
                     aaptOptionsNoCompress = aaptOptionsNoCompress,
                     bundleOptions = bundleOptions,
                     bundleFlags = bundleFlags,
-                    signature = signature,
-                    bundleFile = bundleFile.get().asFile
+                    bundleFile = bundleFile.get().asFile,
+                    bundleDeps = bundleDeps.singleFile()
                 )
             )
         }
@@ -144,8 +133,8 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
         val aaptOptionsNoCompress: Collection<String>,
         val bundleOptions: BundleOptions,
         val bundleFlags: BundleFlags,
-        val signature: JarSigner.Signature?,
-        val bundleFile: File
+        val bundleFile: File,
+        val bundleDeps: File
     ) : Serializable
 
     private class BundleToolRunnable @Inject constructor(private val params: Params): Runnable {
@@ -180,10 +169,12 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
                             .setSplitsConfig(splitsConfig)
                             .setUncompressNativeLibraries(uncompressNativeLibrariesConfig))
 
+
             val command = BuildBundleCommand.builder()
                 .setBundleConfig(bundleConfig.build())
                 .setOutputPath(bundleFile.toPath())
                 .setModulesPaths(builder.build())
+                .addMetadataFile("com.android.tools.build.libraries", "dependencies.pb", params.bundleDeps.toPath())
 
             params.mainDexList?.let {
                 command.setMainDexListFile(it.toPath())
@@ -198,10 +189,6 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
             }
 
             command.build().execute()
-
-            if (params.signature != null) {
-                JarSigner().sign(bundleFile, params.signature)
-            }
         }
 
         private fun getBundlePath(folder: File): Path {
@@ -229,11 +216,14 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
         val enableUncompressedNativeLibs: Boolean
     ) : Serializable
 
+    /**
+     * CreateAction for a Task that will pack the bundle artifact.
+     */
     class CreationAction(variantScope: VariantScope) :
         VariantTaskCreationAction<PackageBundleTask>(variantScope) {
-
         override val name: String
             get() = variantScope.getTaskName("package", "Bundle")
+
         override val type: Class<PackageBundleTask>
             get() = PackageBundleTask::class.java
 
@@ -242,27 +232,13 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
 
-            val apkLocationOverride =
-                variantScope.globalScope.projectOptions.get(StringOption.IDE_APK_LOCATION)
+            val bundleName = "${variantScope.globalScope.projectBaseName}-${variantScope.variantConfiguration.baseName}.aab"
 
-            val bundleName = "${variantScope.globalScope.projectBaseName}.aab"
-
-            bundleFile = if (apkLocationOverride == null)
-                variantScope.artifacts.createArtifactFile(
-                    InternalArtifactType.BUNDLE,
-                    BuildArtifactsHolder.OperationType.INITIAL,
-                    taskName,
-                    bundleName)
-            else
-                variantScope.artifacts.createArtifactFile(
-                    InternalArtifactType.BUNDLE,
-                    BuildArtifactsHolder.OperationType.INITIAL,
-                    taskName,
-                    FileUtils.join(
-                        variantScope.globalScope.project.file(apkLocationOverride),
-                        variantScope.variantConfiguration.dirName,
-                        bundleName))
-
+            bundleFile = variantScope.artifacts.createArtifactFile(
+                InternalArtifactType.INTERMEDIARY_BUNDLE,
+                BuildArtifactsHolder.OperationType.INITIAL,
+                taskName,
+                bundleName)
         }
 
         override fun configure(task: PackageBundleTask) {
@@ -276,6 +252,8 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
                 AndroidArtifacts.ArtifactScope.ALL,
                 AndroidArtifacts.ArtifactType.MODULE_BUNDLE
             )
+
+            task.bundleDeps = variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.BUNDLE_DEPENDENCY_REPORT)
 
             task.aaptOptionsNoCompress =
                     variantScope.globalScope.extension.aaptOptions.noCompress ?: listOf()
@@ -306,8 +284,6 @@ open class PackageBundleTask @Inject constructor(workerExecutor: WorkerExecutor)
                 task.obsfuscationMappingFile =
                         variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.APK_MAPPING)
             }
-
-            task.signingConfig = variantScope.signingConfigFileCollection
         }
     }
 }

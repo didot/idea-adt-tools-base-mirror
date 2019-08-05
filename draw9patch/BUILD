@@ -9,11 +9,12 @@ iml_module(
         "src/main/resources",
     ],
     iml_files = ["android.sdktools.draw9patch.iml"],
+    test_coverage = True,
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     deps = [
         "//tools/idea/.idea/libraries:JUnit4[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )

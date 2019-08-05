@@ -16,13 +16,12 @@
 
 package com.android.ide.common.caching;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import org.junit.Test;
-
 import java.util.concurrent.CountDownLatch;
-
-import static com.google.common.truth.Truth.assertThat;
+import org.junit.Test;
 
 /**
  */

@@ -20,6 +20,22 @@ import com.android.annotations.Nullable;
 import com.android.io.NonClosingInputStream;
 import com.android.io.NonClosingInputStream.CloseBehavior;
 import com.android.utils.XmlUtils;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.parsers.SAXParser;
+import javax.xml.parsers.SAXParserFactory;
+import javax.xml.transform.stream.StreamSource;
+import javax.xml.validation.Schema;
+import javax.xml.validation.SchemaFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
@@ -29,15 +45,6 @@ import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.helpers.DefaultHandler;
 
-import javax.xml.XMLConstants;
-import javax.xml.parsers.*;
-import javax.xml.transform.stream.StreamSource;
-import javax.xml.validation.Schema;
-import javax.xml.validation.SchemaFactory;
-import java.io.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 public class DeviceSchema {
 
     // ---- XSD ----
@@ -46,7 +53,7 @@ public class DeviceSchema {
      * The latest version of the device XML Schema.
      * Valid version numbers are between 1 and this number, included.
      */
-    public static final int NS_LATEST_VERSION = 3;
+    public static final int NS_LATEST_VERSION = 4;
 
     /** The XML namespace of the latest device XML. */
     public static final String NS_DEVICES_URI = getSchemaUri(NS_LATEST_VERSION);
@@ -170,6 +177,11 @@ public class DeviceSchema {
     public static final String NODE_KEYBOARD_STATE = "keyboard-state";
 
     public static final String NODE_X_DIMENSION = "x-dimension";
+
+    public static final String NODE_X_FOLDED_OFFSET = "x-folded-offset";
+    public static final String NODE_Y_FOLDED_OFFSET = "y-folded-offset";
+    public static final String NODE_X_FOLDED_DIMENSION = "x-folded-dimension";
+    public static final String NODE_Y_FOLDED_DIMENSION = "y-folded-dimension";
 
     public static final String NODE_CPU = "cpu";
 

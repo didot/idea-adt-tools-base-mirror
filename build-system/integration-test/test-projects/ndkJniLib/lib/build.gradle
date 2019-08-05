@@ -4,11 +4,18 @@ android {
     compileSdkVersion rootProject.latestCompileSdk
     buildToolsVersion = rootProject.buildToolsVersion
     defaultConfig {
-        minSdkVersion rootProject.supportLibMinSdk
+        minSdkVersion rootProject.ndk19SupportLibMinSdk
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
     }
     externalNativeBuild {
         ndkBuild {
              path "Android.mk"
         }
     }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.12'
+    androidTestImplementation "com.android.support.test:runner:${project.testSupportLibVersion}"
+    androidTestImplementation "com.android.support.test:rules:${project.testSupportLibVersion}"
 }

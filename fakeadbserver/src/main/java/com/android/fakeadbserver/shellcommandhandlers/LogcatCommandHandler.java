@@ -18,7 +18,6 @@ package com.android.fakeadbserver.shellcommandhandlers;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.fakeadbserver.ClientState;
 import com.android.fakeadbserver.DeviceState;
 import com.android.fakeadbserver.DeviceState.LogcatChangeHandlerSubscriptionResult;
 import com.android.fakeadbserver.FakeAdbServer;
@@ -28,22 +27,22 @@ import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.Charset;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
  * shell:logcat command is a persistent command issued to grab the output of logcat. In this
- * implementation, the command handler can be driven to send messages to the client of the fake
- * ADB Server.
+ * implementation, the command handler can be driven to send messages to the client of the fake ADB
+ * Server.
  */
-public class LogcatCommandHandler extends ShellCommandHandler {
+public class LogcatCommandHandler extends SimpleShellHandler {
 
-    @NonNull
-    public static final String COMMAND = "logcat";
+    public LogcatCommandHandler() {
+        super("logcat");
+    }
 
     @Override
-    public boolean invoke(
+    public void execute(
             @NonNull FakeAdbServer fakeAdbServer,
             @NonNull Socket responseSocket,
             @NonNull DeviceState device,
@@ -52,7 +51,7 @@ public class LogcatCommandHandler extends ShellCommandHandler {
 
         int formatIndex = parsedArgs.indexOf("-v");
         if (formatIndex + 1 > parsedArgs.size()) {
-            return false;
+            return;
         }
 
         String format = parsedArgs.get(formatIndex + 1);
@@ -63,35 +62,35 @@ public class LogcatCommandHandler extends ShellCommandHandler {
             stream = responseSocket.getOutputStream();
             writeOkay(stream); // Send ok first.
         } catch (IOException ignored) {
-            return false;
+            return;
         }
 
-        LogcatChangeHandlerSubscriptionResult subscriptionResult
-                = device.subscribeLogcatChangeHandler(new ClientStateChangeHandlerFactory() {
-            @NonNull
-            @Override
-            public Callable<HandlerResult> createClientListChangedHandler(
-                    @NonNull Collection<ClientState> clientList) {
-                return () -> new HandlerResult(true);
-            }
+        LogcatChangeHandlerSubscriptionResult subscriptionResult =
+                device.subscribeLogcatChangeHandler(
+                        new ClientStateChangeHandlerFactory() {
+                            @NonNull
+                            @Override
+                            public Callable<HandlerResult> createClientListChangedHandler() {
+                                return () -> new HandlerResult(true);
+                            }
 
-            @NonNull
-            @Override
-            public Callable<HandlerResult> createLogcatMessageAdditionHandler(
-                    @NonNull String message) {
-                return () -> {
-                    try {
-                        stream.write(message.getBytes(Charset.defaultCharset()));
-                    } catch (IOException ignored) {
-                        return new HandlerResult(false);
-                    }
-                    return new HandlerResult(true);
-                };
-            }
-        });
+                            @NonNull
+                            @Override
+                            public Callable<HandlerResult> createLogcatMessageAdditionHandler(
+                                    @NonNull String message) {
+                                return () -> {
+                                    try {
+                                        stream.write(message.getBytes(Charset.defaultCharset()));
+                                    } catch (IOException ignored) {
+                                        return new HandlerResult(false);
+                                    }
+                                    return new HandlerResult(true);
+                                };
+                            }
+                        });
 
         if (subscriptionResult == null) {
-            return false;
+            return;
         }
 
         try {
@@ -112,7 +111,5 @@ public class LogcatCommandHandler extends ShellCommandHandler {
         } finally {
             device.getClientChangeHub().unsubscribe(subscriptionResult.mQueue);
         }
-
-        return false;
     }
 }

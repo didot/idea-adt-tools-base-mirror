@@ -16,10 +16,10 @@
 
 package com.android.build.gradle.integration.feature;
 
+import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThatApk;
 import static com.android.testutils.truth.FileSubject.assertThat;
 import static com.android.testutils.truth.MoreTruth.assertThatZip;
-import static com.google.common.truth.Truth.assertThat;
 
 import com.android.SdkConstants;
 import com.android.build.OutputFile;
@@ -34,6 +34,7 @@ import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata;
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSplitDeclaration;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.ProjectBuildOutput;
+import com.android.builder.model.SyncIssue;
 import com.android.builder.model.VariantBuildOutput;
 import com.android.testutils.truth.ZipFileSubject;
 import com.android.utils.FileUtils;
@@ -156,7 +157,6 @@ public class FeatureTest {
                                 InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES,
                                 featureProject.file("build")),
                         "debugFeature",
-                        "processDebugFeatureResources",
                         SdkConstants.FD_RES_CLASS,
                         "com",
                         "example",
@@ -285,11 +285,9 @@ public class FeatureTest {
 
     @Test
     public void testMinimalisticModel() throws Exception {
-        project.executor().run("clean", "assemble");
-
-        // get the initial minimalistic model.
+        // Execute build and get the initial minimalistic model.
         Map<String, ProjectBuildOutput> multi =
-                project.model().fetchMulti(ProjectBuildOutput.class);
+                project.executeAndReturnOutputMultiModel("clean", "assemble");
 
         ProjectBuildOutput projectBuildOutput = multi.get(":feature");
         assertThat(projectBuildOutput).isNotNull();
@@ -315,20 +313,31 @@ public class FeatureTest {
         assertThat(expectedVariantNames).isEmpty();
 
         Map<String, AndroidProject> models =
-                project.model().fetchAndroidProjects().getOnlyModelMap();
-        assertThat(models.get(":feature").isBaseSplit()).isFalse();
-        assertThat(models.get(":baseFeature").isBaseSplit()).isTrue();
+                project.model()
+                        .ignoreSyncIssues(SyncIssue.SEVERITY_WARNING)
+                        .fetchAndroidProjects()
+                        .getOnlyModelMap();
+        AndroidProject featureModel = models.get(":feature");
+        assertThat(featureModel.isBaseSplit()).isFalse();
+        AndroidProject baseModel = models.get(":baseFeature");
+        assertThat(baseModel.isBaseSplit()).isTrue();
+        AndroidProject instantAppModel = models.get(":bundle");
+
+        assertThat(featureModel)
+                .hasSingleIssue(SyncIssue.SEVERITY_WARNING, SyncIssue.TYPE_PLUGIN_OBSOLETE);
+        assertThat(baseModel)
+                .hasSingleIssue(SyncIssue.SEVERITY_WARNING, SyncIssue.TYPE_PLUGIN_OBSOLETE);
+        assertThat(instantAppModel)
+                .hasSingleIssue(SyncIssue.SEVERITY_WARNING, SyncIssue.TYPE_PLUGIN_OBSOLETE);
     }
 
     @Test
     public void incrementalAllVariantsBuild() throws Exception {
-        project.executor().run("clean", "assemble");
-
         GradleTestProject featureProject = project.getSubproject(":feature");
 
-        // get the initial minimalistic model.
+        // Execute build and get the initial minimalistic model.
         Map<String, ProjectBuildOutput> multi =
-                project.model().fetchMulti(ProjectBuildOutput.class);
+                project.executeAndReturnOutputMultiModel("clean", "assemble");
 
         ProjectBuildOutput projectBuildOutput = multi.get(":feature");
         assertThat(projectBuildOutput).isNotNull();
@@ -343,13 +352,13 @@ public class FeatureTest {
                 featureProject.file(
                         "src/main/java/com/example/android/multiproject/feature/Hello.java");
 
-        Files.write(javaCode, addedSource, Charsets.UTF_8);
+        Files.asCharSink(addedSource, Charsets.UTF_8).write(javaCode);
 
-        GradleBuildResult assemble = project.executor().run("assemble");
+        GradleBuildResult assemble = project.executor().withOutputModelQuery().run("assemble");
 
-        multi = project.model().fetchMulti(ProjectBuildOutput.class);
+        multi = assemble.getBuildOutputContainer().getOnlyModelMap();
 
-        assertThat(assemble.getNotUpToDateTasks()).contains(":feature:assembleDebug");
+        assertThat(assemble.getTask(":feature:assembleDebug")).wasSkipped();
 
         Map<String, File> modifiedApks =
                 getVariantNameToOutputFileMap(multi.get(":feature").getVariantsBuildOutput());
@@ -370,13 +379,11 @@ public class FeatureTest {
 
     @Test
     public void incrementalBuild() throws Exception {
-        project.executor().run("clean", "assemble");
-
         GradleTestProject featureProject = project.getSubproject(":feature");
 
-        // get the initial minimalistic model.
+        // Execute build and get the initial minimalistic model.
         Map<String, ProjectBuildOutput> multi =
-                project.model().fetchMulti(ProjectBuildOutput.class);
+                project.executeAndReturnOutputMultiModel("clean", "assemble");
 
         ProjectBuildOutput projectBuildOutput = multi.get(":feature");
         assertThat(projectBuildOutput).isNotNull();
@@ -396,13 +403,14 @@ public class FeatureTest {
                 featureProject.file(
                         "src/main/java/com/example/android/multiproject/feature/Hello.java");
 
-        Files.write(javaCode, addedSource, Charsets.UTF_8);
+        Files.asCharSink(addedSource, Charsets.UTF_8).write(javaCode);
 
-        GradleBuildResult assembleDebug = project.executor().run("assembleDebug");
+        GradleBuildResult assembleDebug =
+                project.executor().withOutputModelQuery().run("assembleDebug");
 
-        multi = project.model().fetchMulti(ProjectBuildOutput.class);
+        multi = assembleDebug.getBuildOutputContainer().getOnlyModelMap();
 
-        assertThat(assembleDebug.getNotUpToDateTasks()).contains(":feature:assembleDebug");
+        assertThat(assembleDebug.getTask(":feature:assembleDebug")).wasSkipped();
 
         Map<String, File> modifiedApks =
                 getVariantNameToOutputFileMap(multi.get(":feature").getVariantsBuildOutput());
@@ -438,10 +446,10 @@ public class FeatureTest {
         File featureManifest = featureProject.file("src/main/AndroidManifest.xml");
         String content = Files.toString(featureManifest, Charsets.UTF_8);
         content = content.replace("84", "42");
-        Files.write(content, featureManifest, Charsets.UTF_8);
+        Files.asCharSink(featureManifest, Charsets.UTF_8).write(content);
 
         GradleBuildResult run = project.executor().run("assembleDebug");
-        assertThat(run.getNotUpToDateTasks()).contains(":baseFeature:processDebugFeatureManifest");
+        assertThat(run.getTask(":baseFeature:processDebugFeatureManifest")).didWork();
     }
 
     private static String generateClass() {

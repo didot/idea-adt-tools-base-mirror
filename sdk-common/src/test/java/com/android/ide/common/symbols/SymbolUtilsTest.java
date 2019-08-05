@@ -16,24 +16,22 @@
 
 package com.android.ide.common.symbols;
 
+import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.assertNotNull;
+
 import com.android.ide.common.xml.AndroidManifestParser;
 import com.android.ide.common.xml.ManifestData;
 import com.android.utils.FileUtils;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.rules.TemporaryFolder;
-
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
-
-import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.assertNotNull;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 /** Tests for {@link SymbolUtils} class. */
 public class SymbolUtilsTest {
@@ -94,7 +92,7 @@ public class SymbolUtilsTest {
                         + "    <instrumentation android:name=\".Instrument\"/>"
                         + "</manifest>\n";
 
-        InputStream stream = new ByteArrayInputStream(manifest.getBytes(StandardCharsets.UTF_8));
+        InputStream stream = new ByteArrayInputStream(manifest.getBytes());
         ManifestData manifestData = new AndroidManifestParser().parse(stream);
 
         assertNotNull(manifestData);
@@ -174,7 +172,7 @@ public class SymbolUtilsTest {
                         + "    <instrumentation android:name=\".Instrument\"/>"
                         + "</manifest>\n";
 
-        InputStream stream = new ByteArrayInputStream(manifest.getBytes(StandardCharsets.UTF_8));
+        InputStream stream = new ByteArrayInputStream(manifest.getBytes());
         ManifestData manifestData = new AndroidManifestParser().parse(stream);
 
         assertNotNull(manifestData);

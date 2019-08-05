@@ -18,42 +18,66 @@ package com.android.build.gradle.integration.library;
 
 import static com.android.testutils.truth.FileSubject.assertThat;
 
+import com.android.annotations.NonNull;
+import com.android.build.gradle.integration.common.fixture.GradleTaskExecutor;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.build.gradle.integration.common.runner.FilterableParameterized;
+import com.android.build.gradle.internal.scope.CodeShrinker;
+import com.android.build.gradle.options.OptionalBooleanOption;
 import java.io.File;
 import java.io.IOException;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
-import org.junit.ClassRule;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 /** Assemble tests for libMinifyLibDep. */
+@RunWith(FilterableParameterized.class)
 public class LibMinifyLibDepTest {
-    @ClassRule
-    public static GradleTestProject project =
+    @Rule
+    public GradleTestProject project =
             GradleTestProject.builder().fromTestProject("libMinifyLibDep").create();
 
-    @BeforeClass
-    public static void setUp() throws IOException, InterruptedException {
-        project.execute("clean", "assembleDebug");
-    }
+    @Parameterized.Parameter public CodeShrinker shrinker;
 
-    @AfterClass
-    public static void cleanUp() {
-        project = null;
+    @Parameterized.Parameters(name = "shrinker={0}")
+    public static CodeShrinker[] getSetups() {
+        return CodeShrinker.values();
     }
 
     @Test
     public void lint() throws IOException, InterruptedException {
-        project.execute("lint");
+        executor().run("lint");
     }
 
     @Test
-    public void checkProguard() {
+    public void checkProguard() throws Exception {
+        executor().run("assembleDebug");
         File mapping = project.getSubproject("lib").file("build/outputs/mapping/debug/mapping.txt");
         // Check classes are obfuscated unless it is kept by the proguard configuration.
         assertThat(mapping)
                 .containsAllOf(
                         "com.android.tests.basic.StringGetter -> com.android.tests.basic.StringGetter",
-                        "com.android.tests.internal.StringGetterInternal -> com.android.tests.a.a");
+                        "com.android.tests.internal.StringGetterInternal ->");
+        // Assert StringGetterInternal has been renamed, so it must not map to itself.
+        assertThat(mapping)
+                .doesNotContain(
+                        "com.android.tests.internal.StringGetterInternal -> com.android.tests.internal.StringGetterInternal");
+    }
+
+    @Test
+    public void checkTestAssemblyWithR8() throws Exception {
+        executor().with(OptionalBooleanOption.ENABLE_R8, true).run("assembleAndroidTest");
+    }
+
+    @Test
+    public void checkTestAssemblyWithProguard() throws Exception {
+        executor().with(OptionalBooleanOption.ENABLE_R8, false).run("assembleAndroidTest");
+    }
+
+    @NonNull
+    private GradleTaskExecutor executor() {
+        return project.executor()
+                .with(OptionalBooleanOption.ENABLE_R8, shrinker == CodeShrinker.R8);
     }
 }

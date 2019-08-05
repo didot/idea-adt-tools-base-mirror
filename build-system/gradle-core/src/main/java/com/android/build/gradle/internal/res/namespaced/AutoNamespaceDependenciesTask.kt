@@ -17,26 +17,27 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import android.databinding.tool.util.Preconditions
-import com.android.annotations.VisibleForTesting
+import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType
-import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.res.Aapt2CompileRunnable
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.utils.toImmutableList
 import com.android.build.gradle.internal.utils.toImmutableMap
-import com.android.builder.symbols.exportToCompiledJava
+import com.android.build.gradle.options.SyncOptions
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.ide.common.symbols.SymbolIo
 import com.android.ide.common.symbols.SymbolTable
-import com.android.sdklib.IAndroidTarget
 import com.android.tools.build.apkzlib.zip.StoredEntryType
 import com.android.tools.build.apkzlib.zip.ZFile
 import com.android.tools.build.apkzlib.zip.ZFileOptions
 import com.android.utils.FileUtils
+import com.google.common.annotations.VisibleForTesting
 import com.google.common.cache.CacheBuilder
 import com.google.common.cache.CacheLoader
 import com.google.common.cache.LoadingCache
@@ -46,15 +47,19 @@ import com.google.common.collect.ImmutableMap
 import org.gradle.api.artifacts.ArtifactCollection
 import org.gradle.api.artifacts.ResolvableDependencies
 import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.FileCollection
 import org.gradle.api.logging.Logger
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -71,33 +76,55 @@ import java.util.concurrent.ForkJoinTask
  *    them in to a static library.
  */
 @CacheableTask
-open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
+abstract class AutoNamespaceDependenciesTask : NonIncrementalTask() {
 
-    lateinit var rFiles: ArtifactCollection private set
-    lateinit var nonNamespacedManifests: ArtifactCollection private set
-    lateinit var jarFiles: ArtifactCollection private set
-    lateinit var dependencies: ResolvableDependencies private set
-    lateinit var externalNotNamespacedResources: ArtifactCollection private set
-    lateinit var externalResStaticLibraries: ArtifactCollection private set
-    lateinit var publicFiles: ArtifactCollection private set
+    private lateinit var rFiles: ArtifactCollection
+    private lateinit var nonNamespacedManifests: ArtifactCollection
+    private lateinit var jarFiles: ArtifactCollection
+    private lateinit var publicFiles: ArtifactCollection
+    private lateinit var externalNotNamespacedResources: ArtifactCollection
+    private lateinit var externalResStaticLibraries: ArtifactCollection
+    // Don't need to mark this as input as it's already covered by the other inputs
+    private lateinit var dependencies: ResolvableDependencies
 
-    @InputFiles fun getRDefFiles(): FileCollection = rFiles.artifactFiles
-    @InputFiles fun getManifestsFiles(): FileCollection = nonNamespacedManifests.artifactFiles
-    @InputFiles fun getClassesJarFiles(): FileCollection = jarFiles.artifactFiles
-    @InputFiles fun getPublicFilesArtifactFiles(): FileCollection = publicFiles.artifactFiles
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
+
     @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    fun getRDefFiles(): FileCollection = rFiles.artifactFiles
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    fun getManifestsFiles(): FileCollection = nonNamespacedManifests.artifactFiles
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    fun getClassesJarFiles(): FileCollection = jarFiles.artifactFiles
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
+    fun getPublicFilesArtifactFiles(): FileCollection = publicFiles.artifactFiles
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
     fun getNonNamespacedResourcesFiles(): FileCollection =
         externalNotNamespacedResources.artifactFiles
 
     @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
     fun getStaticLibraryDependenciesFiles(): FileCollection =
         externalResStaticLibraries.artifactFiles
 
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection
+    @get:Input
+    lateinit var aapt2Version: String
         private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
+    @get:Internal
     @VisibleForTesting internal var log: Logger? = null
 
     /**
@@ -119,11 +146,11 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
     @get:OutputFile lateinit var outputClassesJar: File private set
     @get:OutputFile lateinit var outputRClassesJar: File private set
     @get:OutputDirectory lateinit var outputRewrittenManifests: File private set
+    @get:OutputDirectory lateinit var intermediateDirectory: File private set
 
-    lateinit var intermediateDirectory: File private set
+    private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
 
-    @TaskAction
-    fun taskAction() = autoNamespaceDependencies()
+    override fun doTaskAction() = autoNamespaceDependencies()
 
     private fun autoNamespaceDependencies(
         forkJoinPool: ForkJoinPool = sharedForkJoinPool,
@@ -175,7 +202,7 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
             jarOutputs(outputClassesJar, rewrittenClasses)
             jarOutputs(outputRClassesJar, rewrittenRClasses)
 
-            val aapt2ServiceKey = registerAaptService(aapt2FromMaven, logger = iLogger)
+            val aapt2ServiceKey = registerAaptService(aapt2FromMaven, logger = LoggerWrapper(logger))
 
             val outputCompiledResources = File(intermediateDirectory, "compiled_namespaced_res")
             // compile the rewritten resources
@@ -195,7 +222,8 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
                 intermediateDirectory = intermediateDirectory,
                 pool = forkJoinPool,
                 aapt2ServiceKey = aapt2ServiceKey,
-                androidJarPath = builder.target.getPath(IAndroidTarget.ANDROID_JAR)
+                errorFormatMode = errorFormatMode,
+                androidJarPath = androidJar.get().absolutePath
             )
             nonNamespacedDependenciesLinker.link()
         } finally {
@@ -314,15 +342,14 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
                     resources.toPath(),
                     outputResourcesDirectory!!.toPath()
                 )
-                generatePublicFile(
-                    getDefinedSymbols(dependency), publicTxt, outputResourcesDirectory.toPath())
+
+                rewriter.generatePublicFile(publicTxt, outputResourcesDirectory.toPath())
             }
 
             logger.info("Finished rewriting $dependency")
 
             // Also generate fake R classes for compilation.
-            exportToCompiledJava(
-                    ImmutableList.of(symbolTables[0]),
+            rewriter.writeRClass(
                     File(
                             outputRClassesDirectory,
                             "namespaced-${dependency.sanitizedName}-R.jar"
@@ -350,8 +377,11 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
                         inputFile = resourceFile,
                         outputDirectory = nodeOutputDirectory
                     )
-                    val params =
-                        Aapt2CompileRunnable.Params(aapt2ServiceKey, listOf(request))
+                    val params = Aapt2CompileRunnable.Params(
+                        aapt2ServiceKey,
+                        listOf(request),
+                        errorFormatMode
+                    )
                     tasks.add(forkJoinPool.submit(Aapt2CompileRunnable(params)))
                 }
             }
@@ -370,11 +400,6 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
             builder.add(symbolTablesCache.getUnchecked(rDefFile))
         }
         return builder.build()
-    }
-
-    private fun getDefinedSymbols(node: DependenciesGraph.Node): SymbolTable {
-        val rDefFile = node.getFile(ArtifactType.DEFINED_ONLY_SYMBOL_LIST)!!
-        return symbolTablesCache.getUnchecked(rDefFile)
     }
 
     private fun ArtifactCollection.toMap(): ImmutableMap<String, ImmutableCollection<File>> =
@@ -468,8 +493,14 @@ open class AutoNamespaceDependenciesTask : AndroidBuilderTask() {
 
             task.intermediateDirectory = variantScope.getIncrementalDir(name)
 
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
-            task.setAndroidBuilder(variantScope.globalScope.androidBuilder)
+            val (aapt2FromMaven, aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task. aapt2Version = aapt2Version
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
+
+            task.errorFormatMode = SyncOptions.getErrorFormatMode(
+                variantScope.globalScope.projectOptions
+            )
         }
     }
 

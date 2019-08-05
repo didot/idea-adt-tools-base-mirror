@@ -17,32 +17,36 @@
 package com.android.build.gradle.tasks;
 
 import com.android.annotations.NonNull;
+import com.android.build.gradle.internal.cxx.logging.ErrorsAreFatalThreadLoggingEnvironment;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.ide.common.process.ProcessException;
 import java.io.IOException;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Nested;
-import org.gradle.api.tasks.TaskAction;
 
 /** Task wrapper around ExternalNativeJsonGenerator. */
-public class ExternalNativeBuildJsonTask extends AndroidVariantTask {
+public class ExternalNativeBuildJsonTask extends NonIncrementalTask {
 
-    private ExternalNativeJsonGenerator generator;
+    private Provider<ExternalNativeJsonGenerator> generator;
 
-    @TaskAction
-    public void build() throws ProcessException, IOException {
-        generator.build();
+    @Override
+    protected void doTaskAction() throws ProcessException, IOException {
+        try (ErrorsAreFatalThreadLoggingEnvironment ignore =
+                new ErrorsAreFatalThreadLoggingEnvironment()) {
+            generator.get().build();
+        }
     }
 
     @Nested
-    public ExternalNativeJsonGenerator getExternalNativeJsonGenerator() {
+    public Provider<ExternalNativeJsonGenerator> getExternalNativeJsonGenerator() {
         return generator;
     }
 
     @NonNull
     public static VariantTaskCreationAction<ExternalNativeBuildJsonTask> createTaskConfigAction(
-            @NonNull final ExternalNativeJsonGenerator generator,
+            @NonNull final Provider<ExternalNativeJsonGenerator> generator,
             @NonNull final VariantScope scope) {
         return new CreationAction(scope, generator);
     }
@@ -50,9 +54,10 @@ public class ExternalNativeBuildJsonTask extends AndroidVariantTask {
     private static class CreationAction
             extends VariantTaskCreationAction<ExternalNativeBuildJsonTask> {
 
-        private final ExternalNativeJsonGenerator generator;
+        private final Provider<ExternalNativeJsonGenerator> generator;
 
-        private CreationAction(VariantScope scope, ExternalNativeJsonGenerator generator) {
+        private CreationAction(
+                VariantScope scope, Provider<ExternalNativeJsonGenerator> generator) {
             super(scope);
             this.generator = generator;
         }

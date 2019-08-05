@@ -23,9 +23,11 @@ import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
+import com.android.build.gradle.integration.common.truth.ScannerSubject;
+import com.android.build.gradle.integration.common.truth.TaskStateList;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.build.gradle.internal.scope.CodeShrinker;
-import com.android.build.gradle.options.BooleanOption;
+import com.android.build.gradle.options.OptionalBooleanOption;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.Version;
 import com.android.testutils.apk.Apk;
@@ -35,6 +37,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.Rule;
@@ -61,10 +64,14 @@ public class MinifyTest {
     public void appApkIsMinified() throws Exception {
         GradleBuildResult result =
                 project.executor()
-                        .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                        .with(OptionalBooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
                         .run("assembleMinified");
-        assertThat(result.getStdout()).doesNotContain("Note");
-        assertThat(result.getStdout()).doesNotContain("duplicate");
+        try (Scanner stdout = result.getStdout()) {
+            ScannerSubject.assertThat(stdout).doesNotContain("Note");
+        }
+        try (Scanner stdout = result.getStdout()) {
+            ScannerSubject.assertThat(stdout).doesNotContain("duplicate");
+        }
 
         Apk apk = project.getApk("minified");
         Set<String> allClasses = Sets.newHashSet();
@@ -125,11 +132,11 @@ public class MinifyTest {
                         + "    implementation 'com.android.support:support-annotations:"
                         + TestVersions.SUPPORT_LIB_VERSION
                         + "'\n"
-                        + "    implementation 'androidx.annotation:annotation:1.0.0-alpha1'\n"
+                        + "    implementation 'androidx.annotation:annotation:1.0.0'\n"
                         + "}");
 
         project.executor()
-                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .with(OptionalBooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
                 .run("assembleMinified");
 
         Apk minified = project.getApk(GradleTestProject.ApkType.of("minified", true));
@@ -146,7 +153,7 @@ public class MinifyTest {
     public void testApkIsNotMinified_butMappingsAreApplied() throws Exception {
         // Run just a single task, to make sure task dependencies are correct.
         project.executor()
-                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .with(OptionalBooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
                 .run("assembleMinifiedAndroidTest");
 
         GradleTestProject.ApkType testMinified =
@@ -159,7 +166,9 @@ public class MinifyTest {
                     dex.getClasses()
                             .keySet()
                             .stream()
-                            .filter(c -> !c.startsWith("Lorg/hamcrest"))
+                            .filter(c -> !c.startsWith("Lorg/"))
+                            .filter(c -> !c.startsWith("Ljunit/"))
+                            .filter(c -> !c.startsWith("Landroid/support/"))
                             .collect(Collectors.toSet()));
         }
 
@@ -184,7 +193,7 @@ public class MinifyTest {
                 "getDefaultProguardFile('proguard-android.txt')",
                 "getDefaultProguardFile('proguard-android-optimize.txt')");
         project.executor()
-                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .with(OptionalBooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
                 .run("assembleMinified");
     }
 
@@ -194,9 +203,30 @@ public class MinifyTest {
         Files.createDirectories(javaRes.getParent());
         Files.createFile(javaRes);
         project.executor()
-                .with(BooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .with(OptionalBooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
                 .run("assembleMinified");
         assertThat(project.getApk(GradleTestProject.ApkType.of("minified", true)))
                 .contains("my_res.txt");
+    }
+
+    @Test
+    public void testAndroidTestIsNotUpToDate() throws IOException, InterruptedException {
+        project.executor()
+                .with(OptionalBooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                .run("assembleMinified", "assembleMinifiedAndroidTest");
+
+        TestFileUtils.appendToFile(project.file("proguard-rules.pro"), "\n-keep class **");
+        GradleBuildResult minifiedAndroidTest =
+                project.executor()
+                        .with(OptionalBooleanOption.ENABLE_R8, codeShrinker == CodeShrinker.R8)
+                        .run("assembleMinifiedAndroidTest");
+
+        TaskStateList.TaskInfo taskInfo =
+                minifiedAndroidTest.findTask(
+                        codeShrinker == CodeShrinker.R8
+                                ? ":transformClassesAndResourcesWithR8ForMinifiedAndroidTest"
+                                : ":transformClassesAndResourcesWithProguardForMinifiedAndroidTest");
+
+        assertThat(taskInfo).didWork();
     }
 }

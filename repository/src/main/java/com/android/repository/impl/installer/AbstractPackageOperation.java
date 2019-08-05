@@ -18,12 +18,14 @@ package com.android.repository.impl.installer;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.annotations.VisibleForTesting;
 import com.android.repository.api.DelegatingProgressIndicator;
 import com.android.repository.api.Installer;
 import com.android.repository.api.PackageOperation;
 import com.android.repository.api.ProgressIndicator;
 import com.android.repository.api.RepoManager;
 import com.android.repository.api.Uninstaller;
+import com.android.repository.impl.manager.LocalRepoLoaderImpl;
 import com.android.repository.io.FileOp;
 import com.android.repository.io.FileOpUtils;
 import com.android.repository.util.InstallerUtil;
@@ -61,21 +63,39 @@ public abstract class AbstractPackageOperation implements PackageOperation {
     private static final String CLASSNAME_KEY = "class";
 
     /**
+     * The filename prefix used to store SDK manager metadata. Directories starting with this prefix should not be scanned for packages.
+     */
+    public static final String METADATA_FILENAME_PREFIX = ".";
+
+    /**
      * Name of the marker file that's written into the temporary directory when the prepare phase
      * has completed successfully.
      */
-    private static final String PREPARE_COMPLETE_FN = ".prepareComplete";
+    private static final String PREPARE_COMPLETE_FN = METADATA_FILENAME_PREFIX + "prepareComplete";
 
     /**
      * Name of the directory created in the final install location containing data to get the
      * install restarted if it stops.
      */
-    private static final String INSTALL_DATA_FN = ".installData";
+    private static final String INSTALL_DATA_FN = METADATA_FILENAME_PREFIX + "installData";
+
+    /**
+     * Name of the directory used as the base for temporary files and located within the repo root.
+     * We intentionally do not use system temp for downloads due to potentially large download size
+     * that wouldn't always fit into a system-managed temp directory, but should fit into the SDK
+     * directory (since this is where the uncompressed package will be installed anyway).
+     */
+    static final String REPO_TEMP_DIR_FN = METADATA_FILENAME_PREFIX + "temp";
 
     /**
      * Prefix used when creating temporary directories.
      */
     static final String TEMP_DIR_PREFIX = "PackageOperation";
+
+    /**
+     * Maximal number of temporary directories for package operations.
+     */
+    static final int MAX_PACKAGE_OPERATION_TEMP_DIRS = 100;
 
     /**
      * Status of the installer.
@@ -355,10 +375,10 @@ public abstract class AbstractPackageOperation implements PackageOperation {
             mFop.mkdirs(metaDir);
         }
         File dataFile = new File(metaDir, INSTALL_DATA_FN);
-        File installTempPath = FileOpUtils.getNewTempDir(TEMP_DIR_PREFIX, mFop);
+        File installTempPath = getNewPackageOperationTempDir(getRepoManager(), TEMP_DIR_PREFIX, mFop);
         if (installTempPath == null) {
             deleteOrphanedTempDirs(progress);
-            installTempPath = FileOpUtils.getNewTempDir(TEMP_DIR_PREFIX, mFop);
+            installTempPath = getNewPackageOperationTempDir(getRepoManager(), TEMP_DIR_PREFIX, mFop);
             if (installTempPath == null) {
                 throw new IOException("Failed to create temp path");
             }
@@ -383,9 +403,36 @@ public abstract class AbstractPackageOperation implements PackageOperation {
                             .map(props -> props.getProperty(PATH_KEY))
                             .map(File::new)
                             .collect(Collectors.toSet());
-            FileOpUtils.retainTempDirs(tempDirs, TEMP_DIR_PREFIX, mFop);
+            retainPackageOperationTempDirs(tempDirs, TEMP_DIR_PREFIX, mFop);
         } catch (IOException e) {
             progress.logWarning("Error while searching for in-use temporary directories.", e);
+        }
+    }
+
+    @VisibleForTesting
+    static File getNewPackageOperationTempDir(@NonNull RepoManager repoManager, @NonNull String base, @NonNull FileOp fileOp) {
+        for (int i = 1; i < MAX_PACKAGE_OPERATION_TEMP_DIRS; i++) {
+            File folder = getPackageOperationTempDir(repoManager, base, i);
+            if (!fileOp.exists(folder)) {
+                fileOp.mkdirs(folder);
+                return folder;
+            }
+        }
+        return null;
+    }
+
+    @VisibleForTesting
+    static File getPackageOperationTempDir(@NonNull RepoManager repoManager, @NonNull String base, int index) {
+        File rootTempDir = new File(repoManager.getLocalPath(), REPO_TEMP_DIR_FN);
+        return new File(rootTempDir, String.format("%1$s%2$02d", base, index));
+    }
+
+    private void retainPackageOperationTempDirs(Set<File> retain, String base, FileOp mFop) {
+        for (int i = 1; i < MAX_PACKAGE_OPERATION_TEMP_DIRS; i++) {
+            File dir = getPackageOperationTempDir(getRepoManager(), base, i);
+            if (mFop.exists(dir) && !retain.contains(dir)) {
+                mFop.deleteFileOrFolder(dir);
+            }
         }
     }
 
