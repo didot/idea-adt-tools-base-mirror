@@ -86,9 +86,18 @@ public abstract class Bridge {
      */
     public boolean init(Map<String, String> platformProperties,
             File fontLocation,
+            String nativeLibraryPath,
+            String dataPath,
             Map<String, Map<String, Integer>> enumValueMap,
             LayoutLog log) {
         return false;
+    }
+
+    public boolean init(Map<String, String> platformProperties,
+            File fontLocation,
+            Map<String, Map<String, Integer>> enumValueMap,
+            LayoutLog log) {
+        return init(platformProperties, fontLocation, null, null, enumValueMap, log);
     }
 
     /**
