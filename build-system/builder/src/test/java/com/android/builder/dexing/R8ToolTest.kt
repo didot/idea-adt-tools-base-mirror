@@ -18,6 +18,7 @@ package com.android.builder.dexing
 
 import com.android.builder.core.NoOpMessageReceiver
 import com.android.ide.common.blame.MessageReceiver
+import com.android.testutils.TestClassesGenerator
 import com.android.testutils.TestInputsGenerator
 import com.android.testutils.TestUtils
 import com.android.testutils.truth.MoreTruth.assertThatDex
@@ -28,6 +29,8 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import kotlin.test.fail
 
 /**
@@ -115,6 +118,13 @@ class R8ToolTest {
         )
         assertThat(getDexFileCount(output)).isEqualTo(1)
         assertThatZip(javaRes.toFile()).contains("res.txt")
+
+        // check Java resources are compressed
+        ZipFile(javaRes.toFile()).use { zip ->
+            for (entry in zip.entries()) {
+                assertThat(entry.method).named("entry is compressed").isEqualTo(ZipEntry.DEFLATED)
+            }
+        }
     }
 
     @Test
@@ -284,6 +294,7 @@ class R8ToolTest {
         val output = tmp.newFolder().toPath()
         val javaRes = tmp.root.resolve("res.jar").toPath()
         val messages = mutableListOf<String>()
+        val toolNameTags = mutableListOf<String>()
 
         try {
             runR8(
@@ -295,14 +306,46 @@ class R8ToolTest {
                 toolConfig,
                 proguardConfig,
                 mainDexConfig,
-                MessageReceiver { message -> messages.add(message.text) }
+                MessageReceiver { message ->
+                    messages.add(message.text)
+                    toolNameTags.add(message.toolName!!)
+                }
             )
             fail("Parsing proguard configuration should fail.")
         } catch (e: Throwable){
             assertThat(messages.single()).contains("Expected char '-' at")
             assertThat(messages.single()).contains("1:1")
             assertThat(messages.single()).contains("wrongRuleExample")
+            assertThat(toolNameTags).containsExactly("R8")
         }
+    }
+
+    @Test
+    fun testMultiReleaseFromDir() {
+        val proguardConfig = ProguardConfig(listOf(), null, null, listOf())
+        val mainDexConfig = MainDexListConfig(listOf(), listOf())
+        val toolConfig = ToolConfig(
+            minSdkVersion = 21,
+            isDebuggable = true,
+            disableTreeShaking = true,
+            disableDesugaring = true,
+            disableMinification = true,
+            r8OutputType = R8OutputType.DEX
+        )
+
+        val classes = tmp.newFolder().toPath()
+        TestInputsGenerator.dirWithEmptyClasses(classes, listOf("test/A", "test/B"))
+        classes.resolve("META-INF/versions/9/test/C.class").also {
+            it.parent.toFile().mkdirs()
+            it.toFile().writeText("malformed class file")
+        }
+
+        val output = tmp.newFolder().toPath()
+        val javaRes = tmp.root.resolve("res.jar").toPath()
+        runR8(listOf(classes), output, listOf(), javaRes, bootClasspath, toolConfig, proguardConfig, mainDexConfig, NoOpMessageReceiver())
+
+        assertThatDex(output.resolve("classes.dex").toFile())
+            .containsExactlyClassesIn(listOf("Ltest/A;", "Ltest/B;"))
     }
 
     private fun getDexFileCount(dir: Path): Long =

@@ -25,15 +25,18 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.BasePlugin;
 import com.android.build.gradle.integration.BazelIntegrationTestsSuite;
+import com.android.build.gradle.integration.common.truth.ScannerSubjectUtils;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.build.gradle.options.BooleanOption;
-import com.android.builder.core.AndroidBuilder;
+import com.android.builder.core.ToolsRevisionUtils;
 import com.android.builder.model.AndroidProject;
+import com.android.builder.model.ProjectBuildOutput;
 import com.android.builder.model.Version;
 import com.android.io.StreamException;
 import com.android.sdklib.SdkVersionInfo;
 import com.android.sdklib.internal.project.ProjectProperties;
 import com.android.sdklib.internal.project.ProjectPropertiesWorkingCopy;
+import com.android.testutils.MavenRepoGenerator;
 import com.android.testutils.OsType;
 import com.android.testutils.TestUtils;
 import com.android.testutils.apk.Aar;
@@ -73,6 +76,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import kotlin.Unit;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
@@ -95,10 +99,15 @@ import org.junit.runners.model.Statement;
 public final class GradleTestProject implements TestRule {
     public static final String ENV_CUSTOM_REPO = "CUSTOM_REPO";
 
+    // Limit daemon idle time for tests. 10 seconds is enough for another test
+    // to start and reuse the daemon.
+    public static final int GRADLE_DEAMON_IDLE_TIME_IN_SECONDS = 10;
+
 
     public static final String DEFAULT_COMPILE_SDK_VERSION;
 
     public static final String DEFAULT_BUILD_TOOL_VERSION;
+    public static final String DEFAULT_NDK_SIDE_BY_SIDE_VERSION = "19.0.5232133";
     public static final boolean APPLY_DEVICEPOOL_PLUGIN =
             Boolean.parseBoolean(System.getenv().getOrDefault("APPLY_DEVICEPOOL_PLUGIN", "false"));
 
@@ -156,7 +165,7 @@ public final class GradleTestProject implements TestRule {
             DEFAULT_BUILD_TOOL_VERSION =
                     MoreObjects.firstNonNull(
                             envBuildToolVersion,
-                            AndroidBuilder.DEFAULT_BUILD_TOOLS_REVISION.toString());
+                            ToolsRevisionUtils.DEFAULT_BUILD_TOOLS_REVISION.toString());
 
             String envVersion = Strings.emptyToNull(System.getenv().get("CUSTOM_PLUGIN_VERSION"));
             ANDROID_GRADLE_PLUGIN_VERSION =
@@ -194,6 +203,7 @@ public final class GradleTestProject implements TestRule {
     private final boolean withDependencyChecker;
     // Indicates if CMake's directory information needs to be saved in local.properties
     private final boolean withCmakeDirInLocalProp;
+    private final String ndkSymlinkPath;
     // CMake's version to be used
     @NonNull private final String cmakeVersion;
 
@@ -208,8 +218,10 @@ public final class GradleTestProject implements TestRule {
 
     @Nullable private final Path profileDirectory;
 
-    @Nullable private String heapSize;
+    @NonNull private final GradleTestProjectBuilder.MemoryRequirement heapSize;
     @Nullable private final List<Path> repoDirectories;
+    @Nullable private MavenRepoGenerator additionalMavenRepo;
+    @Nullable private Path additionalMavenRepoDir;
 
     @NonNull private final File androidHome;
     @NonNull private final File androidNdkHome;
@@ -232,12 +244,13 @@ public final class GradleTestProject implements TestRule {
             boolean withoutNdk,
             boolean withDependencyChecker,
             @NonNull Collection<String> gradleProperties,
-            @Nullable String heapSize,
+            @NonNull GradleTestProjectBuilder.MemoryRequirement heapSize,
             @Nullable String compileSdkVersion,
             @Nullable String buildToolsVersion,
             @Nullable Path profileDirectory,
             @NonNull String cmakeVersion,
             boolean withCmake,
+            @Nullable String ndkSymlinkPath,
             boolean withDeviceProvider,
             boolean withSdk,
             boolean withAndroidGradlePlugin,
@@ -245,6 +258,7 @@ public final class GradleTestProject implements TestRule {
             @NonNull List<String> withIncludedBuilds,
             @Nullable File testDir,
             @Nullable List<Path> repoDirectories,
+            @Nullable MavenRepoGenerator additionalMavenRepo,
             @NonNull File androidHome,
             @NonNull File androidNdkHome,
             @NonNull File gradleDistributionDirectory,
@@ -256,6 +270,7 @@ public final class GradleTestProject implements TestRule {
         this.withAndroidGradlePlugin = withAndroidGradlePlugin;
         this.withKotlinGradlePlugin = withKotlinGradlePlugin;
         this.withIncludedBuilds = withIncludedBuilds;
+        this.additionalMavenRepo = additionalMavenRepo;
         this.buildFile = null;
         this.name = (name == null) ? DEFAULT_TEST_PROJECT_NAME : name;
         this.targetGradleVersion = targetGradleVersion;
@@ -272,6 +287,7 @@ public final class GradleTestProject implements TestRule {
         this.profileDirectory = profileDirectory;
         this.cmakeVersion = cmakeVersion;
         this.withCmakeDirInLocalProp = withCmake;
+        this.ndkSymlinkPath = ndkSymlinkPath;
         this.testDir = testDir;
         this.repoDirectories = repoDirectories;
         this.androidHome = androidHome;
@@ -287,8 +303,12 @@ public final class GradleTestProject implements TestRule {
      *
      * @param subProject name of the subProject, or the subProject's gradle project path
      * @param rootProject root GradleTestProject.
+     * @param heapSize
      */
-    private GradleTestProject(@NonNull String subProject, @NonNull GradleTestProject rootProject) {
+    private GradleTestProject(
+            @NonNull String subProject,
+            @NonNull GradleTestProject rootProject,
+            @NonNull GradleTestProjectBuilder.MemoryRequirement heapSize) {
         name = subProject.substring(subProject.lastIndexOf(':') + 1);
 
         testDir = new File(rootProject.getTestDir(), subProject.replace(":", "/"));
@@ -311,6 +331,7 @@ public final class GradleTestProject implements TestRule {
         this.withAndroidGradlePlugin = rootProject.withAndroidGradlePlugin;
         this.withKotlinGradlePlugin = rootProject.withKotlinGradlePlugin;
         this.withCmakeDirInLocalProp = rootProject.withCmakeDirInLocalProp;
+        this.ndkSymlinkPath = rootProject.ndkSymlinkPath;
         this.withIncludedBuilds = ImmutableList.of();
         this.repoDirectories = rootProject.repoDirectories;
         this.androidHome = rootProject.androidHome;
@@ -319,9 +340,10 @@ public final class GradleTestProject implements TestRule {
         this.gradleBuildCacheDirectory = rootProject.gradleBuildCacheDirectory;
         this.kotlinVersion = rootProject.kotlinVersion;
         this.outputLogOnFailure = rootProject.outputLogOnFailure;
+        this.heapSize = rootProject.getHeapSize();
     }
 
-    private static Path getGradleUserHome(File buildDir) {
+    public static Path getGradleUserHome(File buildDir) {
         if (TestUtils.runningFromBazel()) {
             return BazelIntegrationTestsSuite.GRADLE_USER_HOME;
         }
@@ -424,9 +446,19 @@ public final class GradleTestProject implements TestRule {
                         System.err.println("=================== Stderr ===================");
                         // All output produced during build execution is written to the standard
                         // output file handle since Gradle 4.7. This should be empty.
-                        System.err.print(lastBuildResult.getStderr());
+                        ScannerSubjectUtils.forEachLine(
+                                lastBuildResult.getStderr(),
+                                it -> {
+                                    System.err.println(it);
+                                    return Unit.INSTANCE;
+                                });
                         System.err.println("=================== Stdout ===================");
-                        System.err.print(lastBuildResult.getStdout());
+                        ScannerSubjectUtils.forEachLine(
+                                lastBuildResult.getStdout(),
+                                it -> {
+                                    System.err.println(it);
+                                    return Unit.INSTANCE;
+                                });
                         System.err.println("==============================================");
                         System.err.println("=============== End last build ===============");
                         System.err.println("==============================================");
@@ -437,17 +469,25 @@ public final class GradleTestProject implements TestRule {
     }
 
     private static File computeTestDir(Class<?> testClass, String methodName, String projectName) {
-        // On Windows machines, make sure the test directory's path is short enough to avoid running
-        // into path too long exceptions. Typically, on local Windows machines, OUT_DIR's path is
-        // long, whereas on Windows build bots, OUT_DIR's path is already short (see
-        // https://issuetracker.google.com/69271554). In the first case, let's move the test
-        // directory close to root (user home), and in the second case, let's use OUT_DIR directly.
-        File testDir =
-                SdkConstants.CURRENT_PLATFORM == SdkConstants.PLATFORM_WINDOWS
-                                && System.getenv("BUILDBOT_BUILDERNAME") == null
-                        ? new File(new File(System.getProperty("user.home")), "android-tests")
-                        : OUT_DIR;
 
+        File testDir = OUT_DIR;
+        if (SdkConstants.CURRENT_PLATFORM == SdkConstants.PLATFORM_WINDOWS
+                && System.getenv("BUILDBOT_BUILDERNAME") == null) {
+            // On Windows machines, make sure the test directory's path is short enough to avoid
+            // running into path too long exceptions. Typically, on local Windows machines,
+            // OUT_DIR's path is long, whereas on Windows build bots, OUT_DIR's path is already
+            // short (see https://issuetracker.google.com/69271554).
+            // In the first case, let's move the test directory close to root (user home), and in
+            // the second case, let's use OUT_DIR directly.
+            String outDir = FileUtils.join(System.getProperty("user.home"), "android-tests");
+
+            // when sharding is on, use a private sharded folder as tests can be split along
+            // shards and files will get locked on Windows.
+            if (System.getenv("TEST_TOTAL_SHARDS") != null) {
+                outDir = FileUtils.join(outDir, System.getenv("TEST_SHARD_INDEX"));
+            }
+            testDir = new File(outDir);
+        }
         String classDir = testClass.getSimpleName();
         String methodDir = null;
 
@@ -501,28 +541,20 @@ public final class GradleTestProject implements TestRule {
         FileUtils.deleteRecursivelyIfExists(testDir);
         FileUtils.mkdirs(testDir);
 
-        Files.write(
-                generateVersions(),
-                new File(testDir.getParent(), COMMON_VERSIONS),
-                StandardCharsets.UTF_8);
-        Files.write(
-                generateProjectRepoScript(),
-                new File(testDir.getParent(), COMMON_LOCAL_REPO),
-                StandardCharsets.UTF_8);
-        Files.write(
-                generateCommonHeader(),
-                new File(testDir.getParent(), COMMON_HEADER),
-                StandardCharsets.UTF_8);
-        Files.write(
-                generateCommonBuildScript(),
-                new File(testDir.getParent(), COMMON_BUILD_SCRIPT),
-                StandardCharsets.UTF_8);
+        Files.asCharSink(new File(testDir.getParent(), COMMON_VERSIONS), StandardCharsets.UTF_8)
+                .write(generateVersions());
+        Files.asCharSink(new File(testDir.getParent(), COMMON_LOCAL_REPO), StandardCharsets.UTF_8)
+                .write(generateProjectRepoScript());
+        Files.asCharSink(new File(testDir.getParent(), COMMON_HEADER), StandardCharsets.UTF_8)
+                .write(generateCommonHeader());
+        Files.asCharSink(new File(testDir.getParent(), COMMON_BUILD_SCRIPT), StandardCharsets.UTF_8)
+                .write(generateCommonBuildScript());
 
         if (testProject != null) {
             testProject.write(
                     testDir, testProject.containsFullBuildScript() ? "" : getGradleBuildscript());
         } else {
-            Files.write(getGradleBuildscript(), buildFile, Charsets.UTF_8);
+            Files.asCharSink(buildFile, Charsets.UTF_8).write(getGradleBuildscript());
         }
 
         createSettingsFile();
@@ -536,7 +568,13 @@ public final class GradleTestProject implements TestRule {
         if (repoDirectories != null) {
             return repoDirectories;
         } else {
-            return getLocalRepositories();
+            ImmutableList.Builder<Path> builder = ImmutableList.builder();
+            builder.addAll(getLocalRepositories());
+            Path additionalMavenRepo = getAdditionalMavenRepo();
+            if (additionalMavenRepo != null) {
+                builder.add(additionalMavenRepo);
+            }
+            return builder.build();
         }
     }
 
@@ -550,8 +588,24 @@ public final class GradleTestProject implements TestRule {
     }
 
     @NonNull
-    public String generateProjectRepoScript() {
+    private String generateProjectRepoScript() {
         return generateRepoScript(getRepoDirectories());
+    }
+
+    @Nullable
+    private Path getAdditionalMavenRepo() {
+        if (additionalMavenRepo == null) {
+            return null;
+        }
+        if (additionalMavenRepoDir == null) {
+            additionalMavenRepoDir =
+                    Objects.requireNonNull(testDir)
+                            .toPath()
+                            .getParent()
+                            .resolve("additional_maven_repo");
+            additionalMavenRepo.generate(additionalMavenRepoDir);
+        }
+        return additionalMavenRepoDir;
     }
 
     @NonNull
@@ -598,11 +652,6 @@ public final class GradleTestProject implements TestRule {
     }
 
     @NonNull
-    private static String generateRepoScript() {
-        return generateRepoScript(getLocalRepositories());
-    }
-
-    @NonNull
     private static String generateRepoScript(List<Path> repositories) {
         StringBuilder script = new StringBuilder();
         script.append("repositories {\n");
@@ -640,6 +689,21 @@ public final class GradleTestProject implements TestRule {
         return cmakeVersionFolderInSdk;
     }
 
+
+    /**
+     * The ninja in 3.6 cmake folder does not support long file paths. This function returns the
+     * version that does handle them.
+     */
+    @NonNull
+    public static File getPreferredNinja() {
+        File cmakeFolder = getCmakeVersionFolder("3.10.4819442");
+        if (SdkConstants.CURRENT_PLATFORM == SdkConstants.PLATFORM_WINDOWS) {
+            return new File(cmakeFolder, "bin/ninja.exe");
+        } else {
+            return new File(cmakeFolder, "bin/ninja");
+        }
+    }
+
     public String generateCommonBuildScript() {
         return BuildSystem.get()
                 .getCommonBuildScriptContent(
@@ -656,6 +720,7 @@ public final class GradleTestProject implements TestRule {
                         + "testSupportLibVersion = '%s'%n"
                         + "playServicesVersion = '%s'%n"
                         + "supportLibMinSdk = %d%n"
+                        + "ndk19SupportLibMinSdk = %d%n"
                         + "constraintLayoutVersion = '%s'%n",
                 Version.ANDROID_GRADLE_PLUGIN_VERSION,
                 Version.ANDROID_TOOLS_BASE_VERSION,
@@ -663,6 +728,7 @@ public final class GradleTestProject implements TestRule {
                 TestVersions.TEST_SUPPORT_LIB_VERSION,
                 TestVersions.PLAY_SERVICES_VERSION,
                 TestVersions.SUPPORT_LIB_MIN_SDK,
+                TestVersions.NDK_19_SUPPORT_LIB_MIN_SDK,
                 SdkConstants.LATEST_CONSTRAINT_LAYOUT_VERSION);
     }
 
@@ -672,7 +738,7 @@ public final class GradleTestProject implements TestRule {
      * @param name name of the subProject, or the subProject's gradle project path
      */
     public GradleTestProject getSubproject(String name) {
-        return new GradleTestProject(name, rootProject);
+        return new GradleTestProject(name, rootProject, heapSize);
     }
 
     /** Return the name of the test project. */
@@ -696,6 +762,11 @@ public final class GradleTestProject implements TestRule {
     /** Return the path to the default Java main source dir. */
     public File getMainSrcDir(@NonNull String language) {
         return FileUtils.join(getTestDir(), "src", "main", language);
+    }
+
+    /** Return the path to the default Java main resources dir. */
+    public File getMainJavaResDir() {
+        return FileUtils.join(getTestDir(), "src", "main", "resources");
     }
 
     /** Return the build.gradle of the test project. */
@@ -1168,32 +1239,20 @@ public final class GradleTestProject implements TestRule {
     }
 
     /**
-     * Runs gradle on the project, and returns the project model. Throws exception on failure.
+     * Runs gradle on the project, and returns the (minimal) output model. Throws exception on
+     * failure.
      *
-     * @param modelLevel whether to emulate an older IDE (studio 1.0) querying the model.
      * @param tasks Variadic list of tasks to execute.
-     * @return the AndroidProject model for the project.
+     * @return the output model for the project
      */
     @NonNull
-    public ModelContainer<AndroidProject> executeAndReturnModel(int modelLevel, String... tasks)
+    public ProjectBuildOutput executeAndReturnOutputModel(String... tasks)
             throws IOException, InterruptedException {
-        lastBuildResult = executor().run(tasks);
-        return model().level(modelLevel).fetchAndroidProjects();
-    }
-
-    /**
-     * Runs gradle on the project, and returns the project model. Throws exception on failure.
-     *
-     * @param modelClass Class of the model to return
-     * @param modelLevel whether to emulate an older IDE (studio 1.0) querying the model.
-     * @param tasks Variadic list of tasks to execute.
-     * @return the AndroidProject model for the project.
-     */
-    @NonNull
-    public <T> T executeAndReturnModel(Class<T> modelClass, int modelLevel, String... tasks)
-            throws IOException, InterruptedException {
-        lastBuildResult = executor().run(tasks);
-        return model().level(modelLevel).fetch(modelClass);
+        ModelContainer<ProjectBuildOutput> buildOutputContainer =
+                executor().withOutputModelQuery().run(tasks).getBuildOutputContainer();
+        Preconditions.checkNotNull(
+                buildOutputContainer, "Build output model not found after build.");
+        return buildOutputContainer.getOnlyModel();
     }
 
     /**
@@ -1223,6 +1282,23 @@ public final class GradleTestProject implements TestRule {
             throws IOException, InterruptedException {
         lastBuildResult = executor().run(tasks);
         return model().fetchMulti(modelClass);
+    }
+
+    /**
+     * Runs gradle on the project, and returns the output model of the specified type for each
+     * sub-project. Throws exception on failure.
+     *
+     * @param tasks Variadic list of tasks to execute.
+     * @return map of project names to output models
+     */
+    @NonNull
+    public Map<String, ProjectBuildOutput> executeAndReturnOutputMultiModel(String... tasks)
+            throws IOException, InterruptedException {
+        ModelContainer<ProjectBuildOutput> buildOutputContainer =
+                executor().withOutputModelQuery().run(tasks).getBuildOutputContainer();
+        Preconditions.checkNotNull(
+                buildOutputContainer, "Build output model not found after build.");
+        return buildOutputContainer.getOnlyModelMap();
     }
 
     /** Returns the latest build result. */
@@ -1256,9 +1332,8 @@ public final class GradleTestProject implements TestRule {
         }
         GradleConnector connector = GradleConnector.newConnector();
 
-        // Limit daemon idle time for tests. 10 seconds is enough for another test
-        // to start and reuse the daemon.
-        ((DefaultGradleConnector) connector).daemonMaxIdleTime(10, TimeUnit.SECONDS);
+        ((DefaultGradleConnector) connector)
+                .daemonMaxIdleTime(GRADLE_DEAMON_IDLE_TIME_IN_SECONDS, TimeUnit.SECONDS);
 
         String distributionName = String.format("gradle-%s-bin.zip", targetGradleVersion);
         File distributionZip = new File(gradleDistributionDirectory, distributionName);
@@ -1307,6 +1382,10 @@ public final class GradleTestProject implements TestRule {
             localProp.setProperty(
                     ProjectProperties.PROPERTY_CMAKE,
                     getCmakeVersionFolder(cmakeVersion).getAbsolutePath());
+        }
+
+        if (ndkSymlinkPath != null) {
+            localProp.setProperty(ProjectProperties.PROPERTY_NDK_SYMLINKDIR, ndkSymlinkPath);
         }
 
         localProp.save();
@@ -1430,7 +1509,7 @@ public final class GradleTestProject implements TestRule {
                     "buildCache {\n"
                             + "    local(DirectoryBuildCache) {\n"
                             + "        directory = \""
-                            + absoluteFile.getPath()
+                            + absoluteFile.getPath().replace("\\", "\\\\")
                             + "\"\n"
                             + "    }\n"
                             + "}");
@@ -1441,14 +1520,12 @@ public final class GradleTestProject implements TestRule {
         if (gradleProperties.isEmpty()) {
             return;
         }
-        Files.write(
-                Joiner.on(System.lineSeparator()).join(gradleProperties),
-                getGradlePropertiesFile(),
-                Charset.defaultCharset());
+        Files.asCharSink(getGradlePropertiesFile(), Charset.defaultCharset())
+                .write(Joiner.on(System.lineSeparator()).join(gradleProperties));
     }
 
-    @Nullable
-    String getHeapSize() {
+    @NonNull
+    GradleTestProjectBuilder.MemoryRequirement getHeapSize() {
         return heapSize;
     }
 

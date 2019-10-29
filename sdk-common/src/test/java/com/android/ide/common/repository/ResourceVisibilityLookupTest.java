@@ -15,7 +15,20 @@
  */
 package com.android.ide.common.repository;
 
-import com.android.builder.model.*;
+import static com.android.SdkConstants.FN_PUBLIC_TXT;
+import static com.android.SdkConstants.FN_RESOURCE_TEXT;
+import static org.easymock.EasyMock.createNiceMock;
+import static org.easymock.EasyMock.expect;
+import static org.easymock.EasyMock.replay;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.android.builder.model.AndroidArtifact;
+import com.android.builder.model.AndroidLibrary;
+import com.android.builder.model.AndroidProject;
+import com.android.builder.model.Dependencies;
+import com.android.builder.model.MavenCoordinates;
+import com.android.builder.model.Variant;
 import com.android.ide.common.repository.ResourceVisibilityLookup.SymbolProvider;
 import com.android.resources.ResourceType;
 import com.android.resources.ResourceUrl;
@@ -23,20 +36,13 @@ import com.android.testutils.TestUtils;
 import com.google.common.base.Charsets;
 import com.google.common.collect.Multimap;
 import com.google.common.io.Files;
-import junit.framework.TestCase;
-import org.mockito.stubbing.OngoingStubbing;
-
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-
-import static com.android.SdkConstants.FN_PUBLIC_TXT;
-import static com.android.SdkConstants.FN_RESOURCE_TEXT;
-import static org.easymock.EasyMock.*;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import junit.framework.TestCase;
+import org.mockito.stubbing.OngoingStubbing;
 
 public class ResourceVisibilityLookupTest extends TestCase {
     public void test() throws IOException {
@@ -382,7 +388,7 @@ public class ResourceVisibilityLookupTest extends TestCase {
             String publicResources)
             throws IOException {
         return createMockLibrary(name, allResources, publicResources,
-                Collections.emptyList());
+                Collections.<AndroidLibrary>emptyList());
     }
 
 
@@ -394,10 +400,10 @@ public class ResourceVisibilityLookupTest extends TestCase {
         // can't access each other
         final File tempDir = TestUtils.createTempDirDeletedOnExit();
 
-        Files.write(allResources, new File(tempDir, FN_RESOURCE_TEXT), Charsets.UTF_8);
+        Files.asCharSink(new File(tempDir, FN_RESOURCE_TEXT), Charsets.UTF_8).write(allResources);
         File publicTxtFile = new File(tempDir, FN_PUBLIC_TXT);
         if (publicResources != null) {
-            Files.write(publicResources, publicTxtFile, Charsets.UTF_8);
+            Files.asCharSink(publicTxtFile, Charsets.UTF_8).write(publicResources);
         }
         AndroidLibrary library = mock(AndroidLibrary.class);
         when(library.getPublicResources()).thenReturn(publicTxtFile);

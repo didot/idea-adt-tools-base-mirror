@@ -26,9 +26,9 @@ import static com.android.SdkConstants.ATTR_STYLE;
 import static com.android.SdkConstants.EDIT_TEXT;
 import static com.android.SdkConstants.ID_PREFIX;
 import static com.android.SdkConstants.NEW_ID_PREFIX;
+import static com.android.tools.lint.detector.api.LintFix.TODO;
 
 import com.android.annotations.NonNull;
-import com.android.annotations.VisibleForTesting;
 import com.android.ide.common.rendering.api.ResourceValue;
 import com.android.tools.lint.client.api.LintClient;
 import com.android.tools.lint.detector.api.Category;
@@ -42,6 +42,7 @@ import com.android.tools.lint.detector.api.Project;
 import com.android.tools.lint.detector.api.Scope;
 import com.android.tools.lint.detector.api.Severity;
 import com.android.tools.lint.detector.api.XmlContext;
+import com.google.common.annotations.VisibleForTesting;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -113,14 +114,14 @@ public class TextFieldDetector extends LayoutDetector {
             }
         }
 
-        if (inputTypeNode == null) {
+        if (inputTypeNode == null || TODO.equals(inputType)) {
             // Also make sure the EditText does not set an inputMethod in which case
             // an inputType might be provided from the input.
             if (element.hasAttributeNS(ANDROID_URI, ATTR_INPUT_METHOD)) {
                 return;
             }
 
-            LintFix fix = fix().set(ANDROID_URI, ATTR_INPUT_TYPE, "").caretBegin().build();
+            LintFix fix = fix().set().todo(ANDROID_URI, ATTR_INPUT_TYPE).build();
             context.report(
                     ISSUE,
                     element,

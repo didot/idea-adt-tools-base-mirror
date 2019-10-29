@@ -6,7 +6,7 @@ apply plugin: 'com.android.feature'
   <#if isLibraryProject>
 apply plugin: 'com.android.library'
   <#elseif isDynamicFeature>
-apply plugin: 'com.andorid.dynamic-feature'
+apply plugin: 'com.android.dynamic-feature'
   <#else>
 apply plugin: 'com.android.application'
   </#if>
@@ -18,7 +18,7 @@ apply plugin: 'com.android.application'
 dependencies {
     ${getConfigurationName("compile")} fileTree(dir: 'libs', include: ['*.jar'])
     <#if !improvedTestDeps>
-    ${getConfigurationName("androidTestCompile")}('com.android.support.test.espresso:espresso-core:${espressoVersion!"+"}', {
+    ${getConfigurationName("androidTestCompile")}('com.android.support.test.espresso:espresso-core:+', {
         exclude group: 'com.android.support', module: 'support-annotations'
     })
     </#if>

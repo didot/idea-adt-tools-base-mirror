@@ -19,6 +19,7 @@ package com.android.build.gradle.internal;
 import android.databinding.tool.DataBindingBuilder;
 import com.android.annotations.NonNull;
 import com.android.build.api.transform.QualifiedContent;
+import com.android.build.api.transform.QualifiedContent.ScopeType;
 import com.android.build.gradle.AndroidConfig;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.build.gradle.internal.scope.GlobalScope;
@@ -29,10 +30,11 @@ import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.tasks.BundleInstantApp;
-import com.android.builder.core.AndroidBuilder;
+import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.profile.Recorder;
 import java.io.File;
 import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import org.gradle.api.Project;
 import org.gradle.api.tasks.TaskProvider;
@@ -47,7 +49,6 @@ public class InstantAppTaskManager extends TaskManager {
             @NonNull ProjectOptions projectOptions,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
-            @NonNull SdkHandler sdkHandler,
             @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder threadRecorder) {
@@ -57,14 +58,26 @@ public class InstantAppTaskManager extends TaskManager {
                 projectOptions,
                 dataBindingBuilder,
                 extension,
-                sdkHandler,
                 variantFactory,
                 toolingRegistry,
                 threadRecorder);
     }
 
     @Override
-    public void createTasksForVariantScope(@NonNull final VariantScope variantScope) {
+    public void createTasksForVariantScope(
+            @NonNull final VariantScope variantScope,
+            @NonNull List<VariantScope> variantScopesForLint) {
+        // add a warning that the instantapp module is deprecated and will be removed in the future.
+        globalScope
+                .getErrorHandler()
+                .reportWarning(
+                        EvalIssueReporter.Type.PLUGIN_OBSOLETE,
+                        "The com.android.instantapp plugin is deprecated and will be removed by"
+                                + " the end of 2019. Please switch to using the Android App"
+                                + " Bundle to build your instant app. For more information on"
+                                + " migrating to Android App Bundles, please visit"
+                                + " https://developer.android.com/topic/google-play-instant/feature-module-migration");
+
         // Create the bundling task.
         File bundleDir = variantScope.getApkLocation();
         TaskProvider<BundleInstantApp> bundleTask =
@@ -87,7 +100,8 @@ public class InstantAppTaskManager extends TaskManager {
 
     @NonNull
     @Override
-    protected Set<QualifiedContent.Scope> getResMergingScopes(@NonNull VariantScope variantScope) {
+    protected Set<ScopeType> getJavaResMergingScopes(
+            @NonNull VariantScope variantScope, @NonNull QualifiedContent.ContentType contentType) {
         return TransformManager.EMPTY_SCOPES;
     }
 

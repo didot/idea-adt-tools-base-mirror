@@ -22,15 +22,15 @@ import com.android.build.api.artifact.ArtifactType
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.api.artifact.forName
 import com.android.build.gradle.internal.ide.FilterDataImpl
-import com.android.ide.common.build.ApkInfo
-import com.android.ide.common.internal.WaitableExecutor
 import com.google.common.collect.ImmutableList
 import com.google.gson.GsonBuilder
 import com.google.gson.TypeAdapter
 import com.google.gson.reflect.TypeToken
 import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonWriter
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
+import org.gradle.api.provider.Provider
 import java.io.File
 import java.io.FileNotFoundException
 import java.io.FileReader
@@ -45,14 +45,23 @@ class ExistingBuildElements {
 
     companion object {
 
-        private val METADATA_FILE_NAME = "output.json"
+        private const val METADATA_FILE_NAME = "output.json"
 
-        val executor: WaitableExecutor = WaitableExecutor.useGlobalSharedThreadPool()
+        /**
+         * create a [BuildElements] from an existing [Directory].
+         * @param artifactType the expected element type of the BuildElements.
+         * @param directoryProvider the directory containing the metadata file.
+         */
+        @JvmStatic
+        fun from(artifactType: ArtifactType, directoryProvider: Provider<Directory>): BuildElements {
+            return from(artifactType, directoryProvider.get().asFile)
+        }
+
 
         @JvmStatic
         fun from(artifactType: ArtifactType, buildableArtifact : BuildableArtifact) : BuildElements {
             val metadataFile = buildableArtifact.forName(METADATA_FILE_NAME)
-            return _from(artifactType, metadataFile)
+            return loadFrom(artifactType, metadataFile)
         }
 
         /**
@@ -63,7 +72,7 @@ class ExistingBuildElements {
         @JvmStatic
         fun from(elementType: ArtifactType, from: FileCollection): BuildElements {
             val metadataFile = getMetadataFileIfPresent(from)
-            return _from(elementType, metadataFile)
+            return loadFrom(elementType, metadataFile)
         }
 
         /**
@@ -75,20 +84,33 @@ class ExistingBuildElements {
         fun from(elementType: ArtifactType, from: File): BuildElements {
 
             val metadataFile = getMetadataFileIfPresent(from)
-            return _from(elementType, metadataFile)
+            return loadFrom(elementType, metadataFile)
         }
 
-        private fun _from(elementType: ArtifactType,
+        /**
+         * create a {@link BuildElement} containing all artifact types from a previous task
+         * execution metadata file.
+         * @param from the folder containing the metadata file.
+         */
+        @JvmStatic
+        fun from(from: File): BuildElements {
+
+            val metadataFile = getMetadataFileIfPresent(from)
+            return loadFrom(null, metadataFile)
+        }
+
+        private fun loadFrom(
+            elementType: ArtifactType?,
                 metadataFile: File?): BuildElements {
             if (metadataFile == null || !metadataFile.exists()) {
                 return BuildElements(ImmutableList.of())
             }
             try {
-                FileReader(metadataFile).use({ reader ->
+                FileReader(metadataFile).use { reader ->
                     return BuildElements(load(metadataFile.parentFile.toPath(),
-                            elementType,
-                            reader))
-                })
+                        elementType,
+                        reader))
+                }
             } catch (e: IOException) {
                 return BuildElements(ImmutableList.of<BuildOutput>())
             }
@@ -110,23 +132,23 @@ class ExistingBuildElements {
         }
 
         @JvmStatic
-        fun persistApkList(apkInfos: Collection<ApkInfo>): String {
+        fun persistApkList(apkDatas: Collection<ApkData>): String {
             val gsonBuilder = GsonBuilder()
-            gsonBuilder.registerTypeHierarchyAdapter(ApkInfo::class.java, ApkInfoAdapter())
+            gsonBuilder.registerTypeHierarchyAdapter(ApkData::class.java, ApkDataAdapter())
             val gson = gsonBuilder.create()
-            return gson.toJson(apkInfos)
+            return gson.toJson(apkDatas)
         }
 
         @JvmStatic
         @Throws(FileNotFoundException::class)
-        fun loadApkList(file: File): Collection<ApkInfo> {
+        fun loadApkList(file: File): Collection<ApkData> {
             val gsonBuilder = GsonBuilder()
-            gsonBuilder.registerTypeHierarchyAdapter(ApkInfo::class.java, ApkInfoAdapter())
+            gsonBuilder.registerTypeHierarchyAdapter(ApkData::class.java, ApkDataAdapter())
             gsonBuilder.registerTypeAdapter(
                     ArtifactType::class.java,
                     OutputTypeTypeAdapter())
             val gson = gsonBuilder.create()
-            val recordType = object : TypeToken<List<ApkInfo>>() {}.type
+            val recordType = object : TypeToken<List<ApkData>>() {}.type
             return gson.fromJson(FileReader(file), recordType)
         }
 
@@ -137,7 +159,7 @@ class ExistingBuildElements {
                 reader: Reader): Collection<BuildOutput> {
             val gsonBuilder = GsonBuilder()
 
-            gsonBuilder.registerTypeAdapter(ApkInfo::class.java, ApkInfoAdapter())
+            gsonBuilder.registerTypeAdapter(ApkData::class.java, ApkDataAdapter())
             gsonBuilder.registerTypeAdapter(
                     ArtifactType::class.java,
                     OutputTypeTypeAdapter())
@@ -151,7 +173,7 @@ class ExistingBuildElements {
                     .map { buildOutput ->
                         BuildOutput(
                                 buildOutput.type,
-                                buildOutput.apkInfo,
+                                buildOutput.apkData,
                                 projectPath.resolve(buildOutput.outputPath),
                                 buildOutput.properties)
                     }
@@ -159,10 +181,10 @@ class ExistingBuildElements {
         }
     }
 
-    internal class ApkInfoAdapter: TypeAdapter<ApkInfo>() {
+    internal class ApkDataAdapter: TypeAdapter<ApkData>() {
 
         @Throws(IOException::class)
-        override fun write(out: JsonWriter, value: ApkInfo?) {
+        override fun write(out: JsonWriter, value: ApkData?) {
             if (value == null) {
                 out.nullValue()
                 return
@@ -194,7 +216,7 @@ class ExistingBuildElements {
         }
 
         @Throws(IOException::class)
-        override fun read(reader: JsonReader): ApkInfo {
+        override fun read(reader: JsonReader): ApkData {
             reader.beginObject()
             var outputType: String? = null
             val filters = ImmutableList.builder<FilterData>()
@@ -224,14 +246,14 @@ class ExistingBuildElements {
             val filterData = filters.build()
             val apkType = VariantOutput.OutputType.valueOf(outputType!!)
 
-            return ApkInfo.of(
+            return ApkData.of(
                     apkType,
                     filterData,
                     versionCode,
                     versionName,
                     filterName,
                     outputFile,
-                    fullName,
+                    fullName ?: "",
                     baseName ?: "",
                     enabled)
         }

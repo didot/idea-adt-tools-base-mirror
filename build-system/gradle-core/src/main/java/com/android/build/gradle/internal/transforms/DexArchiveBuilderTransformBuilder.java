@@ -19,19 +19,19 @@ package com.android.build.gradle.internal.transforms;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.gradle.internal.scope.VariantScope;
+import com.android.build.gradle.options.SyncOptions;
 import com.android.builder.core.DexOptions;
 import com.android.builder.dexing.DexerTool;
 import com.android.builder.utils.FileCache;
 import com.android.ide.common.blame.MessageReceiver;
 import com.google.common.base.Preconditions;
-import java.io.File;
-import java.util.List;
-import java.util.function.Supplier;
+import org.gradle.api.file.FileCollection;
 
 public class DexArchiveBuilderTransformBuilder {
-    private Supplier<List<File>> androidJarClasspath;
+    private FileCollection androidJarClasspath;
     private DexOptions dexOptions;
     private MessageReceiver messageReceiver;
+    private SyncOptions.ErrorFormatMode errorFormatMode;
     private FileCache userLevelCache;
     private int minSdkVersion;
     private DexerTool dexer;
@@ -43,12 +43,11 @@ public class DexArchiveBuilderTransformBuilder {
     private String projectVariant;
     private Integer numberOfBuckets;
     private boolean includeFeaturesInScopes;
-    private boolean isInstantRun;
     private boolean enableDexingArtifactTransform;
 
     @NonNull
     public DexArchiveBuilderTransformBuilder setAndroidJarClasspath(
-            @NonNull Supplier<List<File>> androidJarClasspath) {
+            @NonNull FileCollection androidJarClasspath) {
         this.androidJarClasspath = androidJarClasspath;
         return this;
     }
@@ -63,6 +62,13 @@ public class DexArchiveBuilderTransformBuilder {
     public DexArchiveBuilderTransformBuilder setMessageReceiver(
             @NonNull MessageReceiver messageReceiver) {
         this.messageReceiver = messageReceiver;
+        return this;
+    }
+
+    @NonNull
+    public DexArchiveBuilderTransformBuilder setErrorFormatMode(
+            @NonNull SyncOptions.ErrorFormatMode errorFormatMode) {
+        this.errorFormatMode = errorFormatMode;
         return this;
     }
 
@@ -135,12 +141,6 @@ public class DexArchiveBuilderTransformBuilder {
     }
 
     @NonNull
-    public DexArchiveBuilderTransformBuilder setIsInstantRun(boolean isInstantRun) {
-        this.isInstantRun = isInstantRun;
-        return this;
-    }
-
-    @NonNull
     public DexArchiveBuilderTransformBuilder setEnableDexingArtifactTransform(
             boolean enableDexingArtifactTransform) {
         this.enableDexingArtifactTransform = enableDexingArtifactTransform;
@@ -152,6 +152,7 @@ public class DexArchiveBuilderTransformBuilder {
         Preconditions.checkNotNull(androidJarClasspath);
         Preconditions.checkNotNull(dexOptions);
         Preconditions.checkNotNull(messageReceiver);
+        Preconditions.checkNotNull(errorFormatMode);
         Preconditions.checkNotNull(dexer);
         Preconditions.checkNotNull(java8LangSupportType);
         Preconditions.checkNotNull(projectVariant);
@@ -159,6 +160,7 @@ public class DexArchiveBuilderTransformBuilder {
                 androidJarClasspath,
                 dexOptions,
                 messageReceiver,
+                errorFormatMode,
                 userLevelCache,
                 minSdkVersion,
                 dexer,
@@ -170,7 +172,6 @@ public class DexArchiveBuilderTransformBuilder {
                 projectVariant,
                 numberOfBuckets,
                 includeFeaturesInScopes,
-                isInstantRun,
                 enableDexingArtifactTransform);
     }
 }

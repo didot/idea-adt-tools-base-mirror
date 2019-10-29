@@ -17,11 +17,15 @@
 package com.android.build.gradle.integration.dexing
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
-import com.android.build.gradle.integration.common.fixture.app.MinimalSubProject
-import com.android.build.gradle.integration.common.truth.TruthHelper.assertThatApk
 import com.android.build.gradle.integration.common.fixture.SUPPORT_LIB_VERSION
+import com.android.build.gradle.integration.common.fixture.app.MinimalSubProject
+import com.android.build.gradle.integration.common.truth.ScannerSubject
+import com.android.build.gradle.integration.common.truth.TruthHelper.assertThatApk
+import com.android.build.gradle.internal.dependency.DexingNoClasspathTransform
+import com.android.build.gradle.internal.dependency.DexingWithClasspathTransform
 import com.android.build.gradle.options.BooleanOption
-import com.android.sdklib.AndroidVersion
+import com.android.build.gradle.options.OptionalBooleanOption
+import com.android.testutils.TestInputsGenerator
 import com.google.common.truth.Truth.assertThat
 import org.junit.Rule
 import org.junit.Test
@@ -32,7 +36,8 @@ class DexingArtifactTransformTest {
     @JvmField
     val project =
         GradleTestProject.builder().fromTestApp(
-            MinimalSubProject.app("com.example.test")).create()
+            MinimalSubProject.app("com.example.test")
+        ).create()
 
     @Test
     fun testMonoDex() {
@@ -75,12 +80,10 @@ class DexingArtifactTransformTest {
         """.trimIndent()
         )
         val result = executor().run("assembleDebug")
-        assertThat(result.tasks).containsAllIn(
-            listOf(
-                ":mergeExtDexDebug",
-                ":mergeDexDebug"
-            )
-        )
+        // Merge legacy multidex in a single task. This is so synthesized classes that originate
+        // from the main dex classes are packaged in the primary dex.
+        assertThat(result.tasks).contains(":mergeDexDebug")
+        assertThat(result.tasks).doesNotContain(":mergeExtDexDebug")
         assertThat(result.tasks).doesNotContain(":mergeLibDexDebug")
         assertThat(result.tasks).doesNotContain(":mergeProjectDexDebug")
         assertThatApk(project.getApk(GradleTestProject.ApkType.DEBUG))
@@ -151,30 +154,68 @@ class DexingArtifactTransformTest {
     }
 
     @Test
-    fun testInstantRunDoesNotUseNewPipeline() {
-        val result = executor().withInstantRun(AndroidVersion(21)).run("assembleDebug")
-        assertThat(result.tasks).doesNotContain(":mergeExtDexDebug")
-    }
-
-    @Test
-    fun testMinifiedDoesNotUseNewPipeline() {
-        project.file("config.pro").writeText("-keep class *")
+    fun testProguardDoesSingleMerge() {
+        project.testDir.resolve("proguard-rules.pro").writeText("-keep class **")
         project.buildFile.appendText(
             """
-            |android.buildTypes.debug.minifyEnabled true
-            |android.buildTypes.debug.proguardFiles file('config.pro')""".trimMargin()
+            android.buildTypes.debug {
+                minifyEnabled true
+                proguardFiles 'proguard-rules.pro'
+            }
+        """.trimIndent()
         )
-        val result = executor().run("assembleDebug")
+        val result = executor().with(OptionalBooleanOption.ENABLE_R8, false).run("assembleDebug")
         assertThat(result.tasks).doesNotContain(":mergeExtDexDebug")
+        assertThat(result.tasks).contains(":mergeDexDebug")
     }
 
     @Test
-    fun testDesugaringDoesNotUseNewPipeline() {
+    fun testDesugaringDoesUseNewPipeline() {
         project.buildFile.appendText("\nandroid.compileOptions.targetCompatibility 1.8")
         val result = executor().run("assembleDebug")
-        assertThat(result.tasks).doesNotContain(":mergeExtDexDebug")
+        assertThat(result.tasks).containsAllIn(listOf(":mergeExtDexDebug", ":mergeDexDebug"))
+    }
+
+    /** Regression test for b/129910310. */
+    @Test
+    fun testGeneratedBytecodeIsProcessed() {
+        TestInputsGenerator.jarWithEmptyClasses(
+            project.testDir.resolve("generated-classes.jar").toPath(), setOf("test/A")
+        )
+
+        project.buildFile.appendText(
+            """
+            android.applicationVariants.all { variant ->
+                def generated = project.files("generated-classes.jar")
+                variant.registerPostJavacGeneratedBytecode(generated)
+            }
+        """.trimIndent()
+        )
+        val result =
+            project.executor().run("assembleDebug")
+        assertThatApk(project.getApk(GradleTestProject.ApkType.DEBUG)).containsClass("Ltest/A;")
+    }
+
+    @Test
+    fun testDesugaringWithMinSdk24() {
+        project.buildFile.appendText("""
+            android.defaultConfig.minSdkVersion 24
+            android.compileOptions.targetCompatibility 1.8
+            dependencies {
+                implementation 'com.android.support:support-core-utils:$SUPPORT_LIB_VERSION'
+            }
+        """.trimIndent())
+        executor().run("assembleDebug")
+        project.buildResult.stdout.use { scanner ->
+            ScannerSubject.assertThat(scanner).doesNotContain(DexingWithClasspathTransform::class.java.simpleName)
+        }
+        project.buildResult.stdout.use { scanner ->
+            ScannerSubject.assertThat(scanner).contains(DexingNoClasspathTransform::class.java.simpleName)
+        }
     }
 
     private fun executor() =
-        project.executor().with(BooleanOption.ENABLE_DEXING_ARTIFACT_TRANSFORM, true)
+        project.executor()
+            .with(BooleanOption.ENABLE_DEXING_ARTIFACT_TRANSFORM, true)
+            .with(BooleanOption.ENABLE_DEXING_DESUGARING_ARTIFACT_TRANSFORM, true)
 }

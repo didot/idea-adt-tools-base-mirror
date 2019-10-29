@@ -25,7 +25,6 @@ import static org.mockito.Mockito.when;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.repository.Revision;
-import com.android.sdklib.BuildToolInfo;
 import com.android.sdklib.SdkVersionInfo;
 import com.android.tools.lint.checks.infrastructure.ProjectDescription;
 import com.android.tools.lint.detector.api.Context;
@@ -411,6 +410,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                         + "        android:id=\"@+id/dynamictext\"\n"
                                         + "        android:layout_width=\"wrap_content\"\n"
                                         + "        android:layout_height=\"wrap_content\"\n"
+                                        + "        android:importantForAutofill=\"no\"\n"
                                         + "        android:textIsSelectable=\"true\" />\n"
                                         + "\n"
                                         + "</LinearLayout>\n"),
@@ -1959,6 +1959,30 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 .expectClean();
     }
 
+    public void testDensity() {
+        // 120162341: Lint detection of Configuration.densityDpi field is strange when minSdk < 17
+        lint().files(
+                        manifest().minSdk(8),
+                        java(
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import android.content.res.Configuration;\n"
+                                        + "\n"
+                                        + "public class ConfigTest {\n"
+                                        + "    public void test(Configuration configuration) {\n"
+                                        + "        System.out.println(configuration.densityDpi);\n"
+                                        + "    }\n"
+                                        + "}\n"))
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/ConfigTest.java:7: Error: Field requires API level 17 (current min is 8): android.content.res.Configuration#densityDpi [NewApi]\n"
+                                + "        System.out.println(configuration.densityDpi);\n"
+                                + "                           ~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "1 errors, 0 warnings");
+    }
+
     public void test38195() {
         // See http://code.google.com/p/android/issues/detail?id=38195
         String expected =
@@ -2554,81 +2578,6 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 .expectClean();
     }
 
-    public void testTryWithResources() {
-        String expected =
-                ""
-                        + "src/main/java/test/pkg/MultiCatch.java:10: Error: Multi-catch with these reflection exceptions requires API level 19 (current min is 1) because they get compiled to the common but new super type ReflectiveOperationException. As a workaround either create individual catch statements, or catch Exception. [NewApi]\n"
-                        + "        } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {\n"
-                        + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "src/main/java/test/pkg/TryWithResources.java:9: Error: Try-with-resources requires API level 19 (current min is 1) [NewApi]\n"
-                        + "        try (BufferedReader br = new BufferedReader(new FileReader(path))) {\n"
-                        + "             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "2 errors, 0 warnings\n";
-        lint().files(manifest().minSdk(1), tryWithResources, multiCatch, gradleVersion231)
-                .checkMessage(this::checkReportedError)
-                .run()
-                .expect(expected);
-    }
-
-    public void testTryWithResourcesOkDueToCompileSdk() {
-        lint().files(manifest().minSdk(19), tryWithResources, multiCatch, gradleVersion231)
-                .run()
-                .expectClean();
-    }
-
-    public void testTryWithResourcesOkDueToDesugar() {
-        lint().files(
-                        manifest().minSdk(19),
-                        tryWithResources,
-                        multiCatch,
-                        gradleVersion24_language18)
-                .run()
-                .expectClean();
-    }
-
-    public void testTryWithResourcesOutsideAndroid() {
-        lint().files(
-                        manifest().minSdk(1),
-                        tryWithResources,
-                        multiCatch,
-                        gradle("apply plugin: 'java'\n"))
-                .checkMessage(this::checkReportedError)
-                .run()
-                .expectClean();
-    }
-
-    public void testTryWithResourcesOldGradlePlugin() {
-        String expected =
-                ""
-                        + "src/main/java/test/pkg/TryWithResources.java:9: Error: Try-with-resources requires API level 19 (current min is 1) [NewApi]\n"
-                        + "        try (BufferedReader br = new BufferedReader(new FileReader(path))) {\n"
-                        + "             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "1 errors, 0 warnings\n";
-        lint().files(manifest().minSdk(1), gradleVersion231, tryWithResources)
-                .checkMessage(this::checkReportedError)
-                .run()
-                .expect(expected);
-    }
-
-    public void testTryWithResourcesNewPluginLanguage17() {
-        String expected =
-                ""
-                        + "src/main/java/test/pkg/TryWithResources.java:9: Error: Try-with-resources requires API level 19 (current min is 1) [NewApi]\n"
-                        + "        try (BufferedReader br = new BufferedReader(new FileReader(path))) {\n"
-                        + "             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "1 errors, 0 warnings\n";
-        lint().files(manifest().minSdk(1), gradleVersion24_language17, tryWithResources)
-                .checkMessage(this::checkReportedError)
-                .run()
-                .expect(expected);
-    }
-
-    public void testTryWithResourcesDesugar() {
-        lint().files(manifest().minSdk(1), gradleVersion24_language18, tryWithResources)
-                .run()
-                .expectClean();
-    }
-
     public void testDefaultMethods() {
         if (createClient().getHighestKnownApiLevel() < 24) {
             // This test only works if you have at least Android N installed
@@ -2638,10 +2587,10 @@ public class ApiDetectorTest extends AbstractCheckTest {
         // Default methods require minSdkVersion >= N
         String expected =
                 ""
-                        + "src/main/java/test/pkg/InterfaceMethodTest.java:6: Error: Default method requires API level 24 (current min is 15) [NewApi]\n"
+                        + "src/main/java/test/pkg/InterfaceMethodTest.java:6: Error: Default method requires API level 24 (current min is 15): InterfaceMethodTest#method2 [NewApi]\n"
                         + "    default void method2() {\n"
                         + "    ^\n"
-                        + "src/main/java/test/pkg/InterfaceMethodTest.java:9: Error: Static interface method requires API level 24 (current min is 15) [NewApi]\n"
+                        + "src/main/java/test/pkg/InterfaceMethodTest.java:9: Error: Static interface method requires API level 24 (current min is 15): InterfaceMethodTest#method3 [NewApi]\n"
                         + "    static void method3() {\n"
                         + "    ^\n"
                         + "2 errors, 0 warnings\n";
@@ -2694,62 +2643,6 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 .expectClean();
     }
 
-    public void testDesugarMethods() {
-        // Desugar inlines Objects.requireNonNull(foo) so don't flag this if using Desugar
-        // Ditto for Throwable.addSuppressed.
-
-        //noinspection all // Sample code
-        lint().files(
-                        java(
-                                ""
-                                        + "package test.pkg;\n"
-                                        + "\n"
-                                        + "import java.util.Objects;\n"
-                                        + "\n"
-                                        + "public class DesugarTest {\n"
-                                        + "    public void testRequireNull(Object foo) {\n"
-                                        + "        Objects.requireNonNull(foo); // Desugared, should not generate warning\n"
-                                        + "        Objects.requireNonNull(foo, \"message\"); // Should generate API warning\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public void addThrowable(Throwable t1, Throwable t2) {\n"
-                                        + "        t1.addSuppressed(t2); // Desugared, should not generate warning\n"
-                                        + "    }\n"
-                                        + "}\n"),
-                        gradleVersion24_language18)
-                .run()
-                .expect(
-                        "src/main/java/test/pkg/DesugarTest.java:8: Error: Call requires API level 19 (current min is 1): java.util.Objects#requireNonNull [NewApi]\n"
-                                + "        Objects.requireNonNull(foo, \"message\"); // Should generate API warning\n"
-                                + "                ~~~~~~~~~~~~~~\n"
-                                + "1 errors, 0 warnings\n");
-    }
-
-    public void testDefaultMethodsDesugar() {
-        // Default methods require minSdkVersion=N
-        //noinspection all // Sample code
-        lint().files(
-                        manifest().minSdk(15),
-                        java(
-                                "src/test/pkg/InterfaceMethodTest.java",
-                                ""
-                                        + "package test.pkg;\n"
-                                        + "\n"
-                                        + "@SuppressWarnings(\"unused\")\n"
-                                        + "public interface InterfaceMethodTest {\n"
-                                        + "    void someMethod();\n"
-                                        + "    default void method2() {\n"
-                                        + "        System.out.println(\"test\");\n"
-                                        + "    }\n"
-                                        + "    static void method3() {\n"
-                                        + "        System.out.println(\"test\");\n"
-                                        + "    }\n"
-                                        + "}"),
-                        gradleVersion24_language18)
-                .run()
-                .expectClean();
-    }
-
     public void testRepeatableAnnotations() {
         if (createClient().getHighestKnownApiLevel() < 24) {
             // This test only works if you have at least Android N installed
@@ -2783,142 +2676,6 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 .checkMessage(this::checkReportedError)
                 .run()
                 .expect(expected);
-    }
-
-    @SuppressWarnings("OnDemandImport")
-    public void testTypeAnnotations() {
-        if (createClient().getHighestKnownApiLevel() < 24) {
-            // This test only works if you have at least Android N installed
-            return;
-        }
-
-        // Type annotations are not supported
-        String expected =
-                ""
-                        + "src/test/pkg/MyAnnotation.java:9: Error: Field requires API level 26 (current min is 15): java.lang.annotation.ElementType#TYPE_PARAMETER [NewApi]\n"
-                        + "@Target({METHOD, PARAMETER, FIELD, LOCAL_VARIABLE, TYPE_PARAMETER, TYPE_USE})\n"
-                        + "                                                   ~~~~~~~~~~~~~~\n"
-                        + "src/test/pkg/MyAnnotation.java:9: Error: Field requires API level 26 (current min is 15): java.lang.annotation.ElementType#TYPE_USE [NewApi]\n"
-                        + "@Target({METHOD, PARAMETER, FIELD, LOCAL_VARIABLE, TYPE_PARAMETER, TYPE_USE})\n"
-                        + "                                                                   ~~~~~~~~\n"
-                        + "src/test/pkg/MyAnnotation2.java:9: Error: Field requires API level 26 (current min is 15): java.lang.annotation.ElementType#TYPE_PARAMETER [NewApi]\n"
-                        + "@Target(TYPE_PARAMETER)\n"
-                        + "        ~~~~~~~~~~~~~~\n"
-                        + "src/test/pkg/MyAnnotation4.java:8: Error: Field requires API level 26 (current min is 15): java.lang.annotation.ElementType#TYPE_PARAMETER [NewApi]\n"
-                        + "@Target(TYPE_PARAMETER)\n"
-                        + "        ~~~~~~~~~~~~~~\n"
-                        + "4 errors, 0 warnings";
-        //noinspection all // Sample code
-        lint().files(
-                        manifest().minSdk(15),
-                        java(
-                                "src/test/pkg/MyAnnotation.java",
-                                ""
-                                        + "package test.pkg;\n"
-                                        + "\n"
-                                        + "import java.lang.annotation.*;\n"
-                                        + "import static java.lang.annotation.ElementType.*;\n"
-                                        + "import static java.lang.annotation.RetentionPolicy.*;\n"
-                                        + "\n"
-                                        + "@Documented\n"
-                                        + "@Retention(SOURCE)\n"
-                                        + "@Target({METHOD, PARAMETER, FIELD, LOCAL_VARIABLE, TYPE_PARAMETER, TYPE_USE})\n"
-                                        + "public @interface MyAnnotation {\n"
-                                        + "}"),
-                        java(
-                                "src/test/pkg/MyAnnotation2.java",
-                                ""
-                                        + "package test.pkg;\n"
-                                        + "\n"
-                                        + "import java.lang.annotation.*;\n"
-                                        + "import static java.lang.annotation.ElementType.*;\n"
-                                        + "import static java.lang.annotation.RetentionPolicy.*;\n"
-                                        + "\n"
-                                        + "@Documented\n"
-                                        + "@Retention(RUNTIME)\n"
-                                        + "@Target(TYPE_PARAMETER)\n"
-                                        + "public @interface MyAnnotation2 {\n"
-                                        + "}"),
-                        java(
-                                "src/test/pkg/MyAnnotation3.java",
-                                ""
-                                        + "package test.pkg;\n"
-                                        + "\n"
-                                        + "import android.annotation.SuppressLint;\n"
-                                        + "import java.lang.annotation.*;\n"
-                                        + "import static java.lang.annotation.ElementType.*;\n"
-                                        + "import static java.lang.annotation.RetentionPolicy.*;\n"
-                                        + "\n"
-                                        + "@Documented\n"
-                                        + "@Retention(SOURCE)\n"
-                                        + "@SuppressLint(\"NewApi\")\n"
-                                        + "@Target(TYPE_PARAMETER)\n"
-                                        + "public @interface MyAnnotation3 {\n"
-                                        + "}"),
-                        java(
-                                "src/test/pkg/MyAnnotation4.java",
-                                ""
-                                        + "package test.pkg;\n"
-                                        + "\n"
-                                        + "import java.lang.annotation.*;\n"
-                                        + "import static java.lang.annotation.ElementType.*;\n"
-                                        + "import static java.lang.annotation.RetentionPolicy.*;\n"
-                                        + "\n"
-                                        + "@Documented\n"
-                                        // No warnings if not using runtime retention (class is default)
-                                        + "@Target(TYPE_PARAMETER)\n"
-                                        + "public @interface MyAnnotation2 {\n"
-                                        + "}"))
-                .checkMessage(this::checkReportedError)
-                .run()
-                .expect(expected);
-    }
-
-    public void testDesugarCompare() {
-        //noinspection all // Sample code
-        lint().files(
-                        manifest().minSdk(1),
-                        java(
-                                ""
-                                        + "package test.pkg;\n"
-                                        + "\n"
-                                        + "// Desugar rewrites these\n"
-                                        + "public class CompareTest {\n"
-                                        + "    public void testLong(long value1, long value2) {\n"
-                                        + "        int result3 = Long.compare(value1, value2);\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public int testFloat(float value1, float value2) {\n"
-                                        + "        return Float.compare(value1, value2); // OK\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public int testBoolean(boolean value1, boolean value2) {\n"
-                                        + "        return Boolean.compare(value1, value2);\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public int testDouble(double value1, double value2) {\n"
-                                        + "        return Double.compare(value1, value2); // OK\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public int testByte(byte value1, byte value2) {\n"
-                                        + "        return Byte.compare(value1, value2);\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public int testChar(char value1, char value2) {\n"
-                                        + "        return Character.compare(value1, value2);\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public int testInt(int value1, int value2) {\n"
-                                        + "        return Integer.compare(value1, value2);\n"
-                                        + "    }\n"
-                                        + "\n"
-                                        + "    public int testShort(short value1, short value2) {\n"
-                                        + "        return Short.compare(value1, value2);\n"
-                                        + "    }\n"
-                                        + "}\n"),
-                        gradleVersion24_language18)
-                .run()
-                .expectClean();
     }
 
     public void testAnonymousInherited() {
@@ -3161,10 +2918,10 @@ public class ApiDetectorTest extends AbstractCheckTest {
     public void testReflectiveOperationException() {
         String expected =
                 ""
-                        + "src/test/pkg/Java7API.java:8: Error: Class requires API level 19 (current min is 1): java.lang.ReflectiveOperationException [NewApi]\n"
+                        + "src/test/pkg/Java7API.java:8: Error: Exception requires API level 19 (current min is 1): java.lang.ReflectiveOperationException [NewApi]\n"
                         + "        } catch (ReflectiveOperationException e) {\n"
                         + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "1 errors, 0 warnings\n";
+                        + "1 errors, 0 warnings";
         lint().files(manifest().minSdk(1), mJava7API)
                 .checkMessage(this::checkReportedError)
                 .run()
@@ -3332,6 +3089,48 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 .expect(expected);
     }
 
+    public void testGradient() {
+        //noinspection all // Sample code
+        lint().files(
+                        manifest().minSdk(14),
+                        xml(
+                                "res/drawable/gradient.xml",
+                                ""
+                                        + "<vector xmlns:android=\"http://schemas.android.com/apk/res/android\"\n"
+                                        + "        xmlns:aapt=\"http://schemas.android.com/aapt\"\n"
+                                        + "        android:height=\"76dp\"\n"
+                                        + "        android:width=\"76dp\"\n"
+                                        + "        android:viewportHeight=\"48\"\n"
+                                        + "        android:viewportWidth=\"48\"\n"
+                                        + "        android:tint=\"?attr/colorControlActivated\">\n"
+                                        + "\n"
+                                        + "    <clip-path android:pathData=\"M10,10h40v30h-40z\"/>\n"
+                                        + "\n"
+                                        + "    <group\n"
+                                        + "            android:name=\"root\"\n"
+                                        + "            android:translateX=\"24.0\"\n"
+                                        + "            android:translateY=\"24.0\" >\n"
+                                        + "        <path android:pathData=\"M10,10h40v30h-40z\">\n"
+                                        + "            <aapt:attr name=\"android:fillColor\">\n"
+                                        + "                <gradient android:startY=\"10\" android:startX=\"10\" android:endY=\"40\" android:endX=\"10\">\n"
+                                        + "                    <item android:offset=\"0\" android:color=\"#FFFF0000\"/>\n"
+                                        + "                    <item android:offset=\"1\" android:color=\"#FFFFFF00\"/>\n"
+                                        + "                </gradient>\n"
+                                        + "            </aapt:attr>\n"
+                                        + "        </path>\n"
+                                        + "    </group>\n"
+                                        + "\n"
+                                        + "</vector>\n"),
+                        gradle(
+                                "apply plugin: 'com.android.application'\n"
+                                        + "dependencies {\n"
+                                        + "    compile 'com.android.support:appcompat-v7:+'\n"
+                                        + "}\n"))
+                .checkMessage(this::checkReportedError)
+                .run()
+                .expectClean();
+    }
+
     public void testPaddingStart() {
         String expected =
                 ""
@@ -3354,7 +3153,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                     @NonNull File dir, @NonNull File referenceDir) {
                                 Project fromSuper = super.createProject(dir, referenceDir);
                                 Project spy = spy(fromSuper);
-                                when(spy.getBuildTools()).thenReturn(null);
+                                when(spy.getBuildToolsRevision()).thenReturn(null);
                                 return spy;
                             }
                         })
@@ -3391,12 +3190,9 @@ public class ApiDetectorTest extends AbstractCheckTest {
                             protected Project createProject(
                                     @NonNull File dir, @NonNull File referenceDir) {
                                 Revision revision = new Revision(22, 2, 1);
-                                BuildToolInfo info =
-                                        BuildToolInfo.fromStandardDirectoryLayout(revision, dir);
-
                                 Project fromSuper = super.createProject(dir, referenceDir);
                                 Project spy = spy(fromSuper);
-                                when(spy.getBuildTools()).thenReturn(info);
+                                when(spy.getBuildToolsRevision()).thenReturn(revision);
                                 return spy;
                             }
                         })
@@ -3414,12 +3210,9 @@ public class ApiDetectorTest extends AbstractCheckTest {
                             protected Project createProject(
                                     @NonNull File dir, @NonNull File referenceDir) {
                                 Revision revision = new Revision(23, 0, 2);
-                                BuildToolInfo info =
-                                        BuildToolInfo.fromStandardDirectoryLayout(revision, dir);
-
                                 Project fromSuper = super.createProject(dir, referenceDir);
                                 Project spy = spy(fromSuper);
-                                when(spy.getBuildTools()).thenReturn(info);
+                                when(spy.getBuildToolsRevision()).thenReturn(revision);
                                 return spy;
                             }
                         })
@@ -3710,7 +3503,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
 
         //noinspection all // Sample code
         lint().files(
-                        manifest().minSdk(4),
+                        manifest().minSdk(19), // prior to 19, version check does not prevent crash
                         java(
                                 ""
                                         + "package test.pkg;\n"
@@ -4532,22 +4325,22 @@ public class ApiDetectorTest extends AbstractCheckTest {
 
         String expected =
                 ""
-                        + "src/test/pkg/MultiCatch.java:12: Error: Class requires API level 18 (current min is 1): android.media.UnsupportedSchemeException [NewApi]\n"
+                        + "src/test/pkg/MultiCatch.java:12: Error: Exception requires API level 18 (current min is 1): android.media.UnsupportedSchemeException [NewApi]\n"
                         + "        } catch (MediaDrm.MediaDrmStateException | UnsupportedSchemeException e) {\n"
                         + "                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "src/test/pkg/MultiCatch.java:12: Error: Class requires API level 21 (current min is 1): android.media.MediaDrm.MediaDrmStateException [NewApi]\n"
+                        + "src/test/pkg/MultiCatch.java:12: Error: Exception requires API level 21 (current min is 1): android.media.MediaDrm.MediaDrmStateException [NewApi]\n"
                         + "        } catch (MediaDrm.MediaDrmStateException | UnsupportedSchemeException e) {\n"
                         + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "src/test/pkg/MultiCatch.java:18: Error: Class requires API level 21 (current min is 1): android.media.MediaDrm.MediaDrmStateException [NewApi]\n"
+                        + "src/test/pkg/MultiCatch.java:18: Error: Exception requires API level 21 (current min is 1): android.media.MediaDrm.MediaDrmStateException [NewApi]\n"
                         + "        } catch (MediaDrm.MediaDrmStateException\n"
                         + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "src/test/pkg/MultiCatch.java:19: Error: Class requires API level 18 (current min is 1): android.media.UnsupportedSchemeException [NewApi]\n"
+                        + "src/test/pkg/MultiCatch.java:19: Error: Exception requires API level 18 (current min is 1): android.media.UnsupportedSchemeException [NewApi]\n"
                         + "                  | UnsupportedSchemeException e) {\n"
                         + "                    ~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
                         + "src/test/pkg/MultiCatch.java:25: Error: Multi-catch with these reflection exceptions requires API level 19 (current min is 1) because they get compiled to the common but new super type ReflectiveOperationException. As a workaround either create individual catch statements, or catch Exception. [NewApi]\n"
                         + "        } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {\n"
                         + "                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-                        + "5 errors, 0 warnings\n";
+                        + "5 errors, 0 warnings";
         //noinspection all // Sample code
         lint().files(
                         java(
@@ -4592,17 +4385,115 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 .expect(expected);
     }
 
+    public void testExceptionHandlingDalvik() {
+        // Regression test for 131349148: Dalvik: java.lang.VerifyError
+
+        //noinspection all // Sample code
+        lint().files(
+                        java(
+                                "src/test/pkg/CatchTest.java",
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import android.hardware.camera2.CameraAccessException;\n"
+                                        + "import android.media.MediaDrmResetException;\n"
+                                        + "import android.os.Build;\n"
+                                        + "\n"
+                                        + "import android.annotation.TargetApi;\n"
+                                        + "import android.support.annotation.RequiresApi;"
+                                        + "\n"
+                                        + "@SuppressWarnings({\"unused\", \"WeakerAccess\"})\n"
+                                        + "public class CatchTest {\n"
+                                        + "    public class C0 {\n"
+                                        + "        public void test() {\n"
+                                        + "            try {\n"
+                                        + "                thrower();\n"
+                                        + "            } catch (CameraAccessException e) { // ERROR: Requires 21\n"
+                                        + "                logger(e.toString());\n"
+                                        + "            }\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    public class C1 {\n"
+                                        + "        public void test() {\n"
+                                        + "            try {\n"
+                                        + "                thrower();\n"
+                                        + "            } catch (MediaDrmResetException | CameraAccessException e) { // ERROR: Requires 23 & 21\n"
+                                        + "                logger(e.toString());\n"
+                                        + "            }\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    public class C2 {\n"
+                                        + "        public void test() {\n"
+                                        + "            if (Build.VERSION.SDK_INT >= 23) { // Not adequate\n"
+                                        + "                try {\n"
+                                        + "                    thrower();\n"
+                                        + "                } catch (CameraAccessException e) { // ERROR: Requires 23; version check not enough\n"
+                                        + "                    logger(e.toString());\n"
+                                        + "                }\n"
+                                        + "            }\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    public class C3 {\n"
+                                        + "        @TargetApi(21)\n"
+                                        + "        public void test() {\n"
+                                        + "            try {\n"
+                                        + "                thrower();\n"
+                                        + "            } catch (CameraAccessException e) { // ERROR: Requires 23; @TargetApi on method not enough\n"
+                                        + "                logger(e.toString());\n"
+                                        + "            }\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    @RequiresApi(23) // OK\n"
+                                        + "    public class C4 {\n"
+                                        + "        public void test() {\n"
+                                        + "            try {\n"
+                                        + "                thrower();\n"
+                                        + "            } catch (CameraAccessException | MediaDrmResetException e) { // OK: Class requires 21\n"
+                                        + "                logger(e.toString());\n"
+                                        + "            }\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    private void logger(String e) {\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    public void thrower() throws CameraAccessException, MediaDrmResetException {\n"
+                                        + "        if (Build.VERSION.SDK_INT >= 21) {\n"
+                                        + "            throw new CameraAccessException(CameraAccessException.CAMERA_ERROR);\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        mSupportClasspath,
+                        mSupportJar)
+                .checkMessage(this::checkReportedError)
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/CatchTest.java:15: Error: Exception requires API level 21 (current min is 1): android.hardware.camera2.CameraAccessException [NewApi]\n"
+                                + "            } catch (CameraAccessException e) { // ERROR: Requires 21\n"
+                                + "                     ~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "src/test/pkg/CatchTest.java:25: Error: Exception requires API level 21 (current min is 1): android.hardware.camera2.CameraAccessException [NewApi]\n"
+                                + "            } catch (MediaDrmResetException | CameraAccessException e) { // ERROR: Requires 23 & 21\n"
+                                + "                                              ~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "src/test/pkg/CatchTest.java:25: Error: Exception requires API level 23 (current min is 1): android.media.MediaDrmResetException [NewApi]\n"
+                                + "            } catch (MediaDrmResetException | CameraAccessException e) { // ERROR: Requires 23 & 21\n"
+                                + "                     ~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "src/test/pkg/CatchTest.java:36: Error: Exception requires API level 21 (current min is 1): android.hardware.camera2.CameraAccessException, and having a surrounding/preceding version check does not help since prior to API level 19, just loading the class will cause a crash. Consider marking the surrounding class with RequiresApi(19) to ensure that the class is never loaded except when on API 19 or higher. [NewApi]\n"
+                                + "                } catch (CameraAccessException e) { // ERROR: Requires 23; version check not enough\n"
+                                + "                         ~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "src/test/pkg/CatchTest.java:48: Error: Exception requires API level 21 (current min is 21): android.hardware.camera2.CameraAccessException, and having a surrounding/preceding version check does not help since prior to API level 19, just loading the class will cause a crash. Consider marking the surrounding class with RequiresApi(19) to ensure that the class is never loaded except when on API 19 or higher. [NewApi]\n"
+                                + "            } catch (CameraAccessException e) { // ERROR: Requires 23; @TargetApi on method not enough\n"
+                                + "                     ~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "5 errors, 0 warnings");
+    }
+
     @SuppressWarnings("all") // Sample code
     public void testConcurrentHashMapUsage() {
         ApiLookup lookup = ApiLookup.get(createClient());
-        int version =
-                lookup.getMethodVersion(
-                        "java/util/concurrent/ConcurrentHashMap", "keySet", "(Ljava/lang/Object;)");
-        if (version == -1) {
-            // This test machine doesn't have the right version of Nougat yet
-            return;
-        }
-
         String expected =
                 ""
                         + "src/test/pkg/MapUsage.java:7: Error: The type of the for loop iterated value is java.util.concurrent.ConcurrentHashMap.KeySetView<java.lang.String,java.lang.Object>, which requires API level 24 (current min is 1); to work around this, add an explicit cast to (Map) before the keySet call. [NewApi]\n"
@@ -5167,13 +5058,13 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                         + "import android.graphics.drawable.Drawable\n"
                                         + "import android.text.style.ImageSpan\n"
                                         + "\n"
-                                        + "class SomeClass(val drawable: Drawable) {\n"
+                                        + "class SomeClass(val drawable: Drawable?) {\n"
                                         + "    constructor(context: Context, resourceId: Int) : this(context.getDrawable(resourceId)) {\n"
                                         + "        SomeClass(context.getDrawable(resourceId))\n"
                                         + "    }\n"
                                         + "}\n"
                                         + "\n"
-                                        + "class AnotherClass(context: Context, id: Int): ImageSpan(context.getDrawable(id)) {\n"
+                                        + "class AnotherClass(context: Context, id: Int): ImageSpan(context.getDrawable(id)!!) {\n"
                                         + "    init {\n"
                                         + "        val x = context.getDrawable(id)\n"
                                         + "    }\n"
@@ -5187,7 +5078,7 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                 + "        SomeClass(context.getDrawable(resourceId))\n"
                                 + "                          ~~~~~~~~~~~\n"
                                 + "src/test/pkg/SomeClass.kt:13: Error: Call requires API level 21 (current min is 15): android.content.Context#getDrawable [NewApi]\n"
-                                + "class AnotherClass(context: Context, id: Int): ImageSpan(context.getDrawable(id)) {\n"
+                                + "class AnotherClass(context: Context, id: Int): ImageSpan(context.getDrawable(id)!!) {\n"
                                 + "                                                                 ~~~~~~~~~~~\n"
                                 + "src/test/pkg/SomeClass.kt:15: Error: Call requires API level 21 (current min is 15): android.content.Context#getDrawable [NewApi]\n"
                                 + "        val x = context.getDrawable(id)\n"
@@ -5245,14 +5136,14 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                         + "package test.pkg\n"
                                         + "\n"
                                         + "import android.app.Activity\n"
-                                        + "import com.example.lint.library.myapplication.R\n"
+                                        + "import test.pkg.R\n"
                                         + "\n"
                                         + "class MainActivity2 : Activity() {\n"
                                         + "    val illegalColor1 by lazy {\n"
-                                        + "        resources.getColor(R.color.primary_text_default_material_light, theme)\n"
+                                        + "        resources.getColor(R.color.primary_text_default_material_light, null)\n"
                                         + "    }\n"
                                         + "\n"
-                                        + "    val illegalColor2 = resources.getColor(R.color.primary_text_default_material_light, theme)\n"
+                                        + "    val illegalColor2 = resources.getColor(R.color.primary_text_default_material_light, null)\n"
                                         + "}\n"),
                         java(
                                 ""
@@ -5264,13 +5155,14 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                         + "}\n"))
                 .run()
                 .expect(
-                        "src/test/pkg/MainActivity2.kt:8: Error: Call requires API level 23 (current min is 1): android.content.res.Resources#getColor [NewApi]\n"
-                                + "        resources.getColor(R.color.primary_text_default_material_light, theme)\n"
+                        ""
+                                + "src/test/pkg/MainActivity2.kt:8: Error: Call requires API level 23 (current min is 1): android.content.res.Resources#getColor [NewApi]\n"
+                                + "        resources.getColor(R.color.primary_text_default_material_light, null)\n"
                                 + "                  ~~~~~~~~\n"
                                 + "src/test/pkg/MainActivity2.kt:11: Error: Call requires API level 23 (current min is 1): android.content.res.Resources#getColor [NewApi]\n"
-                                + "    val illegalColor2 = resources.getColor(R.color.primary_text_default_material_light, theme)\n"
+                                + "    val illegalColor2 = resources.getColor(R.color.primary_text_default_material_light, null)\n"
                                 + "                                  ~~~~~~~~\n"
-                                + "2 errors, 0 warnings\n");
+                                + "2 errors, 0 warnings");
     }
 
     public void testSupportLibrary() {
@@ -5465,6 +5357,27 @@ public class ApiDetectorTest extends AbstractCheckTest {
                 .expectClean();
     }
 
+    public void testKotlinClassLiteral() {
+        // Regression test for 117517492: ApiDetector does not work for class literals in Kotlin.
+        lint().files(
+                        manifest().minSdk(1),
+                        kotlin(
+                                ""
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "import org.w3c.dom.DOMErrorHandler\n"
+                                        + "\n"
+                                        + "fun test() {\n"
+                                        + "    val clz = DOMErrorHandler::class // API 8\n"
+                                        + "}\n"))
+                .run()
+                .expect(
+                        "src/test/pkg/}.kt:6: Error: Class requires API level 8 (current min is 1): org.w3c.dom.DOMErrorHandler [NewApi]\n"
+                                + "    val clz = DOMErrorHandler::class // API 8\n"
+                                + "              ~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "1 errors, 0 warnings");
+    }
+
     public void test69788053() {
         // Regression test for issue 69788053:
         // Lint NewApi check doesn't work with inner classes that extend another class
@@ -5505,6 +5418,44 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                 + "            getContext(); // Expects warning from lint\n"
                                 + "            ~~~~~~~~~~\n"
                                 + "2 errors, 0 warnings");
+    }
+
+    public void testTypeUseAnnotations() {
+        // Regression test for issue 118489828: type use annotations are allowed
+        lint().files(
+                        manifest().minSdk(15),
+                        java(
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import java.lang.annotation.ElementType;\n"
+                                        + "import java.lang.annotation.Repeatable;\n"
+                                        + "import java.lang.annotation.Target;\n"
+                                        + "\n"
+                                        + "public class TypeUseAnnotations {\n"
+                                        + "    @Target({ElementType.TYPE_PARAMETER, ElementType.TYPE_USE}) // OK\n"
+                                        + "    @interface MyTypeUseAnnotation {\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    public void test() {\n"
+                                        + "        System.out.println(ElementType.TYPE_PARAMETER); // ERROR\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        kotlin(
+                                ""
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "class TypeUseAnnotations {\n"
+                                        + "    @Target(AnnotationTarget.TYPE_PARAMETER, AnnotationTarget.TYPE)\n"
+                                        + "    internal annotation class MyTypeUseAnnotation\n"
+                                        + "}\n"))
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/TypeUseAnnotations.java:13: Error: Field requires API level 26 (current min is 15): java.lang.annotation.ElementType#TYPE_PARAMETER [NewApi]\n"
+                                + "        System.out.println(ElementType.TYPE_PARAMETER); // ERROR\n"
+                                + "                           ~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
+                                + "1 errors, 0 warnings");
     }
 
     public void test110576964() {
@@ -5639,6 +5590,532 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                 + "1 errors, 0 warnings");
     }
 
+    public void test117793069() {
+        // Comprehensive Kotlin API check test, originally part of the Kotlin plugin
+        // Regression test for issue 117793069
+        lint().files(
+                        kotlin(
+                                "src/test/pkg/ApiCallTest.kt",
+                                ""
+                                        + "package test.pkg\n"
+                                        + "import android.animation.RectEvaluator\n"
+                                        + "import android.annotation.SuppressLint\n"
+                                        + "import android.annotation.TargetApi\n"
+                                        + "import org.w3c.dom.DOMError\n"
+                                        + "import org.w3c.dom.DOMErrorHandler\n"
+                                        + "import org.w3c.dom.DOMLocator\n"
+                                        + "\n"
+                                        + "import android.view.View\n"
+                                        + "import android.view.ViewGroup\n"
+                                        + "import android.view.ViewGroup.LayoutParams\n"
+                                        + "import android.app.Activity\n"
+                                        + "import android.app.ApplicationErrorReport\n"
+                                        + "import android.graphics.drawable.VectorDrawable\n"
+                                        + "import android.graphics.Path\n"
+                                        + "import android.graphics.PorterDuff\n"
+                                        + "import android.graphics.Rect\n"
+                                        + "import android.os.Build\n"
+                                        + "import android.widget.*\n"
+                                        + "import dalvik.bytecode.OpcodeInfo\n"
+                                        + "\n"
+                                        + "import android.os.Build.VERSION\n"
+                                        + "import android.os.Build.VERSION.SDK_INT\n"
+                                        + "import android.os.Build.VERSION_CODES\n"
+                                        + "import android.os.Build.VERSION_CODES.ICE_CREAM_SANDWICH\n"
+                                        + "import android.os.Build.VERSION_CODES.JELLY_BEAN\n"
+                                        + "import android.os.Bundle\n"
+                                        + "import android.os.Parcelable\n"
+                                        + "import android.system.ErrnoException\n"
+                                        + "import android.widget.TextView\n"
+                                        + "import android.support.annotation.RequiresApi\n"
+                                        + "\n"
+                                        + "@Suppress(\"SENSELESS_COMPARISON\", \"UNUSED_EXPRESSION\", \"UsePropertyAccessSyntax\", \"UNUSED_VARIABLE\", \"unused\", \"UNUSED_PARAMETER\", \"DEPRECATION\", \"USELESS_CAST\")\n"
+                                        + "class ApiCallTest: Activity() {\n"
+                                        + "\n"
+                                        + "    fun method(chronometer: Chronometer, locator: DOMLocator) {\n"
+                                        + "        chronometer./*Call requires API level 16 (current min is 1): android.view.View#setBackground*/setBackground/**/(null)\n"
+                                        + "\n"
+                                        + "        // Ok\n"
+                                        + "        Bundle().getInt(\"\")\n"
+                                        + "\n"
+                                        + "        /*Field requires API level 16 (current min is 1): android.view.View#SYSTEM_UI_FLAG_FULLSCREEN*/View.SYSTEM_UI_FLAG_FULLSCREEN/**/\n"
+                                        + "\n"
+                                        + "        // Virtual call\n"
+                                        + "        /*Call requires API level 11 (current min is 1): android.app.Activity#getActionBar*/getActionBar/**/() // API 11\n"
+                                        + "        /*Call requires API level 11 (current min is 1): android.app.Activity#getActionBar*/actionBar/**/ // API 11\n"
+                                        + "\n"
+                                        + "        // Class references (no call or field access)\n"
+                                        + "        val error: DOMError? = null // API 8\n"
+                                        + "        val clz = /*Class requires API level 8 (current min is 1): org.w3c.dom.DOMErrorHandler*/DOMErrorHandler::class/**/ // API 8\n"
+                                        + "\n"
+                                        + "        // Method call\n"
+                                        + "        chronometer./*Call requires API level 3 (current min is 1): android.widget.Chronometer#getOnChronometerTickListener*/onChronometerTickListener/**/ // API 3\n"
+                                        + "\n"
+                                        + "        // Inherited method call (from TextView\n"
+                                        + "        chronometer./*Call requires API level 11 (current min is 1): android.widget.TextView#setTextIsSelectable*/setTextIsSelectable/**/(true) // API 11\n"
+                                        + "\n"
+                                        + "        /*Class requires API level 14 (current min is 1): android.widget.GridLayout*/GridLayout::class/**/\n"
+                                        + "\n"
+                                        + "        // Field access\n"
+                                        + "        val field = /*Field requires API level 11 (current min is 1): dalvik.bytecode.OpcodeInfo#MAXIMUM_VALUE*/OpcodeInfo.MAXIMUM_VALUE/**/ // API 11\n"
+                                        + "\n"
+                                        + "\n"
+                                        + "        val fillParent = LayoutParams.FILL_PARENT // API 1\n"
+                                        + "        // This is a final int, which means it gets inlined\n"
+                                        + "        val matchParent = LayoutParams.MATCH_PARENT // API 8\n"
+                                        + "        // Field access: non final\n"
+                                        + "        val batteryInfo = /*Field requires API level 14 (current min is 1): android.app.ApplicationErrorReport#batteryInfo*/report!!.batteryInfo/**/\n"
+                                        + "\n"
+                                        + "        // Enum access\n"
+                                        + "        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.LOLLIPOP) {\n"
+                                        + "            val mode = /*Field requires API level 11 (current min is 1): android.graphics.PorterDuff.Mode#OVERLAY*/PorterDuff.Mode.OVERLAY/**/ // API 11\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test(rect: Rect) {\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {\n"
+                                        + "            RectEvaluator(rect); // OK\n"
+                                        + "        }\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {\n"
+                                        + "            if (rect != null) {\n"
+                                        + "                RectEvaluator(rect); // OK\n"
+                                        + "            }\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test2(rect: Rect) {\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {\n"
+                                        + "            RectEvaluator(rect); // OK\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test3(rect: Rect) {\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {\n"
+                                        + "            /*Call requires API level 18 (current min is 1): android.animation.RectEvaluator()*/RectEvaluator()/**/; // ERROR\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test4(rect: Rect) {\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {\n"
+                                        + "            System.out.println(\"Something\");\n"
+                                        + "            RectEvaluator(rect); // OK\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 21 (current min is 1): android.animation.RectEvaluator()*/RectEvaluator(rect)/**/; // ERROR\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test5(rect: Rect) {\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CUPCAKE) {\n"
+                                        + "            /*Call requires API level 21 (current min is 1): android.animation.RectEvaluator()*/RectEvaluator(rect)/**/; // ERROR\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 21 (current min is 1): android.animation.RectEvaluator()*/RectEvaluator(rect)/**/; // ERROR\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test(priority: Boolean, layout: ViewGroup) {\n"
+                                        + "        if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT >= ICE_CREAM_SANDWICH) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.ICE_CREAM_SANDWICH) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.ICE_CREAM_SANDWICH) {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        } else {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT >= 14) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (VERSION.SDK_INT >= VERSION_CODES.ICE_CREAM_SANDWICH) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        // Nested conditionals\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {\n"
+                                        + "            if (priority) {\n"
+                                        + "                /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "            } else {\n"
+                                        + "                /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "            }\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        // Nested conditionals 2\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {\n"
+                                        + "            if (priority) {\n"
+                                        + "                GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "            } else {\n"
+                                        + "                GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "            }\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test2(priority: Boolean) {\n"
+                                        + "        if (android.os.Build.VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (android.os.Build.VERSION.SDK_INT >= 16) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (android.os.Build.VERSION.SDK_INT >= 13) {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/./*Call requires API level 14 (current min is 1): android.widget.GridLayout#getOrientation*/getOrientation/**/(); // Flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT >= JELLY_BEAN) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.JELLY_BEAN) {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        } else {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (Build.VERSION.SDK_INT >= 16) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (VERSION.SDK_INT >= VERSION_CODES.JELLY_BEAN) {\n"
+                                        + "            GridLayout(null).getOrientation(); // Not flagged\n"
+                                        + "        } else {\n"
+                                        + "            /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(null)/**/; // Flagged\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun test(textView: TextView) {\n"
+                                        + "        if (textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/()) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "        if (textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT >= JELLY_BEAN && textView.isSuggestionsEnabled()) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT >= JELLY_BEAN && textView.isSuggestionsEnabled) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT >= JELLY_BEAN && (textView.text != \"\" || textView.isSuggestionsEnabled)) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < JELLY_BEAN && (textView.text != \"\" || textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/)) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < JELLY_BEAN && textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/()) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < JELLY_BEAN && textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < JELLY_BEAN || textView.isSuggestionsEnabled) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT > JELLY_BEAN || textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "\n"
+                                        + "        // getActionBar() API 11\n"
+                                        + "        if (SDK_INT <= 10 || getActionBar() == null) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < 10 || /*Call requires API level 11 (current min is 1): android.app.Activity#getActionBar*/getActionBar/**/() == null) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < 11 || getActionBar() == null) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT != 11 || getActionBar() == null) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT != 12 || /*Call requires API level 11 (current min is 1): android.app.Activity#getActionBar*/getActionBar/**/() == null) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT <= 11 || getActionBar() == null) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < 12 || getActionBar() == null) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT <= 12 || getActionBar() == null) {\n"
+                                        + "            //NO ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT < 9 || /*Call requires API level 11 (current min is 1): android.app.Activity#getActionBar*/getActionBar/**/() == null) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (SDK_INT <= 9 || /*Call requires API level 11 (current min is 1): android.app.Activity#getActionBar*/getActionBar/**/() == null) {\n"
+                                        + "            //ERROR\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun testReturn() {\n"
+                                        + "        if (SDK_INT < 11) {\n"
+                                        + "            return\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        // No Error\n"
+                                        + "        val actionBar = getActionBar()\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun testThrow() {\n"
+                                        + "        if (SDK_INT < 11) {\n"
+                                        + "            throw IllegalStateException()\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        // No Error\n"
+                                        + "        val actionBar = getActionBar()\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun testError() {\n"
+                                        + "        if (SDK_INT < 11) {\n"
+                                        + "            error(\"Api\")\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        // No Error\n"
+                                        + "        val actionBar = getActionBar()\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun testWithoutAnnotation(textView: TextView) {\n"
+                                        + "        if (textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/()) {\n"
+                                        + "\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (textView./*Call requires API level 14 (current min is 1): android.widget.TextView#isSuggestionsEnabled*/isSuggestionsEnabled/**/) {\n"
+                                        + "\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    @RequiresApi(JELLY_BEAN)\n"
+                                        + "    fun testWithTargetApiAnnotation(textView: TextView) {\n"
+                                        + "        if (textView.isSuggestionsEnabled()) {\n"
+                                        + "            //NO ERROR, annotation\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (textView.isSuggestionsEnabled) {\n"
+                                        + "            //NO ERROR, annotation\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    @SuppressLint(\"NewApi\")\n"
+                                        + "    fun testWithSuppressLintAnnotation(textView: TextView) {\n"
+                                        + "        if (textView.isSuggestionsEnabled()) {\n"
+                                        + "            //NO ERROR, annotation\n"
+                                        + "        }\n"
+                                        + "\n"
+                                        + "        if (textView.isSuggestionsEnabled) {\n"
+                                        + "            //NO ERROR, annotation\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun testCatch() {\n"
+                                        + "        try {\n"
+                                        + "\n"
+                                        + "        } catch (e: /*Exception requires API level 21 (current min is 1): android.system.ErrnoException*/ErrnoException/**/) {\n"
+                                        + "\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun testOverload() {\n"
+                                        + "        // this overloaded addOval available only on API Level 21\n"
+                                        + "        Path()./*Call requires API level 21 (current min is 1): android.graphics.Path#addOval*/addOval/**/(0f, 0f, 0f, 0f, Path.Direction.CW)\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    // KT-14737 False error with short-circuit evaluation\n"
+                                        + "    fun testShortCircuitEvaluation() {\n"
+                                        + "        /*Call requires API level 21 (current min is 1): android.content.Context#getDrawable*/getDrawable/**/(0) // error here as expected\n"
+                                        + "        if(Build.VERSION.SDK_INT >= 23\n"
+                                        + "           && null == getDrawable(0)) // error here should not occur\n"
+                                        + "        {\n"
+                                        + "            getDrawable(0) // no error here as expected\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    // KT-1482 Kotlin Lint: \"Calling new methods on older versions\" does not report call on receiver in extension function\n"
+                                        + "    private fun Bundle.caseE1a() { /*Call requires API level 18 (current min is 1): android.os.Bundle#getBinder*/getBinder/**/(\"\") }\n"
+                                        + "\n"
+                                        + "    private fun Bundle.caseE1c() { this./*Call requires API level 18 (current min is 1): android.os.Bundle#getBinder*/getBinder/**/(\"\") }\n"
+                                        + "\n"
+                                        + "    private fun caseE1b(bundle: Bundle) { bundle./*Call requires API level 18 (current min is 1): android.os.Bundle#getBinder*/getBinder/**/(\"\") }\n"
+                                        + "\n"
+                                        + "    // KT-12023 Kotlin Lint: Cast doesn't trigger minSdk error\n"
+                                        + "    fun testCast(layout: ViewGroup) {\n"
+                                        + "        if (layout is LinearLayout) {}  // OK API 1\n"
+                                        + "        layout as? LinearLayout         // OK API 1\n"
+                                        + "        layout as LinearLayout          // OK API 1\n"
+                                        + "\n"
+                                        + "        if (layout !is /*Class requires API level 14 (current min is 1): android.widget.GridLayout*/GridLayout/**/) {}\n"
+                                        + "        layout as? /*Class requires API level 14 (current min is 1): android.widget.GridLayout*/GridLayout/**/\n"
+                                        + "        layout as /*Class requires API level 14 (current min is 1): android.widget.GridLayout*/GridLayout/**/\n"
+                                        + "\n"
+                                        + "        val grid = layout as? /*Class requires API level 14 (current min is 1): android.widget.GridLayout*/GridLayout/**/\n"
+                                        + "        val linear = layout as LinearLayout // OK API 1\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    @RequiresApi(21)\n"
+                                        + "    class MyVectorDrawable : VectorDrawable()\n"
+                                        + "\n"
+                                        + "    fun testTypes() {\n"
+                                        + "        /*Call requires API level 14 (current min is 1): android.widget.GridLayout()*/GridLayout(this)/**/\n"
+                                        + "        val c = /*Class requires API level 21 (current min is 1): android.graphics.drawable.VectorDrawable*/VectorDrawable::class/**/.java\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    fun testCallWithApiAnnotation(textView: TextView) {\n"
+                                        + "        /*Call requires API level 21 (current min is 1): MyVectorDrawable*/MyVectorDrawable()/**/\n"
+                                        + "        /*Call requires API level 16 (current min is 1): testWithTargetApiAnnotation*/testWithTargetApiAnnotation/**/(textView)\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    companion object : Activity() {\n"
+                                        + "        fun test() {\n"
+                                        + "            /*Call requires API level 21 (current min is 1): android.content.Context#getDrawable*/getDrawable/**/(0)\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    // Return type\n"
+                                        + "    internal // API 14\n"
+                                        + "    val gridLayout: GridLayout?\n"
+                                        + "        get() = null\n"
+                                        + "\n"
+                                        + "    private val report: ApplicationErrorReport?\n"
+                                        + "        get() = null\n"
+                                        + "}\n"
+                                        + "\n"
+                                        + "object O: Activity() {\n"
+                                        + "    fun test() {\n"
+                                        + "        /*Call requires API level 21 (current min is 1): android.content.Context#getDrawable*/getDrawable/**/(0)\n"
+                                        + "    }\n"
+                                        + "}\n"
+                                        + "\n"
+                                        + "fun testJava8() {\n"
+                                        + "    // Error, Api 24, Java8\n"
+                                        + "    mutableListOf(1, 2, 3)./*Call requires API level 24 (current min is 1): java.util.Collection#removeIf*/removeIf/**/ {\n"
+                                        + "        true\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    // Ok, Kotlin\n"
+                                        + "    mutableListOf(1, 2, 3).removeAll {\n"
+                                        + "        true\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    // Error, Api 24, Java8\n"
+                                        + "    mapOf(1 to 2)./*Call requires API level 24 (current min is 1): java.util.Map#forEach*/forEach/**/ { key, value -> key + value }\n"
+                                        + "\n"
+                                        + "    // Ok, Kotlin\n"
+                                        + "    mapOf(1 to 2).forEach { (key, value) -> key + value }\n"
+                                        + "}\n"
+                                        + "\n"
+                                        + "interface WithDefault {\n"
+                                        + "    // Should be ok\n"
+                                        + "    fun methodWithBody() {\n"
+                                        + "        return\n"
+                                        + "    }\n"
+                                        + "}"),
+                        mSupportClasspath,
+                        mSupportJar)
+                .run()
+                .expectInlinedMessages(false);
+    }
+
+    public void testInfixCall() {
+        //noinspection all // Sample code
+        lint().files(
+                        manifest().minSdk(15),
+                        kotlin(
+                                ""
+                                        + "package test.pkg\n"
+                                        + "\n"
+                                        + "import android.support.annotation.RequiresApi\n"
+                                        + "\n"
+                                        + "class MyClass2 {\n"
+                                        + "    @RequiresApi(21)\n"
+                                        + "    infix fun something(other: MyClass2) {\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    companion object {\n"
+                                        + "        fun test(a: MyClass2, b: MyClass2) {\n"
+                                        + "            a something b\n"
+                                        + "        }\n"
+                                        + "    }\n"
+                                        + "}"),
+                        mSupportClasspath,
+                        mSupportJar)
+                .run()
+                .expect(
+                        ""
+                                + "src/test/pkg/MyClass2.kt:12: Error: Call requires API level 21 (current min is 15): something [NewApi]\n"
+                                + "            a something b\n"
+                                + "            ~~~~~~~~~~~~~\n"
+                                + "1 errors, 0 warnings");
+    }
+
     public void testSourceJars() {
         // Make sure that resolving files through srcjars is working properly
 
@@ -5722,6 +6199,49 @@ public class ApiDetectorTest extends AbstractCheckTest {
                                 + "        Library().requiresKitKat() // ERROR - requires 19\n"
                                 + "                  ~~~~~~~~~~~~~~\n"
                                 + "1 errors, 0 warnings");
+    }
+
+    public void testFutureApi() {
+        // This test only works while there is a preview API
+        if (SdkVersionInfo.HIGHEST_KNOWN_STABLE_API == SdkVersionInfo.HIGHEST_KNOWN_API) {
+            return;
+        }
+        String preview = SdkVersionInfo.getCodeName(SdkVersionInfo.HIGHEST_KNOWN_API);
+        String expected =
+                ""
+                        + "src/test/pkg/TestRequiresApi.java:8: Error: Call requires API level "
+                        + preview
+                        + " (current min is 15): requiresPreview [NewApi]\n"
+                        + "        requiresPreview();\n"
+                        + "        ~~~~~~~~~~~~~~~\n"
+                        + "1 errors, 0 warnings";
+        //noinspection all // Sample code
+        lint().files(
+                        manifest().minSdk(15),
+                        java(
+                                "src/test/pkg/TestRequiresApi.java",
+                                ""
+                                        + "package test.pkg;\n"
+                                        + "\n"
+                                        + "import android.support.annotation.RequiresApi;\n"
+                                        + "import android.os.Build;\n"
+                                        + "@SuppressWarnings({\"WeakerAccess\", \"unused\"})\n"
+                                        + "public class TestRequiresApi {\n"
+                                        + "    public void caller() {\n"
+                                        + "        requiresPreview();\n"
+                                        + "    }\n"
+                                        + "\n"
+                                        + "    @RequiresApi("
+                                        + (SdkVersionInfo.HIGHEST_KNOWN_STABLE_API + 1)
+                                        + ")\n"
+                                        + "    public void requiresPreview() {\n"
+                                        + "    }\n"
+                                        + "}\n"),
+                        mSupportClasspath,
+                        mSupportJar)
+                .checkMessage(this::checkReportedError)
+                .run()
+                .expect(expected);
     }
 
     @Override
@@ -6427,42 +6947,6 @@ public class ApiDetectorTest extends AbstractCheckTest {
                             + "        android:viewportWidth=\"24\" />\n"
                             + "\n"
                             + "</vector>\n");
-
-    private TestFile gradleVersion24_language18 =
-            gradle(
-                    ""
-                            + "buildscript {\n"
-                            + "    repositories {\n"
-                            + "        jcenter()\n"
-                            + "    }\n"
-                            + "    dependencies {\n"
-                            + "        classpath 'com.android.tools.build:gradle:2.4.0-alpha8'\n"
-                            + "    }\n"
-                            + "}\n"
-                            + "android {\n"
-                            + "    compileOptions {\n"
-                            + "        sourceCompatibility JavaVersion.VERSION_1_8\n"
-                            + "        targetCompatibility JavaVersion.VERSION_1_8\n"
-                            + "    }\n"
-                            + "}");
-
-    private TestFile gradleVersion24_language17 =
-            gradle(
-                    ""
-                            + "buildscript {\n"
-                            + "    repositories {\n"
-                            + "        jcenter()\n"
-                            + "    }\n"
-                            + "    dependencies {\n"
-                            + "        classpath 'com.android.tools.build:gradle:2.4.0-alpha8'\n"
-                            + "    }\n"
-                            + "}\n"
-                            + "android {\n"
-                            + "    compileOptions {\n"
-                            + "        sourceCompatibility JavaVersion.VERSION_1_7\n"
-                            + "        targetCompatibility JavaVersion.VERSION_1_7\n"
-                            + "    }\n"
-                            + "}");
 
     private TestFile gradleVersion231 =
             gradle(

@@ -16,19 +16,19 @@
 #ifndef PERFD_CPU_CPU_PROFILER_COMPONENT_H_
 #define PERFD_CPU_CPU_PROFILER_COMPONENT_H_
 
+#include "daemon/daemon.h"
+#include "daemon/service_component.h"
 #include "perfd/cpu/cpu_cache.h"
 #include "perfd/cpu/cpu_collector.h"
 #include "perfd/cpu/cpu_service.h"
 #include "perfd/cpu/internal_cpu_service.h"
 #include "perfd/cpu/thread_monitor.h"
-#include "perfd/daemon.h"
-#include "perfd/profiler_component.h"
-#include "perfd/termination_service.h"
-#include "proto/agent_service.grpc.pb.h"
+#include "proto/transport.grpc.pb.h"
+#include "utils/termination_service.h"
 
 namespace profiler {
 
-class CpuProfilerComponent final : public ProfilerComponent {
+class CpuProfilerComponent final : public ServiceComponent {
  private:
   // Default collection interval is 200 milliseconds, i.e., 0.2 second.
   static const int64_t kDefaultCollectionIntervalUs = Clock::ms_to_us(200);
@@ -43,11 +43,11 @@ class CpuProfilerComponent final : public ProfilerComponent {
 
  public:
   // Creates a CPU perfd component and starts sampling right away.
-  explicit CpuProfilerComponent(Clock* clock, FileCache* file_cache,
-                                const proto::AgentConfig::CpuConfig& cpu_config,
-                                TerminationService* termination_service)
-      : clock_(clock),
-        cache_(kBufferCapacity, clock, file_cache),
+  explicit CpuProfilerComponent(
+      Clock* clock, FileCache* file_cache,
+      const proto::DaemonConfig::CpuConfig& cpu_config,
+      TerminationService* termination_service)
+      : cache_(kBufferCapacity, clock, file_cache),
         usage_sampler_(clock, &cache_),
         thread_monitor_(clock, &cache_),
         public_service_(clock, &cache_, &usage_sampler_, &thread_monitor_,
@@ -66,7 +66,6 @@ class CpuProfilerComponent final : public ProfilerComponent {
   }
 
  private:
-  Clock* clock_;
   CpuCache cache_;
   CpuUsageSampler usage_sampler_;
   ThreadMonitor thread_monitor_;

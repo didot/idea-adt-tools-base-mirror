@@ -82,7 +82,7 @@ public class ResourceRepositoryFixture {
             Object fileContents = data[i + 1];
             if (fileContents instanceof String) {
                 String text = (String) fileContents;
-                Files.write(text, file, Charsets.UTF_8);
+                Files.asCharSink(file, Charsets.UTF_8).write(text);
             } else if (fileContents instanceof byte[]) {
                 byte[] bytes = (byte[]) fileContents;
                 Files.write(bytes, file);
@@ -104,7 +104,7 @@ public class ResourceRepositoryFixture {
         }
         merger.addDataSet(resourceSet);
 
-        TestResourceRepository repository = new TestResourceRepository();
+        TestResourceRepository repository = new TestResourceRepository(namespace);
         repository.update(merger);
 
         return repository;

@@ -16,7 +16,8 @@
 
 package com.android.build.gradle.internal.res.namespaced
 
-import com.android.annotations.VisibleForTesting
+import com.google.common.annotations.VisibleForTesting
+import com.android.builder.symbols.exportToCompiledJava
 import com.android.ide.common.symbols.Symbol
 import com.android.ide.common.symbols.SymbolIo
 import com.android.ide.common.symbols.SymbolTable
@@ -24,6 +25,8 @@ import com.android.ide.common.symbols.canonicalizeValueResourceName
 import com.android.ide.common.xml.XmlFormatPreferences
 import com.android.ide.common.xml.XmlFormatStyle
 import com.android.ide.common.xml.XmlPrettyPrinter
+import com.android.resources.NamespaceReferenceRewriter
+import com.android.utils.forEach
 import com.android.resources.ResourceType
 import com.android.tools.build.apkzlib.zip.StoredEntryType
 import com.android.tools.build.apkzlib.zip.ZFile
@@ -31,7 +34,6 @@ import com.android.tools.build.apkzlib.zip.ZFileOptions
 import com.android.utils.PathUtils
 import com.android.utils.PositionXmlParser
 import com.google.common.base.Joiner
-import com.google.common.base.Preconditions
 import com.google.common.collect.ImmutableList
 import org.gradle.api.logging.Logger
 import org.gradle.api.logging.Logging
@@ -44,9 +46,7 @@ import org.objectweb.asm.Opcodes.ACC_STATIC
 import org.objectweb.asm.Opcodes.ASM5
 import org.w3c.dom.Document
 import org.w3c.dom.Element
-import org.w3c.dom.NamedNodeMap
 import org.w3c.dom.Node
-import org.w3c.dom.NodeList
 import java.io.File
 import java.io.IOException
 import java.io.Writer
@@ -63,8 +63,11 @@ import java.util.HashSet
  */
 class NamespaceRewriter(
     private val symbolTables: ImmutableList<SymbolTable>,
-    private val logger: Logger = Logging.getLogger(NamespaceRewriter::class.java)
-) {
+    private val logger: Logger = Logging.getLogger(NamespaceRewriter::class.java)) {
+
+    private val localPackage = symbolTables.firstOrNull()?.tablePackage ?: ""
+    private val referenceRewriter =
+        NamespaceReferenceRewriter(localPackage, this::findPackage)
 
     fun rewriteClass(clazz: Path, output: Path) {
         // First read the class and re-write the R class resource references.
@@ -75,7 +78,7 @@ class NamespaceRewriter(
 
     private fun rewriteClass(originalClass: ByteArray) : ByteArray {
         val cw = ClassWriter(0)
-        val crw = ClassReWriter(ASM5, cw, symbolTables, logger)
+        val crw = ClassReWriter(ASM5, cw)
         val cr = ClassReader(originalClass)
         cr.accept(crw, 0)
         // Write inner R classes references.
@@ -99,8 +102,8 @@ class NamespaceRewriter(
                             output.add(name, outputBytes.inputStream())
                         } catch (e: Exception) {
                             throw IllegalStateException(
-                                    "Failed rewriting class $name from ${classesJar.absolutePath}",
-                                    e
+                                "Failed rewriting class $name from ${classesJar.absolutePath}",
+                                e
                             )
                         }
                     }
@@ -154,30 +157,7 @@ class NamespaceRewriter(
      * not necessary, but saves us from comparing the package names.
      */
     fun rewriteManifest(inputManifest: Path, outputManifest: Path) {
-        rewriteFile(inputManifest, outputManifest, this::rewriteManifestNode)
-    }
-
-    private fun rewriteManifestNode(node: Node) {
-        if (node.nodeType == Node.ATTRIBUTE_NODE) {
-            // The content could be a resource reference. If it is not, do not update the content.
-            // Even if it resolves the resource to it's own package, we need to keep the full
-            // namespace reference since the manifests get merged at app level.
-            val content = node.nodeValue
-            val namespacedContent = rewritePossibleReference(content, true)
-            if (content != namespacedContent) {
-                node.nodeValue = namespacedContent
-            }
-        }
-
-        // First fix the attributes.
-        node.attributes?.forEach {
-            rewriteManifestNode(it)
-        }
-
-        // Now fix the children.
-        node.childNodes?.forEach {
-            rewriteManifestNode(it)
-        }
+        rewriteFile(inputManifest, outputManifest, referenceRewriter::rewriteManifestNode)
     }
 
     /**
@@ -199,7 +179,7 @@ class NamespaceRewriter(
         if (node.nodeType == Node.TEXT_NODE) {
             // The content could be a resource reference. If it is not, do not update the content.
             val content = node.nodeValue
-            val namespacedContent = rewritePossibleReference(content)
+            val (namespacedContent, _) = referenceRewriter.rewritePossibleReference(content)
             if (content != namespacedContent) {
                 node.nodeValue = namespacedContent
             }
@@ -244,33 +224,33 @@ class NamespaceRewriter(
     }
 
     private fun rewriteParent(element: Element, type: String) {
-        val name: String = element.attributes.getNamedItem("name")!!.nodeValue
-
         val originalParent: String? = element.attributes.getNamedItem("parent")?.nodeValue
         var parent: String? = null
         if (originalParent == null) {
             // Guess, maybe we have an implicit parent?
+            val name: String = element.attributes.getNamedItem("name")!!.nodeValue
             val possibleParent = name.substringBeforeLast('.', "")
             if (!possibleParent.isEmpty()) {
                 val possiblePackage = maybeFindPackage(
-                    type,
-                    possibleParent,
-                    logger,
-                    symbolTables
+                    type = type,
+                    name = possibleParent,
+                    reversed = false
                 )
                 if (possiblePackage != null) {
                     parent = "@*$possiblePackage:$type/$possibleParent"
                 }
             }
-        } else if (originalParent.isEmpty()) {
-            // leave it alone, there is explicitly no parent
+        } else if (originalParent.isEmpty() || (originalParent.contains(':'))) {
+            // leave it alone, there is explicitly no parent or we already have a namespace (most
+            // likely "android:").
         } else {
             // Rewrite explicitly included parents
             parent = originalParent
             if (!parent.startsWith("@")) {
                 parent = "@$type/$parent"
             }
-            parent = rewritePossibleReference(parent)
+            val (rewrittenParent, _) = referenceRewriter.rewritePossibleReference(parent)
+            parent = rewrittenParent
         }
         if (parent != null && parent != originalParent) {
             val parentAttribute = element.ownerDocument.createAttribute("parent")
@@ -279,25 +259,26 @@ class NamespaceRewriter(
         }
     }
 
+    private fun removeParent(element: Element) {
+        element.removeAttribute("parent")
+    }
+
     private fun rewriteStyleableElement(element: Element) {
-        // Rewrite the parent, if it exists.
-        rewriteParent(element, "styleable")
+        // Remove the parent, if it exists. The 'parent' tag in a declare-styleable doesn't actually
+        // do anything, so it's okay to just remove them.
+        removeParent(element)
 
         // Take care of the styleable children.
         element.childNodes.forEach { child ->
             if (child.nodeType == Node.ELEMENT_NODE &&
-                    (child.nodeName == "attr" || child.nodeName == "item")) {
+                (child.nodeName == "attr" || child.nodeName == "item")) {
                 child as Element
                 child.attributes.forEach {
-                    if (it.nodeName == "name") {
-                        val content = "@attr/${it.nodeValue}"
-                        // TODO(b/110088465): use a better heuristic for finding the package.
-                        val namespacedContent = rewritePossibleReference(content)
-                        if (content != namespacedContent) {
-                            // Remove only the "@" symbol, the "*" needs to stay for visibility.
-                            Preconditions.checkState(namespacedContent.startsWith("@*"))
-                            val foundPackage = namespacedContent.substringBefore(':').drop(1)
-                            it.nodeValue = "$foundPackage:${it.nodeValue}"
+                    // Only handle name nodes and skip if already has a package.
+                    if (it.nodeName == "name" && !it.nodeValue.contains(":")) {
+                        val foundPackage = findPackageForAttr(it.nodeValue)
+                        if (foundPackage != localPackage) {
+                            it.nodeValue = "*$foundPackage:${it.nodeValue}"
                         }
                     }
                 }
@@ -333,19 +314,17 @@ class NamespaceRewriter(
         // If the name is not from the "android:" namespace, it comes from this library or its
         // dependencies (uncommon but needs to be handled).
         val content = "@attr/${attribute.nodeValue}"
-        val namespacedContent = rewritePossibleReference(content)
+        val (namespacedContent, foundPackage) = referenceRewriter.rewritePossibleReference(content)
         if (content != namespacedContent) {
             // Prepend the package to the content, keep the "*" symbol for visibility.
-            Preconditions.checkState(namespacedContent.startsWith("@*"))
-            val foundPackage = namespacedContent.substringBefore(':').drop(1)
-            attribute.nodeValue = "$foundPackage:${attribute.nodeValue}"
+            attribute.nodeValue = "*$foundPackage:${attribute.nodeValue}"
         }
     }
 
     private fun rewriteStyleItemValue(node: Node) {
         // The content could be a resource reference. If it is not, do not update the content.
         val content = node.nodeValue
-        val namespacedContent = rewritePossibleReference(content)
+        val (namespacedContent, _) = referenceRewriter.rewritePossibleReference(content)
         if (content != namespacedContent) {
             node.nodeValue = namespacedContent
         }
@@ -434,7 +413,7 @@ class NamespaceRewriter(
 
         // First fix the attributes.
         mainNode.attributes?.forEach {
-            if (!it.nodeName.startsWith("xmlns:")){
+            if (!it.nodeName.startsWith("xmlns:")) {
                 rewriteXmlNode(it, document, namespacesToFix, usedNamespaces)
             }
         }
@@ -447,8 +426,9 @@ class NamespaceRewriter(
         // Finally add the used namespaces.
         for ((pckg, namespace) in usedNamespaces.toSortedMap()) {
             mainNode.setAttribute(
-                    "xmlns:${namespace.replace('.', '_')}",
-                    "http://schemas.android.com/apk/res/$pckg")
+                "xmlns:${namespace.replace('.', '_')}",
+                "http://schemas.android.com/apk/res/$pckg"
+            )
         }
     }
 
@@ -490,32 +470,31 @@ class NamespaceRewriter(
     }
 
     private fun rewriteXmlNode(
-            node: Node, document: Document,
-            namespacesToFix: HashSet<String>, usedNamespaces: HashMap<String, String>
+        node: Node, document: Document,
+        namespacesToFix: HashSet<String>, usedNamespaces: HashMap<String, String>
     ) {
         if (node.nodeType == Node.TEXT_NODE) {
             // The content could be a resource reference. If it is not, do not update the content.
             val content = node.nodeValue
-            val namespacedContent = rewritePossibleReference(content)
+            val (namespacedContent, _) = referenceRewriter.rewritePossibleReference(content)
             if (content != namespacedContent) {
                 node.nodeValue = namespacedContent
             }
         } else if (node.nodeType == Node.ATTRIBUTE_NODE && node.nodeName.contains(":")) {
             // Only fix res-auto.
-            if (namespacesToFix.any { node.nodeName.startsWith("$it:")}) {
+            if (namespacesToFix.any { node.nodeName.startsWith("$it:") }) {
                 val name = node.nodeName.substringAfter(':')
                 val content = "@attr/$name"
                 // We need to keep the XML namespace, even if it's local.
-                val namespacedContent = rewritePossibleReference(content, true)
+                val (namespacedContent, foundPackage) =
+                        referenceRewriter.rewritePossibleReference(content, true)
                 if (content != namespacedContent) {
-                    // Prepend the package to the content
-                    Preconditions.checkState(namespacedContent.startsWith("@*"))
-                    val foundPackage = namespacedContent.substringBefore(':').drop(2)
-                    usedNamespaces.computeIfAbsent(foundPackage, {"ns${usedNamespaces.size}"})
+                    usedNamespaces.computeIfAbsent(foundPackage, { "ns${usedNamespaces.size}" })
                     document.renameNode(
-                            node,
-                            "http://schemas.android/apk/res/$foundPackage",
-                            "${usedNamespaces[foundPackage]!!}:$name")
+                        node,
+                        "http://schemas.android/apk/res/$foundPackage",
+                        "${usedNamespaces[foundPackage]!!}:$name"
+                    )
                 }
             }
         }
@@ -531,43 +510,71 @@ class NamespaceRewriter(
         }
     }
 
-    private fun rewritePossibleReference(
-            content: String,
-            writeLocalPackage: Boolean = false
-    ): String {
-        if (!content.startsWith("@") && !content.startsWith("?")) {
-            // Not a reference, don't rewrite it.
-            return content
-        }
-        if (!content.contains("/")) {
-            // Not a reference, don't rewrite it.
-            return content
-        }
-        if (content.startsWith("@+")) {
-            // ID declarations are inheritently local, don't rewrite it.
-            return content
-        }
-        if (content.contains(':')) {
-            // The reference is already namespaced (probably @android:...), don't rewrite it.
-            return content
+    /**
+     * Writes the bytecode of the R class to the specified output JAR file, making sure all
+     * resources are properly namespaced.
+     */
+    fun writeRClass(rClassPath: Path) {
+        val currentTable = symbolTables[0]
+        // We keep the old package name for the correct package of the R class.
+        val fixedTable =
+            SymbolTable
+                .builder()
+                .tablePackage(currentTable.tablePackage)
+
+        for (type in ResourceType.values()) {
+            if (type != ResourceType.STYLEABLE) {
+                // Only children under declare-styleables may need rewriting. If we're not dealing
+                // with a styleable type, just add everything as-is.
+                fixedTable.addAll(currentTable.getSymbolByResourceType(type))
+            } else {
+                // Need to fix children for declare styleables.
+                namespaceStyleables(
+                    currentTable.getSymbolByResourceType(ResourceType.STYLEABLE),
+                    fixedTable)
+            }
         }
 
-        // Make all regular references (not '?') able to access private resources.
-        val prefixChar = if (content.startsWith('@')) "@*" else "?"
-        val trimmedContent = content.trim()
-        val type = trimmedContent.substringBefore('/').drop(1)
-        val name = trimmedContent.substringAfter('/')
+        exportToCompiledJava(ImmutableList.of(fixedTable.build()), rClassPath)
+    }
 
-        val pckg = findPackage(type, name, logger, symbolTables)
-
-        // Normally we don't want to add the local package to the resource reference (unless we're
-        // rewriting the Manifest or it's an XML namespace) since it increases the size of the file.
-        if (!writeLocalPackage && pckg == symbolTables[0].tablePackage) {
-            return content
+    /**
+     * Namespaces all of the given styleables and places them into the given symbol table builder.
+     */
+    @VisibleForTesting
+    fun namespaceStyleables(styleables: List<Symbol>, fixedTable: SymbolTable.Builder) {
+        val currentTable = symbolTables[0]
+        styleables.forEach { symbol ->
+            if (symbol.children.isEmpty()) {
+                // If there were no children, just add the styleable as-is.
+                fixedTable.add(symbol)
+            } else {
+                val newChildren = ImmutableList.builder<String>()
+                symbol.children.forEach {
+                    if (it.contains(":")) {
+                        // If the attribute is already namespaced we don't need to do anything, e.g.
+                        // "android:color".
+                        newChildren.add(it)
+                    } else {
+                        // The attribute doesn't have a package specified, find where it belongs.
+                        val foundPackage = findPackageForAttr(it)
+                        if (foundPackage != currentTable.tablePackage) {
+                            // If it's not a local attribute, write the package.
+                            newChildren.add("$foundPackage:$it")
+                        } else {
+                            // Local attribute, no need to include the package.
+                            newChildren.add(it)
+                        }
+                    }
+                }
+                // Now add a styleable with the new children keeping the old values.
+                symbol as Symbol.StyleableSymbol
+                val newStyleable =
+                    Symbol.createAndValidateStyleableSymbol(
+                        symbol.name, symbol.values, newChildren.build())
+                fixedTable.add(newStyleable)
+            }
         }
-
-        // Rewrite the reference using the package and the un-canonicalized name.
-        return "$prefixChar$pckg:$type/$name"
     }
 
     /**
@@ -577,11 +584,9 @@ class NamespaceRewriter(
      * [ClassReWriter.writeInnerRClasses] needs to be called to correctly fill the InnerClasses
      * attribute for the transformed class.
      */
-    private class ClassReWriter internal constructor(
+    private inner class ClassReWriter internal constructor(
         api: Int,
-        cv: ClassVisitor?,
-        private val symbolTables: ImmutableList<SymbolTable>,
-        private val logger: Logger
+        cv: ClassVisitor?
     ) : ClassVisitor(api, cv) {
 
         private val innerClasses = HashSet<String>()
@@ -605,9 +610,9 @@ class NamespaceRewriter(
             exceptions: Array<String?>?
         ) : MethodVisitor {
             return MethodReWriter(
-                    api,
-                    cv.visitMethod(access, name, desc, signature, exceptions),
-                    this
+                api,
+                cv.visitMethod(access, name, desc, signature, exceptions),
+                this
             )
         }
 
@@ -629,11 +634,21 @@ class NamespaceRewriter(
         }
 
         /**
+         * Finds the parent Symbol and its package for the given declare-styleable attribute name.
+         * This will search through all SymbolTables trying to find a matching parent, and once the
+         * parent is found, it will return it and the package it was found in. If the parent is not
+         * found, this method will raise an error.
+         */
+        fun findStyleableChildSymbol(name: String): Pair<Symbol.StyleableSymbol, String> {
+            return findStyleableChild(name)
+        }
+
+        /**
          * Finds the first package in which the R file contains a symbol with the given type and
          * name.
          */
-        fun findPackage(type: String, name: String): String {
-            return findPackage(type, name, logger, symbolTables)
+        fun findPackageForSymbol(type: String, name: String): String {
+            return findPackage(type, name)
         }
 
         fun addInnerClass(innerClass: String) {
@@ -653,159 +668,248 @@ class NamespaceRewriter(
         override fun visitFieldInsn(opcode: Int, owner: String, name: String, desc: String?) {
             if (owner.contains("/R$")) {
                 val type = owner.substringAfterLast('$')
-                val newPkg = crw.findPackage(type, name).replace('.', '/')
+                if (type == "styleable" && desc == "I") {
+                    visitFieldInsnForStyleable(opcode, owner, name)
+                } else {
+                    // If it's not a styleable child, just update the R class reference.
+                    val newPkg = crw.findPackageForSymbol(type, name).replace('.', '/')
 
-                // We need to visit the inner class later. It could happen that the [newOwner]
-                // is the same as the [owner] since a class can reference resources from its'
-                // module, but we still need to remember all references.
-                val newOwner = "$newPkg/R$$type"
-                crw.addInnerClass(newOwner)
+                    // We need to visit the inner class later. It could happen that the [newOwner]
+                    // is the same as the [owner] since a class can reference resources from its'
+                    // module, but we still need to remember all references.
+                    val newOwner = "$newPkg/R$$type"
+                    crw.addInnerClass(newOwner)
 
-                this.mv.visitFieldInsn(opcode, newOwner, name, desc)
+                    this.mv.visitFieldInsn(opcode, newOwner, name, desc)
+                }
             } else {
                 // The field instruction does not reference an R class, visit normally.
                 this.mv.visitFieldInsn(opcode, owner, name, desc)
             }
         }
-    }
 
-    private inline fun NodeList.forEach(f: (Node) -> Unit) {
-        // It's sad, but since we're modifying the Nodes in the list, we need to keep a copy to make
-        // sure we actually visit all of them.
-        val copy = ArrayList<Node>(length)
-        for (i in 0 until length) copy.add(item(i))
-        copy.forEach { f(it) }
-    }
-    private inline fun NamedNodeMap.forEach(f: (Node) -> Unit) {
-        // It's sad, but since we're modifying the Nodes in the map, we need to keep a copy to make
-        // sure we actually visit all of them.
-        val copy = ArrayList<Node>(length)
-        for (i in 0 until length) copy.add(item(i))
-        copy.forEach { f(it) }
-    }
-}
+        private fun visitFieldInsnForStyleable(opcode: Int, owner: String, name: String) {
+            // If we found a styleable child, we not only need to update the R class
+            // reference, but also need to namespace the resource name, for example:
+            // "AppBarLayout_elevation" becomes "AppBarLayout_androidx_appcompat_elevation"
+            // since the child attribute was defined in the AppCompat library.
+            val parentPackage = crw.findStyleableChildSymbol(name)
+            val parent = parentPackage.first
+            val newOwner = "${parentPackage.second.replace('.', '/')}/R\$styleable"
+            crw.addInnerClass(newOwner)
 
-/**
- * Finds the first package in which the R file contains a symbol with the given type and
- * name.
- */
-private fun findPackage(
-    type: String,
-    name: String,
-    logger: Logger,
-    symbolTables: ImmutableList<SymbolTable>
-): String {
-    val result: String? =
-        maybeFindPackage(type = type, name = name, logger = logger, symbolTables = symbolTables)
-    return result
-            ?: error(
-                "In package ${symbolTables[0].tablePackage} found unknown symbol of type " +
-                        "$type and name $name."
-            )
-}
+            // Get the parent name from the parent Symbol and remove "<parent-name>_" from
+            // the original name to find the child attr name.
+            val parentName = parent.canonicalName
+            val childName = name.substringAfter(parentName).drop(1)
 
-/**
- * Finds the first package in which the R file contains a symbol with the given type and
- * name.
- */
-private fun maybeFindPackage(
-    type: String,
-    name: String,
-    logger: Logger,
-    symbolTables: ImmutableList<SymbolTable>
-): String? {
-    val canonicalName = canonicalizeValueResourceName(name)
-    var packages: ArrayList<String>? = null
-    var result: String? = null
-
-    // Go through R.txt files and find the proper package.
-    for (table in symbolTables) {
-        if (table.containsSymbol(getResourceType(type), canonicalName)) {
-            if (result == null) {
-                result = table.tablePackage
+            if (childName.startsWith("android_")) {
+                // Leave "android:" attributes alone since they already have the namespace, just
+                // update the R class package.
+                this.mv.visitFieldInsn(opcode, newOwner, name, "I")
             } else {
-                if (packages == null) {
-                    packages = ArrayList()
+                // Find where the attribute was actually defined. This is the same way we resolve
+                // the styleable children's packages when creating the R classes.
+                val childPackage = crw.findPackageForSymbol("attr", childName)
+
+                if (childPackage == parentPackage.second) {
+                    // If the R class package matches the package where the attribute was defined,
+                    // do NOT add the package to the styleable child's name as it will not be
+                    // modified in the R class either.
+                    this.mv.visitFieldInsn(opcode, newOwner, name, "I")
+                } else {
+                    // We're dealing with the most common case of the styleable children, where we
+                    // are re-using an attribute from a different package than the parent (most
+                    // likely the parent is in the same package as the class we're handling now).
+                    // The format of the new name is "<parent-name>_<attr-package>_<child-name>",
+                    // e.g. "AppBarLayout_androidx_appcompat_elevation".
+                    val newName = "${parentName}_${childPackage.replace('.', '_')}_$childName"
+
+                    this.mv.visitFieldInsn(opcode, newOwner, newName, "I")
                 }
-                packages.add(table.tablePackage)
             }
         }
     }
-    if (packages != null && !packages.isEmpty()) {
-        // If we have found more than one fitting package, log a warning about which one we
-        // chose (the closest one in the dependencies graph).
-        logger.warn(
-            "In package ${symbolTables[0].tablePackage} multiple options found " +
-                    "in its dependencies for resource $type $name. " +
-                    "Using $result, other available: ${Joiner.on(", ").join(packages)}"
-        )
+
+    private fun findStyleableChild(name: String): Pair<Symbol.StyleableSymbol, String> {
+        val canonicalName = canonicalizeValueResourceName(name)
+        for (table in symbolTables) {
+            val maybeParent = table.maybeGetStyleableParentSymbolForChild(canonicalName)
+            if (maybeParent != null) {
+                return Pair(maybeParent, table.tablePackage)
+            }
+        }
+        error("In package $localPackage found unknown styleable $canonicalName")
     }
-    // Return the first found reference.
-    return result
+
+    /**
+     * Finds the first package in which the R file contains a symbol with the given type and
+     * name.
+     */
+    fun findPackage(type: String, name: String): String {
+        if (type == ResourceType.ATTR.getName()) {
+            // Attributes are treated differently due to maybe-definitions under declare-styleables.
+            return findPackageForAttr(name)
+        }
+        return maybeFindPackage(type = type, name = name, reversed = false)
+                ?: error(
+                    "In package $localPackage found unknown symbol of type " +
+                            "$type and name $name."
+                )
+    }
+
+    /**
+     * Finds the first package in which the attribute was defined. If none match (the attribute was not
+     * defined explicitly), we need to search in reverse order to find the last/furthest "maybe"
+     * definition of the attribute (defined under a declare-styleable, kept in the symbol table as the
+     * MAYBE_ATTR type).
+     */
+    private fun findPackageForAttr(name: String): String {
+        var foundPackage = maybeFindPackage(type = "attr", name = name, reversed = false)
+        if (foundPackage == null) {
+            foundPackage = maybeFindPackage(type = "attr?", name = name, reversed = true)
+        }
+        return foundPackage
+                ?: error("In package $localPackage found unknown attribute $name")
+    }
+
+    /**
+     * Finds the first package in which the R file contains a symbol with the given type and
+     * name.
+     */
+    private fun maybeFindPackage(type: String, name: String, reversed: Boolean): String? {
+        val canonicalName = canonicalizeValueResourceName(name)
+        var packages: ArrayList<String>? = null
+        var result: String? = null
+
+        // Go through R.txt files and find the proper package.
+        for (table in if (reversed) symbolTables.reverse() else symbolTables) {
+            if (packageContainsSymbol(table, type, canonicalName)) {
+                if (result == null) {
+                    result = table.tablePackage
+                } else {
+                    if (packages == null) {
+                        packages = ArrayList()
+                    }
+                    packages.add(table.tablePackage)
+                }
+            }
+        }
+        if (packages != null && !packages.isEmpty()) {
+            // If we have found more than one fitting package, log a warning about which one we
+            // chose (the closest one in the dependencies graph).
+            logger.info(
+                "In package $localPackage multiple options found " +
+                        "in its dependencies for resource $type $name. " +
+                        "Using $result, other available: ${Joiner.on(", ").join(packages)}"
+            )
+        }
+        // Return the first found reference.
+        return result
+    }
+
+    private fun packageContainsSymbol(
+        table: SymbolTable,
+        type: String,
+        canonicalName: String
+    ): Boolean {
+        val resourceType = getResourceType(type)
+        if (!table.containsSymbol(resourceType, canonicalName)) {
+            // If there's not matching symbol, return false
+            return false
+        }
+        if (resourceType == ResourceType.ATTR) {
+            // If we're dealing with attributes we need to check for maybe definitions.
+            val attr = table.symbols.get(resourceType, canonicalName) as Symbol.AttributeSymbol
+            // Package matches if we have a real attr and were looking for a real attr or if we
+            // have a maybe attr and were looking for a maybe attr.
+            return attr.isMaybeDefinition == (type == "attr?")
+        }
+        return true
+    }
+
+    /**
+     * Generates a public.xml file containing public definitions for the resources from the current
+     * package.
+     */
+    fun generatePublicFile(
+        publicTxt: File?,
+        outputDirectory: Path
+    ) {
+        val symbols = symbolTables[0]
+        val values = outputDirectory.resolve("values")
+        Files.createDirectories(values)
+        val publicXml = values.resolve("auto-namespace-public.xml")
+        if (Files.exists(publicXml)) {
+            error("Internal error: Auto namespaced public XML file already exists: " +
+                    { publicXml.toAbsolutePath() })
+        }
+
+        // If the public.txt exists we will use these Symbols for creating the public.xml files (only
+        // the resources specified in the public.txt will be accessible to namespaced dependencies).
+        // But if the public.txt does not exist, all of the Symbols in this package will be public.
+        val publicSymbols: SymbolTable =
+            if (publicTxt != null && Files.exists(publicTxt.toPath()))
+                SymbolIo.readFromPublicTxtFile(publicTxt, symbols.tablePackage)
+            else
+                symbols
+
+        // If there are no public symbols (empty public.txt or no symbols present in this lib), don't
+        // waste time going through all symbols
+        if (publicSymbols.symbols.isEmpty) {
+            return
+        }
+
+        Files.newBufferedWriter(publicXml).use {
+            // If there was no public.txt file, 'symbols' and 'publicSymbols' will be the same.
+            writePublicFile(it, symbols, publicSymbols)
+        }
+    }
+
+    @VisibleForTesting
+    internal fun writePublicFile(writer: Writer, symbols: SymbolTable, publicSymbols: SymbolTable) {
+        writer.write("""<?xml version="1.0" encoding="utf-8"?>""")
+        writer.write("\n<resources>\n\n")
+
+        // If everything is public, then there's no need to call the 'isPublic' method.
+        val allPublic = symbols == publicSymbols
+
+        // Sadly we cannot simply iterate through the public symbols table since the public.txt had
+        // the resource names already canonicalized.
+        symbols.resourceTypes.forEach { resourceType ->
+            symbols.getSymbolByResourceType(resourceType).forEach { symbol ->
+                if (allPublic || isPublic(symbol, publicSymbols)) {
+                    if (symbol.resourceType == ResourceType.ATTR) {
+                        maybeWriteAttribute(symbol, writer)
+                    } else {
+                        writer.write("    <public name=\"")
+                        writer.write(symbol.name)
+                        writer.write("\" type=\"")
+                        writer.write(resourceType.getName())
+                        writer.write("\" />\n")
+                    }
+                }
+            }
+        }
+        writer.write("\n</resources>\n")
+    }
+
+    private fun maybeWriteAttribute(symbol: Symbol, writer: Writer) {
+        val foundPackage = findPackageForAttr(symbol.name)
+        // Only write the "Maybe attr" to the public.txt file if the package it is resolved to is
+        // the current package.
+        if (foundPackage == localPackage) {
+            writer.write("    <public name=\"")
+            writer.write(symbol.name)
+            writer.write("\" type=\"attr\" />\n")
+        }
+    }
+}
+
+private fun isPublic(symbol: Symbol, publicSymbols: SymbolTable): Boolean {
+    return publicSymbols.containsSymbol(symbol.resourceType, symbol.canonicalName)
 }
 
 private fun getResourceType(typeString: String): ResourceType =
-    ResourceType.fromClassName(typeString) ?: error("Unknown type '$typeString'")
-
-
-fun generatePublicFile(
-    symbols: SymbolTable,
-    publicTxt: File?,
-    outputDirectory: Path
-) {
-    val values = outputDirectory.resolve("values")
-    Files.createDirectories(values)
-    val publicXml = values.resolve("auto-namespace-public.xml")
-    if (Files.exists(publicXml)) {
-        error("Internal error: Auto namespaced public XML file already exists: " +
-                {publicXml.toAbsolutePath()})
-    }
-
-    // If the public.txt exists we will use these Symbols for creating the public.xml files (only
-    // the resources specified in the public.txt will be accessible to namespaced dependencies).
-    // But if the public.txt does not exist, all of the Symbols in this package will be public.
-    val publicSymbols: SymbolTable =
-        if (publicTxt != null && Files.exists(publicTxt.toPath()))
-            SymbolIo.readFromPublicTxtFile(publicTxt, symbols.tablePackage)
-        else
-            symbols
-
-    // If there are no public symbols (empty public.txt or no symbols present in this lib), don't
-    // waste time going through all symbols
-    if (publicSymbols.symbols.isEmpty) {
-        return
-    }
-
-    Files.newBufferedWriter(publicXml).use {
-        // If there was no public.txt file, 'symbols' and 'publicSymbols' will be the same.
-        writePublicFile(it, symbols, publicSymbols)
-    }
-}
-
-@VisibleForTesting
-internal fun writePublicFile(writer: Writer, symbols: SymbolTable, publicSymbols: SymbolTable) {
-    writer.write("""<?xml version="1.0" encoding="utf-8"?>""")
-    writer.write("\n<resources>\n\n")
-
-    // If everything is public, then there's no need to call the 'isPublic' method.
-    val allPublic = symbols == publicSymbols
-
-    // Sadly we cannot simply iterate through the public symbols table since the public.txt had
-    // the resource names already canonicalized.
-    symbols.resourceTypes.forEach { resourceType ->
-        symbols.getSymbolByResourceType(resourceType).forEach { symbol ->
-            if (allPublic || isPublic(symbol, publicSymbols)) {
-                writer.write("    <public name=\"")
-                writer.write(symbol.name)
-                writer.write("\" type=\"")
-                writer.write(resourceType.getName())
-                writer.write("\" />\n")
-            }
-        }
-    }
-    writer.write("\n</resources>\n")
-}
-
-fun isPublic(symbol: Symbol, publicSymbols: SymbolTable): Boolean {
-    return publicSymbols.containsSymbol(symbol.resourceType, symbol.canonicalName)
-}
+    if (typeString == "attr?") ResourceType.ATTR
+    else ResourceType.fromClassName(typeString) ?: error("Unknown type '$typeString'")

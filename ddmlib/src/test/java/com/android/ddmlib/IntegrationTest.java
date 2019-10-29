@@ -108,6 +108,51 @@ public class IntegrationTest {
             // Test that we obtain 1 device via the ddmlib APIs
             AndroidDebugBridge.enableFakeAdbServerMode(server.getPort());
             AndroidDebugBridge.initIfNeeded(false);
+            AndroidDebugBridge bridge = AndroidDebugBridge.createBridge();
+            assertNotNull("Debug bridge", bridge);
+
+            long startTime = System.currentTimeMillis();
+            while (!bridge.isConnected()
+                    && (System.currentTimeMillis() - startTime) < TimeUnit.SECONDS.toMillis(10)) {
+                Uninterruptibles.sleepUninterruptibly(100, TimeUnit.MILLISECONDS);
+            }
+
+            assertThat(bridge.isConnected()).isTrue();
+
+            // should we rather be waiting for the initial device list to become available?
+            assume().that(bridge.hasInitialDeviceList()).isTrue();
+
+            IDevice[] devices = bridge.getDevices();
+            assertThat(devices.length).isEqualTo(1);
+            assertThat(devices[0].getName()).isEqualTo(SERIAL);
+        } finally {
+            AndroidDebugBridge.terminate();
+        }
+    }
+
+    @Test
+    public void testGetFeatures() throws Exception {
+        // Build the server and configure it to use the default ADB command handlers.
+        FakeAdbServer.Builder builder = new FakeAdbServer.Builder();
+        builder.installDefaultCommandHandlers();
+
+        try (FakeAdbServer server = builder.build()) {
+            // Connect a test device to simulate device connection before server bring-up.
+            server.connectDevice(
+                            SERIAL,
+                            MANUFACTURER,
+                            MODEL,
+                            RELEASE,
+                            SDK,
+                            DeviceState.HostConnectionType.USB)
+                    .get();
+
+            // Start server execution.
+            server.start();
+
+            // Test that we obtain 1 device via the ddmlib APIs
+            AndroidDebugBridge.enableFakeAdbServerMode(server.getPort());
+            AndroidDebugBridge.initIfNeeded(false);
             AndroidDebugBridge bridge =
                     AndroidDebugBridge.createBridge(getPathToAdb().toString(), false);
             assertNotNull("Debug bridge", bridge);
@@ -126,6 +171,8 @@ public class IntegrationTest {
             IDevice[] devices = bridge.getDevices();
             assertThat(devices.length).isEqualTo(1);
             assertThat(devices[0].getName()).isEqualTo(SERIAL);
+
+            assertThat(devices[0].supportsFeature(IDevice.Feature.ABB_EXEC)).isTrue();
         } finally {
             AndroidDebugBridge.terminate();
         }
@@ -153,8 +200,7 @@ public class IntegrationTest {
             // Test that we obtain 1 device via the ddmlib APIs
             AndroidDebugBridge.enableFakeAdbServerMode(server.getPort());
             AndroidDebugBridge.initIfNeeded(false);
-            AndroidDebugBridge bridge =
-                    AndroidDebugBridge.createBridge(getPathToAdb().toString(), false);
+            AndroidDebugBridge bridge = AndroidDebugBridge.createBridge();
             assertNotNull("Debug bridge", bridge);
 
             long startTime = System.currentTimeMillis();
@@ -257,8 +303,7 @@ public class IntegrationTest {
             // Start up ADB.
             AndroidDebugBridge.enableFakeAdbServerMode(server.getPort());
             AndroidDebugBridge.initIfNeeded(false);
-            AndroidDebugBridge bridge =
-                    AndroidDebugBridge.createBridge(getPathToAdb().toString(), false);
+            AndroidDebugBridge bridge = AndroidDebugBridge.createBridge();
             assertNotNull("Debug bridge", bridge);
 
             // Wait for the device to get recognized by ddmlib.
@@ -328,8 +373,7 @@ public class IntegrationTest {
             // Start up ADB.
             AndroidDebugBridge.enableFakeAdbServerMode(server.getPort());
             AndroidDebugBridge.initIfNeeded(false);
-            AndroidDebugBridge bridge =
-                    AndroidDebugBridge.createBridge(getPathToAdb().toString(), false);
+            AndroidDebugBridge bridge = AndroidDebugBridge.createBridge();
             assertNotNull("Debug bridge", bridge);
 
             // Wait for the device to get recognized by ddmlib.

@@ -30,6 +30,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.ide.common.resources.usage.ResourceUsageModel.Resource;
 import com.android.resources.ResourceType;
+import com.android.testutils.TestResources;
 import com.google.common.base.Charsets;
 import com.google.common.collect.Lists;
 import com.google.common.io.ByteStreams;
@@ -49,15 +50,29 @@ import java.util.zip.ZipOutputStream;
 import org.junit.ClassRule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 /** TODO: Test Resources#getIdentifier() handling */
 @SuppressWarnings("SpellCheckingInspection")
+@RunWith(Parameterized.class)
 public class ResourceUsageAnalyzerTest {
+
+    @NonNull private final boolean resourcesFromDir;
+
+    public ResourceUsageAnalyzerTest(@NonNull Boolean param) {
+        this.resourcesFromDir = param;
+    }
 
     enum CodeInput {
         NO_SHRINKER,
         PROGUARD,
         R8
+    }
+
+    @Parameterized.Parameters(name = "resourcesFromDir={0}")
+    public static Boolean[] getParameters() {
+        return new Boolean[] {Boolean.TRUE, Boolean.FALSE};
     }
 
     @ClassRule
@@ -93,7 +108,65 @@ public class ResourceUsageAnalyzerTest {
         check(CodeInput.R8, false);
     }
 
-    private static void check(CodeInput codeInput, boolean inPlace) throws Exception {
+    @Test
+    public void testConfigOutput() throws Exception {
+        File dir = sTemporaryFolder.newFolder();
+
+        File mapping;
+        File classes;
+
+        classes = createUnproguardedClasses(dir);
+        mapping = null;
+
+        File rDir = createResourceSources(dir);
+        File mergedManifest = createMergedManifest(dir);
+        File resources = createResourceFolder(dir);
+
+        ResourceUsageAnalyzer analyzer =
+                new ResourceUsageAnalyzer(
+                        rDir,
+                        Collections.singleton(classes),
+                        mergedManifest,
+                        mapping,
+                        resources,
+                        null,
+                        ResourceUsageAnalyzer.ApkFormat.BINARY);
+        analyzer.analyze();
+        checkState(analyzer);
+        assertEquals(
+                ""
+                        + "attr/myAttr1#remove\n"
+                        + "attr/myAttr2#remove\n"
+                        + "dimen/activity_horizontal_margin#\n"
+                        + "dimen/activity_vertical_margin#\n"
+                        + "drawable/avd_heart_fill#remove\n"
+                        + "drawable/avd_heart_fill_1#remove\n"
+                        + "drawable/avd_heart_fill_2#remove\n"
+                        + "drawable/ic_launcher#\n"
+                        + "drawable/unused#remove\n"
+                        + "id/action_settings#\n"
+                        + "id/action_settings2#remove\n"
+                        + "layout/activity_main#\n"
+                        + "menu/main#\n"
+                        + "menu/menu2#remove\n"
+                        + "raw/android_wear_micro_apk#\n"
+                        + "raw/index1#remove\n"
+                        + "raw/my_js#remove\n"
+                        + "raw/my_used_raw_drawable#remove\n"
+                        + "raw/styles2#remove\n"
+                        + "string/action_settings#\n"
+                        + "string/action_settings2#remove\n"
+                        + "string/alias#remove\n"
+                        + "string/app_name#\n"
+                        + "string/hello_world#\n"
+                        + "style/AppTheme#remove\n"
+                        + "style/MyStyle#\n"
+                        + "style/MyStyle_Child#\n"
+                        + "xml/android_wear_micro_apk#\n",
+                analyzer.getModel().dumpConfig());
+    }
+
+    private void check(CodeInput codeInput, boolean inPlace) throws Exception {
         File dir = sTemporaryFolder.newFolder();
 
         File mapping;
@@ -114,13 +187,14 @@ public class ResourceUsageAnalyzerTest {
             default:
                 throw new AssertionError();
         }
-        File rDir = createResourceClassFolder(dir);
+        File rSource = createResourceSources(dir);
+
         File mergedManifest = createMergedManifest(dir);
         File resources = createResourceFolder(dir);
 
         ResourceUsageAnalyzer analyzer =
                 new ResourceUsageAnalyzer(
-                        rDir,
+                        rSource,
                         Collections.singleton(classes),
                         mergedManifest,
                         mapping,
@@ -613,7 +687,10 @@ public class ResourceUsageAnalyzerTest {
                     + "</manifest>");
     }
 
-    private static File createResourceClassFolder(File dir) throws IOException {
+    private File createResourceSources(File dir) throws IOException {
+        if (!resourcesFromDir) {
+            return TestResources.getFile(ResourceUsageAnalyzerTest.class, "R.jar");
+        }
         File rDir = new File(dir, "app/build/source/r/release".replace('/', separatorChar));
         //noinspection ResultOfMethodCallIgnored
         rDir.mkdirs();
@@ -1158,7 +1235,7 @@ public class ResourceUsageAnalyzerTest {
     @NonNull
     private static File createFile(File dir, String relative, String contents) throws IOException {
         File file = createFile(dir, relative);
-        Files.write(contents, file, Charsets.UTF_8);
+        Files.asCharSink(file, Charsets.UTF_8).write(contents);
         return file;
     }
 

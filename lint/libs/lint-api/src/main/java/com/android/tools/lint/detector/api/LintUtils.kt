@@ -88,7 +88,9 @@ import com.google.common.collect.Iterables
 import com.google.common.io.ByteStreams
 import com.intellij.ide.util.JavaAnonymousClassesHelper
 import com.intellij.lang.Language
+import com.intellij.lang.java.JavaLanguage
 import com.intellij.openapi.components.ServiceManager
+import com.intellij.openapi.roots.LanguageLevelProjectExtension
 import com.intellij.pom.java.LanguageLevel
 import com.intellij.psi.CommonClassNames
 import com.intellij.psi.PsiAnonymousClass
@@ -105,6 +107,7 @@ import com.intellij.psi.PsiType
 import com.intellij.psi.PsiWhiteSpace
 import com.intellij.psi.util.ClassUtil
 import com.intellij.psi.util.PsiTreeUtil
+import org.jetbrains.kotlin.idea.KotlinLanguage
 import org.jetbrains.kotlin.psi.KtElement
 import org.jetbrains.kotlin.resolve.calls.callUtil.getResolvedCall
 import org.jetbrains.uast.UCallExpression
@@ -1309,6 +1312,19 @@ fun getLanguageLevel(
 }
 
 /**
+ * Returns the Java language level for the given element, or the default level if an applicable
+ * the language level is not found (for example if the element is not a Java element
+ */
+fun getLanguageLevel(
+    project: Project,
+    defaultLevel: LanguageLevel
+): LanguageLevel {
+    val p = project.ideaProject ?: return defaultLevel
+    val extension = LanguageLevelProjectExtension.getInstance(p) ?: return defaultLevel
+    return extension.languageLevel
+}
+
+/**
  * Looks for a certain string within a larger string, which should immediately follow the given
  * prefix and immediately precede the given suffix.
  *
@@ -1957,9 +1973,19 @@ fun isKotlin(element: PsiElement?): Boolean {
     return element != null && isKotlin(element.language)
 }
 
+/** Returns true if the given element is written in Java  */
+fun isJava(element: PsiElement?): Boolean {
+    return element != null && isJava(element.language)
+}
+
 /** Returns true if the given language is Kotlin  */
 fun isKotlin(language: Language?): Boolean {
-    return language != null && language.id == "kotlin"
+    return language == KotlinLanguage.INSTANCE
+}
+
+/** Returns true if the given language is Java  */
+fun isJava(language: Language?): Boolean {
+    return language == JavaLanguage.INSTANCE
 }
 
 /** Returns true if the given string contains only digits */

@@ -30,10 +30,6 @@ android {
         }
     }
 
-    lintOptions {
-        disable 'IconLauncherFormat'
-    }
-
     dexOptions {
         incremental false
     }

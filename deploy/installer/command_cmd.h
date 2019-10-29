@@ -17,17 +17,20 @@
 #ifndef COMMANDCMD_H
 #define COMMANDCMD_H
 
-#include "shell_command.h"
+#include <string>
+#include <vector>
 
-#include "apk_retriever.h"
+#include "tools/base/deploy/installer/workspace.h"
 
 namespace deploy {
 
 // Wrapper around Android executable "service client".
-class CmdCommand : public ShellCommandRunner {
+class CmdCommand {
  public:
-  CmdCommand();
-  bool GetAppApks(const std::string& package_name, Apks* apks,
+  CmdCommand(Workspace& workspace) : workspace_(workspace) {}
+
+  bool GetAppApks(const std::string& package_name,
+                  std::vector<std::string>* apks,
                   std::string* error_string) const noexcept;
 
   bool AttachAgent(int pid, const std::string& agent, const std::string& args,
@@ -37,7 +40,26 @@ class CmdCommand : public ShellCommandRunner {
                      const std::string& package_name,
                      std::string* error_string) const noexcept;
 
+  bool CreateInstallSession(std::string* session,
+                            const std::vector<std::string> options) const
+      noexcept;
+
+  // Prepares an installation and returns an id that can be used
+  // to finish the installation by calling |CommitInstall| or it
+  // can be aborted by calling |AbortInstall|
+  int PreInstall(const std::vector<std::string>& apks,
+                 std::string* output) const noexcept;
+
+  bool CommitInstall(const std::string& session, std::string* output) const
+      noexcept;
+
+  bool AbortInstall(const std::string& session, std::string* output) const
+      noexcept;
+
   static void SetPath(const char* path);
+
+ private:
+  Workspace& workspace_;
 };
 
 }  // namespace deploy

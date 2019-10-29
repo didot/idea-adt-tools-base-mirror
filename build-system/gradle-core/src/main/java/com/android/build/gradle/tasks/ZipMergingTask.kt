@@ -17,55 +17,41 @@
 package com.android.build.gradle.tasks
 
 import com.android.SdkConstants.FN_INTERMEDIATE_FULL_JAR
-import com.android.annotations.VisibleForTesting
 import com.android.build.api.artifact.BuildableArtifact
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.builder.packaging.JarMerger
 import com.android.utils.FileUtils
+import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
 import java.io.File
-import java.io.IOException
 import java.util.function.Predicate
 
 /** Task to merge the res/classes intermediate jars from a library into a single one  */
 @CacheableTask
-open class ZipMergingTask : AndroidVariantTask() {
+abstract class ZipMergingTask : NonIncrementalTask() {
 
-    @get:InputFiles
+    @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
-    lateinit var libraryInputFiles: BuildableArtifact
-        private set
+    abstract val libraryInputFile: RegularFileProperty
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NONE)
     lateinit var javaResInputFiles: BuildableArtifact
-        private set
+        internal set
 
     @get:OutputFile
     lateinit var outputFile: File
-        private set
+        internal set
 
-    @VisibleForTesting
-    internal fun init(
-        libraryInputFiles: BuildableArtifact,
-        javaResInputFiles: BuildableArtifact,
-        outputFile: File) {
-        this.libraryInputFiles = libraryInputFiles
-        this.javaResInputFiles = javaResInputFiles
-        this.outputFile = outputFile
-    }
-
-    @TaskAction
-    @Throws(IOException::class)
-    fun merge() {
+    public override fun doTaskAction() {
         FileUtils.cleanOutputDir(outputFile.parentFile)
         val usedNamesPredicate = object:Predicate<String> {
             val usedNames = mutableSetOf<String>()
@@ -76,7 +62,10 @@ open class ZipMergingTask : AndroidVariantTask() {
         }
 
         JarMerger(outputFile.toPath(), usedNamesPredicate).use {
-            libraryInputFiles.files.forEach { jar -> it.addJar(jar.toPath()) }
+            val lib = libraryInputFile.get().asFile
+            if (lib.exists()) {
+                it.addJar(lib.toPath())
+            }
             javaResInputFiles.files.forEach { jar -> it.addJar(jar.toPath()) }
         }
     }
@@ -101,10 +90,9 @@ open class ZipMergingTask : AndroidVariantTask() {
             super.configure(task)
 
             val buildArtifacts = variantScope.artifacts
-            task.init(
-                    buildArtifacts.getOptionalFinalArtifactFiles(InternalArtifactType.LIBRARY_CLASSES),
-                    buildArtifacts.getOptionalFinalArtifactFiles(InternalArtifactType.LIBRARY_JAVA_RES),
-                    mainFullJar)
+            buildArtifacts.setTaskInputToFinalProduct(InternalArtifactType.RUNTIME_LIBRARY_CLASSES, task.libraryInputFile)
+            task.javaResInputFiles = buildArtifacts.getOptionalFinalArtifactFiles(InternalArtifactType.LIBRARY_JAVA_RES)
+            task.outputFile = mainFullJar
         }
     }
 }

@@ -17,9 +17,12 @@ package com.android.tools.perflib.heap.memoryanalyzer;
 
 import com.android.annotations.NonNull;
 import com.android.tools.perflib.analyzer.AnalysisResultEntry;
-import com.android.tools.perflib.heap.*;
+import com.android.tools.perflib.heap.ClassInstance;
+import com.android.tools.perflib.heap.ClassObj;
+import com.android.tools.perflib.heap.Heap;
+import com.android.tools.perflib.heap.Instance;
+import com.android.tools.perflib.heap.Snapshot;
 import com.google.common.collect.HashMultimap;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -30,7 +33,7 @@ public class DuplicatedStringsAnalyzerTask extends MemoryAnalyzerTask {
     @Override
     protected List<AnalysisResultEntry<?>> analyze(@NonNull Configuration configuration,
                                                    @NonNull Snapshot snapshot) {
-        List<AnalysisResultEntry<?>> results = new ArrayList<>();
+        List<AnalysisResultEntry<?>> results = new ArrayList<AnalysisResultEntry<?>>();
 
         HashMultimap<String, ClassInstance> stringIndex = HashMultimap.create();
         ClassObj stringClass = snapshot.findClass("java.lang.String");
@@ -57,7 +60,7 @@ public class DuplicatedStringsAnalyzerTask extends MemoryAnalyzerTask {
             Set<ClassInstance> classInstanceSet = stringIndex.get(key);
             if (classInstanceSet.size() > 1) {
                 results.add(
-                        new DuplicatedStringsEntry(key, new ArrayList<>(classInstanceSet)));
+                        new DuplicatedStringsEntry(key, new ArrayList<Instance>(classInstanceSet)));
             }
         }
 

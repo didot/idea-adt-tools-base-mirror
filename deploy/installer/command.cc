@@ -14,23 +14,30 @@
  * limitations under the License.
  */
 
-#include "command.h"
+#include "tools/base/deploy/installer/command.h"
 
 #include <functional>
 #include <unordered_map>
 
-#include "dump.h"
-#include "swap.h"
+#include "tools/base/deploy/installer/delta_install.h"
+#include "tools/base/deploy/installer/delta_preinstall.h"
+#include "tools/base/deploy/installer/dump.h"
+#include "tools/base/deploy/installer/swap.h"
 
 namespace deploy {
 
 // Search dispatch table for a Command object matching the command name.
-std::unique_ptr<Command> GetCommand(const char* command_name) {
+std::unique_ptr<Command> GetCommand(const char* command_name,
+                                    Workspace& workspace) {
   // Dispatch table mapping a command string to a Command object.
   static std::unordered_map<std::string, std::function<Command*(void)>>
       commandsRegister = {
-          {"dump", []() { return new DumpCommand(); }},
-          {"swap", []() { return new SwapCommand(); }}
+          {"dump", [&]() { return new DumpCommand(workspace); }},
+          {"swap", [&]() { return new SwapCommand(workspace); }},
+          {"deltapreinstall",
+           [&]() { return new DeltaPreinstallCommand(workspace); }},
+          {"deltainstall",
+           [&]() { return new DeltaInstallCommand(workspace); }},
           // Add here more commands (e.g: version, install, patch, agent, ...)
       };
 

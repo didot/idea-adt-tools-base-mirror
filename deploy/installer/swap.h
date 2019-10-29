@@ -19,42 +19,51 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
-#include "command.h"
-#include "deploy.pb.h"
+#include "tools/base/deploy/common/message_pipe_wrapper.h"
+#include "tools/base/deploy/installer/command.h"
+#include "tools/base/deploy/installer/executor.h"
+#include "tools/base/deploy/proto/deploy.pb.h"
 
 namespace deploy {
 
 class SwapCommand : public Command {
  public:
-  SwapCommand(){};
-  ~SwapCommand(){};
+  SwapCommand(Workspace& workspace) : Command(workspace), response_(nullptr) {}
+  ~SwapCommand() {}
 
   void ParseParameters(int argc, char** argv) override;
-  bool Run(const Workspace& workspace) override;
+  void Run() override;
 
  private:
   std::string request_bytes_;
-  std::string package_name_;
+  proto::SwapRequest request_;
   std::string target_dir_;
+  proto::SwapResponse* response_;
 
   enum class User { SHELL_USER, APP_PACKAGE };
 
   // Makes sure everything is ready for ART to attach the JVMI agent to the app.
   // - Make sure the agent shared lib is in the app data folder.
   // - Make sure the  configuration file to app data folder.
-  bool Setup(const Workspace& workspace) noexcept;
+  bool Setup() noexcept;
 
-  // Starts the agent server using fork/exec. Populates the read_fd field with a
-  // file descriptor to allow reading from the server; populates the write_fd
-  // field with a descriptor to allow writing to the server.
-  bool StartServer(int* read_fd, int* write_fd) const;
+  // Performs a swap by starting the server and attaching agents. Returns
+  // SwapResponse::Status::OK if the swap succeeds; returns an appropriate error
+  // code otherwise.
+  proto::SwapResponse::Status Swap() const;
 
-  // Attaches the agents to the app processes, using pidof to obtain the pids of
-  // of all processes owned by the application. If all agents successfully
-  // attach, returns the number of agents; if any agent fails to attach, returns
-  // zero.
-  size_t AttachAgents() const;
+  // Starts the server and waits for it to start listening. The sync is
+  // performed by opening a pipe and passing the write end to the server
+  // process, then blocking on the read end. The server indicates it is ready to
+  // receive connections by closing the write end, which unblocks this method.
+  bool WaitForServer(int agent_count, int* server_pid, int* read_fd,
+                     int* write_fd) const;
+
+  // Tries to attach an agent to each process in the request; if any agent fails
+  // to attach, returns false.
+  bool AttachAgents() const;
 
   // Runs a command with the provided arguments. If run_as_package is true,
   // the command is invoked with 'run-as'. If the command fails, prints the
@@ -71,10 +80,6 @@ class SwapCommand : public Command {
   // file to the path specified by dst_path.
   bool WriteArrayToDisk(const unsigned char* array, uint64_t array_len,
                         const std::string& dst_path) const noexcept;
-
-  void HandleAgentResponses(
-      const std::unordered_map<int, proto::SwapResponse>& agent_responses) const
-      noexcept;
 };
 
 }  // namespace deploy

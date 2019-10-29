@@ -23,6 +23,7 @@
 #include "perfd/network/network_cache.h"
 #include "perfd/network/network_collector.h"
 #include "proto/network.grpc.pb.h"
+#include "utils/daemon_config.h"
 #include "utils/time_value_buffer.h"
 
 namespace profiler {
@@ -30,8 +31,10 @@ namespace profiler {
 // Service class to pass profiler data through grpc.
 class NetworkServiceImpl final : public proto::NetworkService::Service {
  public:
-  explicit NetworkServiceImpl(Clock *clock, NetworkCache *network_cache)
-      : network_cache_(*network_cache), collector_(clock, kSampleRateMs) {}
+  explicit NetworkServiceImpl(const DaemonConfig &config, Clock *clock,
+                              NetworkCache *network_cache)
+      : network_cache_(*network_cache),
+        collector_(config, clock, kSampleRateMs) {}
 
   grpc::Status GetData(grpc::ServerContext *context,
                        const proto::NetworkDataRequest *request,
@@ -56,7 +59,7 @@ class NetworkServiceImpl final : public proto::NetworkService::Service {
  private:
   // Max number of an app's profiler data instances. Polling rate of read
   // data to profiler is less than 1 second, 10 seconds is enough to hold
-  // and 1024 is consistent with memory_levels_sampler.
+  // and 1024 is consistent with memory_usage_sampler.
   static const int32_t kBufferCapacity = 1024;
   // Network collector for device data uses dumpsys command, while network
   // collector for an app reads from system file. Sampling rates are chosen

@@ -20,11 +20,11 @@ import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.builder.files.RelativeFile;
 import com.android.ide.common.resources.FileStatus;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Verify;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Closer;
 import java.io.Closeable;
 import java.io.File;
@@ -88,10 +88,8 @@ class DexIncrementalRenameManager implements Closeable {
      */
     private static final String STATE_FILE = "dex-renamer-state.txt";
 
-    /**
-     * Prefix for property that has the base name of the relative file.
-     */
-    private static final String BASE_KEY_PREFIX = "base.";
+    /** Prefix for property that has the base name of the relative file. */
+    private static final String FILE_KEY_PREFIX = "base.";
 
     /** Prefix for property that has the name of the relative file. */
     private static final String RELATIVE_PATH_PREFIX = "path.";
@@ -156,21 +154,20 @@ class DexIncrementalRenameManager implements Closeable {
         }
 
         for (int i = 0; ; i++) {
-            String baseKey = BASE_KEY_PREFIX + i;
+            String fileKey = FILE_KEY_PREFIX + i;
             String relativePathKey = RELATIVE_PATH_PREFIX + i;
             String renamedKey = RENAMED_KEY_PREFIX + i;
 
-            String base = props.getProperty(baseKey);
+            String file = props.getProperty(fileKey);
             String relativePath = props.getProperty(relativePathKey);
             String rename = props.getProperty(renamedKey);
 
-            if (base == null || relativePath == null || rename == null) {
+            if (file == null || relativePath == null || rename == null) {
                 break;
             }
 
             // The base is always a directory and the file is a regular file.
-            RelativeFile rf =
-                    new RelativeFile(new File(base), relativePath, RelativeFile.Type.DIRECTORY);
+            RelativeFile rf = RelativeFile.fileInDirectory(relativePath, new File(file));
             mNameMap.put(rf, rename);
         }
     }
@@ -186,7 +183,7 @@ class DexIncrementalRenameManager implements Closeable {
         Properties props = new Properties();
         int currIdx = 0;
         for (BiMap.Entry<RelativeFile, String> entry : mNameMap.entrySet()) {
-            props.put(BASE_KEY_PREFIX + currIdx, entry.getKey().getBase().getAbsolutePath());
+            props.put(FILE_KEY_PREFIX + currIdx, entry.getKey().getFile().getAbsolutePath());
             props.put(RELATIVE_PATH_PREFIX + currIdx, entry.getKey().getRelativePath());
             props.put(RENAMED_KEY_PREFIX + currIdx, entry.getValue());
             currIdx++;
@@ -210,7 +207,7 @@ class DexIncrementalRenameManager implements Closeable {
      * @throws IOException failed to process the changes
      */
     @NonNull
-    Set<PackagedFileUpdate> update(@NonNull ImmutableMap<RelativeFile, FileStatus> files)
+    Set<PackagedFileUpdate> update(@NonNull Map<RelativeFile, FileStatus> files)
             throws IOException {
 
         // Make list of new files and ensure classes.dex is/are the first (there could be multiple)
@@ -219,9 +216,7 @@ class DexIncrementalRenameManager implements Closeable {
                         .stream()
                         .filter(e -> e.getValue() == FileStatus.NEW)
                         .map(Map.Entry::getKey)
-                        .sorted(
-                                Comparator.comparing(
-                                        RelativeFile::getRelativePath, new DexNameComparator()))
+                        .sorted(new DexFileComparator())
                         .collect(Collectors.toCollection(LinkedList::new));
 
         // Build a list with buckets that represent the dex files we have before the updates.
@@ -232,7 +227,7 @@ class DexIncrementalRenameManager implements Closeable {
         for (int i = 0; i < mNameMap.size(); i++) {
             String nameInDex = supplier.get();
             RelativeFile rf = mNameMap.inverse().get(nameInDex);
-            Verify.verify(rf != null, "No file known for: " + nameInDex);
+            Verify.verify(rf != null, "No file known for: %s\nKnown maps: %s", nameInDex, mNameMap);
 
             // If the first currently mapped file is not classes.dex, but the first file to add
             // is classes.dex, we'll replace the file to make sure classes.dex is mapped to
@@ -346,17 +341,32 @@ class DexIncrementalRenameManager implements Closeable {
         return pathSplit[pathSplit.length - 1];
     }
 
-    /** Comparator that compares dex file names placing classes.dex always in front. */
-    private static class DexNameComparator implements Comparator<String> {
+    /** Comparator that compares dex file paths, placing classes.dex always in front. */
+    @VisibleForTesting
+    static class DexFileComparator implements Comparator<RelativeFile> {
 
         @Override
-        public int compare(String f1, String f2) {
-            if (f1.equals(SdkConstants.FN_APK_CLASSES_DEX)) {
-                return -1;
-            } else if (f2.equals(SdkConstants.FN_APK_CLASSES_DEX)) {
-                return 1;
+        public int compare(RelativeFile f1, RelativeFile f2) {
+            if (f1.getRelativePath().endsWith(SdkConstants.FN_APK_CLASSES_DEX)) {
+                if (f2.getRelativePath().endsWith(SdkConstants.FN_APK_CLASSES_DEX)) {
+                    return f1.getFile().getAbsolutePath().compareTo(f2.getFile().getAbsolutePath());
+                } else {
+                    return -1;
+                }
             } else {
-                return f1.compareTo(f2);
+                if (f2.getRelativePath().endsWith(SdkConstants.FN_APK_CLASSES_DEX)) {
+                    return 1;
+                } else {
+                    int result =
+                            f1.getFile()
+                                    .getAbsolutePath()
+                                    .compareTo(f2.getFile().getAbsolutePath());
+                    if (result != 0) {
+                        return result;
+                    } else {
+                        return f1.getRelativePath().compareTo(f2.getRelativePath());
+                    }
+                }
             }
         }
     }

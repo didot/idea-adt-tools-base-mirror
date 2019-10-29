@@ -22,7 +22,6 @@ import com.android.utils.FileUtils;
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSetMultimap;
-import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.SetMultimap;
 import com.google.common.truth.Expect;
@@ -58,6 +57,9 @@ public class JarContentsTest {
     private static final String JAVALIBMODELBUILDER_ZIP = "tools/base/java-lib-model-builder.zip";
 
     private static final SetMultimap<String, String> EXPECTED;
+
+    private static final String R8_NAMESPACE = "com/android/tools/r8/";
+    private static final String R8_PACKAGE_PREFIX = "com.android.tools.r8";
 
     static {
         // Useful command for getting these lists:
@@ -161,16 +163,12 @@ public class JarContentsTest {
         expected.putAll(
                 "com/android/tools/build/aapt2:osx",
                 "aapt2",
-                "lib64/",
-                "lib64/libc++.dylib",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "NOTICE");
         expected.putAll(
                 "com/android/tools/build/aapt2:linux",
                 "aapt2",
-                "lib64/",
-                "lib64/libc++.so",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "NOTICE");
@@ -179,6 +177,7 @@ public class JarContentsTest {
                 "com/",
                 "com/android/",
                 "com/android/builder/",
+                "com/android/builder/aar/",
                 "com/android/builder/compiling/",
                 "com/android/builder/core/",
                 "com/android/builder/dependency/",
@@ -240,148 +239,7 @@ public class JarContentsTest {
                 "com/android/dx/util/",
                 "com/android/multidex/",
                 "com/android/tools/",
-                "com/android/tools/r8/",
-                "com/android/tools/r8/annotations/",
-                "com/android/tools/r8/benchmarks/",
-                "com/android/tools/r8/bisect/",
-                "com/android/tools/r8/cf/",
-                "com/android/tools/r8/cf/code/",
-                "com/android/tools/r8/code/",
-                "com/android/tools/r8/com/",
-                "com/android/tools/r8/com/google/",
-                "com/android/tools/r8/com/google/common/",
-                "com/android/tools/r8/com/google/common/annotations/",
-                "com/android/tools/r8/com/google/common/base/",
-                "com/android/tools/r8/com/google/common/base/internal/",
-                "com/android/tools/r8/com/google/common/cache/",
-                "com/android/tools/r8/com/google/common/collect/",
-                "com/android/tools/r8/com/google/common/escape/",
-                "com/android/tools/r8/com/google/common/eventbus/",
-                "com/android/tools/r8/com/google/common/graph/",
-                "com/android/tools/r8/com/google/common/hash/",
-                "com/android/tools/r8/com/google/common/html/",
-                "com/android/tools/r8/com/google/common/io/",
-                "com/android/tools/r8/com/google/common/math/",
-                "com/android/tools/r8/com/google/common/net/",
-                "com/android/tools/r8/com/google/common/primitives/",
-                "com/android/tools/r8/com/google/common/reflect/",
-                "com/android/tools/r8/com/google/common/util/",
-                "com/android/tools/r8/com/google/common/util/concurrent/",
-                "com/android/tools/r8/com/google/common/xml/",
-                "com/android/tools/r8/com/google/gson/",
-                "com/android/tools/r8/com/google/gson/annotations/",
-                "com/android/tools/r8/com/google/gson/internal/",
-                "com/android/tools/r8/com/google/gson/internal/bind/",
-                "com/android/tools/r8/com/google/gson/internal/bind/util/",
-                "com/android/tools/r8/com/google/gson/reflect/",
-                "com/android/tools/r8/com/google/gson/stream/",
-                "com/android/tools/r8/com/google/thirdparty/",
-                "com/android/tools/r8/com/google/thirdparty/publicsuffix/",
-                "com/android/tools/r8/compatdexbuilder/",
-                "com/android/tools/r8/compatdx/",
-                "com/android/tools/r8/compatproguard/",
-                "com/android/tools/r8/dex/",
-                "com/android/tools/r8/dexfilemerger/",
-                "com/android/tools/r8/dexsplitter/",
-                "com/android/tools/r8/errors/",
-                "com/android/tools/r8/graph/",
-                "com/android/tools/r8/ir/",
-                "com/android/tools/r8/ir/analysis/",
-                "com/android/tools/r8/ir/analysis/constant/",
-                "com/android/tools/r8/ir/analysis/type/",
-                "com/android/tools/r8/ir/code/",
-                "com/android/tools/r8/ir/conversion/",
-                "com/android/tools/r8/ir/desugar/",
-                "com/android/tools/r8/ir/optimize/",
-                "com/android/tools/r8/ir/optimize/classinliner/",
-                "com/android/tools/r8/ir/optimize/lambda/",
-                "com/android/tools/r8/ir/optimize/lambda/kotlin/",
-                "com/android/tools/r8/ir/optimize/staticizer/",
-                "com/android/tools/r8/ir/optimize/string/",
-                "com/android/tools/r8/ir/regalloc/",
-                "com/android/tools/r8/ir/synthetic/",
-                "com/android/tools/r8/it/",
-                "com/android/tools/r8/it/unimi/",
-                "com/android/tools/r8/it/unimi/dsi/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/booleans/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/bytes/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/chars/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/doubles/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/floats/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/ints/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/io/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/longs/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/objects/",
-                "com/android/tools/r8/it/unimi/dsi/fastutil/shorts/",
-                "com/android/tools/r8/jar/",
-                "com/android/tools/r8/jetbrains/",
-                "com/android/tools/r8/jetbrains/kotlin/",
-                "com/android/tools/r8/jetbrains/kotlin/annotation/",
-                "com/android/tools/r8/jetbrains/kotlin/collections/",
-                "com/android/tools/r8/jetbrains/kotlin/comparisons/",
-                "com/android/tools/r8/jetbrains/kotlin/concurrent/",
-                "com/android/tools/r8/jetbrains/kotlin/coroutines/",
-                "com/android/tools/r8/jetbrains/kotlin/coroutines/experimental/",
-                "com/android/tools/r8/jetbrains/kotlin/coroutines/experimental/intrinsics/",
-                "com/android/tools/r8/jetbrains/kotlin/coroutines/experimental/jvm/",
-                "com/android/tools/r8/jetbrains/kotlin/coroutines/experimental/jvm/internal/",
-                "com/android/tools/r8/jetbrains/kotlin/experimental/",
-                "com/android/tools/r8/jetbrains/kotlin/internal/",
-                "com/android/tools/r8/jetbrains/kotlin/internal/contracts/",
-                "com/android/tools/r8/jetbrains/kotlin/io/",
-                "com/android/tools/r8/jetbrains/kotlin/jvm/",
-                "com/android/tools/r8/jetbrains/kotlin/jvm/functions/",
-                "com/android/tools/r8/jetbrains/kotlin/jvm/internal/",
-                "com/android/tools/r8/jetbrains/kotlin/jvm/internal/markers/",
-                "com/android/tools/r8/jetbrains/kotlin/jvm/internal/unsafe/",
-                "com/android/tools/r8/jetbrains/kotlin/math/",
-                "com/android/tools/r8/jetbrains/kotlin/properties/",
-                "com/android/tools/r8/jetbrains/kotlin/ranges/",
-                "com/android/tools/r8/jetbrains/kotlin/reflect/",
-                "com/android/tools/r8/jetbrains/kotlin/sequences/",
-                "com/android/tools/r8/jetbrains/kotlin/system/",
-                "com/android/tools/r8/jetbrains/kotlin/text/",
-                "com/android/tools/r8/jetbrains/kotlinx/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/impl/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/impl/extensions/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/metadata/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/metadata/builtins/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/metadata/deserialization/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/metadata/jvm/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/metadata/jvm/deserialization/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/metadata/jvm/serialization/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/metadata/serialization/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/internal/protobuf/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/jvm/",
-                "com/android/tools/r8/jetbrains/kotlinx/metadata/jvm/impl/",
-                "com/android/tools/r8/joptsimple/",
-                "com/android/tools/r8/joptsimple/internal/",
-                "com/android/tools/r8/joptsimple/util/",
-                "com/android/tools/r8/kotlin/",
-                "com/android/tools/r8/logging/",
-                "com/android/tools/r8/naming/",
-                "com/android/tools/r8/naming/signature/",
-                "com/android/tools/r8/optimize/",
-                "com/android/tools/r8/org/",
-                "com/android/tools/r8/org/intellij/",
-                "com/android/tools/r8/org/intellij/lang/",
-                "com/android/tools/r8/org/intellij/lang/annotations/",
-                "com/android/tools/r8/org/jetbrains/",
-                "com/android/tools/r8/org/jetbrains/annotations/",
-                "com/android/tools/r8/org/objectweb/",
-                "com/android/tools/r8/org/objectweb/asm/",
-                "com/android/tools/r8/org/objectweb/asm/commons/",
-                "com/android/tools/r8/org/objectweb/asm/signature/",
-                "com/android/tools/r8/org/objectweb/asm/tree/",
-                "com/android/tools/r8/org/objectweb/asm/tree/analysis/",
-                "com/android/tools/r8/org/objectweb/asm/util/",
-                "com/android/tools/r8/origin/",
-                "com/android/tools/r8/position/",
-                "com/android/tools/r8/shaking/",
-                "com/android/tools/r8/utils/",
+                R8_NAMESPACE,
                 "LICENSE",
                 "desugar_deploy.jar",
                 "desugar_deploy.jar:com/",
@@ -442,7 +300,7 @@ public class JarContentsTest {
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "META-INF/services/",
-                "META-INF/services/com.android.tools.r8.jetbrains.kotlinx.metadata.impl.extensions.MetadataExtensions",
+                "META-INF/services/" + R8_PACKAGE_PREFIX,
                 "NOTICE",
                 "r8-version.properties");
         expected.putAll(
@@ -463,11 +321,13 @@ public class JarContentsTest {
                 "com/android/apksig/internal/apk/",
                 "com/android/apksig/internal/apk/v1/",
                 "com/android/apksig/internal/apk/v2/",
+                "com/android/apksig/internal/apk/v3/",
                 "com/android/apksig/internal/asn1/",
                 "com/android/apksig/internal/asn1/ber/",
                 "com/android/apksig/internal/jar/",
                 "com/android/apksig/internal/pkcs7/",
                 "com/android/apksig/internal/util/",
+                "com/android/apksig/internal/x509/",
                 "com/android/apksig/internal/zip/",
                 "com/android/apksig/util/",
                 "com/android/apksig/zip/",
@@ -502,9 +362,13 @@ public class JarContentsTest {
                 "com/android/build/gradle/internal/coverage/",
                 "com/android/build/gradle/internal/crash/",
                 "com/android/build/gradle/internal/cxx/",
-                "com/android/build/gradle/internal/cxx/json/",
+                "com/android/build/gradle/internal/cxx/cmake/",
                 "com/android/build/gradle/internal/cxx/configure/",
+                "com/android/build/gradle/internal/cxx/json/",
+                "com/android/build/gradle/internal/cxx/logging/",
+                "com/android/build/gradle/internal/cxx/model/",
                 "com/android/build/gradle/internal/cxx/process/",
+                "com/android/build/gradle/internal/cxx/services/",
                 "com/android/build/gradle/internal/cxx/stripping/",
                 "com/android/build/gradle/internal/dependency/",
                 "com/android/build/gradle/internal/dsl/",
@@ -532,6 +396,7 @@ public class JarContentsTest {
                 "com/android/build/gradle/internal/tasks/databinding/",
                 "com/android/build/gradle/internal/tasks/factory/",
                 "com/android/build/gradle/internal/tasks/featuresplit/",
+                "com/android/build/gradle/internal/tasks/manifest/",
                 "com/android/build/gradle/internal/tasks/structureplugin/",
                 "com/android/build/gradle/internal/test/",
                 "com/android/build/gradle/internal/test/report/",
@@ -549,19 +414,10 @@ public class JarContentsTest {
                 "com/android/build/gradle/proguard-optimizations.txt",
                 "com/android/build/gradle/tasks/",
                 "com/android/build/gradle/tasks/factory/",
-                "com/android/build/gradle/tasks/ir/",
-                "instant-run/",
-                "instant-run/instant-run-server.jar",
-                "instant-run/instant-run-server.jar:com/",
-                "instant-run/instant-run-server.jar:com/android/",
-                "instant-run/instant-run-server.jar:com/android/tools/",
-                "instant-run/instant-run-server.jar:com/android/tools/ir/",
-                "instant-run/instant-run-server.jar:com/android/tools/ir/api/",
-                "instant-run/instant-run-server.jar:com/android/tools/ir/common/",
-                "instant-run/instant-run-server.jar:com/android/tools/ir/server/",
-                "instant-run/instant-run-server.jar:com/android/tools/ir/runtime/",
-                "instant-run/instant-run-server.jar:META-INF/",
-                "instant-run/instant-run-server.jar:META-INF/MANIFEST.MF",
+                "com/android/tools/",
+                "com/android/tools/build/",
+                "com/android/tools/build/libraries/",
+                "com/android/tools/build/libraries/metadata/",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "META-INF/gradle-plugins/",
@@ -634,6 +490,8 @@ public class JarContentsTest {
                 "versions-offline/android/arch/work/",
                 "versions-offline/android/arch/work/group-index.xml",
                 "versions-offline/androidx/",
+                "versions-offline/androidx/activity/",
+                "versions-offline/androidx/activity/group-index.xml",
                 "versions-offline/androidx/annotation/",
                 "versions-offline/androidx/annotation/group-index.xml",
                 "versions-offline/androidx/appcompat/",
@@ -643,10 +501,14 @@ public class JarContentsTest {
                 "versions-offline/androidx/arch/core/group-index.xml",
                 "versions-offline/androidx/asynclayoutinflater/",
                 "versions-offline/androidx/asynclayoutinflater/group-index.xml",
+                "versions-offline/androidx/benchmark/",
+                "versions-offline/androidx/benchmark/group-index.xml",
                 "versions-offline/androidx/biometric/",
                 "versions-offline/androidx/biometric/group-index.xml",
                 "versions-offline/androidx/browser/",
                 "versions-offline/androidx/browser/group-index.xml",
+                "versions-offline/androidx/camera/",
+                "versions-offline/androidx/camera/group-index.xml",
                 "versions-offline/androidx/car/",
                 "versions-offline/androidx/car/group-index.xml",
                 "versions-offline/androidx/cardview/",
@@ -677,6 +539,8 @@ public class JarContentsTest {
                 "versions-offline/androidx/dynamicanimation/group-index.xml",
                 "versions-offline/androidx/emoji/",
                 "versions-offline/androidx/emoji/group-index.xml",
+                "versions-offline/androidx/enterprise/",
+                "versions-offline/androidx/enterprise/group-index.xml",
                 "versions-offline/androidx/exifinterface/",
                 "versions-offline/androidx/exifinterface/group-index.xml",
                 "versions-offline/androidx/fragment/",
@@ -705,6 +569,8 @@ public class JarContentsTest {
                 "versions-offline/androidx/mediarouter/group-index.xml",
                 "versions-offline/androidx/multidex/",
                 "versions-offline/androidx/multidex/group-index.xml",
+                "versions-offline/androidx/navigation/",
+                "versions-offline/androidx/navigation/group-index.xml",
                 "versions-offline/androidx/paging/",
                 "versions-offline/androidx/paging/group-index.xml",
                 "versions-offline/androidx/palette/",
@@ -719,8 +585,16 @@ public class JarContentsTest {
                 "versions-offline/androidx/recommendation/group-index.xml",
                 "versions-offline/androidx/recyclerview/",
                 "versions-offline/androidx/recyclerview/group-index.xml",
+                "versions-offline/androidx/remotecallback/",
+                "versions-offline/androidx/remotecallback/group-index.xml",
                 "versions-offline/androidx/room/",
                 "versions-offline/androidx/room/group-index.xml",
+                "versions-offline/androidx/savedstate/",
+                "versions-offline/androidx/savedstate/group-index.xml",
+                "versions-offline/androidx/security/",
+                "versions-offline/androidx/security/group-index.xml",
+                "versions-offline/androidx/sharetarget/",
+                "versions-offline/androidx/sharetarget/group-index.xml",
                 "versions-offline/androidx/slice/",
                 "versions-offline/androidx/slice/group-index.xml",
                 "versions-offline/androidx/slidingpanelayout/",
@@ -743,6 +617,8 @@ public class JarContentsTest {
                 "versions-offline/androidx/test/services/group-index.xml",
                 "versions-offline/androidx/test/uiautomator/",
                 "versions-offline/androidx/test/uiautomator/group-index.xml",
+                "versions-offline/androidx/textclassifier/",
+                "versions-offline/androidx/textclassifier/group-index.xml",
                 "versions-offline/androidx/transition/",
                 "versions-offline/androidx/transition/group-index.xml",
                 "versions-offline/androidx/tvprovider/",
@@ -753,10 +629,14 @@ public class JarContentsTest {
                 "versions-offline/androidx/versionedparcelable/group-index.xml",
                 "versions-offline/androidx/viewpager/",
                 "versions-offline/androidx/viewpager/group-index.xml",
+                "versions-offline/androidx/viewpager2/",
+                "versions-offline/androidx/viewpager2/group-index.xml",
                 "versions-offline/androidx/wear/",
                 "versions-offline/androidx/wear/group-index.xml",
                 "versions-offline/androidx/webkit/",
                 "versions-offline/androidx/webkit/group-index.xml",
+                "versions-offline/androidx/work/",
+                "versions-offline/androidx/work/group-index.xml",
                 "versions-offline/com/",
                 "versions-offline/com/android/",
                 "versions-offline/com/android/databinding/",
@@ -786,10 +666,14 @@ public class JarContentsTest {
                 "versions-offline/com/android/tools/",
                 "versions-offline/com/android/tools/analytics-library/",
                 "versions-offline/com/android/tools/analytics-library/group-index.xml",
+                "versions-offline/com/android/tools/apkparser/",
+                "versions-offline/com/android/tools/apkparser/group-index.xml",
                 "versions-offline/com/android/tools/build/",
                 "versions-offline/com/android/tools/build/group-index.xml",
                 "versions-offline/com/android/tools/build/jetifier/",
                 "versions-offline/com/android/tools/build/jetifier/group-index.xml",
+                "versions-offline/com/android/tools/chunkio/",
+                "versions-offline/com/android/tools/chunkio/group-index.xml",
                 "versions-offline/com/android/tools/ddms/",
                 "versions-offline/com/android/tools/ddms/group-index.xml",
                 "versions-offline/com/android/tools/external/",
@@ -797,6 +681,8 @@ public class JarContentsTest {
                 "versions-offline/com/android/tools/external/com-intellij/group-index.xml",
                 "versions-offline/com/android/tools/external/org-jetbrains/",
                 "versions-offline/com/android/tools/external/org-jetbrains/group-index.xml",
+                "versions-offline/com/android/tools/fakeadbserver/",
+                "versions-offline/com/android/tools/fakeadbserver/group-index.xml",
                 "versions-offline/com/android/tools/group-index.xml",
                 "versions-offline/com/android/tools/internal/",
                 "versions-offline/com/android/tools/internal/build/",
@@ -806,6 +692,8 @@ public class JarContentsTest {
                 "versions-offline/com/android/tools/layoutlib/group-index.xml",
                 "versions-offline/com/android/tools/lint/",
                 "versions-offline/com/android/tools/lint/group-index.xml",
+                "versions-offline/com/android/tools/pixelprobe/",
+                "versions-offline/com/android/tools/pixelprobe/group-index.xml",
                 "versions-offline/com/crashlytics/",
                 "versions-offline/com/crashlytics/sdk/",
                 "versions-offline/com/crashlytics/sdk/android/",
@@ -825,6 +713,9 @@ public class JarContentsTest {
                 "versions-offline/com/google/android/instantapps/group-index.xml",
                 "versions-offline/com/google/android/instantapps/thirdpartycompat/",
                 "versions-offline/com/google/android/instantapps/thirdpartycompat/group-index.xml",
+                "versions-offline/com/google/android/libraries/",
+                "versions-offline/com/google/android/libraries/places/",
+                "versions-offline/com/google/android/libraries/places/group-index.xml",
                 "versions-offline/com/google/android/material/",
                 "versions-offline/com/google/android/material/group-index.xml",
                 "versions-offline/com/google/android/play/",
@@ -960,8 +851,8 @@ public class JarContentsTest {
                 "com/",
                 "com/android/",
                 "com/android/sdklib/",
-                "com/android/sdklib/build/",
                 "com/android/sdklib/devices/",
+                "com/android/sdklib/devices/automotive.xml",
                 "com/android/sdklib/devices/devices.xml",
                 "com/android/sdklib/devices/nexus.xml",
                 "com/android/sdklib/devices/tv.xml",
@@ -1047,6 +938,7 @@ public class JarContentsTest {
                 "com/android/ide/common/blame/",
                 "com/android/io/",
                 "com/android/prefs/",
+                "com/android/resources/",
                 "com/android/sdklib/",
                 "com/android/support/",
                 "com/android/tools/",
@@ -1115,6 +1007,7 @@ public class JarContentsTest {
                 "com/android/tools/",
                 "com/android/tools/lint/",
                 "com/android/tools/lint/checks/",
+                "private-apis.txt",
                 "sdks-offline.xml",
                 "typos/",
                 "typos/typos-de.txt",
@@ -1193,6 +1086,7 @@ public class JarContentsTest {
                 "com/android/dvlib/devices-1.xsd",
                 "com/android/dvlib/devices-2.xsd",
                 "com/android/dvlib/devices-3.xsd",
+                "com/android/dvlib/devices-4.xsd",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
                 "NOTICE");
@@ -1237,7 +1131,9 @@ public class JarContentsTest {
                 "NOTICE.txt",
                 "META-INF/",
                 "META-INF/MANIFEST.MF",
+                "META-INF/gradle/",
                 "META-INF/services/",
+                "META-INF/gradle/incremental.annotation.processors",
                 "META-INF/services/javax.annotation.processing.Processor");
         expected.putAll( // kept for pre-android-x compatibility
                 "com/android/databinding/baseLibrary",
@@ -1269,20 +1165,139 @@ public class JarContentsTest {
                 "META-INF/gradle-plugins/",
                 "META-INF/gradle-plugins/com.android.java.properties");
 
+        expected.putAll(
+                "com/android/tools/apkparser/binary-resources",
+                "com/",
+                "com/google/",
+                "com/google/devrel/",
+                "com/google/devrel/gmscore/",
+                "com/google/devrel/gmscore/tools/",
+                "com/google/devrel/gmscore/tools/apk/",
+                "com/google/devrel/gmscore/tools/apk/arsc/",
+                "LICENSE",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/apkparser/apkanalyzer",
+                "com/",
+                "com/android/",
+                "com/android/tools/",
+                "com/android/tools/apk/",
+                "com/android/tools/apk/analyzer/",
+                "com/android/tools/apk/analyzer/dex/",
+                "com/android/tools/apk/analyzer/dex/tree/",
+                "com/android/tools/apk/analyzer/internal/",
+                "com/android/tools/apk/analyzer/optimizer/",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/pixelprobe/pixelprobe",
+                "com/",
+                "META-INF/MANIFEST.MF",
+                "com/android/",
+                "com/android/tools/",
+                "com/android/tools/pixelprobe/",
+                "com/android/tools/pixelprobe/color/",
+                "com/android/tools/pixelprobe/decoder/",
+                "com/android/tools/pixelprobe/decoder/psd/",
+                "com/android/tools/pixelprobe/effect/",
+                "com/android/tools/pixelprobe/util/",
+                "icc/",
+                "icc/cmyk/",
+                "icc/cmyk/USWebCoatedSWOP.icc",
+                "META-INF/",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/draw9patch",
+                "com/",
+                "com/android/",
+                "com/android/draw9patch/",
+                "com/android/draw9patch/graphics/",
+                "com/android/draw9patch/ui/",
+                "com/android/draw9patch/ui/action/",
+                "images/",
+                "images/checker.png",
+                "images/drop.png",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/ninepatch",
+                "com/",
+                "com/android/",
+                "com/android/ninepatch/",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/fakeadbserver/fakeadbserver",
+                "com/",
+                "com/android/",
+                "com/android/fakeadbserver/",
+                "com/android/fakeadbserver/devicecommandhandlers/",
+                "com/android/fakeadbserver/devicecommandhandlers/ddmsHandlers/",
+                "com/android/fakeadbserver/hostcommandhandlers/",
+                "com/android/fakeadbserver/shellcommandhandlers/",
+                "com/android/fakeadbserver/statechangehubs/",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/chunkio/chunkio",
+                "com/",
+                "com/android/",
+                "com/android/tools/",
+                "com/android/tools/chunkio/",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/analytics-library/publisher",
+                "com/",
+                "com/android/",
+                "com/android/tools/",
+                "com/android/tools/analytics/",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
+        expected.putAll(
+                "com/android/tools/analytics-library/testing",
+                "com/",
+                "com/android/",
+                "com/android/tools/",
+                "com/android/tools/analytics/",
+                "META-INF/",
+                "META-INF/MANIFEST.MF",
+                "NOTICE");
+
         if (TestUtils.runningFromBazel()) {
-            // TODO: move all differences from IGNORED_ARTIFACTS_BAZEL to here (b/64921827)
             // TODO: fix these. (b/64921827)
-            Multimap<String, String> bazelNotImplementedYet =
-                    ImmutableSetMultimap.<String, String>builder()
-                            .build();
+            ImmutableSet<String> bazelNotImplementedYet =
+                    ImmutableSet.of(
+                            "com/android/tools/apkparser/binary-resources",
+                            "com/android/tools/apkparser/apkanalyzer",
+                            "com/android/tools/pixelprobe/pixelprobe",
+                            "com/android/tools/draw9patch",
+                            "com/android/tools/ninepatch",
+                            "com/android/tools/fakeadbserver/fakeadbserver",
+                            "com/android/tools/chunkio/chunkio",
+                            "com/android/tools/analytics-library/testing");
 
             EXPECTED =
                     ImmutableSetMultimap.copyOf(
                             Multimaps.filterEntries(
                                     expected.build(),
-                                    entry ->
-                                            !bazelNotImplementedYet.containsEntry(
-                                                    entry.getKey(), entry.getValue())));
+                                    entry -> !bazelNotImplementedYet.contains(entry.getKey())));
         } else {
             EXPECTED = expected.build();
         }
@@ -1464,9 +1479,26 @@ public class JarContentsTest {
                 new ZipInputStream(new BufferedInputStream(Files.newInputStream(jar)))) {
             ZipEntry entry;
             while ((entry = zipInputStream.getNextEntry()) != null) {
-                actual.addAll(
+                Set<String> filesFromEntry =
                         getCheckableFilesFromEntry(
-                                entry, new NonClosingInputStream(zipInputStream), ""));
+                                entry, new NonClosingInputStream(zipInputStream), "");
+                actual.addAll(
+                        filesFromEntry
+                                .stream()
+                                // Packages under the R8 namespace are renamed.
+                                .filter(
+                                        path ->
+                                                !path.startsWith(R8_NAMESPACE)
+                                                        || path.equals(R8_NAMESPACE))
+                                // Services used by R8 are reloacted and renamed.
+                                .map(
+                                        path ->
+                                                path.startsWith(
+                                                                "META-INF/services/"
+                                                                        + R8_PACKAGE_PREFIX)
+                                                        ? "META-INF/services/" + R8_PACKAGE_PREFIX
+                                                        : path)
+                                .collect(Collectors.toList()));
             }
 
             expect.that(actual)

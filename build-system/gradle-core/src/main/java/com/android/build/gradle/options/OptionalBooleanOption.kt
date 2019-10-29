@@ -25,27 +25,10 @@ enum class OptionalBooleanOption(
     SIGNING_V1_ENABLED(AndroidProject.PROPERTY_SIGNING_V1_ENABLED, status = STABLE),
     SIGNING_V2_ENABLED(AndroidProject.PROPERTY_SIGNING_V2_ENABLED, status = STABLE),
     IDE_TEST_ONLY(AndroidProject.PROPERTY_TEST_ONLY, status = STABLE),
-    SERIAL_AAPT2(AndroidProject.PROPERTY_INVOKE_JNI_AAPT2_LINK_SERIALLY),
+    ENABLE_R8("android.enableR8", status = Option.Status.STABLE),
     ;
 
     override fun parse(value: Any): Boolean {
-        if (value is CharSequence) {
-            return java.lang.Boolean.parseBoolean(value.toString())
-        }
-        if (value is Boolean) {
-            return value
-        }
-        if (value is Number) {
-            return value.toInt() != 0
-        }
-        throw IllegalArgumentException(
-            "Cannot parse project property "
-                    + this.propertyName
-                    + "='"
-                    + value
-                    + "' of type '"
-                    + value.javaClass
-                    + "' as boolean."
-        )
+        return parseBoolean(propertyName, value)
     }
 }

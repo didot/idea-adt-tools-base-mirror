@@ -20,7 +20,6 @@ import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
 import com.android.utils.HashCodes;
 import com.google.common.base.MoreObjects;
-
 import java.util.Objects;
 
 /** Simple implementation of the {@link ResourceValue} interface. */
@@ -148,7 +147,6 @@ public class ResourceValueImpl implements ResourceValue {
      * <p>This method is meant to be called by the XML parser that created this {@link
      * ResourceValue}.
      */
-    @Override
     public void setNamespaceResolver(@NonNull ResourceNamespace.Resolver resolver) {
         this.mNamespaceResolver = resolver;
     }

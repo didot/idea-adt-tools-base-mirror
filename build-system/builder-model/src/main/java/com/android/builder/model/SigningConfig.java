@@ -20,9 +20,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import java.io.File;
 
-/**
- * A Signing Configuration
- */
+/** A Signing Configuration */
 public interface SigningConfig {
 
     /**

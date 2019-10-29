@@ -19,12 +19,10 @@ package com.android.build.gradle;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.AppModelBuilder;
 import com.android.build.gradle.internal.ExtraModelInfo;
-import com.android.build.gradle.internal.NativeLibraryFactoryImpl;
 import com.android.build.gradle.internal.VariantManager;
 import com.android.build.gradle.internal.dsl.BaseAppModuleExtension;
 import com.android.build.gradle.internal.errors.DeprecationReporter;
 import com.android.build.gradle.internal.scope.GlobalScope;
-import com.android.builder.model.AndroidProject;
 import javax.inject.Inject;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
@@ -56,9 +54,7 @@ public class AppPlugin extends AbstractAppPlugin {
                         taskManager,
                         (BaseAppModuleExtension) config,
                         extraModelInfo,
-                        new NativeLibraryFactoryImpl(globalScope.getNdkHandler()),
-                        getProjectType(),
-                        AndroidProject.GENERATION_ORIGINAL));
+                        getProjectType()));
     }
 
     @Override

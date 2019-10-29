@@ -26,9 +26,10 @@ import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.builder.core.BuilderConstants
 import org.gradle.api.Action
 import org.gradle.api.file.CopySpec
+import org.gradle.api.file.Directory
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.file.FileCopyDetails
-import org.gradle.api.tasks.Input
+import org.gradle.api.file.RegularFile
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.Zip
@@ -36,10 +37,6 @@ import java.io.File
 
 /** Custom Zip task to allow archive name to be set lazily. */
 open class BundleAar : Zip(), VariantAwareTask {
-    private lateinit var archiveNameSupplier: () -> String
-
-    @Input
-    override fun getArchiveName() = archiveNameSupplier()
 
     @Internal
     override lateinit var variantName: String
@@ -85,9 +82,9 @@ open class BundleAar : Zip(), VariantAwareTask {
                     + variantScope.variantConfiguration.fullName
                     + ".")
 
-            task.destinationDir = variantScope.aarLocation
-            task.archiveNameSupplier = { variantScope.outputScope.mainSplit.outputFileName!! }
-            task.extension = BuilderConstants.EXT_LIB_ARCHIVE
+            task.destinationDirectory.set(variantScope.aarLocation)
+            task.archiveFileName.set(variantScope.outputScope.mainSplit.outputFileName!!)
+            task.archiveExtension.set(BuilderConstants.EXT_LIB_ARCHIVE)
             task.from(
                 variantScope.artifacts.getArtifactFiles(
                     InternalArtifactType.AIDL_PARCELABLE
@@ -113,22 +110,29 @@ open class BundleAar : Zip(), VariantAwareTask {
                     )
                 )
             }
-            task.from(artifacts.getFinalArtifactFiles(InternalArtifactType.LIBRARY_MANIFEST))
-            // TODO: this should be unconditional b/69358522
+
             if (!variantScope.globalScope.extension.aaptOptions.namespaced) {
+                // TODO: this should be unconditional b/69358522
                 task.from(artifacts.getFinalArtifactFiles(InternalArtifactType.SYMBOL_LIST))
                 task.from(
                     artifacts.getFinalArtifactFiles(InternalArtifactType.PACKAGED_RES),
                     prependToCopyPath(SdkConstants.FD_RES)
                 )
+                // In non-namespaced projects bundle the library manifest straight to the AAR.
+                task.from(artifacts.getFinalProduct<Directory>(InternalArtifactType.LIBRARY_MANIFEST))
+            } else {
+                // In namespaced projects the bundled manifest needs to have stripped resource
+                // references for backwards compatibility.
+                task.from(artifacts.getFinalArtifactFiles(
+                    InternalArtifactType.NON_NAMESPACED_LIBRARY_MANIFEST))
             }
             task.from(
                 artifacts.getFinalArtifactFiles(InternalArtifactType.RENDERSCRIPT_HEADERS),
                 prependToCopyPath(SdkConstants.FD_RENDERSCRIPT)
             )
             task.from(artifacts.getFinalArtifactFiles(InternalArtifactType.PUBLIC_RES))
-            if (artifacts.hasArtifact(InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR)) {
-                task.from(artifacts.getFinalArtifactFiles(
+            if (artifacts.hasFinalProduct(InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR)) {
+                task.from(artifacts.getFinalProduct<RegularFile>(
                     InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR))
             }
             if (artifacts.hasArtifact(InternalArtifactType.RES_STATIC_LIBRARY)) {
@@ -139,7 +143,7 @@ open class BundleAar : Zip(), VariantAwareTask {
                 prependToCopyPath(SdkConstants.FD_JNI)
             )
             task.from(variantScope.globalScope.artifacts
-                .getFinalArtifactFiles(InternalArtifactType.LINT_JAR))
+                .getFinalArtifactFiles(InternalArtifactType.LINT_PUBLISH_JAR))
             if (artifacts.hasArtifact(InternalArtifactType.ANNOTATIONS_ZIP)) {
                 task.from(artifacts.getFinalArtifactFiles(InternalArtifactType.ANNOTATIONS_ZIP))
             }
@@ -150,7 +154,7 @@ open class BundleAar : Zip(), VariantAwareTask {
             )
             task.from(
                 variantScope.artifacts
-                    .getFinalArtifactFiles(InternalArtifactType.LIBRARY_ASSETS),
+                    .getFinalProduct<Directory>(InternalArtifactType.LIBRARY_ASSETS),
                 prependToCopyPath(SdkConstants.FD_ASSETS))
         }
 

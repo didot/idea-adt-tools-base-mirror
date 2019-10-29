@@ -21,7 +21,7 @@ import com.android.annotations.Nullable;
 import com.android.testutils.apk.Zip;
 import com.google.common.base.MoreObjects;
 import com.google.common.primitives.Bytes;
-import com.google.common.truth.FailureStrategy;
+import com.google.common.truth.FailureMetadata;
 import com.google.common.truth.IterableSubject;
 import com.google.common.truth.Subject;
 import java.io.Closeable;
@@ -31,14 +31,15 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /** Truth support for zip files. */
 @SuppressWarnings("NonBooleanMethodNameMayNotStartWithQuestion")
 public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
         extends Subject<S, T> implements Closeable {
 
-    public AbstractZipSubject(@NonNull FailureStrategy failureStrategy, @NonNull T subject) {
-        super(failureStrategy, subject);
+    public AbstractZipSubject(@NonNull FailureMetadata failureMetadata, @NonNull T subject) {
+        super(failureMetadata, subject);
     }
 
     /** Asserts the zip file contains a file with the specified path. */
@@ -60,8 +61,7 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
         exists();
 
         return check().that(
-                        getSubject()
-                                .getEntries(Pattern.compile(conformingTo))
+                        actual().getEntries(Pattern.compile(conformingTo))
                                 .stream()
                                 .map(Path::toString)
                                 .collect(Collectors.toList()));
@@ -72,8 +72,7 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
      *
      * <p>Content is trimmed when compared.
      */
-    public final void containsFileWithContent(@NonNull String path, @NonNull String content)
-            throws IOException {
+    public final void containsFileWithContent(@NonNull String path, @NonNull String content) {
         // validate file presence
         exists();
 
@@ -82,8 +81,7 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
                 .isEqualTo(content.trim());
     }
 
-    public final void containsFileWithMatch(@NonNull String path, @NonNull String pattern)
-            throws IOException {
+    public final void containsFileWithMatch(@NonNull String path, @NonNull String pattern) {
         // validate file presence
         exists();
 
@@ -91,14 +89,13 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
     }
 
     /** Asserts the zip file contains a file with the specified byte array content. */
-    public final void containsFileWithContent(@NonNull String path, @NonNull byte[] content)
-            throws IOException {
+    public final void containsFileWithContent(@NonNull String path, @NonNull byte[] content) {
         // validate file presence
         exists();
 
         String subjectName =
                 MoreObjects.firstNonNull(
-                        internalCustomName(), getSubject().getFile().getFileName().toString());
+                        internalCustomName(), actual().getFile().getFileName().toString());
 
         byte[] actual = extractContentAsBytes(path);
 
@@ -126,13 +123,33 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
     }
 
     public final void exists() {
-        if (!getSubject().exists()) {
-            fail("exists");
+        if (!actual().exists()) {
+            Path nearestParent = actual().getFile();
+            while (nearestParent != null && !Files.exists(nearestParent)) {
+                nearestParent = nearestParent.getParent();
+            }
+
+            StringBuilder failure = new StringBuilder("exists");
+            if (nearestParent != null) {
+                failure.append(" (Nearest ancestor that exists is ")
+                        .append(nearestParent)
+                        .append("\n");
+                try (Stream<Path> files = Files.list(nearestParent)) {
+                    files.forEach(
+                            path -> failure.append(" - ").append(path.getFileName()).append("\n"));
+                } catch (IOException e) {
+                    failure.append(e);
+                }
+                failure.append(")\n");
+            } else {
+                failure.append(" (no ancestor directories exist either)");
+            }
+            fail(failure.toString());
         }
     }
 
     public final void doesNotExist() {
-        if (getSubject().exists()) {
+        if (actual().exists()) {
             fail("does not exist");
         }
     }
@@ -140,16 +157,16 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
     @Override
     public final void close() {
         try {
-            getSubject().close();
+            actual().close();
         } catch (Exception e) {
-            failWithRawMessage("Exception while closing %1$s", getSubject());
+            failWithRawMessage("Exception while closing %1$s", actual());
         }
     }
 
     protected final String extractContentAsString(@NonNull String path) {
-        Path entry = getSubject().getEntry(path);
+        Path entry = actual().getEntry(path);
         if (entry == null) {
-            failWithRawMessage("Entry %s does not exist in zip %s.", path, getSubject().toString());
+            failWithRawMessage("Entry %s does not exist in zip %s.", path, actual().toString());
             return null;
         }
         try {
@@ -157,14 +174,14 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
         } catch (IOException e) {
             failWithRawMessage(
                     "IOException when extracting %1$s from zip %2$s: %3$s",
-                    path, getSubject(), e.toString());
+                    path, actual(), e.toString());
             return null;
         }
     }
 
     @Nullable
     protected final byte[] extractContentAsBytes(@NonNull String path) {
-        Path entry = getSubject().getEntry(path);
+        Path entry = actual().getEntry(path);
         if (entry == null) {
             failWithRawMessage("Entry " + path + " does not exist.");
             return null;
@@ -174,7 +191,7 @@ public abstract class AbstractZipSubject<S extends Subject<S, T>, T extends Zip>
         } catch (IOException e) {
             failWithRawMessage(
                     "IOException when extracting %1$s from zip %2$s: %3$s",
-                    path, getSubject(), e.toString());
+                    path, actual(), e.toString());
             return null;
         }
     }

@@ -28,7 +28,7 @@ sourceSets {
 
 javadoc {
   classpath += configurations.provided
-  options.links("https://docs.oracle.com/javase/8/docs/api/", "https://docs.gradle.org/current/javadoc/")
+  options.links("http://docs.oracle.com/javase/8/docs/api/", "https://docs.gradle.org/current/javadoc/")
 }
 
 task javadocZip(type: Zip) {

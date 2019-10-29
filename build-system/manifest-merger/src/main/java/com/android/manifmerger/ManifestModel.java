@@ -39,15 +39,30 @@ import org.w3c.dom.Element;
 
 /**
  * Model for the manifest file merging activities.
- * <p>
  *
- * This model will describe each element that is eligible for merging and associated merging
- * policies. It is not reusable as most of its interfaces are private but a future enhancement
- * could easily make this more generic/reusable if we need to merge more than manifest files.
- *
+ * <p>This model will describe each element that is eligible for merging and associated merging
+ * policies. It is not reusable as most of its interfaces are private but a future enhancement could
+ * easily make this more generic/reusable if we need to merge more than manifest files.
  */
 @Immutable
-class ManifestModel {
+public class ManifestModel implements DocumentModel<ManifestModel.NodeTypes> {
+
+    private final boolean autoReject;
+
+    /** Creates a DocumentModel to be used for merging Android manifest documents */
+    public ManifestModel() {
+        this(false);
+    }
+
+    /**
+     * Creates a DocumentModel to be used for merging Android manifest documents
+     *
+     * @param autoReject specifies whether model can ignore conflicts in attribute values when
+     *     merging manifest documents and simply reject value from the lower priority document
+     */
+    public ManifestModel(boolean autoReject) {
+        this.autoReject = autoReject;
+    }
 
     /**
      * Implementation of {@link NodeKeyResolver} that do not provide any key (the element has to be
@@ -283,10 +298,11 @@ class ManifestModel {
                                         return false;
                                     }
 
-                                    @NonNull
                                     @Override
-                                    public EnumSet<Type> getMergeableLowerPriorityTypes() {
-                                        return EnumSet.of(Type.MAIN, Type.OVERLAY);
+                                    public boolean canMergeWithLowerPriority(
+                                            @NonNull XmlDocument document) {
+                                        return EnumSet.of(Type.MAIN, Type.OVERLAY)
+                                                .contains(document.getFileType());
                                     }
 
                                     @Nullable
@@ -676,43 +692,6 @@ class ManifestModel {
             return null;
         }
 
-        /**
-         * Returns the Xml name for this node type
-         */
-        String toXmlName() {
-            return SdkUtils.constantNameToXmlName(this.name());
-        }
-
-        /**
-         * Returns the {@link NodeTypes} instance from an xml element name (without namespace
-         * decoration). For instance, an xml element
-         * <pre>
-         *     {@code
-         *     <activity android:name="foo">
-         *         ...
-         *     </activity>}
-         * </pre>
-         * has a xml simple name of "activity" which will resolve to {@link NodeTypes#ACTIVITY} value.
-         *
-         * Note : a runtime exception will be generated if no mapping from the simple name to a
-         * {@link com.android.manifmerger.ManifestModel.NodeTypes} exists.
-         *
-         * @param xmlSimpleName the xml (lower-hyphen separated words) simple name.
-         * @return the {@link NodeTypes} associated with that element name.
-         */
-        static NodeTypes fromXmlSimpleName(String xmlSimpleName) {
-            String constantName = SdkUtils.xmlNameToConstantName(xmlSimpleName);
-
-            try {
-                return NodeTypes.valueOf(constantName);
-            } catch (IllegalArgumentException e) {
-                // if this element name is not a known tag, we categorize it as 'custom' which will
-                // be simply merged. It will prevent us from catching simple spelling mistakes but
-                // extensibility is a must have feature.
-                return NodeTypes.CUSTOM;
-            }
-        }
-
         MergeType getMergeType() {
             return mMergeType;
         }
@@ -726,13 +705,54 @@ class ManifestModel {
         }
 
         /**
-         * Returns an XmlDocument.Type EnumSet which contains the types of lower priority
-         * XmlDocuments this node can be merged from.
+         * Returns if XmlElement with this NodeTypes can be merged from lower priority XmlElement
          */
-        @NonNull
-        EnumSet<XmlDocument.Type> getMergeableLowerPriorityTypes() {
-            return mMergeableLowerPriorityTypes;
+        boolean canMergeWithLowerPriority(@NonNull XmlElement xmlElement) {
+            return mMergeableLowerPriorityTypes.contains(xmlElement.getDocument().getFileType());
         }
 
+    }
+
+    /** Returns the Xml name for this node type */
+    @Override
+    public String toXmlName(@NonNull NodeTypes type) {
+        return SdkUtils.constantNameToXmlName(type.name());
+    }
+
+    /**
+     * Returns the {@link NodeTypes} instance from an xml element name (without namespace
+     * decoration). For instance, an xml element
+     *
+     * <pre>{@code
+     * <activity android:name="foo">
+     *     ...
+     * </activity>
+     * }</pre>
+     *
+     * has a xml simple name of "activity" which will resolve to {@link NodeTypes#ACTIVITY} value.
+     *
+     * <p>Note : a runtime exception will be generated if no mapping from the simple name to a
+     * {@link com.android.manifmerger.ManifestModel.NodeTypes} exists.
+     *
+     * @param xmlSimpleName the xml (lower-hyphen separated words) simple name.
+     * @return the {@link NodeTypes} associated with that element name.
+     */
+    @Override
+    public NodeTypes fromXmlSimpleName(String xmlSimpleName) {
+        String constantName = SdkUtils.xmlNameToConstantName(xmlSimpleName);
+
+        try {
+            return NodeTypes.valueOf(constantName);
+        } catch (IllegalArgumentException e) {
+            // if this element name is not a known tag, we categorize it as 'custom' which will
+            // be simply merged. It will prevent us from catching simple spelling mistakes but
+            // extensibility is a must have feature.
+            return NodeTypes.CUSTOM;
+        }
+    }
+
+    @Override
+    public boolean autoRejectConflicts() {
+        return autoReject;
     }
 }

@@ -15,6 +15,8 @@
  */
 package com.android.ide.common.vectordrawable;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.ide.common.util.GeneratorTester;
@@ -27,7 +29,6 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
@@ -51,11 +52,25 @@ public class VectorDrawableGeneratorTest extends TestCase {
         XML
     }
 
-    private void checkVectorConversion(
+    /** Checks conversion and returns contents of the error log. */
+    @Nullable
+    private String checkVectorConversion(
             @NonNull String testFileName,
             @NonNull FileType type,
             boolean dumpXml,
             @Nullable String expectedError)
+            throws Exception {
+        return checkVectorConversion(testFileName, type, dumpXml, expectedError, IMAGE_SIZE);
+    }
+
+    /** Checks conversion and returns contents of the error log. */
+    @Nullable
+    private String checkVectorConversion(
+            @NonNull String testFileName,
+            @NonNull FileType type,
+            boolean dumpXml,
+            @Nullable String expectedError,
+            int imageSize)
             throws Exception {
         String incomingFileName;
         if (type == FileType.SVG) {
@@ -70,21 +85,25 @@ public class VectorDrawableGeneratorTest extends TestCase {
 
         File incomingFile = new File(parentDirFile, incomingFileName);
         String xmlContent;
+        String errorLog = null;
         if (type == FileType.SVG) {
             OutputStream outStream = new ByteArrayOutputStream();
-            String errorLog = Svg2Vector.parseSvgToXml(incomingFile, outStream);
+            errorLog = Svg2Vector.parseSvgToXml(incomingFile, outStream);
             if (expectedError != null) {
                 assertNotNull(errorLog);
                 assertFalse(errorLog.isEmpty());
                 assertTrue(errorLog.contains(expectedError));
             }
             xmlContent = outStream.toString();
-            if (xmlContent == null || xmlContent.isEmpty()) {
-                fail("Empty Xml file.");
+            if (xmlContent.isEmpty()) {
+                if (expectedError == null) {
+                    fail("Empty XML file.");
+                }
+                return errorLog;
             }
             if (dumpXml) {
                 File tempXmlFile = new File(parentDirFile, imageName + ".xml");
-                try (PrintWriter writer = new PrintWriter(tempXmlFile)) {
+                try (PrintWriter writer = new PrintWriter(tempXmlFile, UTF_8.name())) {
                     writer.println(xmlContent);
                 }
             }
@@ -92,11 +111,11 @@ public class VectorDrawableGeneratorTest extends TestCase {
                 fail("Invalid VectorDrawable produced");
             }
         } else {
-            xmlContent = Files.asCharSource(incomingFile, StandardCharsets.UTF_8).read();
+            xmlContent = Files.asCharSource(incomingFile, UTF_8).read();
         }
 
         VdPreview.TargetSize imageTargetSize =
-                VdPreview.TargetSize.createFromMaxDimension(IMAGE_SIZE);
+                VdPreview.TargetSize.createFromMaxDimension(imageSize);
         StringBuilder builder = new StringBuilder();
         BufferedImage image =
                 VdPreview.getPreviewFromVectorXml(imageTargetSize, xmlContent, builder);
@@ -119,10 +138,14 @@ public class VectorDrawableGeneratorTest extends TestCase {
             GeneratorTester.assertImageSimilar(
                     imageNameWithParent, goldenImage, image, DIFF_THRESHOLD_PERCENT);
         }
+
+        return errorLog;
     }
 
-    private void checkSvgConversion(@NonNull String filename) throws Exception {
-        checkVectorConversion(filename, FileType.SVG, false, null);
+    /** Checks SVG conversion and returns contents of the error log. */
+    @Nullable
+    private String checkSvgConversion(@NonNull String filename) throws Exception {
+        return checkVectorConversion(filename, FileType.SVG, false, null);
     }
 
     private void checkXmlConversion(@NonNull String filename) throws Exception {
@@ -130,13 +153,15 @@ public class VectorDrawableGeneratorTest extends TestCase {
     }
 
     private void checkSvgConversionAndContainsError(
-            @NonNull String filename, @Nullable String errorLog) throws Exception {
-        checkVectorConversion(filename, FileType.SVG, false, errorLog);
+            @NonNull String filename, @Nullable String expectedError) throws Exception {
+        checkVectorConversion(filename, FileType.SVG, false, expectedError);
     }
 
+    /** Checks SVG conversion and returns contents of the error log. */
     @SuppressWarnings("unused") // Method intended for debugging.
-    private void checkSvgConversionDebug(@NonNull String filename) throws Exception {
-        checkVectorConversion(filename, FileType.SVG, true, null);
+    @Nullable
+    private String checkSvgConversionDebug(@NonNull String filename) throws Exception {
+        return checkVectorConversion(filename, FileType.SVG, true, null);
     }
 
     //////////////////////////////////////////////////////////
@@ -433,11 +458,19 @@ public class VectorDrawableGeneratorTest extends TestCase {
         checkSvgConversion("test_transform_ellipse_complex");
     }
 
-    public void testSvgMoveAfterCloseTransform() throws Exception {
-        checkSvgConversion("test_move_after_close");
+    public void testSvgMoveAfterClose1() throws Exception {
+        checkSvgConversion("test_move_after_close1");
     }
 
-    public void testSvgMoveAfterClose() throws Exception {
+    public void testSvgMoveAfterClose2() throws Exception {
+        checkSvgConversion("test_move_after_close2");
+    }
+
+    public void testSvgMoveAfterClose3() throws Exception {
+        checkSvgConversion("test_move_after_close3");
+    }
+
+    public void testSvgMoveAfterCloseTransform() throws Exception {
         checkSvgConversion("test_move_after_close_transform");
     }
 
@@ -497,6 +530,29 @@ public class VectorDrawableGeneratorTest extends TestCase {
         checkSvgConversion("test_defs_use_use_first");
     }
 
+    public void testSvgDefsUseIndirect() throws Exception {
+        checkSvgConversion("test_defs_use_chain");
+    }
+
+    public void testSvgDefsUseCircularDependency() throws Exception {
+        checkSvgConversionAndContainsError(
+                "test_defs_use_circular_dependency",
+                "ERROR @ line 6: Circular dependency of <use> nodes: hhh -> hhh\n" +
+                "ERROR @ line 9: Circular dependency of <use> nodes: ccc -> ddd (line 11) -> eee (line 10) -> ccc\n" +
+                "ERROR @ line 12: Circular dependency of <use> nodes: ggg -> fff (line 8) -> ggg");
+    }
+
+    public void testSvgUnsupportedElement() throws Exception {
+        String errors = checkSvgConversion("test_unsupported_element");
+        assertEquals(
+                "In test_unsupported_element.svg:\n" + "ERROR @ line 4: <text> is not supported",
+                errors);
+    }
+
+    public void testSvgImageOnly() throws Exception {
+        checkSvgConversionAndContainsError("test_image_only", "ERROR: No vector content found");
+    }
+
     // Clip Path Tests
     public void testSvgClipPathGroup() throws Exception {
         checkSvgConversion("test_clip_path_group");
@@ -506,8 +562,12 @@ public class VectorDrawableGeneratorTest extends TestCase {
         checkSvgConversion("test_clip_path_group_2");
     }
 
+    public void testSvgClipPathTranslateChildren() throws Exception {
+        checkSvgConversion("test_clip_path_translate_children");
+    }
+
     public void testSvgClipPathTranslateAffected() throws Exception {
-        checkSvgConversion("test_clip_path_group_translate");
+        checkSvgConversion("test_clip_path_translate_affected");
     }
 
     public void testSvgClipPathIsGroup() throws Exception {
@@ -536,6 +596,19 @@ public class VectorDrawableGeneratorTest extends TestCase {
 
     public void testSvgClipPathSinglePath() throws Exception {
         checkSvgConversion("test_clip_path_path_over_rect");
+    }
+
+    public void testSvgClipPathOrdering() throws Exception {
+        checkSvgConversion("test_clip_path_ordering");
+    }
+
+    public void testSvgMask() throws Exception {
+        checkSvgConversion("test_mask");
+    }
+
+    public void testSvgMaskUnsupported() throws Exception {
+        checkVectorConversion("test_mask_unsupported", FileType.SVG, false,
+                              "Semitransparent mask cannot be represented by a vector drawable");
     }
 
     // Style tests start here
@@ -880,6 +953,10 @@ public class VectorDrawableGeneratorTest extends TestCase {
         }
     }
 
+    public void testClipPathOrder() throws Exception {
+        checkSvgConversion("ic_clip_path_ordering");
+    }
+
     // XML files start here.
     public void testXmlIconSizeOpacity() throws Exception {
         checkXmlConversion("ic_size_opacity");
@@ -982,5 +1059,9 @@ public class VectorDrawableGeneratorTest extends TestCase {
      */
     public void testPathDataInStringToolsResource() throws Exception {
         checkXmlConversion("test_pathData_in_string_tools_resource");
+    }
+
+    public void testSmallVectorWithTint() throws Exception {
+        checkVectorConversion("test_small_image_with_tint", FileType.XML, false, null, 16);
     }
 }

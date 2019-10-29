@@ -61,7 +61,7 @@ class DataBindingMultiModuleTest(useAndroidX: Boolean) {
         newBindable
             .writeText(
                 """
-                package android.databinding.multimodule.inherited.NewBindable;
+                package android.databinding.multimodule.inherited;
                 import $bindingPkg.Bindable;
                 import $bindingPkg.BaseObservable;
                 public class NewBindable extends BaseObservable {
@@ -106,7 +106,7 @@ class DataBindingMultiModuleTest(useAndroidX: Boolean) {
         val result2 = project.executor().expectFailure().run("assembleRelease")
         MatcherAssert.assertThat(
             result2.failureMessage ?: "",
-            CoreMatchers.containsString("Cannot find the setter for attribute 'app:customSetText'")
+            CoreMatchers.containsString("Cannot find a setter for <android.widget.TextView app:customSetText> that accepts parameter type 'java.lang.String'")
         )
     }
 

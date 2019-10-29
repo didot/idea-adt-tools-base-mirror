@@ -19,16 +19,17 @@ package com.android.build.gradle.internal.cxx.configure
 import com.android.SdkConstants
 import com.android.SdkConstants.FD_CMAKE
 import com.android.build.gradle.external.cmake.CmakeUtils
-import com.android.build.gradle.internal.SdkHandler
-import com.android.builder.errors.EvalIssueException
-import com.android.builder.errors.EvalIssueReporter
+import com.android.build.gradle.internal.cxx.logging.ThreadLoggingEnvironment
+import com.android.build.gradle.internal.cxx.logging.infoln
+import com.android.build.gradle.internal.cxx.logging.warnln
+import com.android.build.gradle.internal.cxx.logging.errorln
 import com.android.repository.Revision
 import com.android.repository.api.LocalPackage
 import com.android.sdklib.repository.AndroidSdkHandler
 import com.android.sdklib.repository.LoggerProgressIndicatorWrapper
-import com.android.utils.ILogger
 import java.io.File
 import java.io.IOException
+import java.util.function.Consumer
 
 /**
  * This is the logic for locating CMake needed for gradle build. This logic searches for CMake in
@@ -137,11 +138,7 @@ private val newline = System.lineSeparator()
  * Accumulated information about that is common to all search methodologies.
  */
 private class CmakeSearchContext(
-    val cmakeVersionFromDsl: String?,
-    error: (String) -> Unit,
-    val warn: (String) -> Unit,
-    val info: (String) -> Unit
-) {
+    val cmakeVersionFromDsl: String?) {
     var resultCmakeInstallFolder: File? = null
     var resultCmakeVersion: Revision? = null
 
@@ -158,7 +155,7 @@ private class CmakeSearchContext(
         if (firstError == null) {
             firstError = message
         }
-        error(message)
+        errorln(message)
     }
 
     private fun cmakeVersionFromDslNoPlus(): String? {
@@ -216,7 +213,7 @@ private class CmakeSearchContext(
         when {
             resultCmakeVersion == null -> {
                 // There was no prior match so this one is automatically taken
-                info(
+                infoln(
                     "- CMake found $locationTag at '$candidateCmakeInstallFolder' had " +
                             "version '$candidateVersion'"
                 )
@@ -224,7 +221,7 @@ private class CmakeSearchContext(
                 resultCmakeInstallFolder = candidateCmakeInstallFolder
             }
             candidateVersion > resultCmakeVersion!! -> {
-                info(
+                infoln(
                     "- CMake found $locationTag at '$candidateCmakeInstallFolder' had " +
                             "version '$candidateVersion' and replaces version '$resultCmakeVersion' " +
                             "found earlier"
@@ -232,7 +229,7 @@ private class CmakeSearchContext(
                 resultCmakeVersion = candidateVersion
                 resultCmakeInstallFolder = candidateCmakeInstallFolder
             }
-            else -> info(
+            else -> infoln(
                 "- CMake found and skipped $locationTag '$candidateCmakeInstallFolder' which had " +
                         "version '$candidateVersion' which was lower than or equal to a " +
                         "version found earlier."
@@ -246,7 +243,7 @@ private class CmakeSearchContext(
      * available.
      */
     fun recordUnsuitableCmakeMessage(message: String) {
-        info(message)
+        infoln(message)
         unsuitableCmakeReasons += "- $message"
     }
 
@@ -257,7 +254,7 @@ private class CmakeSearchContext(
     internal fun useDefaultCmakeVersionIfNecessary(): CmakeSearchContext {
         val cmakeVersionFromDslNoPlus = cmakeVersionFromDslNoPlus()
         requestedCmakeVersion = if (cmakeVersionFromDslNoPlus == null) {
-            info("No CMake version was specified in build.gradle. Choosing a suitable version.")
+            infoln("No CMake version was specified in build.gradle. Choosing a suitable version.")
             forkCmakeReportedVersion
         } else {
             try {
@@ -319,7 +316,7 @@ private class CmakeSearchContext(
         }
 
         if (cmakeVersionFromDsl == null) {
-            info("- Found CMake '$version' via cmake.dir='$pathFromLocalProperties'.")
+            infoln("- Found CMake '$version' via cmake.dir='$pathFromLocalProperties'.")
             resultCmakeInstallFolder = pathFromLocalProperties
             resultCmakeVersion = version
         } else {
@@ -339,13 +336,13 @@ private class CmakeSearchContext(
      * Search within the already-download SDK packages.
      */
     internal fun tryLocalRepositoryPackages(
-        downloader: (String) -> Unit,
+        downloader: Consumer<String>,
         repositoryPackages: () -> List<LocalPackage>
     ): CmakeSearchContext {
         if (resultCmakeInstallFolder != null) {
             return this
         }
-        info("Trying to locate CMake in local SDK repository.")
+        infoln("Trying to locate CMake in local SDK repository.")
 
         // Iterate over the local packages and to identify the best match.
         repositoryPackages().onEach { pkg ->
@@ -362,8 +359,8 @@ private class CmakeSearchContext(
         // Cmake was not found in local packages. If the user asked the fork Cmake version, auto-download it.
         if (versionEquals(requestedCmakeVersion, forkCmakeReportedVersion)) {
             // The version is exactly the default version. Download it if possible.
-            info("- Downloading '$forkCmakeSdkVersionRevision'.")
-            downloader(FORK_CMAKE_SDK_VERSION)
+            infoln("- Downloading '$forkCmakeSdkVersionRevision'.")
+            downloader.accept(FORK_CMAKE_SDK_VERSION)
 
             val res = repositoryPackages().find { versionEquals(it.version, forkCmakeSdkVersionRevision) }
             if (res != null) {
@@ -406,7 +403,7 @@ private class CmakeSearchContext(
         if (resultCmakeInstallFolder != null) {
             return this
         }
-        info("Trying to locate CMake $tag.")
+        infoln("Trying to locate CMake $tag.")
         var found = false
         for (cmakeFolder in environmentPaths()) {
             try {
@@ -414,7 +411,7 @@ private class CmakeSearchContext(
                 if (found) {
                     // Found a cmake.exe later in the path. Irrespective of whether it is a better match, or a total mismatch,
                     // we ignore it but issue a message.
-                    info(
+                    infoln(
                         "- CMake $version was found $tag at $cmakeFolder after" +
                                 " another version. Ignoring it."
                     )
@@ -427,7 +424,7 @@ private class CmakeSearchContext(
                     found = true
                 }
             } catch (e: IOException) {
-                warn("Could not execute cmake at '$cmakeFolder' to get version. Skipping.")
+                warnln("Could not execute cmake at '$cmakeFolder' to get version. Skipping.")
             }
         }
         return this
@@ -497,20 +494,13 @@ private fun getCanarySdkPaths(sdkRoot : File?) : List<File> {
 }
 
 private fun getSdkCmakePackages(
-    sdkHandler: SdkHandler,
-    logger: ILogger
+    sdkFolder: File?
 ): List<LocalPackage> {
-    val androidSdkHandler = AndroidSdkHandler.getInstance(sdkHandler.sdkFolder)
-    val sdkManager = androidSdkHandler.getSdkManager(LoggerProgressIndicatorWrapper(logger))
+    val androidSdkHandler = AndroidSdkHandler.getInstance(sdkFolder)
+    val sdkManager = androidSdkHandler.getSdkManager(
+        LoggerProgressIndicatorWrapper(ThreadLoggingEnvironment.getILogger()))
     val packages = sdkManager.packages
     return packages.getLocalPackagesForPrefix(FD_CMAKE).toList()
-}
-
-private fun errorReporter(issueReporter: EvalIssueReporter, message: String, variantName: String) {
-    issueReporter.reportError(
-        EvalIssueReporter.Type.EXTERNAL_NATIVE_BUILD_CONFIGURATION,
-        EvalIssueException(message, variantName)
-    )
 }
 
 private fun getCmakeRevisionFromExecutable(cmakeFolder: File): Revision? {
@@ -529,17 +519,7 @@ private fun getCmakeRevisionFromExecutable(cmakeFolder: File): Revision? {
     return CmakeUtils.getVersion(cmakeFolder)
 }
 
-private fun warningReporter(
-    issueReporter: EvalIssueReporter,
-    message: String,
-    variantName: String
-) {
-    issueReporter.reportWarning(
-        EvalIssueReporter.Type.EXTERNAL_NATIVE_BUILD_CONFIGURATION,
-        message,
-        variantName
-    )
-}
+
 
 /**
  * This is the correct find-path logic that has callback for external dependencies like errors,
@@ -548,19 +528,13 @@ private fun warningReporter(
 fun findCmakePathLogic(
     cmakeVersionFromDsl: String?,
     cmakePathFromLocalProperties: File?,
-    error: (String) -> Unit,
-    warn: (String) -> Unit,
-    info: (String) -> Unit,
-    downloader: (String) -> Unit,
+    downloader: Consumer<String>,
     environmentPaths: () -> List<File>,
     canarySdkPaths: () -> List<File>,
     cmakeVersion: (File) -> Revision?,
     repositoryPackages: () -> List<LocalPackage>
 ): File? {
-    return CmakeSearchContext(cmakeVersionFromDsl,
-        { message -> error(message) },
-        { message -> warn(message) },
-        { message -> info(message) })
+    return CmakeSearchContext(cmakeVersionFromDsl)
         .useDefaultCmakeVersionIfNecessary()
         .checkForCmakeVersionTooLow()
         .checkForCmakeVersionAdequatePrecision()
@@ -577,22 +551,19 @@ fun findCmakePathLogic(
  * cmakeVersionFromDsl is the, possibly null, CMake version from the user's build.gradle.
  *   If it is null then a default version will be chosen.
  */
-fun findCmakePath(
-    cmakeVersionFromDsl: String?,
-    sdkHandler: SdkHandler,
-    variantName: String,
-    issueReporter: EvalIssueReporter,
-    logger: ILogger
-): File? {
-    return findCmakePathLogic(
-        cmakeVersionFromDsl,
-        sdkHandler.cmakePathInLocalProp,
-        { message -> errorReporter(issueReporter, message, variantName) },
-        { message -> warningReporter(issueReporter, message, variantName) },
-        { message -> logger.info(message) },
-        { version -> sdkHandler.installCMake(version) },
-        { getEnvironmentPaths() },
-        { getCanarySdkPaths(sdkHandler.sdkFolder) },
-        { folder -> getCmakeRevisionFromExecutable(folder) },
-        { getSdkCmakePackages(sdkHandler, logger) })
+class CmakeLocator {
+    fun findCmakePath(
+        cmakeVersionFromDsl: String?,
+        cmakeFile: File?,
+        sdkFolder: File?,
+        downloader: Consumer<String>): File? {
+        return findCmakePathLogic(
+            cmakeVersionFromDsl,
+            cmakeFile,
+            downloader,
+            { getEnvironmentPaths() },
+            { getCanarySdkPaths(sdkFolder) },
+            { folder -> getCmakeRevisionFromExecutable(folder) },
+            { getSdkCmakePackages(sdkFolder) })
+    }
 }

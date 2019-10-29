@@ -65,6 +65,7 @@ public class LintFixVerifier {
     private final List<Warning> warnings;
     private int diffWindow = 0;
     private Boolean reformat;
+    private boolean robot = false;
 
     LintFixVerifier(TestLintTask task, List<Warning> warnings) {
         this.task = task;
@@ -74,6 +75,15 @@ public class LintFixVerifier {
     /** Sets up 2 lines of context in the diffs */
     public LintFixVerifier window() {
         diffWindow = 2;
+        return this;
+    }
+
+    /**
+     * Specifies whether a robot is driving the quickfixes (which means it will only allow
+     * auto-fixable lint fixes. Default is false.
+     */
+    public LintFixVerifier robot(boolean isRobot) {
+        robot = isRobot;
         return this;
     }
 
@@ -175,6 +185,10 @@ public class LintFixVerifier {
         List<String> names = Lists.newArrayList();
         for (Warning warning : warnings) {
             LintFix data = warning.quickfixData;
+            if (robot && !data.robot) {
+                // Fix requires human intervention
+                continue;
+            }
             List<LintFix> list;
             if (data instanceof LintFixGroup) {
                 LintFixGroup group = (LintFixGroup) data;
@@ -503,7 +517,37 @@ public class LintFixVerifier {
             }
         }
 
-        return contents.substring(0, startOffset) + replacement + contents.substring(endOffset);
+        String s = contents.substring(0, startOffset) + replacement + contents.substring(endOffset);
+
+        // Insert selection/caret markers if configured for this fix
+        if (replaceFix.selectPattern != null) {
+            Pattern pattern = Pattern.compile(replaceFix.selectPattern);
+            Matcher matcher = pattern.matcher(s);
+            if (matcher.find(start.getOffset())) {
+                int selectStart;
+                int selectEnd;
+                if (matcher.groupCount() > 0) {
+                    selectStart = matcher.start(1);
+                    selectEnd = matcher.end(1);
+                } else {
+                    selectStart = matcher.start();
+                    selectEnd = matcher.end();
+                }
+                if (selectStart == selectEnd) {
+                    s = s.substring(0, selectStart) + "|" + s.substring(selectEnd);
+
+                } else {
+                    s =
+                            s.substring(0, selectStart)
+                                    + "["
+                                    + s.substring(selectStart, selectEnd)
+                                    + "]"
+                                    + s.substring(selectEnd);
+                }
+            }
+        }
+
+        return s;
     }
 
     private void appendDiff(

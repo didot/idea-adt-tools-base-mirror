@@ -16,132 +16,209 @@
 
 package com.android.tools.deployer;
 
-import com.android.annotations.NonNull;
 import com.android.ddmlib.*;
-
-import java.io.ByteArrayInputStream;
+import com.android.sdklib.AndroidVersion;
+import com.android.tools.tracer.Trace;
+import com.android.utils.ILogger;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.io.InputStream;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 public class AdbClient {
-    private IDevice device;
+    private final IDevice device;
+    private final ILogger logger;
 
-    public AdbClient(IDevice device) {
+    public AdbClient(IDevice device, ILogger logger) {
         this.device = device;
+        this.logger = logger;
     }
 
-    public void shell(String[] parameters) throws DeployerException {
-        try {
-            device.executeShellCommand(String.join(" ", parameters), new NullOutputReceiver());
-        } catch (Exception e) {
-            throw new DeployerException("Unable to run shell command.", e);
+    enum InstallStatus {
+        OK,
+
+        // From PackageManager#installStatusToString
+        INSTALL_FAILED_ALREADY_EXISTS,
+        INSTALL_FAILED_INVALID_APK,
+        INSTALL_FAILED_INVALID_URI,
+        INSTALL_FAILED_INSUFFICIENT_STORAGE,
+        INSTALL_FAILED_DUPLICATE_PACKAGE,
+        INSTALL_FAILED_NO_SHARED_USER,
+        INSTALL_FAILED_UPDATE_INCOMPATIBLE,
+        INSTALL_FAILED_SHARED_USER_INCOMPATIBLE,
+        INSTALL_FAILED_MISSING_SHARED_LIBRARY,
+        INSTALL_FAILED_REPLACE_COULDNT_DELETE,
+        INSTALL_FAILED_DEXOPT,
+        INSTALL_FAILED_OLDER_SDK,
+        INSTALL_FAILED_CONFLICTING_PROVIDER,
+        INSTALL_FAILED_NEWER_SDK,
+        INSTALL_FAILED_TEST_ONLY,
+        INSTALL_FAILED_CPU_ABI_INCOMPATIBLE,
+        INSTALL_FAILED_MISSING_FEATURE,
+        INSTALL_FAILED_CONTAINER_ERROR,
+        INSTALL_FAILED_INVALID_INSTALL_LOCATION,
+        INSTALL_FAILED_MEDIA_UNAVAILABLE,
+        INSTALL_FAILED_VERIFICATION_TIMEOUT,
+        INSTALL_FAILED_VERIFICATION_FAILURE,
+        INSTALL_FAILED_PACKAGE_CHANGED,
+        INSTALL_FAILED_UID_CHANGED,
+        INSTALL_FAILED_VERSION_DOWNGRADE,
+        INSTALL_PARSE_FAILED_NOT_APK,
+        INSTALL_PARSE_FAILED_BAD_MANIFEST,
+        INSTALL_PARSE_FAILED_UNEXPECTED_EXCEPTION,
+        INSTALL_PARSE_FAILED_NO_CERTIFICATES,
+        INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES,
+        INSTALL_PARSE_FAILED_CERTIFICATE_ENCODING,
+        INSTALL_PARSE_FAILED_BAD_PACKAGE_NAME,
+        INSTALL_PARSE_FAILED_BAD_SHARED_USER_ID,
+        INSTALL_PARSE_FAILED_MANIFEST_MALFORMED,
+        INSTALL_PARSE_FAILED_MANIFEST_EMPTY,
+        INSTALL_FAILED_INTERNAL_ERROR,
+        INSTALL_FAILED_USER_RESTRICTED,
+        INSTALL_FAILED_DUPLICATE_PERMISSION,
+        INSTALL_FAILED_NO_MATCHING_ABIS,
+        INSTALL_FAILED_ABORTED,
+        INSTALL_FAILED_BAD_DEX_METADATA,
+        INSTALL_FAILED_MISSING_SPLIT,
+        INSTALL_FAILED_BAD_SIGNATURE,
+        INSTALL_FAILED_WRONG_INSTALLED_VERSION,
+
+        DEVICE_NOT_RESPONDING,
+        INCONSISTENT_CERTIFICATES,
+        NO_CERTIFICATE,
+        DEVICE_NOT_FOUND,
+        SHELL_UNRESPONSIVE,
+        MULTI_APKS_NO_SUPPORTED_BELOW21,
+        UNKNOWN_ERROR,
+        SKIPPED_INSTALL, // no changes.
+        ;
+    }
+
+    static class InstallResult {
+        public final InstallStatus status;
+        public final String reason;
+        public final InstallMetrics metrics;
+
+        InstallResult(InstallStatus status) {
+            this.status = status;
+            reason = null;
+            metrics = null;
         }
+
+        InstallResult(InstallStatus status, String reason, InstallMetrics metrics) {
+            this.status = status;
+            this.reason = reason;
+            this.metrics = metrics;
+        }
+    }
+
+    /** Executes the given command with no stdin and returns stdout as a byte[] */
+    public byte[] shell(String[] parameters) throws IOException {
+        return shell(parameters, null);
     }
 
     /**
      * Executes the given command and sends {@code input} to stdin and returns stdout as a byte[]
      */
-    public byte[] shell(String[] parameters, byte[] input) throws DeployerException {
-        System.out.println("SHELL:" + Arrays.toString(parameters));
-        ByteArrayOutputReceiver receiver = null;
-        try {
+    public byte[] shell(String[] parameters, InputStream input) throws IOException {
+        ByteArrayOutputReceiver receiver;
+        try (Trace ignored = Trace.begin("adb shell" + Arrays.toString(parameters))) {
             receiver = new ByteArrayOutputReceiver();
             device.executeShellCommand(
-                    String.join(" ", parameters),
-                    receiver,
-                    DdmPreferences.getTimeOut(),
-                    TimeUnit.MILLISECONDS,
-                    input == null ? null : new ByteArrayInputStream(input));
+                    String.join(" ", parameters), receiver, 5, TimeUnit.MINUTES, input);
             return receiver.toByteArray();
         } catch (AdbCommandRejectedException
                 | ShellCommandUnresponsiveException
-                | IOException
                 | TimeoutException e) {
-            throw new DeployerException("Unable to run shell command", e);
-        } finally {
-            // TODO: Delete this once we gather all stdout and stderr in a proto.
-            // For now this is mandatory to properly troubleshot.
-            System.out.println("OUTPUT_START:");
-            System.out.println(new String(receiver.toByteArray(), StandardCharsets.UTF_8));
-            System.out.println("OUTPUT_END:");
-
+            throw new IOException(e);
         }
     }
 
-    public void pull(String srcDirectory, String dstDirectory) throws DeployerException {
-        try {
-            // TODO: Move to a protobuf stdout:
-            // Pulling a directory is super slow and hacky with ddmlib, which effectively
-            // does this:
-            List<String> files = new ArrayList<>();
-            device.executeShellCommand(
-                    "ls -A1 " + srcDirectory,
-                    new MultiLineReceiver() {
-                        @Override
-                        public void processNewLines(@NonNull String[] lines) {
-                            for (String line : lines) {
-                                if (!line.trim().isEmpty()) {
-                                    files.add(line.trim());
-                                }
-                            }
-                        }
-
-                        @Override
-                        public boolean isCancelled() {
-                            return false;
-                        }
-                    });
-            String dirName = new File(srcDirectory).getName();
-            File dstDir = new File(dstDirectory, dirName);
-            dstDir.mkdirs();
-            for (String file : files) {
-                device.pullFile(srcDirectory + "/" + file, dstDir.getPath() + "/" + file);
-            }
+    /**
+     * Executes the given Binder command and sends {@code input} to stdin and returns stdout as a
+     * byte[]
+     */
+    public byte[] binder(String[] parameters, InputStream input) throws IOException {
+        logger.info("BINDER: " + String.join(" ", parameters));
+        ByteArrayOutputReceiver receiver;
+        try (Trace ignored = Trace.begin("binder" + Arrays.toString(parameters))) {
+            receiver = new ByteArrayOutputReceiver();
+            device.executeBinderCommand(parameters, receiver, 5, TimeUnit.MINUTES, input);
+            return receiver.toByteArray();
         } catch (AdbCommandRejectedException
                 | ShellCommandUnresponsiveException
-                | IOException
-                | SyncException
                 | TimeoutException e) {
-            throw new DeployerException("Unable to pull files.", e);
+            throw new IOException(e);
         }
     }
 
-    public void installMultiple(List<ApkFull> apks, boolean kill) throws DeployerException {
-        List<File> files = new ArrayList<>();
-        for (ApkFull apk : apks) {
-            files.add(new File(apk.getPath()));
-        }
+    public InstallResult install(List<String> apks, List<String> options, boolean reinstall) {
+        List<File> files = apks.stream().map(File::new).collect(Collectors.toList());
         try {
-            List<String> options = new ArrayList<>();
-            options.add("-t");
-            options.add("-r");
-            if (!kill) {
-                options.add("--dont-kill");
+            if (device.getVersion().isGreaterOrEqualThan(AndroidVersion.VersionCodes.LOLLIPOP)) {
+                device.installPackages(files, reinstall, options, 5, TimeUnit.MINUTES);
+                return new InstallResult(InstallStatus.OK, null, device.getLastInstallMetrics());
+            } else {
+                if (apks.size() != 1) {
+                    return new InstallResult(InstallStatus.MULTI_APKS_NO_SUPPORTED_BELOW21);
+                } else {
+                    device.installPackage(apks.get(0), reinstall, options.toArray(new String[0]));
+                    return new InstallResult(
+                            InstallStatus.OK, null, device.getLastInstallMetrics());
+                }
             }
-            device.installPackages(files, true, options, 10, TimeUnit.SECONDS);
         } catch (InstallException e) {
-            throw new DeployerException("Unable to install packages.", e);
+            String code = e.getErrorCode();
+            if (code != null) {
+                try {
+                    return ApkInstaller.parseInstallerResultErrorCode(code);
+                } catch (IllegalArgumentException | NullPointerException ignored) {
+                    logger.warning(
+                            "Unrecognized Installation Failure: %s\n%s\n", code, e.getMessage());
+                }
+            } else {
+                Throwable cause = e.getCause();
+                if (cause instanceof ShellCommandUnresponsiveException) {
+                    return new InstallResult(InstallStatus.SHELL_UNRESPONSIVE);
+                } else {
+                    logger.warning("Installation Failure: %s\n", e.getMessage());
+                    return new InstallResult(InstallStatus.UNKNOWN_ERROR, e.getMessage(), null);
+                }
+            }
+            return new InstallResult(InstallStatus.UNKNOWN_ERROR);
         }
+    }
+
+    public boolean uninstall(String packageName) {
+        try {
+            device.uninstallPackage(packageName);
+            return true;
+        } catch (InstallException e) {
+        }
+        return false;
     }
 
     public List<String> getAbis() {
         return device.getAbis();
     }
 
-    public void push(String from, String to) {
-        try {
+    public void push(String from, String to) throws IOException {
+        try (Trace ignored = Trace.begin("adb push")) {
             device.pushFile(from, to);
-        } catch (IOException | SyncException | TimeoutException | AdbCommandRejectedException e) {
-            throw new DeployerException("Unable to push files", e);
+        } catch (SyncException | TimeoutException | AdbCommandRejectedException e) {
+            throw new IOException(e);
         }
     }
 
+    public AndroidVersion getVersion() {
+        return device.getVersion();
+    }
+
+    // TODO: Replace this to void copying the full byte[] incurred when calling stream.toByteArray()
     private class ByteArrayOutputReceiver implements IShellOutputReceiver {
 
         ByteArrayOutputStream stream = new ByteArrayOutputStream();
@@ -163,4 +240,5 @@ public class AdbClient {
             return stream.toByteArray();
         }
     }
+
 }

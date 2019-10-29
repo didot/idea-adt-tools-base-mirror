@@ -28,7 +28,7 @@ def _gen_proto_impl(ctx):
         args += [
             "--cpp_out=" + out_path,
         ]
-        if ctx.executable.grpc_plugin.path != None:
+        if ctx.executable.grpc_plugin != None and ctx.executable.grpc_plugin.path != None:
             args += [
                 "--grpc_out=" + out_path,
                 "--plugin=protoc-gen-grpc=" + ctx.executable.grpc_plugin.path,
@@ -119,7 +119,7 @@ def java_proto_library(
         visibility = None,
         grpc_support = False,
         protoc_version = "3.4.0",
-        proto_java_runtime_library = ["//tools/base/third_party:com.google.protobuf_protobuf-java"],
+        proto_java_runtime_library = ["@//tools/base/third_party:com.google.protobuf_protobuf-java"],
         **kwargs):
     srcs_name = name + "_srcs"
     outs = [srcs_name + ".srcjar"]
@@ -127,12 +127,12 @@ def java_proto_library(
         name = srcs_name,
         srcs = srcs,
         deps = proto_deps,
-        include = "//prebuilts/tools/common/m2/repository/com/google/protobuf/protobuf-java/" + protoc_version + "/include",
+        include = "@//prebuilts/tools/common/m2/repository/com/google/protobuf/protobuf-java/" + protoc_version + "/include",
         outs = outs,
         proto_include_version = protoc_version,
-        protoc = "//prebuilts/tools/common/m2/repository/com/google/protobuf/protoc/" + protoc_version + ":exe",
+        protoc = "@//prebuilts/tools/common/m2/repository/com/google/protobuf/protoc/" + protoc_version + ":exe",
         grpc_plugin =
-            "//prebuilts/tools/common/m2/repository/io/grpc/protoc-gen-grpc-java/1.0.3:exe" if grpc_support else None,
+            "@//prebuilts/tools/common/m2/repository/io/grpc/protoc-gen-grpc-java/1.0.3:exe" if grpc_support else None,
         target_language = proto_languages.JAVA,
         visibility = visibility,
     )
@@ -140,7 +140,7 @@ def java_proto_library(
     java_deps = list(java_deps)
     java_deps += proto_java_runtime_library
     if grpc_support:
-        java_deps += ["//tools/base/third_party:io.grpc_grpc-all"]
+        java_deps += ["@//tools/base/third_party:io.grpc_grpc-all"]
 
     if pom:
         maven_java_library(
@@ -165,7 +165,9 @@ def cc_grpc_proto_library(name, srcs = [], deps = [], includes = [], visibility 
     for src in srcs:
         # .proto suffix should not be present in the output files
         p_name = src[:-len(".proto")]
-        outs += [p_name + ".pb.h", p_name + ".pb.cc", p_name + ".grpc.pb.h", p_name + ".grpc.pb.cc"]
+        outs += [p_name + ".pb.h", p_name + ".pb.cc"]
+        if grpc_support:
+            outs += [p_name + ".grpc.pb.h", p_name + ".grpc.pb.cc"]
 
     _gen_proto_rule(
         name = name + "_srcs",

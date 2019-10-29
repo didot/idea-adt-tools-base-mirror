@@ -20,7 +20,7 @@
 
 #include "proto/internal_network.grpc.pb.h"
 
-#include "perfd/daemon.h"
+#include "daemon/daemon.h"
 #include "perfd/network/network_cache.h"
 
 namespace profiler {
@@ -30,10 +30,6 @@ class InternalNetworkServiceImpl final
  public:
   InternalNetworkServiceImpl(FileCache *file_cache,
                              NetworkCache *network_cache);
-
-  grpc::Status RegisterHttpData(grpc::ServerContext *context,
-                                const proto::HttpDataRequest *httpData,
-                                proto::EmptyNetworkReply *reply) override;
 
   grpc::Status SendChunk(grpc::ServerContext *context,
                          const proto::ChunkRequest *chunk,

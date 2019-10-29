@@ -14,7 +14,6 @@ dependencies {
     compile project(':base:ddmlib')
 
     compile project(':analytics-library:protos')
-    compile project(':analytics-library:shared')
     compile project(':analytics-library:tracker')
     compile project(':apksig')
     compile project(':apkzlib')
@@ -25,6 +24,7 @@ dependencies {
     compile libs.bouncycastle_prov
     compile libs.asm
     compile libs.asm_tree
+    compile libs.javax_inject
     // R8 deps
     compile libs.asm_commons
     compile libs.asm_util
@@ -101,7 +101,7 @@ dependencies {
         transitive = false
     }
 
-    provided(files('../../../../prebuilts/r8/d8-master.jar'))
+    provided(files('../../../../prebuilts/r8/r8-master.jar'))
 
     sourcesProvided(project(path:':dx', configuration:'sourcesOnly')) {
         transitive = false

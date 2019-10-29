@@ -6,11 +6,9 @@ import android.os.Bundle;
 import ${getMaterialComponentName('android.support.annotation.NonNull', useAndroidX)};
 import ${superClassFqcn};
 import ${getMaterialComponentName('android.support.v7.widget.RecyclerView', useAndroidX)};
-<#if hasAppBar>
 import ${getMaterialComponentName('android.support.v7.widget.Toolbar', useAndroidX)};
 import ${getMaterialComponentName('android.support.design.widget.FloatingActionButton', useMaterial2)};
 import ${getMaterialComponentName('android.support.design.widget.Snackbar', useMaterial2)};
-</#if>
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,7 +34,7 @@ import java.util.List;
  * item details. On tablets, the activity presents the list of items and
  * item details side-by-side using two vertical panes.
  */
-public class ${CollectionName}Activity extends ${superClass} {
+public class ${CollectionName}Activity extends AppCompatActivity {
 
     /**
      * Whether or not the activity is in two-pane mode, i.e. running on a tablet
@@ -47,7 +45,6 @@ public class ${CollectionName}Activity extends ${superClass} {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-<#if hasAppBar>
         setContentView(R.layout.activity_${item_list_layout});
 
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
@@ -62,9 +59,6 @@ public class ${CollectionName}Activity extends ${superClass} {
                         .setAction("Action", null).show();
             }
         });
-<#else>
-        setContentView(R.layout.${item_list_layout});
-</#if>
 <#if parentActivityClass != "">
         // Show the Up button in the action bar.
         ActionBar actionBar = getSupportActionBar();
@@ -112,7 +106,7 @@ public class ${CollectionName}Activity extends ${superClass} {
     public static class SimpleItemRecyclerViewAdapter
             extends RecyclerView.Adapter<SimpleItemRecyclerViewAdapter.ViewHolder> {
 
-        private final ItemListActivity mParentActivity;
+        private final ${CollectionName}Activity mParentActivity;
         private final List<DummyContent.DummyItem> mValues;
         private final boolean mTwoPane;
         private final View.OnClickListener mOnClickListener = new View.OnClickListener() {

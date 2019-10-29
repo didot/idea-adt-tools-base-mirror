@@ -19,10 +19,15 @@ package com.android.build.gradle.tasks;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.RENDERSCRIPT;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
+import static com.android.build.gradle.internal.scope.InternalArtifactType.RENDERSCRIPT_LIB;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.RENDERSCRIPT_SOURCE_OUTPUT_DIR;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.android.annotations.NonNull;
+import com.android.annotations.Nullable;
+import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
+import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.NdkTask;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
@@ -30,8 +35,11 @@ import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.builder.internal.compiler.DirectoryWalker;
+import com.android.builder.internal.compiler.RenderScriptProcessor;
 import com.android.ide.common.process.LoggedProcessOutputHandler;
 import com.android.ide.common.process.ProcessException;
+import com.android.ide.common.process.ProcessOutputHandler;
+import com.android.sdklib.BuildToolInfo;
 import com.android.utils.FileUtils;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -41,14 +49,16 @@ import java.util.Collection;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Supplier;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.PathSensitive;
 import org.gradle.api.tasks.PathSensitivity;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.SkipWhenEmpty;
 import org.gradle.api.tasks.TaskProvider;
 
 /** Task to compile Renderscript files. Supports incremental update. */
@@ -63,7 +73,7 @@ public class RenderscriptCompile extends NdkTask {
 
     private File objOutputDir;
 
-    private File libOutputDir;
+    private Provider<Directory> libOutputDir;
 
 
     // ----- PRIVATE TASK API -----
@@ -84,9 +94,11 @@ public class RenderscriptCompile extends NdkTask {
 
     private boolean ndkMode;
 
+    private Provider<BuildToolInfo> buildToolInfoProvider;
+
     @Input
     public String getBuildToolsVersion() {
-        return getBuildTools().getRevision().toString();
+        return buildToolInfoProvider.get().getRevision().toString();
     }
 
     @OutputDirectory
@@ -117,18 +129,15 @@ public class RenderscriptCompile extends NdkTask {
     }
 
     @OutputDirectory
-    public File getLibOutputDir() {
+    public Provider<Directory> getLibOutputDir() {
         return libOutputDir;
-    }
-
-    public void setLibOutputDir(File libOutputDir) {
-        this.libOutputDir = libOutputDir;
     }
 
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
+    @SkipWhenEmpty
     public FileCollection getSourceDirs() {
-        return sourceDirs;
+        return sourceDirs.getAsFileTree();
     }
 
     @InputFiles
@@ -187,8 +196,8 @@ public class RenderscriptCompile extends NdkTask {
         this.ndkMode = ndkMode;
     }
 
-    @TaskAction
-    void taskAction() throws IOException, InterruptedException, ProcessException {
+    @Override
+    protected void doTaskAction() throws IOException, InterruptedException, ProcessException {
         // this is full run (always), clean the previous outputs
         File sourceDestDir = getSourceOutputDir();
         FileUtils.cleanOutputDir(sourceDestDir);
@@ -199,28 +208,98 @@ public class RenderscriptCompile extends NdkTask {
         File objDestDir = getObjOutputDir();
         FileUtils.cleanOutputDir(objDestDir);
 
-        File libDestDir = getLibOutputDir();
+        File libDestDir = libOutputDir.get().getAsFile();
         FileUtils.cleanOutputDir(libDestDir);
 
         Set<File> sourceDirectories = sourceDirs.getFiles();
 
-        getBuilder()
-                .compileAllRenderscriptFiles(
-                        sourceDirectories,
-                        getImportFolders(),
-                        sourceDestDir,
-                        resDestDir,
-                        objDestDir,
-                        libDestDir,
-                        getTargetApi(),
-                        isDebugBuild(),
-                        getOptimLevel(),
-                        isNdkMode(),
-                        isSupportMode(),
-                        useAndroidX(),
-                        getNdkConfig() == null ? null : getNdkConfig().getAbiFilters(),
-                        new LoggedProcessOutputHandler(getILogger()));
+        compileAllRenderscriptFiles(
+                sourceDirectories,
+                getImportFolders(),
+                sourceDestDir,
+                resDestDir,
+                objDestDir,
+                libDestDir,
+                getTargetApi(),
+                isDebugBuild(),
+                getOptimLevel(),
+                isNdkMode(),
+                isSupportMode(),
+                useAndroidX(),
+                getNdkConfig() == null ? null : getNdkConfig().getAbiFilters(),
+                new LoggedProcessOutputHandler(new LoggerWrapper(getLogger())),
+                buildToolInfoProvider.get());
     }
+
+    /**
+     * Compiles all the renderscript files found in the given source folders.
+     *
+     * <p>Right now this is the only way to compile them as the renderscript compiler requires all
+     * renderscript files to be passed for all compilation.
+     *
+     * <p>Therefore whenever a renderscript file or header changes, all must be recompiled.
+     *
+     * @param sourceFolders all the source folders to find files to compile
+     * @param importFolders all the import folders.
+     * @param sourceOutputDir the output dir in which to generate the source code
+     * @param resOutputDir the output dir in which to generate the bitcode file
+     * @param targetApi the target api
+     * @param debugBuild whether the build is debug
+     * @param optimLevel the optimization level
+     * @param ndkMode whether the renderscript code should be compiled to generate C/C++ bindings
+     * @param supportMode support mode flag to generate .so files.
+     * @param useAndroidX whether to use AndroidX dependencies
+     * @param abiFilters ABI filters in case of support mode
+     * @throws IOException failed
+     * @throws InterruptedException failed
+     */
+    public void compileAllRenderscriptFiles(
+            @NonNull Collection<File> sourceFolders,
+            @NonNull Collection<File> importFolders,
+            @NonNull File sourceOutputDir,
+            @NonNull File resOutputDir,
+            @NonNull File objOutputDir,
+            @NonNull File libOutputDir,
+            int targetApi,
+            boolean debugBuild,
+            int optimLevel,
+            boolean ndkMode,
+            boolean supportMode,
+            boolean useAndroidX,
+            @Nullable Set<String> abiFilters,
+            @NonNull ProcessOutputHandler processOutputHandler,
+            @NonNull BuildToolInfo buildToolInfo)
+            throws InterruptedException, ProcessException, IOException {
+        checkNotNull(sourceFolders, "sourceFolders cannot be null.");
+        checkNotNull(importFolders, "importFolders cannot be null.");
+        checkNotNull(sourceOutputDir, "sourceOutputDir cannot be null.");
+        checkNotNull(resOutputDir, "resOutputDir cannot be null.");
+
+        String renderscript = buildToolInfo.getPath(BuildToolInfo.PathId.LLVM_RS_CC);
+        if (renderscript == null || !new File(renderscript).isFile()) {
+            throw new IllegalStateException("llvm-rs-cc is missing");
+        }
+
+        RenderScriptProcessor processor =
+                new RenderScriptProcessor(
+                        sourceFolders,
+                        importFolders,
+                        sourceOutputDir,
+                        resOutputDir,
+                        objOutputDir,
+                        libOutputDir,
+                        buildToolInfo,
+                        targetApi,
+                        debugBuild,
+                        optimLevel,
+                        ndkMode,
+                        supportMode,
+                        useAndroidX,
+                        abiFilters,
+                        new LoggerWrapper(getLogger()));
+        processor.build(new GradleProcessExecutor(getProject()), processOutputHandler);
+    }
+
 
     // get the import folders. If the .rsh files are not directly under the import folders,
     // we need to get the leaf folders, as this is what llvm-rs-cc expects.
@@ -250,6 +329,7 @@ public class RenderscriptCompile extends NdkTask {
     public static class CreationAction extends VariantTaskCreationAction<RenderscriptCompile> {
 
         private File sourceOutputDir;
+        private Provider<Directory> libOutputDir;
 
         public CreationAction(@NonNull VariantScope scope) {
             super(scope);
@@ -275,6 +355,10 @@ public class RenderscriptCompile extends NdkTask {
                     getVariantScope()
                             .getArtifacts()
                             .appendArtifact(RENDERSCRIPT_SOURCE_OUTPUT_DIR, taskName, "out");
+            libOutputDir =
+                    getVariantScope()
+                            .getArtifacts()
+                            .createDirectory(RENDERSCRIPT_LIB, taskName, "lib");
         }
 
         @Override
@@ -313,9 +397,12 @@ public class RenderscriptCompile extends NdkTask {
             renderscriptTask.setSourceOutputDir(sourceOutputDir);
             renderscriptTask.setResOutputDir(scope.getRenderscriptResOutputDir());
             renderscriptTask.setObjOutputDir(scope.getRenderscriptObjOutputDir());
-            renderscriptTask.setLibOutputDir(scope.getRenderscriptLibOutputDir());
+            renderscriptTask.libOutputDir = libOutputDir;
 
             renderscriptTask.setNdkConfig(config.getNdkConfig());
+
+            renderscriptTask.buildToolInfoProvider =
+                    scope.getGlobalScope().getSdkComponents().getBuildToolInfoProvider();
 
             if (config.getType().isTestComponent()) {
                 renderscriptTask.dependsOn(scope.getTaskContainer().getProcessManifestTask());

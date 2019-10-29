@@ -23,14 +23,17 @@ import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.ide.common.workers.WorkerExecutorFacade;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.truth.Truth;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ForkJoinPool;
+import javax.inject.Inject;
 import org.gradle.api.Action;
 import org.gradle.workers.IsolationMode;
 import org.gradle.workers.WorkerConfiguration;
 import org.gradle.workers.WorkerExecutor;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -57,15 +60,27 @@ public class WorkerExecutorAdapterTest {
                 ForkJoinPool.commonPool());
     }
 
+    @After
+    public void tearDown() {
+        Workers.INSTANCE.initFromProject(
+                new ProjectOptions(
+                        ImmutableMap.of(
+                                BooleanOption.ENABLE_GRADLE_WORKERS.getPropertyName(),
+                                Boolean.FALSE)),
+                ForkJoinPool.commonPool());
+    }
+
     @Test
     public void testSingleDelegation() {
-        WorkerExecutorFacade adapter = Workers.INSTANCE.getWorker(workerExecutor);
+        WorkerExecutorFacade adapter =
+                Workers.INSTANCE.preferWorkers("test", ":test", workerExecutor);
         Parameter params = new Parameter("one", "two");
         adapter.submit(WorkAction.class, params);
         adapter.await();
         ArgumentCaptor<Action<? super WorkerConfiguration>> workItemCaptor =
                 ArgumentCaptor.forClass(Action.class);
-        Mockito.verify(workerExecutor).submit(eq(WorkAction.class), workItemCaptor.capture());
+        Mockito.verify(workerExecutor)
+                .submit(eq(Workers.ActionFacade.class), workItemCaptor.capture());
         Mockito.verify(workerExecutor).await();
         Mockito.verifyNoMoreInteractions(workerExecutor);
 
@@ -73,14 +88,22 @@ public class WorkerExecutorAdapterTest {
         workItemCaptor.getValue().execute(workerConfiguration);
 
         Mockito.verify(workerConfiguration).setIsolationMode(IsolationMode.NONE);
-        Mockito.verify(workerConfiguration).params(params);
+        ArgumentCaptor<Workers.ActionParameters> actionParametersArgumentCaptor =
+                ArgumentCaptor.forClass(Workers.ActionParameters.class);
+        Mockito.verify(workerConfiguration).params(actionParametersArgumentCaptor.capture());
+        Workers.ActionParameters actionParameters = actionParametersArgumentCaptor.getValue();
+        Truth.assertThat(actionParameters.getDelegateParameters()).isEqualTo(params);
+        Truth.assertThat(actionParameters.getDelegateAction()).isEqualTo(WorkAction.class);
+        Truth.assertThat(actionParameters.getProjectName()).isEqualTo("test");
+        Truth.assertThat(actionParameters.getTaskOwner()).isEqualTo(":test");
         Mockito.verifyNoMoreInteractions(workerConfiguration);
     }
 
     @Test
     public void testMultipleDelegation() {
 
-        WorkerExecutorFacade adapter = Workers.INSTANCE.getWorker(workerExecutor);
+        WorkerExecutorFacade adapter =
+                Workers.INSTANCE.preferWorkers("test", ":test", workerExecutor);
         List<Parameter> parametersList = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
             Parameter params = new Parameter("+" + i, "-" + i);
@@ -91,7 +114,7 @@ public class WorkerExecutorAdapterTest {
         ArgumentCaptor<Action<? super WorkerConfiguration>> workItemCaptor =
                 ArgumentCaptor.forClass(Action.class);
         Mockito.verify(workerExecutor, times(5))
-                .submit(eq(WorkAction.class), workItemCaptor.capture());
+                .submit(eq(Workers.ActionFacade.class), workItemCaptor.capture());
         Mockito.verify(workerExecutor).await();
         Mockito.verifyNoMoreInteractions(workerExecutor);
 
@@ -101,12 +124,23 @@ public class WorkerExecutorAdapterTest {
             action.execute(workerConfiguration);
 
             Mockito.verify(workerConfiguration).setIsolationMode(eq(IsolationMode.NONE));
-            Mockito.verify(workerConfiguration).params(parametersList.get(index++));
+            ArgumentCaptor<Workers.ActionParameters> actionParametersArgumentCaptor =
+                    ArgumentCaptor.forClass(Workers.ActionParameters.class);
+            Mockito.verify(workerConfiguration).params(actionParametersArgumentCaptor.capture());
+            Workers.ActionParameters actionParameters = actionParametersArgumentCaptor.getValue();
+            Truth.assertThat(actionParameters.getDelegateParameters())
+                    .isEqualTo(parametersList.get(index++));
+            Truth.assertThat(actionParameters.getDelegateAction()).isEqualTo(WorkAction.class);
+            Truth.assertThat(actionParameters.getProjectName()).isEqualTo("test");
+            Truth.assertThat(actionParameters.getTaskOwner()).isEqualTo(":test");
             Mockito.verifyNoMoreInteractions(workerConfiguration);
         }
     }
 
     private static class WorkAction implements Runnable {
+
+        @Inject
+        WorkAction(Parameter parameter) {}
 
         @Override
         public void run() {}

@@ -16,8 +16,10 @@
 
 package com.android.build.gradle.internal.tasks;
 
+import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.build.api.artifact.BuildableArtifact;
+import com.android.ide.common.workers.WorkerExecutorFacade;
 import com.android.utils.FileUtils;
 import com.android.utils.PathUtils;
 import com.google.common.base.Preconditions;
@@ -25,14 +27,21 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
+import com.google.common.hash.Hashing;
+import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
+import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Serializable;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -40,11 +49,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 import javax.inject.Inject;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.incremental.IncrementalTaskInputs;
-import org.gradle.workers.IsolationMode;
-import org.gradle.workers.WorkerExecutor;
 import org.jacoco.core.instr.Instrumenter;
 import org.jacoco.core.runtime.OfflineInstrumentationAccessGenerator;
 
@@ -60,48 +72,74 @@ public class JacocoTaskDelegate {
     @NonNull private final FileCollection jacocoAntTaskConfiguration;
     @NonNull private final File output;
     @NonNull private final BuildableArtifact inputClasses;
+    @NonNull private final WorkerExecutorFacade.IsolationMode isolationMode;
+    @NonNull private final Provider<Directory> outputJars;
 
     public JacocoTaskDelegate(
             @NonNull FileCollection jacocoAntTaskConfiguration,
             @NonNull File output,
-            @NonNull BuildableArtifact inputClasses) {
+            @NonNull Provider<Directory> outputJars,
+            @NonNull BuildableArtifact inputClasses,
+            @NonNull WorkerExecutorFacade.IsolationMode isolationMode) {
         this.jacocoAntTaskConfiguration = jacocoAntTaskConfiguration;
         this.output = output;
+        this.outputJars = outputJars;
         this.inputClasses = inputClasses;
+        this.isolationMode = isolationMode;
     }
 
-    public void run(@NonNull WorkerExecutor executor, @NonNull IncrementalTaskInputs inputs)
-            throws IOException {
-        for (File file : inputClasses.getFiles()) {
-            if (file.exists()) {
-                Preconditions.checkState(
-                        file.isDirectory(),
-                        "Jacoco instrumentation supports only directory inputs: %s",
-                        file.toString());
-            }
+    public static class WorkerItemParameter implements Serializable {
+        final Map<Action, List<File>> nonIncToProcess;
+        final File root;
+        final File output;
+
+        public WorkerItemParameter(
+                Map<Action, List<File>> nonIncToProcess, File root, File output) {
+            this.nonIncToProcess = nonIncToProcess;
+            this.root = root;
+            this.output = output;
         }
+    }
+
+    public void run(@NonNull WorkerExecutorFacade executor, @NonNull IncrementalTaskInputs inputs)
+            throws IOException {
 
         if (inputs.isIncremental()) {
             processIncrementally(executor, inputs);
         } else {
+            File outputJarsFolder = outputJars.get().getAsFile();
+            FileUtils.cleanOutputDir(output);
+            FileUtils.cleanOutputDir(outputJarsFolder);
             for (File file : inputClasses.getFiles()) {
-                Map<Action, List<File>> nonIncToProcess =
-                        getFilesForInstrumentationNonIncrementally(file, output);
-                executor.submit(
-                        JacocoWorkerAction.class,
-                        workerConfiguration -> {
-                            workerConfiguration.setIsolationMode(IsolationMode.CLASSLOADER);
-                            workerConfiguration.classpath(jacocoAntTaskConfiguration.getFiles());
-                            workerConfiguration.setParams(nonIncToProcess, file, output);
-                        });
+                if (file.isDirectory()) {
+                    Map<Action, List<File>> nonIncToProcess =
+                            getFilesForInstrumentationNonIncrementally(file);
+                    WorkerItemParameter parameter =
+                            new WorkerItemParameter(nonIncToProcess, file, output);
+
+                    executor.submit(
+                            JacocoWorkerAction.class,
+                            new WorkerExecutorFacade.Configuration(
+                                    parameter,
+                                    isolationMode,
+                                    jacocoAntTaskConfiguration.getFiles()));
+                } else { // We expect *.jar files here
+                    if (!file.getName().endsWith(SdkConstants.DOT_JAR)) {
+                        continue;
+                    }
+                    executor.submit(
+                            JacocoJarWorkerAction.class,
+                            new WorkerExecutorFacade.Configuration(
+                                    new WorkerItemParameter(null, file, outputJarsFolder),
+                                    isolationMode,
+                                    jacocoAntTaskConfiguration.getFiles()));
+                }
             }
         }
-
-        executor.await();
     }
 
     private void processIncrementally(
-            @NonNull WorkerExecutor executor, @NonNull IncrementalTaskInputs inputs)
+            @NonNull WorkerExecutorFacade executor, @NonNull IncrementalTaskInputs inputs)
             throws IOException {
         Multimap<Path, Path> basePathToRemove =
                 Multimaps.newSetMultimap(new HashMap<>(), HashSet::new);
@@ -110,27 +148,49 @@ public class JacocoTaskDelegate {
 
         Set<Path> baseDirs = new HashSet<>(inputClasses.getFiles().size());
         for (File file : inputClasses.getFiles()) {
-            baseDirs.add(file.toPath());
+            if (file.isDirectory()) {
+                baseDirs.add(file.toPath());
+            }
         }
+
+        Set<File> jarsToRemove = new HashSet<>();
+        Set<File> jarsToProcess = new HashSet<>();
 
         inputs.outOfDate(
                 info -> {
-                    Path file = info.getFile().toPath();
-                    Path baseDir = findBase(baseDirs, file);
-                    if (info.isAdded()) {
-                        basePathToProcess.put(baseDir, file);
-                    } else if (info.isModified()) {
-                        basePathToRemove.put(baseDir, file);
-                        basePathToProcess.put(baseDir, file);
-                    } else if (info.isRemoved()) {
-                        basePathToRemove.put(baseDir, file);
+                    File file = info.getFile();
+                    if (file.getName().endsWith(SdkConstants.DOT_JAR)) {
+                        if (info.isAdded()) {
+                            jarsToProcess.add(file);
+                        } else if (info.isModified()) {
+                            jarsToRemove.add(file);
+                            jarsToProcess.add(file);
+                        } else if (info.isRemoved()) {
+                            jarsToRemove.add(file);
+                        }
+                    } else {
+                        Path filePath = file.toPath();
+                        Path baseDir = findBase(baseDirs, filePath);
+                        if (info.isAdded()) {
+                            basePathToProcess.put(baseDir, filePath);
+                        } else if (info.isModified()) {
+                            basePathToRemove.put(baseDir, filePath);
+                            basePathToProcess.put(baseDir, filePath);
+                        } else if (info.isRemoved()) {
+                            basePathToRemove.put(baseDir, filePath);
+                        }
                     }
                 });
         inputs.removed(
                 info -> {
-                    Path file = info.getFile().toPath();
-                    Path baseDir = findBase(baseDirs, file);
-                    basePathToRemove.put(baseDir, file);
+                    File file = info.getFile();
+                    if (file.getName().endsWith(SdkConstants.DOT_JAR)) {
+                        jarsToRemove.add(file);
+                    } else {
+                        Path filePath = file.toPath();
+                        Path baseDir = findBase(baseDirs, filePath);
+                        basePathToRemove.put(baseDir, filePath);
+                    }
                 });
 
         // remove old output
@@ -144,6 +204,12 @@ public class JacocoTaskDelegate {
                 Path outputPath = getOutputPath(basePath, toRemove, output.toPath());
                 PathUtils.deleteRecursivelyIfExists(outputPath);
             }
+        }
+
+        File outputJarsFolder = outputJars.get().getAsFile();
+        for (File jarToRemove : jarsToRemove) {
+            File instrumentedJar = getCorrespondingInstrumentedJar(outputJarsFolder, jarToRemove);
+            FileUtils.delete(instrumentedJar);
         }
 
         // process changes
@@ -162,11 +228,19 @@ public class JacocoTaskDelegate {
 
             executor.submit(
                     JacocoWorkerAction.class,
-                    workerConfiguration -> {
-                        workerConfiguration.setIsolationMode(IsolationMode.CLASSLOADER);
-                        workerConfiguration.classpath(jacocoAntTaskConfiguration.getFiles());
-                        workerConfiguration.setParams(toProcess, basePath.toFile(), output);
-                    });
+                    new WorkerExecutorFacade.Configuration(
+                            new WorkerItemParameter(toProcess, basePath.toFile(), output),
+                            isolationMode,
+                            jacocoAntTaskConfiguration.getFiles()));
+        }
+
+        for (File jarToProcess : jarsToProcess) {
+            executor.submit(
+                    JacocoJarWorkerAction.class,
+                    new WorkerExecutorFacade.Configuration(
+                            new WorkerItemParameter(null, jarToProcess, outputJarsFolder),
+                            isolationMode,
+                            jacocoAntTaskConfiguration.getFiles()));
         }
     }
 
@@ -194,9 +268,8 @@ public class JacocoTaskDelegate {
 
     @NonNull
     private static Map<Action, List<File>> getFilesForInstrumentationNonIncrementally(
-            @NonNull File inputDir, @NonNull File outputDir) throws IOException {
+            @NonNull File inputDir) {
         Map<Action, List<File>> toProcess = Maps.newHashMap();
-        FileUtils.cleanOutputDir(outputDir);
         Iterable<File> files = FileUtils.getAllFiles(inputDir);
         for (File inputFile : files) {
             Action fileAction = calculateAction(inputFile, inputDir);
@@ -222,6 +295,10 @@ public class JacocoTaskDelegate {
         final String inputRelativePath =
                 FileUtils.toSystemIndependentPath(
                         FileUtils.relativePossiblyNonExistingPath(inputFile, inputDir));
+        return calculateAction(inputRelativePath);
+    }
+
+    private static Action calculateAction(@NonNull String inputRelativePath) {
         for (Pattern pattern : Action.COPY.getPatterns()) {
             if (pattern.matcher(inputRelativePath).matches()) {
                 return Action.COPY;
@@ -274,13 +351,10 @@ public class JacocoTaskDelegate {
         @NonNull private File outputDir;
 
         @Inject
-        public JacocoWorkerAction(
-                @NonNull Map<Action, List<File>> inputs,
-                @NonNull File inputDir,
-                @NonNull File outputDir) {
-            this.inputs = inputs;
-            this.inputDir = inputDir;
-            this.outputDir = outputDir;
+        public JacocoWorkerAction(@NonNull WorkerItemParameter workerItemParameter) {
+            this.inputs = workerItemParameter.nonIncToProcess;
+            this.inputDir = workerItemParameter.root;
+            this.outputDir = workerItemParameter.output;
         }
 
         @Override
@@ -312,5 +386,61 @@ public class JacocoTaskDelegate {
                 }
             }
         }
+    }
+
+    private static class JacocoJarWorkerAction implements Runnable {
+        @NonNull private File inputJar;
+        @NonNull private File outputDir;
+
+        @Inject
+        public JacocoJarWorkerAction(@NonNull WorkerItemParameter workerItemParameter) {
+            this.inputJar = workerItemParameter.root;
+            this.outputDir = workerItemParameter.output;
+        }
+
+        @Override
+        public void run() {
+            Instrumenter instrumenter =
+                    new Instrumenter(new OfflineInstrumentationAccessGenerator());
+            File instrumentedJar = getCorrespondingInstrumentedJar(outputDir, inputJar);
+            try (ZipOutputStream outputZip =
+                    new ZipOutputStream(
+                            new BufferedOutputStream(new FileOutputStream(instrumentedJar)))) {
+                try (ZipFile zipFile = new ZipFile(inputJar)) {
+                    Enumeration<? extends ZipEntry> entries = zipFile.entries();
+                    while (entries.hasMoreElements()) {
+                        ZipEntry entry = entries.nextElement();
+                        String entryName = entry.getName();
+                        Action entryAction = calculateAction(entryName);
+                        if (entryAction == Action.IGNORE) {
+                            continue;
+                        }
+                        InputStream classInputStream = zipFile.getInputStream(entry);
+                        byte[] data;
+                        if (entryAction == Action.INSTRUMENT) {
+                            data = instrumenter.instrument(classInputStream, entryName);
+                        } else { // just copy
+                            data = ByteStreams.toByteArray(classInputStream);
+                        }
+                        outputZip.putNextEntry(new ZipEntry(entryName));
+                        outputZip.write(data);
+                        outputZip.closeEntry();
+                    }
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(
+                        "Unable to instrument file with Jacoco: " + inputJar, e);
+            }
+        }
+    }
+
+    private static File getCorrespondingInstrumentedJar(
+            @NonNull File outputFolder, @NonNull File file) {
+        return new File(
+                outputFolder,
+                Hashing.sha256()
+                                .hashBytes(file.getAbsolutePath().getBytes(StandardCharsets.UTF_8))
+                                .toString()
+                        + SdkConstants.DOT_JAR);
     }
 }

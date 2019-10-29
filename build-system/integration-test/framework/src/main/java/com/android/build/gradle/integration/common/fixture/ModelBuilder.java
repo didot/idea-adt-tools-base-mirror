@@ -24,14 +24,16 @@ import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.Option;
 import com.android.builder.model.AndroidProject;
-import com.android.builder.model.NativeAndroidProject;
 import com.android.builder.model.SyncIssue;
 import com.android.utils.Pair;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Sets;
-import java.io.ByteArrayOutputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
@@ -74,7 +76,7 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
             @NonNull Consumer<GradleBuildResult> lastBuildResultConsumer,
             @NonNull Path projectDirectory,
             @Nullable Path buildDotGradleFile,
-            @Nullable String heapSize) {
+            @NonNull GradleTestProjectBuilder.MemoryRequirement heapSize) {
         super(
                 projectConnection,
                 lastBuildResultConsumer,
@@ -153,8 +155,7 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
         Preconditions.checkArgument(
                 modelClass != AndroidProject.class, "please use fetchAndroidProjects() instead");
 
-        ModelContainer<T> container =
-                buildModel(new GetAndroidModelAction<>(modelClass), modelLevel);
+        ModelContainer<T> container = buildModel(new GetAndroidModelAction<>(modelClass));
 
         // ensure there was only one project
         Preconditions.checkState(
@@ -178,12 +179,12 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
                         .action()
                         .projectsLoaded(
                                 new GetAndroidModelAction<>(
-                                        ParameterizedAndroidProject.class, true, true),
+                                        ParameterizedAndroidProject.class, true),
                                 models -> modelConsumer.accept(models.getOnlyModel()))
                         .build()
                         .forTasks(Collections.emptyList());
 
-        return buildModel(executor, modelLevel).getSecond();
+        return buildModel(executor).getSecond();
     }
 
     /** Fetches the multi-project Android models via the tooling API. */
@@ -191,6 +192,16 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
     public ModelContainer<AndroidProject> fetchAndroidProjects() throws IOException {
         return assertNoSyncIssues(doQueryMultiContainer(AndroidProject.class));
     }
+
+    /**
+     * Fetches the multi-project Android models via the tooling API. Allows sync issues to exist in
+     * the model.
+     */
+    @NonNull
+    public ModelContainer<AndroidProject> fetchAndroidProjectsAllowSyncIssues() throws IOException {
+        return doQueryMultiContainer(AndroidProject.class);
+    }
+
 
     /**
      * Fetches the multi=project models via the tooling API and return them as a map of (path,
@@ -240,13 +251,7 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
     @NonNull
     private <T> ModelContainer<T> doQueryMultiContainer(@NonNull Class<T> modelClass)
             throws IOException {
-        // TODO: Make buildModel multithreaded all the time.
-        // Getting multigetMultiContainerple NativeAndroidProject results in duplicated class implemented error
-        // in a multithreaded environment.  This is due to issues in Gradle relating to the
-        // automatic generation of the implementation class of NativeSourceSet.  Make this
-        // multithreaded when the issue is resolved.
-        boolean isMultithreaded = modelClass != NativeAndroidProject.class;
-        return buildModel(new GetAndroidModelAction<>(modelClass, isMultithreaded), modelLevel);
+        return buildModel(new GetAndroidModelAction<>(modelClass));
     }
 
     /** Return a list of all task names of the project. */
@@ -267,13 +272,12 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
      * Returns a project model for each sub-project;
      *
      * @param action the build action to gather the model
-     * @param modelLevel whether to emulate an older IDE (studio 1.0) querying the model.
      */
     @NonNull
-    private <T> ModelContainer<T> buildModel(
-            @NonNull BuildAction<ModelContainer<T>> action, int modelLevel) throws IOException {
+    private <T> ModelContainer<T> buildModel(@NonNull BuildAction<ModelContainer<T>> action)
+            throws IOException {
         BuildActionExecuter<ModelContainer<T>> executor = projectConnection.action(action);
-        return buildModel(executor, modelLevel).getFirst();
+        return buildModel(executor).getFirst();
     }
 
     /**
@@ -282,8 +286,8 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
      * <p>Can be used both when just fetching models or when also scheduling tasks to be run.
      */
     @NonNull
-    private <T> Pair<T, GradleBuildResult> buildModel(
-            @NonNull BuildActionExecuter<T> executor, int modelLevel) throws IOException {
+    private <T> Pair<T, GradleBuildResult> buildModel(@NonNull BuildActionExecuter<T> executor)
+            throws IOException {
         with(BooleanOption.IDE_BUILD_MODEL_ONLY, true);
         with(BooleanOption.IDE_INVOKED_FROM_IDE, true);
 
@@ -304,25 +308,31 @@ public class ModelBuilder extends BaseGradleExecutor<ModelBuilder> {
 
         setJvmArguments(executor);
 
-        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
-        setStandardOut(executor, stdout);
-        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-        setStandardError(executor, stderr);
+        File stdErrFile = File.createTempFile("stdOut", "log");
+        File stdOutFile = File.createTempFile("stdErr", "log");
 
         CollectingProgressListener progressListener = new CollectingProgressListener();
         executor.addProgressListener(progressListener, OperationType.TASK);
 
         try {
-            T model = executor.withArguments(getArguments()).run();
+            T model;
+            try (OutputStream stdout = new BufferedOutputStream(new FileOutputStream(stdOutFile));
+                    OutputStream stderr =
+                            new BufferedOutputStream(new FileOutputStream(stdErrFile))) {
+                setStandardOut(executor, stdout);
+                setStandardError(executor, stderr);
+                model = executor.withArguments(getArguments()).run();
+            }
             GradleBuildResult buildResult =
-                    new GradleBuildResult(stdout, stderr, progressListener.getEvents(), null);
+                    new GradleBuildResult(
+                            stdOutFile, stdErrFile, progressListener.getEvents(), null);
 
             lastBuildResultConsumer.accept(buildResult);
 
             return Pair.of(model, buildResult);
         } catch (GradleConnectionException e) {
             lastBuildResultConsumer.accept(
-                    new GradleBuildResult(stdout, stderr, progressListener.getEvents(), e));
+                    new GradleBuildResult(stdOutFile, stdErrFile, progressListener.getEvents(), e));
             maybePrintJvmLogs(e);
             throw e;
         }

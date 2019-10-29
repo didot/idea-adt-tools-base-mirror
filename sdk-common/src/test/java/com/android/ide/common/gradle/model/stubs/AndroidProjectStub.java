@@ -36,6 +36,7 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
     @NonNull private final Collection<SyncIssue> mySyncIssues;
     @NonNull private final Collection<Variant> myVariants;
     @NonNull private final Collection<String> myVariantNames;
+    @Nullable private final String myDefaultVariant;
     @NonNull private final Collection<String> myFlavorDimensions;
     @NonNull private final String myCompileTarget;
     @NonNull private final Collection<String> myBootClasspath;
@@ -50,7 +51,6 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
     private final int myApiVersion;
     private final boolean myLibrary;
     private final int myProjectType;
-    private final int myPluginGeneration;
     private final boolean myBaseSplit;
 
     public AndroidProjectStub(@NonNull String modelVersion) {
@@ -64,6 +64,7 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
                 Lists.newArrayList(new SyncIssueStub()),
                 Lists.newArrayList(new VariantStub()),
                 Lists.newArrayList("debug", "release"),
+                "debug",
                 Lists.newArrayList("flavorDimension"),
                 "compileTarget",
                 Lists.newArrayList("bootClasspath"),
@@ -78,7 +79,6 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
                 1,
                 true,
                 2,
-                3,
                 true);
     }
 
@@ -92,6 +92,7 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
             @NonNull Collection<SyncIssue> syncIssues,
             @NonNull Collection<Variant> variants,
             @NonNull Collection<String> variantNames,
+            @Nullable String defaultVariant,
             @NonNull Collection<String> flavorDimensions,
             @NonNull String compileTarget,
             @NonNull Collection<String> bootClasspath,
@@ -106,7 +107,6 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
             int apiVersion,
             boolean library,
             int projectType,
-            int pluginGeneration,
             boolean baseSplit) {
         myModelVersion = modelVersion;
         myName = name;
@@ -117,6 +117,7 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
         mySyncIssues = syncIssues;
         myVariants = variants;
         myVariantNames = variantNames;
+        myDefaultVariant = defaultVariant;
         myFlavorDimensions = flavorDimensions;
         myCompileTarget = compileTarget;
         myBootClasspath = bootClasspath;
@@ -131,7 +132,6 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
         myApiVersion = apiVersion;
         myLibrary = library;
         myProjectType = projectType;
-        myPluginGeneration = pluginGeneration;
         myBaseSplit = baseSplit;
     }
 
@@ -187,6 +187,12 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
     @NonNull
     public Collection<String> getVariantNames() {
         return myVariantNames;
+    }
+
+    @Nullable
+    @Override
+    public String getDefaultVariant() {
+        return myDefaultVariant;
     }
 
     @Override
@@ -285,7 +291,7 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
 
     @Override
     public int getPluginGeneration() {
-        return myPluginGeneration;
+        return GENERATION_ORIGINAL;
     }
 
     @Override
@@ -311,7 +317,6 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
         return getApiVersion() == stub.getApiVersion()
                 && isLibrary() == stub.isLibrary()
                 && getProjectType() == stub.getProjectType()
-                && getPluginGeneration() == stub.getPluginGeneration()
                 && isBaseSplit() == stub.isBaseSplit()
                 && Objects.equals(getModelVersion(), stub.getModelVersion())
                 && Objects.equals(getName(), stub.getName())
@@ -359,7 +364,6 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
                 getApiVersion(),
                 isLibrary(),
                 getProjectType(),
-                getPluginGeneration(),
                 isBaseSplit());
     }
 
@@ -387,6 +391,8 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
                 + myVariants
                 + ", myVariantNames="
                 + myVariantNames
+                + ", myDefaultVariant="
+                + myDefaultVariant
                 + ", myFlavorDimensions="
                 + myFlavorDimensions
                 + ", myCompileTarget='"
@@ -415,8 +421,6 @@ public class AndroidProjectStub extends BaseStub implements AndroidProject {
                 + myLibrary
                 + ", myProjectType="
                 + myProjectType
-                + ", myPluginGeneration="
-                + myPluginGeneration
                 + ", myBaseSplit="
                 + myBaseSplit
                 + "}";

@@ -15,14 +15,13 @@
  */
 package com.android.ide.common.vectordrawable;
 
-import static com.android.ide.common.vectordrawable.SvgColor.colorSvg2Vd;
 import static com.android.ide.common.vectordrawable.VdUtil.parseColorValue;
+import static com.android.utils.DecimalUtils.trimInsignificantZeros;
 import static com.android.utils.XmlUtils.formatFloatAttribute;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.ide.common.vectordrawable.SvgTree.SvgLogLevel;
-import com.android.utils.XmlUtils;
+import com.android.utils.DecimalUtils;
 import com.google.common.collect.ImmutableMap;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
@@ -34,10 +33,10 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.w3c.dom.Node;
+import org.w3c.dom.Element;
 
 /** Represents a SVG gradient that is referenced by a SvgLeafNode. */
-public class SvgGradientNode extends SvgNode {
+class SvgGradientNode extends SvgNode {
     private static final Logger logger = Logger.getLogger(SvgGroupNode.class.getSimpleName());
 
     private final ArrayList<GradientStop> myGradientStops = new ArrayList<>();
@@ -57,16 +56,16 @@ public class SvgGradientNode extends SvgNode {
         // to "objectBoundingBox".
         private final boolean mIsPercentage;
 
-        public GradientCoordResult(double value, boolean isPercentage) {
+        GradientCoordResult(double value, boolean isPercentage) {
             mValue = value;
             mIsPercentage = isPercentage;
         }
 
-        public double getValue() {
+        double getValue() {
             return mValue;
         }
 
-        public boolean isPercentage() {
+        boolean isPercentage() {
             return mIsPercentage;
         }
     }
@@ -85,15 +84,14 @@ public class SvgGradientNode extends SvgNode {
                     .put("y2", 3)
                     .build();
 
-    public SvgGradientNode(
-            @NonNull SvgTree svgTree, @NonNull Node node, @Nullable String nodeName) {
-        super(svgTree, node, nodeName);
+    SvgGradientNode(@NonNull SvgTree svgTree, @NonNull Element element, @Nullable String nodeName) {
+        super(svgTree, element, nodeName);
     }
 
     @Override
     @NonNull
     public SvgGradientNode deepCopy() {
-        SvgGradientNode newInstance = new SvgGradientNode(getTree(), getDocumentNode(), getName());
+        SvgGradientNode newInstance = new SvgGradientNode(getTree(), mDocumentElement, getName());
         newInstance.copyFrom(this);
         return newInstance;
     }
@@ -155,29 +153,27 @@ public class SvgGradientNode extends SvgNode {
                 val = Double.parseDouble(vdValue);
             }
         } catch (NumberFormatException e) {
-            getTree().logErrorLine("Unsupported coordinate value", getDocumentNode(),
-                    SvgLogLevel.ERROR);
+            logError("Unsupported coordinate value");
         }
         return new GradientCoordResult(val, isPercentage);
     }
 
     @Override
-    public void writeXML(@NonNull OutputStreamWriter writer, boolean inClipPath,
-            @NonNull String indent) throws IOException {
+    public void writeXml(
+            @NonNull OutputStreamWriter writer, boolean inClipPath, @NonNull String indent)
+            throws IOException {
         if (myGradientStops.isEmpty()) {
-            getTree().logErrorLine("Gradient has no stop info", getDocumentNode(),
-                    SvgLogLevel.ERROR);
+            logError("Gradient has no stop info");
             return;
         }
 
         writer.write(indent);
         if (mGradientUsage == GradientUsage.FILL) {
             writer.write("<aapt:attr name=\"android:fillColor\">");
-            writer.write(System.lineSeparator());
         } else {
             writer.write("<aapt:attr name=\"android:strokeColor\">");
-            writer.write(System.lineSeparator());
         }
+        writer.write(System.lineSeparator());
         writer.write(indent);
         writer.write(INDENT_UNIT);
         writer.write("<gradient ");
@@ -319,7 +315,7 @@ public class SvgGradientNode extends SvgNode {
             String gradientAttr = Svg2Vector.gradientMap.get(key);
             String svgValue = entry.getValue().trim();
             String vdValue;
-            vdValue = colorSvg2Vd(svgValue, "#000000", this);
+            vdValue = colorSvg2Vd(svgValue, "#000000");
 
             if (vdValue == null) {
                 if (vectorCoordinateMap.containsKey(key)) {
@@ -333,8 +329,7 @@ public class SvgGradientNode extends SvgNode {
                     } else if (svgValue.equals("repeat")) {
                         vdValue = "repeat";
                     } else {
-                        getTree().logErrorLine("Unsupported spreadMethod " + svgValue,
-                                               getDocumentNode(), SvgTree.SvgLogLevel.ERROR);
+                        logError("Unsupported spreadMethod " + svgValue);
                         vdValue = "clamp";
                     }
                 } else if (svgValue.endsWith("%")) {
@@ -376,8 +371,7 @@ public class SvgGradientNode extends SvgNode {
             try {
                 opacity = Float.parseFloat(g.getOpacity());
             } catch (NumberFormatException e) {
-                getTree().logErrorLine("Unsupported opacity value", getDocumentNode(),
-                        SvgLogLevel.WARNING);
+                logWarning("Unsupported opacity value");
                 opacity = 1;
             }
             int color1 = VdPath.applyAlpha(parseColorValue(color), opacity);
@@ -385,7 +379,7 @@ public class SvgGradientNode extends SvgNode {
 
             writer.write(indent);
             writer.write("<item android:offset=\"");
-            writer.write(XmlUtils.trimInsignificantZeros(g.getOffset()));
+            writer.write(trimInsignificantZeros(g.getOffset()));
             writer.write("\"");
             writer.write(" android:color=\"");
             writer.write(color);
@@ -393,8 +387,7 @@ public class SvgGradientNode extends SvgNode {
             writer.write(System.lineSeparator());
 
             if (myGradientStops.size() == 1) {
-                getTree().logErrorLine("Gradient has only one color stop", getDocumentNode(),
-                        SvgLogLevel.WARNING);
+                logWarning("Gradient has only one color stop");
                 writer.write(indent);
                 writer.write("<item android:offset=\"1\"");
                 writer.write(" android:color=\"");
@@ -405,7 +398,8 @@ public class SvgGradientNode extends SvgNode {
         }
     }
 
-    public void addGradientStop(String color, String offset, String opacity) {
+    public void addGradientStop(
+            @NonNull String color, @NonNull String offset, @NonNull String opacity) {
         GradientStop stop = new GradientStop(color, offset);
         stop.setOpacity(opacity);
         myGradientStops.add(stop);

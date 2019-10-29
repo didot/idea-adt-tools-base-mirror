@@ -35,19 +35,20 @@ import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.DeviceProviderInstrumentTestTask;
 import com.android.build.gradle.internal.tasks.factory.TaskFactoryUtils;
 import com.android.build.gradle.internal.test.TestApplicationTestData;
+import com.android.build.gradle.internal.variant.ApkVariantData;
 import com.android.build.gradle.internal.variant.BaseVariantData;
 import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.tasks.CheckTestedAppObfuscation;
 import com.android.build.gradle.tasks.ManifestProcessorTask;
 import com.android.build.gradle.tasks.ProcessTestManifest;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.BuilderConstants;
 import com.android.builder.core.VariantType;
 import com.android.builder.profile.Recorder;
 import com.android.builder.testing.ConnectedDeviceProvider;
 import com.google.common.base.Preconditions;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
@@ -62,15 +63,12 @@ import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
  */
 public class TestApplicationTaskManager extends ApplicationTaskManager {
 
-    private FileCollection mTargetManifestConfiguration = null;
-
     public TestApplicationTaskManager(
             @NonNull GlobalScope globalScope,
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
-            @NonNull SdkHandler sdkHandler,
             @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
@@ -80,16 +78,16 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
                 projectOptions,
                 dataBindingBuilder,
                 extension,
-                sdkHandler,
                 variantFactory,
                 toolingRegistry,
                 recorder);
     }
 
     @Override
-    public void createTasksForVariantScope(@NonNull VariantScope variantScope) {
+    public void createTasksForVariantScope(
+            @NonNull VariantScope variantScope, @NonNull List<VariantScope> variantScopesForLint) {
 
-        super.createTasksForVariantScope(variantScope);
+        super.createTasksForVariantScope(variantScope, variantScopesForLint);
 
         Configuration testedApksConfig =
                 project.getConfigurations()
@@ -121,7 +119,7 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
                         variantScope.getVariantConfiguration(),
                         variantScope.getVariantData()::getApplicationId,
                         testingApk,
-                        new BuildableArtifactImpl(testedApks, globalScope.getDslScope()));
+                        new BuildableArtifactImpl(testedApks));
 
         configureTestData(testData);
 
@@ -131,9 +129,15 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
                         new DeviceProviderInstrumentTestTask.CreationAction(
                                 variantScope,
                                 new ConnectedDeviceProvider(
-                                        sdkHandler.getSdkInfo().getAdb(),
+                                        () ->
+                                                globalScope
+                                                        .getSdkComponents()
+                                                        .getAdbExecutableProvider()
+                                                        .get(),
                                         extension.getAdbOptions().getTimeOutInMs(),
                                         new LoggerWrapper(getLogger())),
+                                DeviceProviderInstrumentTestTask.CreationAction.Type
+                                        .INTERNAL_CONNECTED_DEVICE_PROVIDER,
                                 testData,
                                 testedManifestMetadata) {
                             @NonNull
@@ -157,7 +161,13 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     }
 
     @Override
-    public void createLintTasks(VariantScope scope) {
+    public void createLintTasks(VariantScope scope, @NonNull List<VariantScope> variantScopes) {
+        // do nothing
+    }
+
+    @Override
+    public void maybeCreateLintVitalTask(
+            @NonNull ApkVariantData variantData, @NonNull List<VariantScope> variantScopes) {
         // do nothing
     }
 
@@ -197,23 +207,18 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     /** Returns the manifest configuration of the tested application */
     @NonNull
     private FileCollection getTestedManifestMetadata(@NonNull BaseVariantData variantData) {
-        if (mTargetManifestConfiguration == null){
-            mTargetManifestConfiguration =
-                    variantData
-                            .getVariantDependency()
-                            .getCompileClasspath()
-                            .getIncoming()
-                            .artifactView(
-                                    config ->
-                                            config.attributes(
-                                                    container ->
-                                                            container.attribute(
-                                                                    ARTIFACT_TYPE,
-                                                                    MANIFEST_METADATA.getType())))
-                            .getFiles();
-        }
-
-        return mTargetManifestConfiguration;
+        return variantData
+                .getVariantDependency()
+                .getCompileClasspath()
+                .getIncoming()
+                .artifactView(
+                        config ->
+                                config.attributes(
+                                        container ->
+                                                container.attribute(
+                                                        ARTIFACT_TYPE,
+                                                        MANIFEST_METADATA.getType())))
+                .getFiles();
     }
 
     /** Creates the merge manifests task. */
@@ -221,12 +226,10 @@ public class TestApplicationTaskManager extends ApplicationTaskManager {
     @NonNull
     protected TaskProvider<? extends ManifestProcessorTask> createMergeManifestTask(
             @NonNull VariantScope variantScope) {
+
         return taskFactory.register(
                 new ProcessTestManifest.CreationAction(
-                        variantScope,
-                        new BuildableArtifactImpl(
-                                getTestedManifestMetadata(variantScope.getVariantData()),
-                                variantScope.getGlobalScope().getDslScope())));
+                        variantScope, getTestedManifestMetadata(variantScope.getVariantData())));
     }
 
     @Override

@@ -19,9 +19,12 @@ package com.android.ide.common.workers
 import com.google.common.truth.Truth.assertThat
 import org.junit.Before
 import org.junit.Test
+import org.mockito.Mock
+import org.mockito.Mockito
+import org.mockito.MockitoAnnotations
 import java.io.Serializable
+import java.lang.IllegalArgumentException
 import java.lang.reflect.InvocationTargetException
-import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
@@ -32,14 +35,18 @@ class ExecutorServiceAdapterTest {
         val executorService : ExecutorService = Executors.newSingleThreadExecutor()
     }
 
+    @Mock
+    lateinit var workerExecutorFacade: WorkerExecutorFacade
+
     @Before
     fun setUp() {
         Action.reset()
+        MockitoAnnotations.initMocks(this)
     }
 
     @Test
     fun singleActionTest() {
-        ExecutorServiceAdapter(executorService).use {
+        ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
             it.submit(Action::class.java, Parameters("foo", "foo"))
         }
         assertThat(Action.invocationCount.get()).isEqualTo(1)
@@ -47,7 +54,7 @@ class ExecutorServiceAdapterTest {
 
     @Test
     fun multipleActionTest() {
-        ExecutorServiceAdapter(executorService).use {
+        ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
             for (i in 1..5) {
                 it.submit(Action::class.java, Parameters("foo", "foo"))
             }
@@ -57,7 +64,7 @@ class ExecutorServiceAdapterTest {
 
     @Test
     fun multipleInvocationTest() {
-        ExecutorServiceAdapter(executorService).use {
+        ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
             for (i in 1..5) {
                 for (j in 1..3) {
                     it.submit(Action::class.java, Parameters("foo", "foo"))
@@ -69,7 +76,7 @@ class ExecutorServiceAdapterTest {
 
     @Test
     fun awaitTest() {
-        with(ExecutorServiceAdapter(executorService)) {
+        with(ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade)) {
             for (i in 1..4) {
                 submit(Action::class.java, Parameters("foo", "foo"))
             }
@@ -81,32 +88,98 @@ class ExecutorServiceAdapterTest {
     @Test(expected = NoSuchMethodException::class)
     fun notSuitableConstructor() {
         try {
-            ExecutorServiceAdapter(executorService).use {
+            ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
                 it.submit(WrongAction::class.java, Parameters("foo", "foo"))
             }
-        } catch (e : ExecutionException) {
-            throw e.cause!!
+        } catch (e: WorkerExecutorException) {
+            assertThat(e.causes.size).isEqualTo(1)
+            throw e.cause!!.cause!!
         }
     }
 
     @Test(expected = InvocationTargetException::class)
     fun badConstructorException() {
         try {
-            ExecutorServiceAdapter(executorService).use {
+            ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
                 it.submit(BadConstructorAction::class.java, Parameters("foo", "foo"))
             }
-        } catch (e: ExecutionException) {
-            throw e.cause!!
+        } catch (e: WorkerExecutorException) {
+            assertThat(e.causes.size).isEqualTo(1)
+            throw e.cause!!.cause!!
         }
     }
 
     @Test
     fun notAccessibleConstructor() {
-        ExecutorServiceAdapter(executorService).use {
+        ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
             it.submit(PrivateConstructorClass::class.java, "Foo")
         }
     }
 
+    @Test(expected = IllegalStateException::class)
+    fun wrappingTasksExecutionExceptions() {
+        ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
+            for (i in 1..4) {
+                it.submit(Action::class.java, Parameters("Foo", "Bar"))
+            }
+            for (i in 1..4) {
+                it.submit(Action::class.java, Parameters("Foo", "Foo"))
+            }
+            try {
+                it.await()
+            } catch (e: WorkerExecutorException) {
+                assertThat(e.causes.size).isEqualTo(4)
+                assertThat(e.causes[0].message).contains("wrong parameters value")
+                throw e.cause!!.cause!!
+            }
+        }
+    }
+
+    @Test
+    fun assertThatClassLoaderIsolatedSubmissionAreDelegated() {
+
+        val configuration = WorkerExecutorFacade.Configuration(
+            Parameters("foo", "foo"),
+            WorkerExecutorFacade.IsolationMode.CLASSLOADER,
+            listOf()
+        )
+
+        ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
+            it.submit(Action::class.java, configuration)
+        }
+
+        Mockito.verify(workerExecutorFacade).submit(Action::class.java, configuration)
+        assertThat(Action.invocationCount.get()).isEqualTo(0)
+    }
+
+    @Test
+    fun assertThatDelegatedWorkerIsAlsoWaitedUpon() {
+        val configuration = WorkerExecutorFacade.Configuration(
+            Parameters("foo", "foo"),
+            WorkerExecutorFacade.IsolationMode.CLASSLOADER,
+            listOf()
+        )
+
+        ExecutorServiceAdapter("test", ":test", executorService, workerExecutorFacade).use {
+            it.submit(Action::class.java, configuration)
+        }
+
+        Mockito.verify(workerExecutorFacade).await()
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun assertNoDelegateException() {
+
+        val configuration = WorkerExecutorFacade.Configuration(
+            Parameters("foo", "foo"),
+            WorkerExecutorFacade.IsolationMode.CLASSLOADER,
+            listOf()
+        )
+
+        ExecutorServiceAdapter("test", ":test", executorService, null).use {
+            it.submit(Action::class.java, configuration)
+        }
+    }
 
     private class Action(val parameters: Parameters) : Runnable {
 
@@ -140,7 +213,7 @@ class ExecutorServiceAdapterTest {
 
     private data class Parameters(val param0: String, val param1: String) : Serializable
 
-    private class PrivateConstructorClass private constructor(val parameters: String) : Runnable {
+    private class PrivateConstructorClass private constructor(param: String) : Runnable {
         override fun run() {}
     }
 }

@@ -16,23 +16,29 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.api.artifact.BuildableArtifact
-import com.android.build.gradle.internal.res.getAapt2FromMaven
+import com.android.build.gradle.internal.LoggerWrapper
+import com.android.build.gradle.internal.res.Aapt2CompileRunnable
+import com.android.build.gradle.internal.res.getAapt2FromMavenAndVersion
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.IncrementalTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
+import com.android.build.gradle.options.SyncOptions
 import com.android.builder.internal.aapt.v2.Aapt2RenamingConventions
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.ide.common.resources.FileStatus
 import com.android.utils.FileUtils
-import org.gradle.api.file.FileCollection
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.model.ObjectFactory
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.PathSensitive
-import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.SkipWhenEmpty
+import org.gradle.api.tasks.TaskProvider
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.nio.file.Files
@@ -44,12 +50,13 @@ import javax.inject.Inject
  *
  * The link step handles resource overlays.
  */
-open class CompileSourceSetResources
-@Inject constructor(workerExecutor: WorkerExecutor) : IncrementalTask() {
-    @get:InputFiles
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var aapt2FromMaven: FileCollection
+abstract class CompileSourceSetResources
+@Inject constructor(workerExecutor: WorkerExecutor, objects: ObjectFactory) : IncrementalTask() {
+    @get:Input
+    lateinit var aapt2Version: String
         private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
     @get:InputFiles
     @get:SkipWhenEmpty
@@ -65,12 +72,14 @@ open class CompileSourceSetResources
     lateinit var outputDirectory: File
         private set
     @get:OutputDirectory
-    lateinit var partialRDirectory: File
-        private set
+    val partialRDirectory: DirectoryProperty = objects.directoryProperty()
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
-    override fun isIncremental() = true
+    private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
+
+    override val incremental: Boolean
+        get() = true
 
     override fun doFullTaskAction() {
         FileUtils.cleanOutputDir(outputDirectory)
@@ -112,7 +121,7 @@ open class CompileSourceSetResources
         }
     }
 
-    override fun doIncrementalTaskAction(changedInputs: MutableMap<File, FileStatus>) {
+    override fun doIncrementalTaskAction(changedInputs: Map<File, FileStatus>) {
         val requests = mutableListOf<CompileResourceRequest>()
         val deletes = mutableListOf<File>()
         /** Only consider at files in first level subdirectories of the input directory */
@@ -130,11 +139,12 @@ open class CompileSourceSetResources
         }
         workers.use {
             if (!deletes.isEmpty()) {
-                workers.submit(Aapt2CompileDeleteRunnable::class.java,
+                workers.submit(
+                    Aapt2CompileDeleteRunnable::class.java,
                     Aapt2CompileDeleteRunnable.Params(
                         outputDirectory = outputDirectory,
                         deletedInputs = deletes,
-                        partialRDirectory = partialRDirectory
+                        partialRDirectory = partialRDirectory.get().asFile
                     )
                 )
             }
@@ -152,7 +162,7 @@ open class CompileSourceSetResources
                     partialRFile = getPartialR(file))
 
     private fun getPartialR(file: File) =
-        File(partialRDirectory, "${Aapt2RenamingConventions.compilationRename(file)}-R.txt")
+        File(partialRDirectory.get().asFile, "${Aapt2RenamingConventions.compilationRename(file)}-R.txt")
 
     private fun submit(requests: List<CompileResourceRequest>) {
         if (requests.isEmpty()) {
@@ -160,13 +170,15 @@ open class CompileSourceSetResources
         }
         val aapt2ServiceKey = registerAaptService(
             aapt2FromMaven = aapt2FromMaven,
-            logger = iLogger
+            logger = LoggerWrapper(logger)
         )
         for (request in requests) {
-            workers.submit(Aapt2CompileRunnable::class.java,
+            workers.submit(
+                Aapt2CompileRunnable::class.java,
                 Aapt2CompileRunnable.Params(
-                    aapt2ServiceKey = aapt2ServiceKey,
-                    requests = listOf(request)
+                    aapt2ServiceKey,
+                    listOf(request),
+                    errorFormatMode
                 )
             )
         }
@@ -192,8 +204,16 @@ open class CompileSourceSetResources
             super.preConfigure(taskName)
             outputDirectory = variantScope.artifacts
                 .appendArtifact(InternalArtifactType.RES_COMPILED_FLAT_FILES, taskName)
-            partialRDirectory = variantScope.artifacts
-                .appendArtifact(InternalArtifactType.PARTIAL_R_FILES, taskName)
+        }
+
+        override fun handleProvider(taskProvider: TaskProvider<out CompileSourceSetResources>) {
+            super.handleProvider(taskProvider)
+
+            variantScope.artifacts.producesDir(
+                InternalArtifactType.PARTIAL_R_FILES,
+                BuildArtifactsHolder.OperationType.APPEND,
+                taskProvider,
+                taskProvider.map { it.partialRDirectory })
         }
 
         override fun configure(task: CompileSourceSetResources) {
@@ -201,13 +221,19 @@ open class CompileSourceSetResources
 
             task.inputDirectories = inputDirectories
             task.outputDirectory = outputDirectory
-            task.partialRDirectory = partialRDirectory
             task.isPngCrunching = variantScope.isCrunchPngs
             task.isPseudoLocalize =
                     variantScope.variantData.variantConfiguration.buildType.isPseudoLocalesEnabled
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+
+            val (aapt2FromMaven,aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
 
             task.dependsOn(variantScope.taskContainer.resourceGenTask)
+
+            task.errorFormatMode = SyncOptions.getErrorFormatMode(
+                variantScope.globalScope.projectOptions
+            )
         }
     }
 }

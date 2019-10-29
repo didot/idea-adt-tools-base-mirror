@@ -24,13 +24,18 @@ import com.android.build.gradle.internal.pipeline.StreamFilter
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.MODULE_PATH
 import com.android.build.gradle.internal.scope.InternalArtifactType
+import com.android.build.gradle.internal.scope.InternalArtifactType.MERGED_NATIVE_LIBS
+import com.android.build.gradle.internal.scope.InternalArtifactType.STRIPPED_NATIVE_LIBS
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata
 import com.android.builder.files.NativeLibraryAbiPredicate
 import com.android.builder.packaging.JarMerger
 import com.android.utils.FileUtils
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
@@ -49,7 +54,7 @@ import java.util.function.Supplier
  * so that the base app can package into the bundle.
  *
  */
-open class PerModuleBundleTask : AndroidVariantTask() {
+open class PerModuleBundleTask : NonIncrementalTask() {
 
     @get:OutputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
@@ -78,7 +83,7 @@ open class PerModuleBundleTask : AndroidVariantTask() {
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    lateinit var assetsFiles: BuildableArtifact
+    lateinit var assetsFiles: Provider<Directory>
         private set
 
     @get:InputFiles
@@ -97,18 +102,20 @@ open class PerModuleBundleTask : AndroidVariantTask() {
     val fileName: String
         get() = fileNameSupplier.get()
 
-    @TaskAction
-    fun zip() {
+    public override fun doTaskAction() {
         FileUtils.cleanOutputDir(outputDir)
         val jarMerger = JarMerger(File(outputDir, fileName).toPath())
+
+        // Disable compression for module zips, since this will only be used in bundletool and it
+        // will need to uncompress them anyway.
+        jarMerger.setCompressionLevel(0)
 
         val filters = abiFilters
         val abiFilter: Predicate<String>? = if (filters != null) NativeLibraryAbiPredicate(filters, false) else null
 
-        jarMerger.use { it ->
-
+        jarMerger.use {
             it.addDirectory(
-                assetsFiles.single().toPath(),
+                assetsFiles.get().asFile.toPath(),
                 null,
                 null,
                 Relocator(FD_ASSETS)
@@ -167,7 +174,8 @@ open class PerModuleBundleTask : AndroidVariantTask() {
     private fun hasFeatureDexFiles() = featureDexFiles.files.isNotEmpty()
 
     class CreationAction(
-        variantScope: VariantScope
+        variantScope: VariantScope,
+        private val packageCustomClassDependencies: Boolean
     ) : VariantTaskCreationAction<PerModuleBundleTask>(variantScope) {
 
         override val name: String
@@ -199,7 +207,7 @@ open class PerModuleBundleTask : AndroidVariantTask() {
 
             task.outputDir = outputDir
 
-            task.assetsFiles = artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_ASSETS)
+            task.assetsFiles = artifacts.getFinalProduct(InternalArtifactType.MERGED_ASSETS)
             task.resFiles = artifacts.getFinalArtifactFiles(
                     if (variantScope.useResourceShrinker()) {
                         InternalArtifactType.SHRUNK_LINKED_RES_FOR_BUNDLE
@@ -211,14 +219,19 @@ open class PerModuleBundleTask : AndroidVariantTask() {
             task.featureDexFiles =
                 variantScope.getArtifactFileCollection(
                     AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                    AndroidArtifacts.ArtifactScope.MODULE,
+                    AndroidArtifacts.ArtifactScope.PROJECT,
                     AndroidArtifacts.ArtifactType.FEATURE_DEX,
                     mapOf(MODULE_PATH to variantScope.globalScope.project.path)
                 )
-            task.javaResFiles = variantScope.transformManager.getPipelineOutputAsFileCollection(
-                StreamFilter.RESOURCES)
-            task.nativeLibsFiles = variantScope.transformManager.getPipelineOutputAsFileCollection(
-                StreamFilter.NATIVE_LIBS)
+            task.javaResFiles = if (variantScope.needsMergedJavaResStream) {
+                variantScope.transformManager
+                    .getPipelineOutputAsFileCollection(StreamFilter.RESOURCES)
+            } else {
+                variantScope.globalScope.project.layout.files(
+                    artifacts.getFinalProduct<RegularFile>(InternalArtifactType.MERGED_JAVA_RES)
+                )
+            }
+            task.nativeLibsFiles = getNativeLibsFiles(variantScope, packageCustomClassDependencies)
 
             task.abiFilters = variantScope.variantConfiguration.supportedAbis
         }
@@ -266,4 +279,24 @@ private class ResRelocator : JarMerger.Relocator {
         SdkConstants.FN_ANDROID_MANIFEST_XML -> "manifest/" + SdkConstants.FN_ANDROID_MANIFEST_XML
         else -> entryPath
     }
+}
+
+/**
+ * Returns a file collection containing all of the native libraries to be packaged.
+ */
+fun getNativeLibsFiles(
+    scope: VariantScope,
+    packageCustomClassDependencies: Boolean
+): FileCollection {
+    val nativeLibs = scope.globalScope.project.files()
+    if (scope.type.isForTesting) {
+        return nativeLibs.from(scope.artifacts.getFinalProduct<Directory>(MERGED_NATIVE_LIBS))
+    }
+    nativeLibs.from(scope.artifacts.getFinalProduct<Directory>(STRIPPED_NATIVE_LIBS))
+    if (packageCustomClassDependencies) {
+        nativeLibs.from(
+            scope.transformManager.getPipelineOutputAsFileCollection(StreamFilter.NATIVE_LIBS)
+        )
+    }
+    return nativeLibs
 }

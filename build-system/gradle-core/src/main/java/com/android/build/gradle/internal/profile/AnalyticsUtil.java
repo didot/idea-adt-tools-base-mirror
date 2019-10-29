@@ -17,7 +17,6 @@
 package com.android.build.gradle.internal.profile;
 
 import com.android.annotations.NonNull;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.api.transform.Transform;
 import com.android.build.gradle.internal.core.Abi;
 import com.android.build.gradle.internal.dsl.Splits;
@@ -25,17 +24,19 @@ import com.android.build.gradle.internal.scope.CodeShrinker;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.IntegerOption;
-import com.android.build.gradle.options.LongOption;
 import com.android.build.gradle.options.OptionalBooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
 import com.android.builder.dexing.DexMergerTool;
 import com.android.builder.dexing.DexerTool;
 import com.android.builder.model.TestOptions;
+import com.android.builder.model.Version;
 import com.android.resources.Density;
 import com.android.sdklib.AndroidVersion;
+import com.android.tools.analytics.CommonMetricsData;
 import com.android.tools.build.gradle.internal.profile.GradleTaskExecutionType;
 import com.android.tools.build.gradle.internal.profile.GradleTransformExecutionType;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.wireless.android.sdk.stats.ApiVersion;
@@ -45,6 +46,7 @@ import com.google.wireless.android.sdk.stats.GradleBuildSplits;
 import com.google.wireless.android.sdk.stats.GradleBuildVariant;
 import com.google.wireless.android.sdk.stats.GradleIntegerOptionEntry;
 import com.google.wireless.android.sdk.stats.GradleProjectOptionsSettings;
+import com.google.wireless.android.sdk.stats.ProductDetails;
 import com.google.wireless.android.sdk.stats.TestRun;
 import java.util.Locale;
 import org.gradle.api.Plugin;
@@ -54,6 +56,14 @@ import org.gradle.api.logging.Logging;
  * Utilities to map internal representations of types to analytics.
  */
 public class AnalyticsUtil {
+
+    public static ProductDetails getProductDetails() {
+        return ProductDetails.newBuilder()
+                .setProduct(ProductDetails.ProductKind.GRADLE)
+                .setVersion(Version.ANDROID_GRADLE_PLUGIN_VERSION)
+                .setOsArchitecture(CommonMetricsData.getOsArchitecture())
+                .build();
+    }
 
     public static GradleTransformExecutionType getTransformType(
             @NonNull Class<? extends Transform> taskClass) {
@@ -68,9 +78,6 @@ public class AnalyticsUtil {
     @NonNull
     static String getPotentialTransformTypeName(Class<?> taskClass) {
         String taskImpl = taskClass.getSimpleName();
-        if (taskImpl.endsWith("Transform")) {
-            taskImpl = taskImpl.substring(0, taskImpl.length() - "Transform".length());
-        }
         return CaseFormat.LOWER_CAMEL.to(CaseFormat.UPPER_UNDERSCORE, taskImpl);
     }
 
@@ -302,18 +309,6 @@ public class AnalyticsUtil {
 
     @VisibleForTesting
     @NonNull
-    static com.android.tools.build.gradle.internal.profile.LongOption toProto(
-            @NonNull LongOption option) {
-        try {
-            return com.android.tools.build.gradle.internal.profile.LongOption.valueOf(
-                    option.name());
-        } catch (IllegalArgumentException e) {
-            return com.android.tools.build.gradle.internal.profile.LongOption.UNKNOWN_LONG_OPTION;
-        }
-    }
-
-    @VisibleForTesting
-    @NonNull
     static com.android.tools.build.gradle.internal.profile.StringOption toProto(
             @NonNull StringOption option) {
         try {
@@ -359,10 +354,6 @@ public class AnalyticsUtil {
                                             .setIntegerOption(toProto(option).getNumber())
                                             .setIntegerOptionValue(value));
                         });
-
-        for (LongOption longOption : projectOptions.getExplicitlySetLongOptions().keySet()) {
-            builder.addLongOptions(toProto(longOption).getNumber());
-        }
 
         for (StringOption stringOption : projectOptions.getExplicitlySetStringOptions().keySet()) {
             builder.addStringOptions(toProto(stringOption).getNumber());

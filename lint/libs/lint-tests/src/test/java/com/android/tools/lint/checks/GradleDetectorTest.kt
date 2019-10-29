@@ -28,8 +28,10 @@ import com.android.testutils.TestUtils
 import com.android.tools.lint.checks.GradleDetector.Companion.ACCIDENTAL_OCTAL
 import com.android.tools.lint.checks.GradleDetector.Companion.BUNDLED_GMS
 import com.android.tools.lint.checks.GradleDetector.Companion.COMPATIBILITY
+import com.android.tools.lint.checks.GradleDetector.Companion.DATA_BINDING_WITHOUT_KAPT
 import com.android.tools.lint.checks.GradleDetector.Companion.DEPENDENCY
 import com.android.tools.lint.checks.GradleDetector.Companion.DEPRECATED
+import com.android.tools.lint.checks.GradleDetector.Companion.DEPRECATED_CONFIGURATION
 import com.android.tools.lint.checks.GradleDetector.Companion.DEPRECATED_LIBRARY
 import com.android.tools.lint.checks.GradleDetector.Companion.DEV_MODE_OBSOLETE
 import com.android.tools.lint.checks.GradleDetector.Companion.DUPLICATE_CLASSES
@@ -38,6 +40,7 @@ import com.android.tools.lint.checks.GradleDetector.Companion.EXPIRING_TARGET_SD
 import com.android.tools.lint.checks.GradleDetector.Companion.GRADLE_GETTER
 import com.android.tools.lint.checks.GradleDetector.Companion.GRADLE_PLUGIN_COMPATIBILITY
 import com.android.tools.lint.checks.GradleDetector.Companion.HIGH_APP_VERSION_CODE
+import com.android.tools.lint.checks.GradleDetector.Companion.LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8
 import com.android.tools.lint.checks.GradleDetector.Companion.MIN_SDK_TOO_LOW
 import com.android.tools.lint.checks.GradleDetector.Companion.NOT_INTERPOLATED
 import com.android.tools.lint.checks.GradleDetector.Companion.PATH
@@ -48,6 +51,7 @@ import com.android.tools.lint.checks.GradleDetector.Companion.STRING_INTEGER
 import com.android.tools.lint.checks.GradleDetector.Companion.getNamedDependency
 import com.android.tools.lint.checks.infrastructure.TestIssueRegistry
 import com.android.tools.lint.checks.infrastructure.TestLintTask
+import com.android.tools.lint.checks.infrastructure.TestResultTransformer
 import com.android.tools.lint.detector.api.Detector
 import com.android.tools.lint.detector.api.Implementation
 import com.android.tools.lint.detector.api.Project
@@ -59,6 +63,7 @@ import org.mockito.Mockito.mock
 import java.io.File
 import java.io.IOException
 import java.util.Calendar
+import java.util.Locale
 import java.util.function.Predicate
 
 /**
@@ -115,105 +120,7 @@ class GradleDetectorTest : AbstractCheckTest() {
     override fun lint(): TestLintTask {
         val task = super.lint()
         task.sdkHome(mockSupportLibraryInstallation)
-
-        // Set up exactly the expected maven.google.com network output to ensure stable
-        // version suggestions in the tests
-        task.networkData(
-            "https://maven.google.com/master-index.xml",
-            "" +
-                    "<?xml version='1.0' encoding='UTF-8'?>\n" +
-                    "<metadata>\n" +
-                    "  <com.android.tools.build/>" +
-                    "</metadata>"
-        )
-        task.networkData(
-            "https://maven.google.com/com/android/tools/build/group-index.xml",
-            "" +
-                    "<?xml version='1.0' encoding='UTF-8'?>\n" +
-                    "<com.android.tools.build>\n" +
-                    "  <gradle versions=\"3.0.0-alpha1,3.0.0-alpha2,3.0.0-alpha3,3.0.0-alpha4,3.0.0-alpha5,3.0.0-alpha6,3.0.0-alpha7,3.0.0-alpha8,3.0.0-alpha9,3.0.0-beta1,3.0.0-beta2,3.0.0-beta3,3.0.0-beta4,3.0.0-beta5,3.0.0-beta6,3.0.0-beta7,3.0.0-rc1,3.0.0-rc2,3.0.0," +
-                    "3.1.0-alpha01,3.1.0-alpha02,3.1.0-alpha03,3.1.0-alpha04,3.1.0-alpha05,3.1.0-alpha06,3.1.0-alpha07,3.1.0-alpha08,3.1.0-alpha09,3.1.0-beta1,3.1.0-beta2,3.1.0-beta3,3.1.0-beta4,3.1.0-rc1,3.1.0," +
-                    "3.2.0-alpha01,3.2.0-alpha02,3.2.0-alpha03\"/>\n" +
-                    "</com.android.tools.build>"
-        )
-
-        // Similarly set up the expected SDK registry network output from dl.google.com to
-        // ensure stable SDK library suggestions in the tests
-        task.networkData(
-            SDK_REGISTRY_URL,
-            """
-            <sdk_metadata>
-             <library groupId="com.android.volley" artifactId="volley" recommended-version="1.1.0">
-              <versions from="1.1.0-rc2" status="deprecated" description="Bug affecting app stability" url="https://github.com/google/volley/releases" />
-              <versions from="1.1.0-rc1" status="deprecated" description="Bug affecting app stability" url="https://github.com/google/volley/releases" />
-              <versions from="1.0.0" status="deprecated" description="Bug affecting app stability" url="https://github.com/google/volley/releases" />
-             </library>
-             <library groupId="log4j" artifactId="log4j" recommended-version="1.2.17" recommended-version-sha="5af35056b4d257e4b64b9e8069c0746e8b08629f">
-              <versions from="1.2.14" to="1.2.16" status="deprecated" description="Deprecated due to ANR issue">
-               <vulnerability description="Specifics and developer actions go here." cve="CVE-4313" />
-              </versions>
-              <versions from="1.2.4" to="1.2.13" status="insecure" description="Bad security bug CVE-4311" />
-               <vulnerability description="Buffer overflow vulnerability in this version." cve="CVE-4311" />
-              <versions to="1.2.0" status="obsolete" description="Library is obsolete." />
-             </library>
-             <library groupId="com.example.ads.thirdparty" artifactId="example" recommended-version="7.3.1">
-              <versions from="7.1.0" to="7.2.1" status="deprecated" description="Deprecated due to ANR issue">
-               <vulnerability description="Specifics and developer actions go here." />
-              </versions>
-              <versions to="7.0.0" status="deprecated" description="Deprecated due to ANR issue">
-               <vulnerability description="Specifics and developer actions go here." />
-              </versions>
-              </library>
-            </sdk_metadata>
-            """.trimIndent()
-        )
-
-        // Also ensure we don't have a stale cache on disk.
-        val cacheDir =
-            TestLintClient().getCacheDir(MAVEN_GOOGLE_CACHE_DIR_KEY, true)
-        if (cacheDir != null && cacheDir.isDirectory) {
-            try {
-                FileUtils.deleteDirectoryContents(cacheDir)
-            } catch (e: IOException) {
-                fail(e.message)
-            }
-        }
-
-        val client: com.android.tools.lint.checks.infrastructure.TestLintClient =
-            object : com.android.tools.lint.checks.infrastructure.TestLintClient() {
-                override fun getSdkHome(): File? {
-                    if (task.sdkHome != null) {
-                        return task.sdkHome
-                    }
-                    return mockSupportLibraryInstallation
-                }
-
-                override fun getHighestKnownVersion(
-                    coordinate: GradleCoordinate,
-                    filter: Predicate<GradleVersion>?
-                ): GradleVersion? {
-                    // Hardcoded for unit test to ensure stable data
-                    return if ("com.android.support.constraint" == coordinate.groupId && "constraint-layout" == coordinate.artifactId) {
-                        if (coordinate.isPreview) {
-                            GradleVersion.tryParse("1.0.3-alpha8")
-                        } else {
-                            GradleVersion.tryParse("1.0.2")
-                        }
-                    } else null
-                }
-            }
-        task.client(client)
-
-        val cacheDir2 =
-            TestLintClient().getCacheDir(DEPRECATED_SDK_CACHE_DIR_KEY, true)
-        if (cacheDir2 != null && cacheDir2.isDirectory) {
-            try {
-                FileUtils.deleteDirectoryContents(cacheDir2)
-            } catch (e: IOException) {
-                fail(e.message)
-            }
-        }
-
+        initializeNetworkMocksAndCaches(task)
         return task
     }
 
@@ -293,7 +200,7 @@ class GradleDetectorTest : AbstractCheckTest() {
 
     fun testVersionsFromGradleCache() {
         val expected = "" +
-                "build.gradle:6: Warning: A newer version of com.android.tools.build:gradle than 2.4.0-alpha3 is available: 3.2.0-alpha03 [GradleDependency]\n" +
+                "build.gradle:6: Warning: A newer version of com.android.tools.build:gradle than 2.4.0-alpha3 is available: 3.5.0-alpha10 [GradleDependency]\n" +
                 "        classpath 'com.android.tools.build:gradle:2.4.0-alpha3'\n" +
                 "        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
                 "build.gradle:10: Warning: A newer version of org.apache.httpcomponents:httpcomponents-core than 4.2 is available: 4.4 [GradleDependency]\n" +
@@ -330,10 +237,10 @@ class GradleDetectorTest : AbstractCheckTest() {
             .expect(expected)
             .expectFixDiffs(
                 "" +
-                        "Fix for build.gradle line 5: Change to 3.2.0-alpha03:\n" +
+                        "Fix for build.gradle line 5: Change to 3.5.0-alpha10:\n" +
                         "@@ -6 +6\n" +
                         "-         classpath 'com.android.tools.build:gradle:2.4.0-alpha3'\n" +
-                        "+         classpath 'com.android.tools.build:gradle:3.2.0-alpha03'\n" +
+                        "+         classpath 'com.android.tools.build:gradle:3.5.0-alpha10'\n" +
                         "Fix for build.gradle line 9: Change to 4.4:\n" +
                         "@@ -10 +10\n" +
                         "-     compile 'org.apache.httpcomponents:httpcomponents-core:4.2'\n" +
@@ -372,6 +279,35 @@ class GradleDetectorTest : AbstractCheckTest() {
                         "}\n"
             )
         ).issues(DEPENDENCY).run().expect(expected)
+    }
+
+    fun testQvsAndroidX() {
+        // Regression test for 128648458: Lint Warning to update appCompat in Q
+        val expected = "" +
+                "build.gradle:13: Error: Version 28 (intended for Android Pie and below) is the last version of the legacy support library, so we recommend that you migrate to AndroidX libraries when using Android Q and moving forward. The IDE can help with this: Refactor > Migrate to AndroidX... [GradleCompatible]\n" +
+                "    implementation 'com.android.support:appcompat-v7:28.0.0' \n" +
+                "    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                "1 errors, 0 warnings"
+
+        lint().files(
+            gradle(
+                "" +
+                        "apply plugin: 'com.android.application'\n" +
+                        "\n" +
+                        "android {\n" +
+                        "     compileSdkVersion 'android-Q'\n" +
+                        "\n" +
+                        "    defaultConfig {\n" +
+                        "        minSdkVersion 19\n" +
+                        "        targetSdkVersion 'Q'\n" +
+                        "    }\n" +
+                        "}\n" +
+                        "\n" +
+                        "dependencies {\n" +
+                        "    implementation 'com.android.support:appcompat-v7:28.0.0' \n" +
+                        "}\n"
+            )
+        ).issues(COMPATIBILITY).run().expect(expected)
     }
 
     fun testCompatibility() {
@@ -484,6 +420,123 @@ class GradleDetectorTest : AbstractCheckTest() {
                         "}\n"
             )
         ).issues(GRADLE_PLUGIN_COMPATIBILITY).run().expect(expected)
+    }
+
+    fun testTooRecentVersion() {
+        // Regression test for https://issuetracker.google.com/119210741
+        // Don't offer Gradle plugin versions newer than the IDE (when running in the IDE)
+        // Same (older) version of Studio and Gradle:
+        // Studio 3.0, gradle: 3.0.0-alpha4: Offer latest 3.0.0, not 3.1 or 3.2 etc
+        val expected = "" +
+                "build.gradle:6: Warning: A newer version of com.android.tools.build:gradle than 3.0.0-alpha4 is available: 3.0.0 [GradleDependency]\n" +
+                "    classpath 'com.android.tools.build:gradle:3.0.0-alpha4'\n" +
+                "    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                "0 errors, 1 warnings"
+
+        lint().files(
+            gradle(
+                """
+                buildscript {
+                  repositories {
+                    mavenCentral()
+                  }
+                  dependencies {
+                    classpath 'com.android.tools.build:gradle:3.0.0-alpha4'
+                  }
+                }
+
+                allprojects {
+                  repositories {
+                    mavenCentral()
+                  }
+                }
+                """
+            ).indented()
+        ).issues(DEPENDENCY)
+            .client(object :
+                com.android.tools.lint.checks.infrastructure.TestLintClient(CLIENT_STUDIO) {
+                // Studio 3.0.0
+                override fun getClientRevision(): String? = "3.0.0.0"
+            })
+            .run().expect(expected)
+    }
+
+    fun testTooRecentVersion2() {
+        // Regression test for https://issuetracker.google.com/119210741
+        // Don't offer Gradle plugin versions newer than the IDE (when running in the IDE)
+        // Newer Studio than Gradle:
+        // Studio 3.1, Gradle 3.0: Offer 3.1
+        lint().files(
+            gradle(
+                """
+                buildscript {
+                  repositories {
+                    mavenCentral()
+                  }
+                  dependencies {
+                    classpath 'com.android.tools.build:gradle:3.0.0-alpha01'
+                  }
+                }
+
+                allprojects {
+                  repositories {
+                    mavenCentral()
+                  }
+                }
+                """
+            ).indented()
+        ).issues(DEPENDENCY)
+            .client(object :
+                com.android.tools.lint.checks.infrastructure.TestLintClient(CLIENT_STUDIO) {
+                // Studio 3.0.0
+                override fun getClientRevision(): String? = "3.1.0"
+            })
+            .run().expect(
+                "" +
+                        "build.gradle:6: Warning: A newer version of com.android.tools.build:gradle than 3.0.0-alpha01 is available: 3.1.0 [GradleDependency]\n" +
+                        "    classpath 'com.android.tools.build:gradle:3.0.0-alpha01'\n" +
+                        "    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                        "0 errors, 1 warnings"
+            )
+    }
+
+    fun testTooRecentVersion3() {
+        // Regression test for https://issuetracker.google.com/119210741
+        // Older Studio than Gradle:
+        // Studio 2.3, gradle: 3.0.0-alpha4: Already using Gradle 3.0: offer latest version of it
+        lint().files(
+            gradle(
+                """
+                buildscript {
+                  repositories {
+                    mavenCentral()
+                  }
+                  dependencies {
+                    classpath 'com.android.tools.build:gradle:3.0.0-alpha4'
+                  }
+                }
+
+                allprojects {
+                  repositories {
+                    mavenCentral()
+                  }
+                }
+                """
+            ).indented()
+        ).issues(DEPENDENCY)
+            .client(object :
+                com.android.tools.lint.checks.infrastructure.TestLintClient(CLIENT_STUDIO) {
+                // Studio 3.0.0
+                override fun getClientRevision(): String? = "2.3.0.0"
+            })
+            .run().expect(
+                """
+                build.gradle:6: Warning: A newer version of com.android.tools.build:gradle than 3.0.0-alpha4 is available: 3.0.0 [GradleDependency]
+                    classpath 'com.android.tools.build:gradle:3.0.0-alpha4'
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                0 errors, 1 warnings
+                """
+            )
     }
 
     fun testSetter() {
@@ -934,7 +987,7 @@ class GradleDetectorTest : AbstractCheckTest() {
 
     fun testBadPlayServicesVersion() {
         val expected = "" +
-                "build.gradle:5: Error: Version 5.2.08 should not be used; the app can not be published with this version. Use version 6.1.71 instead. [GradleCompatible]\n" +
+                "build.gradle:5: Error: Version 5.2.08 should not be used; the app can not be published with this version. Use version 11.1.71 instead. [GradleCompatible]\n" +
                 "    compile 'com.google.android.gms:play-services:5.2.08'\n" +
                 "    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
                 "1 errors, 0 warnings\n"
@@ -951,10 +1004,10 @@ class GradleDetectorTest : AbstractCheckTest() {
             )
         ).issues(COMPATIBILITY).run().expect(expected).expectFixDiffs(
             "" +
-                    "Fix for build.gradle line 4: Change to 6.1.71:\n" +
+                    "Fix for build.gradle line 4: Change to 11.1.71:\n" +
                     "@@ -5 +5\n" +
                     "-     compile 'com.google.android.gms:play-services:5.2.08'\n" +
-                    "+     compile 'com.google.android.gms:play-services:6.1.71'\n"
+                    "+     compile 'com.google.android.gms:play-services:11.1.71'\n"
         )
     }
 
@@ -1076,7 +1129,7 @@ class GradleDetectorTest : AbstractCheckTest() {
                 " [GradleDependency]\n" +
                 "        classpath 'com.android.tools.build:gradle:1.0.0'\n" +
                 "        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
-                "build.gradle:8: Warning: A newer version of com.android.tools.build:gradle than 2.0.0-alpha4 is available: 3.2.0-alpha03 [GradleDependency]\n" +
+                "build.gradle:8: Warning: A newer version of com.android.tools.build:gradle than 2.0.0-alpha4 is available: 3.5.0-alpha10 [GradleDependency]\n" +
                 "        classpath 'com.android.tools.build:gradle:2.0.0-alpha4'\n" +
                 "        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
                 "1 errors, 2 warnings\n"
@@ -1471,6 +1524,73 @@ class GradleDetectorTest : AbstractCheckTest() {
                         "@@ -5 +5\n" +
                         "-     classpath 'io.fabric.tools:gradle:1.22.0'\n" +
                         "+     classpath 'io.fabric.tools:gradle:1.25.1'"
+            )
+    }
+
+    private fun isWindows(): Boolean {
+        return System.getProperty("os.name").toLowerCase(Locale.US).contains("windows")
+    }
+
+    fun testOldRobolectric() {
+        // Old robolectric warning is shown only for windows users
+        val expected =
+            if (isWindows())
+                """
+                    build.gradle:2: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                        testImplementation 'org.robolectric:robolectric:4.1'
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    build.gradle:3: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                        testImplementation 'org.robolectric:robolectric:3.8'
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    build.gradle:4: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                        testImplementation 'org.robolectric:robolectric:3.6'
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    build.gradle:5: Warning: Use robolectric version 4.2.1 or later to fix issues with parsing of Windows paths [GradleDependency]
+                        testImplementation 'org.robolectric:robolectric:2.0'
+                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                    0 errors, 4 warnings
+                """.trimIndent()
+            else
+                "No warnings."
+
+        lint().files(
+            gradle(
+                """
+                    dependencies {
+                        testImplementation 'org.robolectric:robolectric:4.1'
+                        testImplementation 'org.robolectric:robolectric:3.8'
+                        testImplementation 'org.robolectric:robolectric:3.6'
+                        testImplementation 'org.robolectric:robolectric:2.0'
+                        testImplementation 'org.robolectric:robolectric:4.2.1'
+                    }
+                """.trimIndent()
+            )
+        )
+            .issues(DEPENDENCY)
+            .run()
+            .expect(expected)
+            .expectFixDiffs(
+                if (isWindows())
+                    """
+                        Fix for build.gradle line 2: Change to 4.2.1:
+                        @@ -2 +2
+                        -     testImplementation 'org.robolectric:robolectric:4.1'
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
+                        Fix for build.gradle line 3: Change to 4.2.1:
+                        @@ -3 +3
+                        -     testImplementation 'org.robolectric:robolectric:3.8'
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
+                        Fix for build.gradle line 4: Change to 4.2.1:
+                        @@ -4 +4
+                        -     testImplementation 'org.robolectric:robolectric:3.6'
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
+                        Fix for build.gradle line 5: Change to 4.2.1:
+                        @@ -5 +5
+                        -     testImplementation 'org.robolectric:robolectric:2.0'
+                        @@ -7 +6
+                        +     testImplementation 'org.robolectric:robolectric:4.2.1'
+                    """.trimIndent()
+                else ""
             )
     }
 
@@ -2397,6 +2517,440 @@ class GradleDetectorTest : AbstractCheckTest() {
             )
     }
 
+    fun testAndroidxMixedDependencies() {
+        val expected = """
+            build.gradle: Error: Dependencies using groupId com.android.support and androidx.* can not be combined but found __ and __ incompatible dependencies [GradleCompatible]
+            1 errors, 0 warnings"""
+
+        lint().files(
+            gradle(
+                "" +
+                        "buildscript {\n" +
+                        "    repositories {\n" +
+                        "        jcenter()\n" +
+                        "    }\n" +
+                        "    dependencies {\n" +
+                        "        classpath 'com.android.tools.build:gradle:3.5.0-alpha10'\n" +
+                        "    }\n" +
+                        "}\n" +
+                        "dependencies {\n" +
+                        "    compile 'com.android.support:recyclerview-v7:28.0.0'\n" +
+                        "    compile 'androidx.appcompat:appcompat:1.0.0'\n" +
+                        "}\n"
+            )
+        )
+            .issues(COMPATIBILITY)
+            .run()
+            .expect(expected, TestResultTransformer {
+                it.replace(
+                    Regex("found .* and .* incompatible"),
+                    "found __ and __ incompatible"
+                )
+            })
+    }
+
+    /**
+     * Tests that the navigation libraries are not considered as part of androidx even when
+     * their name does start with "androidx."
+     */
+    fun testAndroidxMixedDependenciesWithNavigation() {
+        lint().files(
+            gradle(
+                "" +
+                        "buildscript {\n" +
+                        "    repositories {\n" +
+                        "        jcenter()\n" +
+                        "    }\n" +
+                        "    dependencies {\n" +
+                        "        classpath 'com.android.tools.build:gradle:3.5.0-alpha10'\n" +
+                        "    }\n" +
+                        "}\n" +
+                        "dependencies {\n" +
+                        "    compile 'com.android.support:recyclerview-v7:28.0.0'\n" +
+                        "    compile 'androidx.navigation:navigation-fragment:1.0.0'\n" +
+                        "}\n"
+            )
+        )
+            .issues(COMPATIBILITY)
+            .run()
+            .expect("No warnings.")
+    }
+
+    fun testDataBindingWithKaptUsingApplyPluginSyntax() {
+        lint().files(
+            gradle(
+                """
+                apply plugin: 'com.android.application'
+                apply plugin: 'kotlin-android'
+                apply plugin: 'kotlin-kapt'
+
+                android {
+                  dataBinding {
+                    enabled true
+                  }
+                }
+                """
+            ).indented()
+        )
+            .issues(DATA_BINDING_WITHOUT_KAPT)
+            .run()
+            .expectClean()
+    }
+
+    fun testDataBindingWithoutKaptUsingApplyPluginSyntax() {
+        lint().files(
+            gradle(
+                """
+                apply plugin: 'com.android.application'
+                apply plugin: 'kotlin-android'
+
+                android {
+                  dataBinding {
+                    enabled true
+                  }
+                }
+                """
+            ).indented()
+        )
+            .issues(DATA_BINDING_WITHOUT_KAPT)
+            .run()
+            .expect(
+                "build.gradle:6: Warning: If you plan to use data binding in a Kotlin project, you should apply the kotlin-kapt plugin. [DataBindingWithoutKapt]\n" +
+                        "    enabled true\n" +
+                        "    ~~~~~~~~~~~~\n" +
+                        "0 errors, 1 warnings"
+            )
+    }
+
+    fun testDataBindingWithKaptUsingPluginBlockSyntax() {
+        // Test groovy
+        lint().files(
+            gradle(
+                """
+                plugins {
+                  id 'com.android.application'
+                  id 'kotlin-android'
+                  id 'kotlin-kapt'
+                }
+
+                android {
+                  dataBinding {
+                    enabled true
+                  }
+                }
+                """
+            ).indented()
+        )
+            .issues(DATA_BINDING_WITHOUT_KAPT)
+            .run()
+            .expectClean()
+
+        // Test kotlin
+        lint().files(
+            kts(
+                """
+                plugins {
+                  id("com.android.application")
+                  id("kotlin-android")
+                  id("kotlin-kapt")
+                }
+
+                android {
+                  dataBinding {
+                    isEnabled = true
+                  }
+                }
+                """
+            ).indented()
+        )
+            .issues(DATA_BINDING_WITHOUT_KAPT)
+            .run()
+            .expectClean()
+    }
+
+    fun testDataBindingWithoutKaptUsingPluginBlockSyntax() {
+        // Test groovy
+        lint().files(
+            gradle(
+                """
+                plugins {
+                  id 'com.android.application'
+                  id 'kotlin-android'
+                }
+
+                android {
+                  dataBinding {
+                    enabled true
+                  }
+                }
+                """
+            ).indented()
+        )
+            .issues(DATA_BINDING_WITHOUT_KAPT)
+            .run()
+            .expect(
+                "build.gradle:8: Warning: If you plan to use data binding in a Kotlin project, you should apply the kotlin-kapt plugin. [DataBindingWithoutKapt]\n" +
+                        "    enabled true\n" +
+                        "    ~~~~~~~~~~~~\n" +
+                        "0 errors, 1 warnings"
+            )
+
+        // Test kotlin
+        lint().files(
+            kts(
+                """
+                plugins {
+                  id("com.android.application")
+                  id("kotlin-android")
+                }
+
+                android {
+                  dataBinding {
+                    isEnabled = true
+                  }
+                }
+                """
+            ).indented()
+        )
+            .issues(DATA_BINDING_WITHOUT_KAPT)
+            .run()
+            .expect(
+                "build.gradle.kts:8: Warning: If you plan to use data binding in a Kotlin project, you should apply the kotlin-kapt plugin. [DataBindingWithoutKapt]\n" +
+                        "    isEnabled = true\n" +
+                        "                ~~~~\n" +
+                        "0 errors, 1 warnings"
+            )
+    }
+
+    fun testDataBindingWithKaptUsingMixedPluginSyntax() {
+        lint().files(
+            gradle(
+                """
+                plugins {
+                  id 'com.android.application'
+                  id 'kotlin-android'
+                }
+
+                apply plugin: 'kotlin-kapt'
+
+                android {
+                  dataBinding {
+                    enabled true
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+            .issues(DATA_BINDING_WITHOUT_KAPT)
+            .run()
+            .expectClean()
+    }
+
+    fun testJava8WithLifecycleAnnotationProcessor() {
+        lint().files(
+            gradle(
+                        "dependencies {\n" +
+                        "  implementation \"android.arch.lifecycle:runtime:1.1.1\"\n" +
+                        "  annotationProcessor \"android.arch.lifecycle:compiler:1.1.1\"\n" +
+                        "}" +
+                        "android {\n" +
+                        "    compileOptions {\n" +
+                        "        sourceCompatibility JavaVersion.VERSION_1_8\n" +
+                        "        targetCompatibility JavaVersion.VERSION_1_8\n" +
+                        "    }\n" +
+                        "}"
+            )
+        )
+            .issues(LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8)
+            .run()
+            .expect(
+                "" +
+                        "build.gradle:3: Warning: Use the Lifecycle Java 8 API provided by the lifecycle-common-java8 library instead of Lifecycle annotations for faster incremental build. [LifecycleAnnotationProcessorWithJava8]\n" +
+                        "  annotationProcessor \"android.arch.lifecycle:compiler:1.1.1\"\n" +
+                        "  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                        "0 errors, 1 warnings"
+            )
+    }
+
+    fun testJava8WithoutLifecycleAnnotationProcessor() {
+        lint().files(
+            gradle(
+                        "dependencies {\n" +
+                        "  implementation \"android.arch.lifecycle:runtime:1.1.1\"\n" +
+                        "  implementation \"android.arch.lifecycle:common-java8:1.1.1\"\n" +
+                        "}" +
+                        "android {\n" +
+                        "    compileOptions {\n" +
+                        "        sourceCompatibility JavaVersion.VERSION_1_8\n" +
+                        "        targetCompatibility JavaVersion.VERSION_1_8\n" +
+                        "    }\n" +
+                        "}"
+            )
+        )
+            .issues(LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8)
+            .run()
+            .expectClean()
+    }
+
+    fun testJava7WithLifecycleAnnotationProcessor() {
+        lint().files(
+            gradle(
+                        "dependencies {\n" +
+                        "  implementation \"android.arch.lifecycle:runtime:1.1.1\"\n" +
+                        "  annotationProcessor \"android.arch.lifecycle:compiler:1.1.1\"\n" +
+                        "}" +
+                        "android {\n" +
+                        "    compileOptions {\n" +
+                        "        sourceCompatibility JavaVersion.VERSION_1_7\n" +
+                        "        targetCompatibility JavaVersion.VERSION_1_7\n" +
+                        "    }\n" +
+                        "}"
+            )
+        )
+            .issues(LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8)
+            .run()
+            .expectClean()
+    }
+
+    fun testCompileDeprecationInConsumableModule() {
+        val expected = """
+            build.gradle:9: Warning: compile is deprecated; replace with either api to maintain current behavior, or implementation to improve build performance by not sharing this dependency transitively. [GradleDeprecatedConfiguration]
+                compile 'androidx.appcompat:appcompat:1.0.0'
+                ~~~~~~~
+            build.gradle:10: Warning: debugCompile is deprecated; replace with either debugApi to maintain current behavior, or debugImplementation to improve build performance by not sharing this dependency transitively. [GradleDeprecatedConfiguration]
+                debugCompile 'androidx.appcompat:appcompat:1.0.0'
+                ~~~~~~~~~~~~
+            0 errors, 2 warnings"""
+
+        val expectedFix = """
+            Fix for build.gradle line 9: Replace 'compile' with 'api':
+            @@ -9 +9
+            -     compile 'androidx.appcompat:appcompat:1.0.0'
+            +     api 'androidx.appcompat:appcompat:1.0.0'
+            Fix for build.gradle line 9: Replace 'compile' with 'implementation':
+            @@ -9 +9
+            -     compile 'androidx.appcompat:appcompat:1.0.0'
+            +     implementation 'androidx.appcompat:appcompat:1.0.0'
+            Fix for build.gradle line 10: Replace 'debugCompile' with 'debugApi':
+            @@ -10 +10
+            -     debugCompile 'androidx.appcompat:appcompat:1.0.0'
+            +     debugApi 'androidx.appcompat:appcompat:1.0.0'
+            Fix for build.gradle line 10: Replace 'debugCompile' with 'debugImplementation':
+            @@ -10 +10
+            -     debugCompile 'androidx.appcompat:appcompat:1.0.0'
+            +     debugImplementation 'androidx.appcompat:appcompat:1.0.0'""".trimIndent()
+
+        lint()
+            .files(
+                gradle(
+                    """
+                        buildscript {
+                            dependencies {
+                                classpath 'com.android.tools.build:gradle:3.0.0'
+                            }
+                        }
+                        apply plugin: 'com.android.library'
+
+                        dependencies {
+                            compile 'androidx.appcompat:appcompat:1.0.0'
+                            debugCompile 'androidx.appcompat:appcompat:1.0.0'
+                        }
+                        """.trimIndent()
+            )
+        )
+            .issues(DEPRECATED_CONFIGURATION)
+            .run()
+            .expect(expected)
+            .expectFixDiffs(expectedFix)
+    }
+
+    fun testCompileDeprecationInLeafModule() {
+        val expected = """
+            build.gradle:9: Warning: compile is deprecated; replace with implementation [GradleDeprecatedConfiguration]
+                compile 'androidx.appcompat:appcompat:1.0.0'
+                ~~~~~~~
+            0 errors, 1 warnings"""
+
+        val expectedFix = """
+            Fix for build.gradle line 9: Replace 'compile' with 'implementation':
+            @@ -9 +9
+            -     compile 'androidx.appcompat:appcompat:1.0.0'
+            +     implementation 'androidx.appcompat:appcompat:1.0.0'
+            """.trimIndent()
+
+        lint()
+            .files(
+                gradle(
+                    """
+                        buildscript {
+                            dependencies {
+                                classpath 'com.android.tools.build:gradle:3.0.0'
+                            }
+                        }
+                        apply plugin: 'com.android.application'
+
+                        dependencies {
+                            compile 'androidx.appcompat:appcompat:1.0.0'
+                        }
+                        """.trimIndent()
+                )
+            )
+            .issues(DEPRECATED_CONFIGURATION)
+            .run()
+            .expect(expected)
+            .expectFixDiffs(expectedFix)
+    }
+
+    fun testTestCompileDeprecation() {
+        val expected = """
+            build.gradle:7: Warning: testCompile is deprecated; replace with testImplementation [GradleDeprecatedConfiguration]
+                testCompile 'androidx.appcompat:appcompat:1.0.0'
+                ~~~~~~~~~~~
+            build.gradle:8: Warning: testDebugCompile is deprecated; replace with testDebugImplementation [GradleDeprecatedConfiguration]
+                testDebugCompile 'androidx.appcompat:appcompat:1.0.0'
+                ~~~~~~~~~~~~~~~~
+            build.gradle:9: Warning: androidTestDebugCompile is deprecated; replace with androidTestDebugImplementation [GradleDeprecatedConfiguration]
+                androidTestDebugCompile 'androidx.appcompat:appcompat:1.0.0'
+                ~~~~~~~~~~~~~~~~~~~~~~~
+            0 errors, 3 warnings
+            """
+
+        val fixDiff =
+            "Fix for build.gradle line 7: Replace 'testCompile' with 'testImplementation':\n" +
+                    "@@ -7 +7\n" +
+                    "-     testCompile 'androidx.appcompat:appcompat:1.0.0'\n" +
+                    "+     testImplementation 'androidx.appcompat:appcompat:1.0.0'\n" +
+                    "Fix for build.gradle line 8: Replace 'testDebugCompile' with 'testDebugImplementation':\n" +
+                    "@@ -8 +8\n" +
+                    "-     testDebugCompile 'androidx.appcompat:appcompat:1.0.0'\n" +
+                    "+     testDebugImplementation 'androidx.appcompat:appcompat:1.0.0'\n" +
+                    "Fix for build.gradle line 9: Replace 'androidTestDebugCompile' with 'androidTestDebugImplementation':\n" +
+                    "@@ -9 +9\n" +
+                    "-     androidTestDebugCompile 'androidx.appcompat:appcompat:1.0.0'\n" +
+                    "+     androidTestDebugImplementation 'androidx.appcompat:appcompat:1.0.0'"
+
+        lint().files(
+            gradle(
+                """
+                    buildscript {
+                        dependencies {
+                            classpath 'com.android.tools.build:gradle:3.0.0'
+                        }
+                    }
+                    dependencies {
+                        testCompile 'androidx.appcompat:appcompat:1.0.0'
+                        testDebugCompile 'androidx.appcompat:appcompat:1.0.0'
+                        androidTestDebugCompile 'androidx.appcompat:appcompat:1.0.0'
+                    }
+                    """.trimIndent()
+            )
+        )
+            .issues(DEPRECATED_CONFIGURATION)
+            .run()
+            .expect(expected)
+            .expectFixDiffs(fixDiff)
+    }
+
     // -------------------------------------------------------------------------------------------
     // Test infrastructure below here
     // -------------------------------------------------------------------------------------------
@@ -2407,7 +2961,7 @@ class GradleDetectorTest : AbstractCheckTest() {
 
     class GroovyGradleDetector : GradleDetector() {
         override val gradleUserHome: File
-            get() = GradleDetectorTest.gradleUserHome!!
+            get() = GradleDetectorTest.gradleUserHome ?: super.gradleUserHome
     }
 
     companion object {
@@ -2458,46 +3012,6 @@ class GradleDetectorTest : AbstractCheckTest() {
                 createRelativePaths(
                     fullSdkDir!!,
                     arrayOf(
-                        // Android repository
-                        "extras/android/m2repository/com/android/support/appcompat-v7/18.0.0/appcompat-v7-18.0.0.aar",
-                        "extras/android/m2repository/com/android/support/appcompat-v7/19.0.0/appcompat-v7-19.0.0.aar",
-                        "extras/android/m2repository/com/android/support/appcompat-v7/19.0.1/appcompat-v7-19.0.1.aar",
-                        "extras/android/m2repository/com/android/support/appcompat-v7/19.1.0/appcompat-v7-19.1.0.aar",
-                        "extras/android/m2repository/com/android/support/appcompat-v7/20.0.0/appcompat-v7-20.0.0.aar",
-                        "extras/android/m2repository/com/android/support/appcompat-v7/21.0.0/appcompat-v7-21.0.0.aar",
-                        "extras/android/m2repository/com/android/support/appcompat-v7/21.0.2/appcompat-v7-21.0.2.aar",
-                        "extras/android/m2repository/com/android/support/cardview-v7/21.0.0/cardview-v7-21.0.0.aar",
-                        "extras/android/m2repository/com/android/support/cardview-v7/21.0.2/cardview-v7-21.0.2.aar",
-                        "extras/android/m2repository/com/android/support/support-v13/20.0.0/support-v13-20.0.0.aar",
-                        "extras/android/m2repository/com/android/support/support-v13/21.0.0/support-v13-21.0.0.aar",
-                        "extras/android/m2repository/com/android/support/support-v13/21.0.2/support-v13-21.0.2.aar",
-                        "extras/android/m2repository/com/android/support/support-v4/20.0.0/support-v4-20.0.0.aar",
-                        "extras/android/m2repository/com/android/support/support-v4/21.0.0/support-v4-21.0.0.aar",
-                        "extras/android/m2repository/com/android/support/support-v4/21.0.2/support-v4-21.0.2.aar",
-                        "extras/android/m2repository/com/android/support/test/runner/0.5/runner-0.5.aar",
-                        "extras/android/m2repository/com/android/support/multidex/1.0.1/multidex-1.0.1.aar",
-
-                        // Google repository
-                        "extras/google/m2repository/com/google/android/gms/play-services/3.1.36/play-services-3.1.36.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/3.1.59/play-services-3.1.59.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/3.2.25/play-services-3.2.25.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/3.2.65/play-services-3.2.65.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/4.0.30/play-services-4.0.30.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/4.1.32/play-services-4.1.32.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/4.2.42/play-services-4.2.42.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/4.3.23/play-services-4.3.23.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/4.4.52/play-services-4.4.52.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/5.0.89/play-services-5.0.89.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/6.1.11/play-services-6.1.11.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services/6.1.71/play-services-6.1.71.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services-wearable/5.0.77/play-services-wearable-5.0.77.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services-wearable/6.1.11/play-services-wearable-6.1.11.aar",
-                        "extras/google/m2repository/com/google/android/gms/play-services-wearable/6.1.71/play-services-wearable-6.1.71.aar",
-                        "extras/google/m2repository/com/google/android/support/wearable/1.0.0/wearable-1.0.0.aar",
-                        "extras/google/m2repository/com/google/android/wearable/wearable/1.0.0/wearable-1.0.0.aar",
-                        "extras/google//m2repository/com/google/android/support/wearable/1.2.0/wearable-1.2.0.aar",
-                        "extras/google//m2repository/com/google/android/support/wearable/1.3.0/wearable-1.3.0.aar",
-
                         // build tools
                         "build-tools/23.0.0/aapt",
                         "build-tools/23.0.3/aapt"
@@ -2537,6 +3051,168 @@ class GradleDetectorTest : AbstractCheckTest() {
                     )
                 )
             }
+        }
+
+        fun initializeNetworkMocksAndCaches(task: TestLintTask): TestLintTask {
+            // Set up exactly the expected maven.google.com network output to ensure stable
+            // version suggestions in the tests
+            task.networkData(
+                "https://maven.google.com/master-index.xml",
+                """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <metadata>
+                  <com.android.support/>
+                  <com.android.support.test/>
+                  <com.android.tools/>
+                  <com.android.tools.build/>
+                  <com.google.android.gms/>
+                  <com.google.android.support/>
+                </metadata>
+            """.trimIndent()
+            )
+            task.networkData(
+                "https://maven.google.com/com/android/tools/build/group-index.xml",
+                "" +
+                        "<?xml version='1.0' encoding='UTF-8'?>\n" +
+                        "<com.android.tools.build>\n" +
+                        "  <gradle versions=\"3.0.0-alpha1,3.0.0-alpha2,3.0.0-alpha3,3.0.0-alpha4,3.0.0-alpha5,3.0.0-alpha6,3.0.0-alpha7,3.0.0-alpha8,3.0.0-alpha9,3.0.0-beta1,3.0.0-beta2,3.0.0-beta3,3.0.0-beta4,3.0.0-beta5,3.0.0-beta6,3.0.0-beta7,3.0.0-rc1,3.0.0-rc2,3.0.0," +
+                        "3.1.0-alpha01,3.1.0-alpha02,3.1.0-alpha03,3.1.0-alpha04,3.1.0-alpha05,3.1.0-alpha06,3.1.0-alpha07,3.1.0-alpha08,3.1.0-alpha09,3.1.0-beta1,3.1.0-beta2,3.1.0-beta3,3.1.0-beta4,3.1.0-rc1,3.1.0," +
+                        "3.2.0-alpha01,3.2.0-alpha02,3.2.0-alpha03,3.2.0-alpha04,3.2.0-alpha05,3.2.0-alpha06,3.2.0-alpha07,3.2.0-alpha08,3.2.0-alpha09,3.2.0-alpha10,3.2.0-alpha11,3.2.0-alpha12,3.2.0-alpha13,3.2.0-alpha14,3.2.0-alpha15,3.2.0-alpha16,3.2.0-alpha17,3.2.0-alpha18,3.2.0-beta01,3.2.0-beta02,3.2.0-beta03,3.2.0-beta04,3.2.0-beta05,3.2.0-rc01,3.2.0-rc02,3.2.0-rc03,3.2.0,3.2.1," +
+                        "3.3.0-alpha01,3.3.0-alpha02,3.3.0-alpha03,3.3.0-alpha04,3.3.0-alpha05,3.3.0-alpha06,3.3.0-alpha07,3.3.0-alpha08,3.3.0-alpha09,3.3.0-alpha10,3.3.0-alpha11,3.3.0-alpha12,3.3.0-alpha13,3.3.0-beta01,3.3.0-beta02,3.3.0-beta03,3.3.0-beta04,3.3.0-rc01,3.3.0-rc02,3.3.0-rc03,3.3.0,3.3.1,3.3.2," +
+                        "3.4.0-alpha01,3.4.0-alpha02,3.4.0-alpha03,3.4.0-alpha04,3.4.0-alpha05,3.4.0-alpha06,3.4.0-alpha07,3.4.0-alpha08,3.4.0-alpha09,3.4.0-alpha10,3.4.0-beta01,3.4.0-beta02,3.4.0-beta03,3.4.0-beta04,3.4.0-beta05,3.4.0-rc01,3.4.0-rc02,3.4.0-rc03," +
+                        "3.5.0-alpha01,3.5.0-alpha02,3.5.0-alpha03,3.5.0-alpha04,3.5.0-alpha05,3.5.0-alpha06,3.5.0-alpha07,3.5.0-alpha08,3.5.0-alpha09,3.5.0-alpha10\"/>\n" +
+                        "</com.android.tools.build>"
+            )
+            task.networkData(
+                "https://maven.google.com/com/android/support/group-index.xml",
+                """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <com.android.support>
+                  <support-compat versions="19.1.0,25.3.1,26.0.0-beta1"/>
+                  <appcompat-v7 versions="19.1.0, 19.1.0,25.3.1,26.0.0-beta1"/>
+                  <multidex versions="1.0.1,1.0.1"/>
+                  <support-v4 versions="19.1.0,21.0.2,25.3.1,26.0.0-beta1"/>
+                </com.android.support>
+            """.trimIndent()
+            )
+            task.networkData(
+                "https://maven.google.com/com/google/android/support/group-index.xml",
+                """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <com.google.android.support>
+                  <wearable versions="1.3.0,26.0.0-alpha1"/>
+                </com.google.android.support>
+            """.trimIndent()
+            )
+            task.networkData(
+                "https://maven.google.com/com/google/android/gms/group-index.xml",
+                """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <com.google.android.gms>
+                  <play-services-wearable versions="6.1.71"/>
+                  <play-services versions="11.1.71"/>
+                </com.google.android.gms>
+            """.trimIndent()
+            )
+            task.networkData(
+                "https://maven.google.com/com/android/support/constraint/group-index.xml",
+                """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <com.android.support.constraint>
+                  <constraint-layout versions="1.0.0,1.0.2"/>
+                </com.android.support.constraint>
+            """.trimIndent()
+            )
+            task.networkData(
+                "https://maven.google.com/com/android/support/test/group-index.xml",
+                """
+                <?xml version='1.0' encoding='UTF-8'?>
+                <com.android.support.test>
+                  <runner versions="0.3,0.5"/>
+                </com.android.support.test>
+            """.trimIndent()
+            )
+
+            // Similarly set up the expected SDK registry network output from dl.google.com to
+            // ensure stable SDK library suggestions in the tests
+            task.networkData(
+                SDK_REGISTRY_URL,
+                """
+            <sdk_metadata>
+             <library groupId="com.android.volley" artifactId="volley" recommended-version="1.1.0">
+              <versions from="1.1.0-rc2" status="deprecated" description="Bug affecting app stability" url="https://github.com/google/volley/releases" />
+              <versions from="1.1.0-rc1" status="deprecated" description="Bug affecting app stability" url="https://github.com/google/volley/releases" />
+              <versions from="1.0.0" status="deprecated" description="Bug affecting app stability" url="https://github.com/google/volley/releases" />
+             </library>
+             <library groupId="log4j" artifactId="log4j" recommended-version="1.2.17" recommended-version-sha="5af35056b4d257e4b64b9e8069c0746e8b08629f">
+              <versions from="1.2.14" to="1.2.16" status="deprecated" description="Deprecated due to ANR issue">
+               <vulnerability description="Specifics and developer actions go here." cve="CVE-4313" />
+              </versions>
+              <versions from="1.2.4" to="1.2.13" status="insecure" description="Bad security bug CVE-4311" />
+               <vulnerability description="Buffer overflow vulnerability in this version." cve="CVE-4311" />
+              <versions to="1.2.0" status="obsolete" description="Library is obsolete." />
+             </library>
+             <library groupId="com.example.ads.thirdparty" artifactId="example" recommended-version="7.3.1">
+              <versions from="7.1.0" to="7.2.1" status="deprecated" description="Deprecated due to ANR issue">
+               <vulnerability description="Specifics and developer actions go here." />
+              </versions>
+              <versions to="7.0.0" status="deprecated" description="Deprecated due to ANR issue">
+               <vulnerability description="Specifics and developer actions go here." />
+              </versions>
+              </library>
+            </sdk_metadata>
+            """.trimIndent()
+            )
+
+            // Also ensure we don't have a stale cache on disk.
+            val cacheDir =
+                com.android.tools.lint.checks.infrastructure.TestLintClient()
+                    .getCacheDir(MAVEN_GOOGLE_CACHE_DIR_KEY, true)
+            if (cacheDir != null && cacheDir.isDirectory) {
+                try {
+                    FileUtils.deleteDirectoryContents(cacheDir)
+                } catch (e: IOException) {
+                    fail(e.message)
+                }
+            }
+
+            val client: com.android.tools.lint.checks.infrastructure.TestLintClient =
+                object : com.android.tools.lint.checks.infrastructure.TestLintClient() {
+                    override fun getSdkHome(): File? {
+                        if (task.sdkHome != null) {
+                            return task.sdkHome
+                        }
+                        return mockSupportLibraryInstallation
+                    }
+
+                    override fun getHighestKnownVersion(
+                        coordinate: GradleCoordinate,
+                        filter: Predicate<GradleVersion>?
+                    ): GradleVersion? {
+                        // Hardcoded for unit test to ensure stable data
+                        return if ("com.android.support.constraint" == coordinate.groupId && "constraint-layout" == coordinate.artifactId) {
+                            if (coordinate.isPreview) {
+                                GradleVersion.tryParse("1.0.3-alpha8")
+                            } else {
+                                GradleVersion.tryParse("1.0.2")
+                            }
+                        } else null
+                    }
+                }
+            task.client(client)
+
+            val cacheDir2 =
+                com.android.tools.lint.checks.infrastructure.TestLintClient()
+                    .getCacheDir(DEPRECATED_SDK_CACHE_DIR_KEY, true)
+            if (cacheDir2 != null && cacheDir2.isDirectory) {
+                try {
+                    FileUtils.deleteDirectoryContents(cacheDir2)
+                } catch (e: IOException) {
+                    fail(e.message)
+                }
+            }
+
+            return task
         }
 
         // Utility for testOR2RequiresAppCompat26Beta1

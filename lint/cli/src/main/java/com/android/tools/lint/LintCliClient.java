@@ -21,6 +21,7 @@ import static com.android.SdkConstants.DOT_KT;
 import static com.android.SdkConstants.DOT_KTS;
 import static com.android.SdkConstants.DOT_SRCJAR;
 import static com.android.SdkConstants.FD_TOOLS;
+import static com.android.SdkConstants.FN_R_CLASS_JAR;
 import static com.android.SdkConstants.FN_SOURCE_PROP;
 import static com.android.SdkConstants.VALUE_NONE;
 import static com.android.manifmerger.MergingReport.MergedManifestKind.MERGED;
@@ -34,13 +35,13 @@ import static com.android.utils.CharSequences.indexOf;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.ApiVersion;
 import com.android.builder.model.JavaCompileOptions;
 import com.android.builder.model.ProductFlavor;
 import com.android.builder.model.SourceProvider;
 import com.android.builder.model.Variant;
+import com.android.builder.model.Version;
 import com.android.ide.common.repository.GradleVersion;
 import com.android.manifmerger.ManifestMerger2;
 import com.android.manifmerger.ManifestMerger2.Invoker.Feature;
@@ -80,6 +81,7 @@ import com.android.utils.CharSequences;
 import com.android.utils.NullLogger;
 import com.android.utils.StdLogger;
 import com.google.common.annotations.Beta;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -288,6 +290,15 @@ public class LintCliClient extends LintClient {
                 System.err.println(getBaselineCreationMessage(baselineFile));
                 return ERRNO_CREATED_BASELINE;
             }
+        } else if (baseline != null
+                && baseline.getWriteOnClose()
+                && baseline.getFixedCount() > 0
+                && flags.isRemoveFixedBaselineIssues()) {
+            baseline.close();
+            return ERRNO_CREATED_BASELINE;
+        } else if (baseline != null && flags.isUpdateBaseline()) {
+            baseline.close();
+            return ERRNO_CREATED_BASELINE;
         }
 
         return flags.isSetExitCode() ? (hasErrors ? ERRNO_ERRORS : ERRNO_SUCCESS) : ERRNO_SUCCESS;
@@ -390,7 +401,7 @@ public class LintCliClient extends LintClient {
             // the possibility that newer versions of lint have newer checks not included in
             // older ones, have existing checks that cover more areas, etc.
             if (stats.getBaselineFixedCount() > 0) {
-                String checkVersion = getClientRevision();
+                String checkVersion = getClientDisplayRevision();
                 String checkClient = LintClient.Companion.getClientName();
                 String creationVersion = baseline.getAttribute("version");
                 String creationClient = baseline.getAttribute("client");
@@ -419,7 +430,7 @@ public class LintCliClient extends LintClient {
         }
     }
 
-    protected String getTargetName(@NonNull String baselineVariantName) {
+    protected static String getTargetName(@NonNull String baselineVariantName) {
         if (LintClient.isGradle()) {
             if (VARIANT_ALL.equals(baselineVariantName)) {
                 return "lint";
@@ -462,6 +473,8 @@ public class LintCliClient extends LintClient {
             if (flags.isRemoveFixedBaselineIssues()) {
                 baseline.setWriteOnClose(true);
                 baseline.setRemoveFixed(true);
+            } else if (flags.isUpdateBaseline()) {
+                baseline.setWriteOnClose(true);
             }
         }
 
@@ -946,6 +959,8 @@ public class LintCliClient extends LintClient {
             project.setBuildTargetHash(compileSdkVersion);
         }
 
+        project.setIdeaProject(ideaProject);
+
         return project;
     }
 
@@ -1130,7 +1145,8 @@ public class LintCliClient extends LintClient {
         return getDisplayPath(project, file, flags.isFullPath());
     }
 
-    static String getDisplayPath(@NonNull Project project, @NonNull File file, boolean fullPath) {
+    @NonNull
+    String getDisplayPath(@NonNull Project project, @NonNull File file, boolean fullPath) {
         String path = file.getPath();
         if (!fullPath && path.startsWith(project.getReferenceDir().getPath())) {
             int chop = project.getReferenceDir().getPath().length();
@@ -1144,7 +1160,10 @@ public class LintCliClient extends LintClient {
         } else if (fullPath) {
             path = getCleanPath(file.getAbsoluteFile());
         } else if (file.isAbsolute() && file.exists()) {
-            path = Reporter.getRelativePath(project.getReferenceDir(), file);
+            path = getRelativePath(project.getReferenceDir(), file);
+            if (path == null) {
+                path = file.getPath();
+            }
         }
 
         return path;
@@ -1279,6 +1298,12 @@ public class LintCliClient extends LintClient {
             // https://issuetracker.google.com/72032121
             if (project.isLibrary()) {
                 files.addAll(project.getJavaClassFolders());
+            } else if (project.isGradleProject()) { // As of 3.4, R.java is in a special jar file
+                for (File f : project.getJavaClassFolders()) {
+                    if (f.getName().equals(FN_R_CLASS_JAR)) {
+                        files.add(f);
+                    }
+                }
             }
         }
 
@@ -1338,6 +1363,10 @@ public class LintCliClient extends LintClient {
                 Collections.emptyList(),
                 new SingleJavaFileRootsIndex(Collections.emptyList()),
                 false);
+
+        for (Project project : allProjects) {
+            project.setIdeaProject(ideaProject);
+        }
 
         super.initializeProjects(knownProjects);
     }
@@ -1490,6 +1519,11 @@ public class LintCliClient extends LintClient {
     @Override
     @Nullable
     public String getClientRevision() {
+        String plugin = Version.ANDROID_TOOLS_BASE_VERSION;
+        if (plugin != null) {
+            return plugin;
+        }
+
         AndroidSdkHandler sdk = getSdk();
         if (sdk != null) {
             NullLogger empty = new NullLogger();

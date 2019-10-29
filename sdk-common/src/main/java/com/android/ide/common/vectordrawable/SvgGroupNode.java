@@ -23,8 +23,7 @@ import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.jetbrains.annotations.NotNull;
-import org.w3c.dom.Node;
+import org.w3c.dom.Element;
 
 /**
  * Represents an SVG file's group element.
@@ -34,19 +33,19 @@ class SvgGroupNode extends SvgNode {
 
     protected final ArrayList<SvgNode> mChildren = new ArrayList<>();
 
-    public SvgGroupNode(@NonNull SvgTree svgTree, @NonNull Node docNode, @Nullable String name) {
+    SvgGroupNode(@NonNull SvgTree svgTree, @NonNull Element docNode, @Nullable String name) {
         super(svgTree, docNode, name);
     }
 
     @Override
     @NonNull
     public SvgGroupNode deepCopy() {
-        SvgGroupNode newInstance = new SvgGroupNode(getTree(), getDocumentNode(), getName());
+        SvgGroupNode newInstance = new SvgGroupNode(getTree(), mDocumentElement, getName());
         newInstance.copyFrom(this);
         return newInstance;
     }
 
-    protected void copyFrom(@NonNull SvgGroupNode from) {
+    protected <T extends SvgGroupNode> void copyFrom(@NonNull T from) {
         super.copyFrom(from);
         for (SvgNode child : from.mChildren) {
             addChild(child.deepCopy());
@@ -57,18 +56,30 @@ class SvgGroupNode extends SvgNode {
         // Pass the presentation map down to the children, who can override the attributes.
         mChildren.add(child);
         // The child has its own attributes map. But the parents can still fill some attributes
-        // if they don't exists
+        // if they don't exist.
         child.fillEmptyAttributes(mVdAttributesMap);
     }
 
-    public void removeChild(@NonNull SvgNode child) {
-        mChildren.remove(child);
+    /**
+     * Replaces an existing child node with a new one.
+     *
+     * @param oldChild the child node to replace
+     * @param newChild the node to replace the existing child node with
+     */
+    public void replaceChild(@NonNull SvgNode oldChild, @NonNull SvgNode newChild) {
+        int index = mChildren.indexOf(oldChild);
+        if (index < 0) {
+            throw new IllegalArgumentException(
+                    "The child being replaced doesn't belong to this group");
+        }
+
+        mChildren.set(index, newChild);
     }
 
     @Override
     public void dumpNode(@NonNull String indent) {
         // Print the current group.
-        logger.log(Level.FINE, indent + "current group is :" + getName());
+        logger.log(Level.FINE, indent + "group: " + getName());
 
         // Then print all the children.
         for (SvgNode node : mChildren) {
@@ -86,7 +97,8 @@ class SvgGroupNode extends SvgNode {
         for (SvgNode n : mChildren) {
             if (n == node) {
                 return this;
-            } else if (n.isGroupNode()) {
+            }
+            if (n.isGroupNode()) {
                 SvgGroupNode parent = ((SvgGroupNode) n).findParent(node);
                 if (parent != null) {
                     return parent;
@@ -102,31 +114,39 @@ class SvgGroupNode extends SvgNode {
     }
 
     @Override
-    public void transformIfNeeded(@NotNull AffineTransform rootTransform) {
+    public void transformIfNeeded(@NonNull AffineTransform rootTransform) {
         for (SvgNode p : mChildren) {
             p.transformIfNeeded(rootTransform);
         }
     }
 
     @Override
-    public void flatten(@NotNull AffineTransform transform) {
-        for (SvgNode n : mChildren) {
+    public void flatten(@NonNull AffineTransform transform) {
+        for (SvgNode node : mChildren) {
             mStackedTransform.setTransform(transform);
             mStackedTransform.concatenate(mLocalTransform);
-            n.flatten(mStackedTransform);
+            node.flatten(mStackedTransform);
         }
     }
 
     @Override
-    public void writeXML(@NonNull OutputStreamWriter writer, boolean inClipPath,
-            @NonNull String indent) throws IOException {
+    public void validate() {
         for (SvgNode node : mChildren) {
-            node.writeXML(writer, inClipPath, indent);
+            node.validate();
         }
     }
 
     @Override
-    public void fillPresentationAttributes(@NotNull String name, @NotNull String value) {
+    public void writeXml(
+            @NonNull OutputStreamWriter writer, boolean inClipPath, @NonNull String indent)
+            throws IOException {
+        for (SvgNode node : mChildren) {
+            node.writeXml(writer, inClipPath, indent);
+        }
+    }
+
+    @Override
+    public void fillPresentationAttributes(@NonNull String name, @NonNull String value) {
         super.fillPresentationAttributes(name, value);
         for (SvgNode n : mChildren) {
             // Group presentation attribute should not override child.

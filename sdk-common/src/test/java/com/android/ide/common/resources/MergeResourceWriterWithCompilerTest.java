@@ -23,6 +23,7 @@ import com.android.ide.common.resources.configuration.FolderConfiguration;
 import com.android.ide.common.workers.WorkerExecutorFacade;
 import com.android.resources.ResourceType;
 import com.google.common.base.Charsets;
+import com.google.common.collect.ImmutableList;
 import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
@@ -98,7 +99,7 @@ public class MergeResourceWriterWithCompilerTest {
         File rawRes = new File(resourceDir, "raw");
         rawRes.mkdir();
         File f1 = new File(rawRes, "f1.txt");
-        Files.write("foo", f1, Charsets.US_ASCII);
+        Files.asCharSink(f1, Charsets.UTF_8).write("foo");
 
         ResourceMergerItem f1Item =
                 new ResourceMergerItem("f1.txt", null, ResourceType.RAW, null, null);
@@ -106,7 +107,7 @@ public class MergeResourceWriterWithCompilerTest {
         f1Item.setSourceFile(f1File);
 
         File f2 = new File(rawRes, "f2.xml");
-        Files.write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n", f2, Charsets.US_ASCII);
+        Files.asCharSink(f2, Charsets.UTF_8).write("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
 
         ResourceMergerItem f2Item =
                 new ResourceMergerItem("f2.xml", null, ResourceType.RAW, null, null);
@@ -133,12 +134,21 @@ public class MergeResourceWriterWithCompilerTest {
 
                 @Override
                 public void submit(Class<? extends Runnable> actionClass, Serializable parameter) {
+                    submit(
+                            actionClass,
+                            new Configuration(parameter, IsolationMode.NONE, ImmutableList.of()));
+                }
+
+                @Override
+                public void submit(
+                        @NonNull Class<? extends Runnable> actionClass,
+                        @NonNull Configuration configuration) {
                     Runnable action;
                     try {
                         action =
                                 actionClass
-                                        .getConstructor(parameter.getClass())
-                                        .newInstance(parameter);
+                                        .getConstructor(configuration.getParameter().getClass())
+                                        .newInstance(configuration.getParameter());
                     } catch (Exception e) {
                         throw new RuntimeException(e);
                     }

@@ -15,32 +15,34 @@
  */
 package com.android.ide.common.vectordrawable;
 
+import static com.android.ide.common.vectordrawable.Svg2Vector.SVG_MASK;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.google.common.collect.Iterables;
 import java.awt.geom.AffineTransform;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.util.ArrayList;
-import org.jetbrains.annotations.NotNull;
-import org.w3c.dom.Node;
+import org.w3c.dom.Element;
 
 /**
  * Represents a SVG group element that contains a clip-path. SvgClipPathNode's mChildren will
  * contain the actual path data of the clip-path. The path of the clip will be constructed in
- * writeXML by concatenating mChildren's paths. mAffectedNodes contains any group or leaf nodes that
- * are clipped by the path.
+ * {@link #writeXml} by concatenating mChildren's paths. mAffectedNodes contains any group or leaf
+ * nodes that are clipped by the path.
  */
-public class SvgClipPathNode extends SvgGroupNode {
+class SvgClipPathNode extends SvgGroupNode {
     private final ArrayList<SvgNode> mAffectedNodes = new ArrayList<>();
 
-    public SvgClipPathNode(@NonNull SvgTree svgTree, @NonNull Node docNode, @Nullable String name) {
-        super(svgTree, docNode, name);
+    SvgClipPathNode(@NonNull SvgTree svgTree, @NonNull Element element, @Nullable String name) {
+        super(svgTree, element, name);
     }
 
     @Override
-    @NotNull
+    @NonNull
     public SvgClipPathNode deepCopy() {
-        SvgClipPathNode newInstance = new SvgClipPathNode(getTree(), getDocumentNode(), getName());
+        SvgClipPathNode newInstance = new SvgClipPathNode(getTree(), mDocumentElement, mName);
         newInstance.copyFrom(this);
         return newInstance;
     }
@@ -67,7 +69,7 @@ public class SvgClipPathNode extends SvgGroupNode {
     }
 
     @Override
-    public void flatten(@NotNull AffineTransform transform) {
+    public void flatten(@NonNull AffineTransform transform) {
         for (SvgNode n : mChildren) {
             mStackedTransform.setTransform(transform);
             mStackedTransform.concatenate(mLocalTransform);
@@ -75,28 +77,50 @@ public class SvgClipPathNode extends SvgGroupNode {
         }
 
         mStackedTransform.setTransform(transform);
+        for (SvgNode n : mAffectedNodes) {
+            n.flatten(mStackedTransform); // mLocalTransform does not apply to mAffectedNodes.
+        }
         mStackedTransform.concatenate(mLocalTransform);
 
         if (mVdAttributesMap.containsKey(Svg2Vector.SVG_STROKE_WIDTH)
                 && ((mStackedTransform.getType() & AffineTransform.TYPE_MASK_SCALE) != 0)) {
-            getTree()
-                    .logErrorLine(
-                            "Scaling of the stroke width is ignored",
-                            getDocumentNode(),
-                            SvgTree.SvgLogLevel.WARNING);
+            logWarning("Scaling of the stroke width is ignored");
         }
     }
 
     @Override
-    public void transformIfNeeded(@NotNull AffineTransform rootTransform) {
-        for (SvgNode p : mChildren) {
+    public void validate() {
+        super.validate();
+        if (mDocumentElement.getTagName().equals(SVG_MASK) && !isWhiteFill()) {
+            // A mask that is not solid white creates a transparency effect that cannot be
+            // reproduced by a clip-path.
+            logError("Semitransparent mask cannot be represented by a vector drawable");
+        }
+    }
+
+    private boolean isWhiteFill() {
+        String fillColor = mVdAttributesMap.get("fill");
+        if (fillColor == null) {
+            return false;
+        }
+        fillColor = colorSvg2Vd(fillColor, "#000");
+        if (fillColor == null) {
+            return false;
+        }
+        return VdUtil.parseColorValue(fillColor) == 0xFFFFFFFF;
+    }
+
+    @Override
+    public void transformIfNeeded(@NonNull AffineTransform rootTransform) {
+        for (SvgNode p : Iterables.concat(mChildren, mAffectedNodes)) {
             p.transformIfNeeded(rootTransform);
         }
     }
 
     @Override
-    public void writeXML(@NonNull OutputStreamWriter writer, boolean inClipPath,
-            @NonNull String indent) throws IOException {
+    public void writeXml(
+            @NonNull OutputStreamWriter writer, boolean inClipPath, @NonNull String indent)
+            throws IOException {
         writer.write(indent);
         writer.write("<group>");
         writer.write(System.lineSeparator());
@@ -104,12 +128,12 @@ public class SvgClipPathNode extends SvgGroupNode {
         writer.write(INDENT_UNIT);
         writer.write("<clip-path android:pathData=\"");
         for (SvgNode node : mChildren) {
-            node.writeXML(writer, true, indent + INDENT_UNIT);
+            node.writeXml(writer, true, indent + INDENT_UNIT);
         }
         writer.write("\"/>");
         writer.write(System.lineSeparator());
         for (SvgNode node : mAffectedNodes) {
-            node.writeXML(writer, false, indent + INDENT_UNIT);
+            node.writeXml(writer, false, indent + INDENT_UNIT);
         }
         writer.write(indent);
         writer.write("</group>");

@@ -15,7 +15,7 @@
  */
 #include "event_manager.h"
 #include "agent/agent.h"
-#include "agent/support/jni_wrappers.h"
+#include "agent/jni_wrappers.h"
 
 namespace {
 using profiler::EventManager;
@@ -25,11 +25,11 @@ using std::mutex;
 using grpc::ClientContext;
 using grpc::Status;
 using profiler::Agent;
-using profiler::proto::ActivityData;
-using profiler::proto::ActivityStateData;
-using profiler::proto::InternalEventService;
-using profiler::proto::EmptyEventResponse;
 using profiler::JStringWrapper;
+using profiler::proto::EmptyEventResponse;
+using profiler::proto::InternalEventService;
+using profiler::proto::SendActivityDataRequest;
+using profiler::proto::ViewData;
 using std::lock_guard;
 
 namespace profiler {
@@ -40,31 +40,36 @@ EventManager& EventManager::Instance() {
 }
 
 EventManager::EventManager() {
-  Agent::Instance().AddPerfdStatusChangedCallback(std::bind(
+  Agent::Instance().AddDaemonStatusChangedCallback(std::bind(
       &profiler::EventManager::PerfdStateChanged, this, std::placeholders::_1));
 }
 
 void EventManager::CacheAndEnqueueActivityEvent(
-    const profiler::proto::ActivityData& activity) {
+    const profiler::proto::SendActivityDataRequest& request) {
   lock_guard<mutex> guard(activity_cache_mutex_);
   // We may have multiple active activities / fragments, so we cache all
   // that are not destroyed. When we get to this state, we no longer need to
   // cache the component.
-  if (activity.state_changes(activity.state_changes_size() - 1).state() ==
-      ActivityStateData::DESTROYED) {
-    hash_activity_cache_.erase(activity.hash());
+  auto& data = request.data();
+  if (data.state_changes(data.state_changes_size() - 1).state() ==
+      ViewData::DESTROYED) {
+    hash_activity_cache_.erase(data.hash());
   } else {
-    hash_activity_cache_[activity.hash()] = activity;
+    hash_activity_cache_[data.hash()] = request;
   }
-  EnqueueActivityEvent(activity);
+  EnqueueActivityEvent(request);
 }
 
 void EventManager::EnqueueActivityEvent(
-    const profiler::proto::ActivityData& activity) {
+    const profiler::proto::SendActivityDataRequest& request) {
+  if (Agent::Instance().agent_config().common().profiler_unified_pipeline()) {
+    return;
+  }
+
   Agent::Instance().SubmitEventTasks(
-      {[activity](InternalEventService::Stub& stub, ClientContext& ctx) {
+      {[request](InternalEventService::Stub& stub, ClientContext& ctx) {
         EmptyEventResponse response;
-        return stub.SendActivity(&ctx, activity, &response);
+        return stub.SendActivity(&ctx, request, &response);
       }});
 }
 

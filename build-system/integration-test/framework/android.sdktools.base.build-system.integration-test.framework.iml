@@ -12,7 +12,6 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="kotlin-stdlib-jdk8" level="project" />
-    <orderEntry type="library" name="KotlinJavaRuntime" level="project" />
     <orderEntry type="module" module-name="android.sdktools.builder-model" />
     <orderEntry type="library" name="guava-tools" level="project" />
     <orderEntry type="library" name="JUnit4" level="project" />
@@ -35,9 +34,9 @@
     <orderEntry type="module" module-name="android.sdktools.base.build-system.gradle-api" />
     <orderEntry type="module" module-name="android.sdktools.apksig" />
     <orderEntry type="module" module-name="android.sdktools.base.build-system.testing-infrastructure.device-provider" />
-    <orderEntry type="module" module-name="android.sdktools.instant-run-client" />
     <orderEntry type="library" name="protobuf" level="project" />
     <orderEntry type="library" name="studio-analytics-proto" level="project" />
     <orderEntry type="library" scope="TEST" name="mockito" level="project" />
+    <orderEntry type="library" scope="TEST" name="truth-java8-extension" level="project" />
   </component>
 </module>

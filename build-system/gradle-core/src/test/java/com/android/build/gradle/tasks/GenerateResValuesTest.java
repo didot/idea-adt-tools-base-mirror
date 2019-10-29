@@ -19,6 +19,7 @@ package com.android.build.gradle.tasks;
 
 import static com.android.testutils.truth.FileSubject.assertThat;
 
+import com.android.builder.compiling.ResValueGenerator;
 import com.android.builder.internal.ClassFieldImpl;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
@@ -41,15 +42,19 @@ public class GenerateResValuesTest {
     @Test
     public void test () throws IOException, ParserConfigurationException {
         File testDir = temporaryFolder.newFolder();
+        File dummyFile = new File(testDir, "dummy.txt");
+        dummyFile.createNewFile();
+        assertThat(dummyFile).exists();
+
         Project project = ProjectBuilder.builder().withProjectDir(testDir).build();
 
         GenerateResValues task =  project.getTasks().create("test", GenerateResValues.class);
         task.setItems(ImmutableList.of(new ClassFieldImpl("string", "VALUE_DEFAULT", "1")));
         task.setResOutputDir(testDir);
 
-        task.generate();
+        task.doTaskAction();
 
-        File output = new File(testDir, "values/generated.xml");
+        File output = new File(testDir, "values/" + ResValueGenerator.RES_VALUE_FILENAME_XML);
         assertThat(output).contentWithUnixLineSeparatorsIsExactly(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
                         + "<resources>\n"
@@ -59,5 +64,7 @@ public class GenerateResValuesTest {
                         + "    <string name=\"VALUE_DEFAULT\" translatable=\"false\">1</string>\n"
                 + "\n"
                 + "</resources>");
+
+        assertThat(dummyFile).doesNotExist();
     }
 }

@@ -19,7 +19,10 @@ package com.android.tools.lint.checks.infrastructure;
 import static com.android.SdkConstants.ANDROID_URI;
 import static com.android.SdkConstants.ATTR_ID;
 import static com.android.SdkConstants.DOT_KT;
+import static com.android.SdkConstants.FN_ANNOTATIONS_JAR;
+import static com.android.SdkConstants.FN_ANNOTATIONS_ZIP;
 import static com.android.SdkConstants.NEW_ID_PREFIX;
+import static com.android.ide.common.rendering.api.ResourceNamespace.RES_AUTO;
 import static com.android.tools.lint.checks.infrastructure.KotlinClasspathKt.findKotlinStdlibPath;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -78,6 +81,7 @@ import com.android.tools.lint.client.api.LintRequest;
 import com.android.tools.lint.client.api.UastParser;
 import com.android.tools.lint.client.api.XmlParser;
 import com.android.tools.lint.detector.api.Context;
+import com.android.tools.lint.detector.api.Desugaring;
 import com.android.tools.lint.detector.api.GradleContext;
 import com.android.tools.lint.detector.api.Issue;
 import com.android.tools.lint.detector.api.JavaContext;
@@ -120,6 +124,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.uast.UFile;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
@@ -691,7 +696,16 @@ public class TestLintClient extends LintCliClient {
                         PsiErrorElement error =
                                 PsiTreeUtil.findChildOfType(file.getPsi(), PsiErrorElement.class);
                         if (error != null) {
-                            fail("Found error element " + error + " in " + context.file.getName());
+                            fail(
+                                    "Found error element "
+                                            + error
+                                            + " in "
+                                            + context.file.getName()
+                                            + " with text \""
+                                            + error.getText()
+                                            + "\" inside \""
+                                            + error.getParent().getText()
+                                            + "\"");
                         }
                     } else {
                         fail(
@@ -829,13 +843,16 @@ public class TestLintClient extends LintCliClient {
             if (oldString != null) {
                 int startIndex = contents.indexOf(oldString, start.getOffset());
                 if (startIndex == -1 || startIndex > end.getOffset()) {
-                    fail(
-                            "Did not find \""
-                                    + oldString
-                                    + "\" in \""
-                                    + locationRange
-                                    + "\" as suggested in the quickfix for issue "
-                                    + issue);
+                    if (!(oldString.equals(LintFix.ReplaceString.INSERT_BEGINNING)
+                            || oldString.equals(LintFix.ReplaceString.INSERT_END))) {
+                        fail(
+                                "Did not find \""
+                                        + oldString
+                                        + "\" in \""
+                                        + locationRange
+                                        + "\" as suggested in the quickfix for issue "
+                                        + issue);
+                    }
                 }
             } else if (oldPattern != null) {
                 Pattern pattern = Pattern.compile(oldPattern);
@@ -995,7 +1012,7 @@ public class TestLintClient extends LintCliClient {
             return null;
         }
 
-        TestResourceRepository repository = new TestResourceRepository();
+        TestResourceRepository repository = new TestResourceRepository(RES_AUTO);
         ILogger logger = new StdLogger(StdLogger.Level.INFO);
         ResourceMerger merger = new ResourceMerger(0);
 
@@ -1145,6 +1162,15 @@ public class TestLintClient extends LintCliClient {
 
     @NonNull
     @Override
+    public Set<Desugaring> getDesugaring(@NonNull Project project) {
+        if (task.desugaring != null) {
+            return task.desugaring;
+        }
+        return super.getDesugaring(project);
+    }
+
+    @NonNull
+    @Override
     public List<File> getTestSourceFolders(@NonNull Project project) {
         List<File> testSourceFolders = super.getTestSourceFolders(project);
 
@@ -1156,6 +1182,25 @@ public class TestLintClient extends LintCliClient {
         }
 
         return testSourceFolders;
+    }
+
+    @NotNull
+    @Override
+    public List<File> getExternalAnnotations(@NotNull Collection<? extends Project> projects) {
+        List<File> externalAnnotations = Lists.newArrayList(super.getExternalAnnotations(projects));
+
+        for (Project project : projects) {
+            File annotationsZip = new File(project.getDir(), FN_ANNOTATIONS_ZIP);
+            if (annotationsZip.isFile()) {
+                externalAnnotations.add(annotationsZip);
+            }
+            File annotationsJar = new File(project.getDir(), FN_ANNOTATIONS_JAR);
+            if (annotationsJar.isFile()) {
+                externalAnnotations.add(annotationsJar);
+            }
+        }
+
+        return externalAnnotations;
     }
 
     @Nullable

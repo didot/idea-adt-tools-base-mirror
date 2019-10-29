@@ -23,13 +23,13 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#include "message_pipe_wrapper.h"
+#include "tools/base/deploy/common/message_pipe_wrapper.h"
 
 namespace deploy {
 class Socket : public MessagePipeWrapper {
  public:
   Socket() : MessagePipeWrapper(-1) {}
-  virtual ~Socket() {}
+  virtual ~Socket() { Close(); }
 
   Socket(Socket&& other) : MessagePipeWrapper(std::move(other)) {}
 
@@ -45,10 +45,14 @@ class Socket : public MessagePipeWrapper {
   bool Accept(Socket* socket, int timeout_ms);
 
   // Connects this socket to the socket at the specified address.
-  bool Connect(const std::string& socket_name, int timeout_ms);
+  bool Connect(const std::string& socket_name);
 
   // Default socket binding address.
   static constexpr auto kDefaultAddress = "irsocket";
+
+  static constexpr size_t kAcceptTimeoutMs = 3000;
+  static constexpr size_t kConnectRetryMs = 100;
+  static constexpr size_t kConnectRetries = 5;
 
  private:
   Socket(const Socket&) = delete;

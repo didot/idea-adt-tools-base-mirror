@@ -17,21 +17,27 @@
 #ifndef HOTSWAP_H
 #define HOTSWAP_H
 
-#include "deploy.pb.h"
-#include "jni.h"
-#include "jvmti.h"
-
 #include <string>
 
+#include <jni.h>
+#include <jvmti.h>
+
+#include "tools/base/deploy/proto/deploy.pb.h"
+
 namespace deploy {
+
+struct SwapResult {
+  bool success;
+  std::string error_code;
+  std::vector<proto::JvmtiErrorDetails> error_details;
+};
 
 class HotSwap {
  public:
   HotSwap(jvmtiEnv* jvmti, JNIEnv* jni) : jvmti_(jvmti), jni_(jni) {}
 
   // Invokes JVMTI RedefineClasses with class definitions in the message.
-  bool DoHotSwap(const proto::SwapRequest& message,
-                 std::string* error_msg) const;
+  SwapResult DoHotSwap(const proto::SwapRequest& message) const;
 
  private:
   jvmtiEnv* jvmti_;

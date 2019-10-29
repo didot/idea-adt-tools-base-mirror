@@ -14,9 +14,7 @@ iml_module(
     srcs = ["manifest-merger/src/main/java"],
     iml_files = ["manifest-merger/android.sdktools.manifest-merger.iml"],
     javacopts = ["-Xep:MissingCasesInEnumSwitch:WARN"],
-    tags = [
-        "no_test_windows",  # b/77288863
-    ],
+    test_coverage = True,
     test_srcs = ["manifest-merger/src/test/java"],
     visibility = ["//visibility:public"],
     exports = ["//tools/base/sdklib:studio.android.sdktools.sdklib"],
@@ -29,7 +27,7 @@ iml_module(
         "//tools/base/sdk-common:studio.android.sdktools.sdk-common[module]",
         "//tools/base/testutils:studio.android.sdktools.testutils[module, test]",
         "//tools/idea/.idea/libraries:truth[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )
 
@@ -40,7 +38,6 @@ kotlin_library(
     pom = ":manifest-merger.pom",
     resource_strip_prefix = "tools/base/build-system/manifest-merger",
     resources = ["manifest-merger/NOTICE"],
-    tags = ["no_test_windows"],  # b/77288863
     visibility = ["//visibility:public"],
     deps = [
         "//tools/base/annotations",
@@ -65,6 +62,7 @@ kotlin_test(
     name = "tools.manifest-merger_tests",
     # TODO: Why are the xml files not under resources?
     srcs = ["manifest-merger/src/test/java"],
+    coverage = True,
     jvm_flags = ["-Dtest.suite.jar=tools.manifest-merger_tests.jar"],
     resources = glob(
         include = ["manifest-merger/src/test/java/**"],
@@ -107,7 +105,7 @@ maven_pom(
 )
 
 # The Gradle APIs to build against and run against.
-GRADLE_VERSION = "4.10.1"
+GRADLE_VERSION = "5.4.1"
 
 filegroup(
     name = "gradle-distrib",
@@ -118,7 +116,7 @@ filegroup(
 java_library(
     name = "gradle-tooling-api",
     visibility = ["//tools/base/bazel:__subpackages__"],
-    exports = ["//prebuilts/tools/common/m2/repository/org/gradle/gradle-tooling-api/" + GRADLE_VERSION + ":jar"],
+    exports = ["//tools/base/third_party:org.gradle_gradle-tooling-api"],
     runtime_deps = ["//tools/base/third_party:org.slf4j_slf4j-api"],
 )
 
@@ -158,6 +156,8 @@ GRADLE_PLUGIN_NO_DATABINDING_ARTIFACTS = [
     "//tools/base/lint:tools.lint-gradle",
     "//prebuilts/tools/common/m2/repository/com/google/errorprone/error_prone_annotations/2.0.18:jar",
     "//prebuilts/tools/common/m2/repository/com/google/errorprone/error_prone_annotations/2.1.3:jar",
+    "//prebuilts/tools/common/m2/repository/com/google/errorprone/error_prone_annotations/2.2.0:jar",
+    "//prebuilts/tools/common/m2/repository/org/checkerframework/checker-qual/2.5.2:jar",
 ]
 
 maven_repo(
@@ -178,6 +178,16 @@ maven_repo(
     artifacts = GRADLE_PLUGIN_ARTIFACTS,
     include_sources = True,
     visibility = ["//visibility:public"],
+)
+
+# m2 repository used by performance tests
+maven_repo(
+    name = "performance_test_repo",
+    artifacts = GRADLE_PLUGIN_ARTIFACTS + [
+        "//tools/base/third_party:org.jetbrains.kotlin_kotlin-gradle-plugin",
+        "//tools/base/third_party:org.jetbrains.kotlin_kotlin-android-extensions-runtime",
+    ],
+    visibility = ["//prebuilts/studio/buildbenchmarks:__subpackages__"],
 )
 
 # m2 repository packaged inside studio.

@@ -22,7 +22,7 @@ import java.util.List;
 
 public class CaptureGroup {
 
-    private List<Capture> mCaptures = new ArrayList<>();
+    private List<Capture> mCaptures = new ArrayList<Capture>();
 
     public List<Capture> getCaptures() {
         return mCaptures;

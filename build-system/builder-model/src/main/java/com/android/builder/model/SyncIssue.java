@@ -179,6 +179,18 @@ public interface SyncIssue {
      */
     int TYPE_SIGNING_CONFIG_DECLARED_IN_DYNAMIC_FEATURE = 35;
 
+    /**
+     * Indicates that the SDK is missing or invalid, this can either be set in the ANDROID_SDK_ROOT
+     * environment variable or the projects local.properties files.
+     */
+    int TYPE_SDK_NOT_SET = 36;
+
+    /** Indicates that the user has specified multiple default build types */
+    int TYPE_AMBIGUOUS_BUILD_TYPE_DEFAULT = 37;
+
+    /** Indicates that the user has specified multiple default product flavors */
+    int TYPE_AMBIGUOUS_PRODUCT_FLAVOR_DEFAULT = 38;
+
     // ATTENTION: When adding new values here, update EvalIssueReporter.Type and TYPE_MAX below.
 
     /**
@@ -186,7 +198,7 @@ public interface SyncIssue {
      *
      * <p>TODO: Why is it needed even when there are no usages in the code?
      */
-    int TYPE_MAX = 36; // increment when adding new types.
+    int TYPE_MAX = 39; // increment when adding new types.
 
     /** Returns the severity of the issue. */
     int getSeverity();

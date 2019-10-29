@@ -16,16 +16,7 @@
 
 package com.android.build.gradle.integration.common.utils;
 
-
-import com.android.annotations.NonNull;
-import com.android.builder.testing.ConnectedDeviceProvider;
-import com.android.builder.testing.api.DeviceConnector;
-import com.android.builder.testing.api.DeviceException;
 import com.android.ddmlib.DdmPreferences;
-import com.android.utils.ILogger;
-import com.android.utils.StdLogger;
-import com.google.common.collect.Sets;
-import java.util.Set;
 
 /**
  * Helper for performing connected device related tasks.
@@ -37,50 +28,4 @@ public class DeviceHelper {
      * that is externally published.
      */
     public static final int DEFAULT_ADB_TIMEOUT_MSEC = DdmPreferences.DEFAULT_TIMEOUT * 3;
-
-    /**
-     * Return the set of all ABIs supported by any of the connected devices.
-     */
-    @NonNull
-    public static Set<String> getDeviceAbis() throws DeviceException {
-        ILogger logger = new StdLogger(StdLogger.Level.VERBOSE);
-        ConnectedDeviceProvider deviceProvider =
-                new ConnectedDeviceProvider(SdkHelper.getAdb(), DEFAULT_ADB_TIMEOUT_MSEC, logger);
-        deviceProvider.init();
-        Set<String> abis = Sets.newHashSet();
-        for(DeviceConnector deviceConnector : deviceProvider.getDevices()) {
-            abis.addAll(deviceConnector.getAbis());
-        }
-        deviceProvider.terminate();
-        return abis;
-    }
-
-    public static IDevice getIDevice() throws DeviceException {
-        return Iterables.getOnlyElement(getIDevices());
-    }
-    public static List<IDevice> getIDevices() throws DeviceException {
-        AndroidDebugBridge.initIfNeeded(false /*clientSupport*/);
-
-        AndroidDebugBridge bridge = AndroidDebugBridge.createBridge(
-                SdkHelper.getAdb().getAbsolutePath(), false /*forceNewBridge*/);
-
-        assertNotNull("Debug bridge", bridge);
-
-        long timeOut = DEFAULT_ADB_TIMEOUT_MSEC;
-        int sleepTime = 1000;
-        while (!bridge.hasInitialDeviceList() && timeOut > 0) {
-            try {
-                Thread.sleep(sleepTime);
-            } catch (InterruptedException e) {
-                throw new DeviceException(e);
-            }
-            timeOut -= sleepTime;
-        }
-
-        if (timeOut <= 0 && !bridge.hasInitialDeviceList()) {
-            throw new DeviceException("Timeout getting device list.");
-        }
-
-        return ImmutableList.copyOf(bridge.getDevices());
-    }
 }

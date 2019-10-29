@@ -1,12 +1,14 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
 load("//tools/base/bazel:kotlin.bzl", "kotlin_library", "kotlin_test")
+load("//tools/base/bazel:utils.bzl", "replace_manifest")
 
 # managed by go/iml_to_build
 iml_module(
     name = "studio.android.sdktools.lint-api",
     srcs = ["libs/lint-api/src/main/java"],
     iml_files = ["libs/lint-api/android.sdktools.lint-api.iml"],
+    lint_baseline = "libs/lint-api/lint_baseline.xml",
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
     exports = [
@@ -17,6 +19,7 @@ iml_module(
         "//tools/base/sdk-common:studio.android.sdktools.sdk-common",
         "//tools/base/layoutlib-api:studio.android.sdktools.layoutlib-api",
         "//tools/idea/java/java-psi-api:intellij.java.psi",
+        "//tools/idea/java/java-psi-impl:intellij.java.psi.impl",
         "//tools/base/build-system:studio.android.sdktools.manifest-merger",
         "//tools/idea/uast/uast-common:intellij.platform.uast",
         "//tools/idea/uast/uast-java:intellij.java.uast",
@@ -35,7 +38,8 @@ iml_module(
         "//tools/idea/java/java-psi-api:intellij.java.psi[module]",
         "//tools/idea/java/java-psi-impl:intellij.java.psi.impl[module]",
         "//tools/base/build-system:studio.android.sdktools.manifest-merger[module]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
+        "//tools/idea/.idea/libraries:kotlin-reflect",
         "//tools/idea/uast/uast-common:intellij.platform.uast[module]",
         "//tools/idea/uast/uast-java:intellij.java.uast[module]",
         "//tools/idea/.idea/libraries:kotlin-plugin",
@@ -94,13 +98,14 @@ iml_module(
     # do not sort: must match IML order
     deps = [
         "//tools/base/lint:studio.android.sdktools.lint-api[module]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )
 
 kotlin_library(
     name = "tools.lint-checks",
     srcs = ["libs/lint-checks/src/main/java"],
+    lint_baseline = "libs/lint-checks/lint_baseline.xml",
     pom = "lint-checks.pom",
     resource_strip_prefix = "tools/base/lint/libs/lint-checks/src/main/resources",
     resources = glob(["libs/lint-checks/src/main/resources/**"]),
@@ -219,6 +224,7 @@ maven_pom(
 kotlin_test(
     name = "tests",
     srcs = ["libs/lint-gradle/src/test/java"],
+    coverage = True,
     data = [
         "//prebuilts/studio/sdk:platform-tools",
         "//prebuilts/studio/sdk:platforms/latest",
@@ -228,7 +234,6 @@ kotlin_test(
         "-Dtest.suite.jar=tests.jar",
         "-Duser.home=/tmp",
     ],
-    tags = ["no_test_windows"],  # b/73306170
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.lint-gradle",
@@ -260,4 +265,46 @@ kotlin_test(
         "//tools/base/third_party:org.jetbrains_annotations",
         "//tools/base/third_party:org.ow2.asm_asm-tree",
     ],
+)
+
+kotlin_library(
+    name = "studio-checks",
+    srcs = ["studio-checks/src/main/java"],
+    lint_baseline = "studio-checks/empty_baseline.xml",
+    lint_classpath = ["//tools/base/lint/cli"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":tools.lint-api",
+        "//prebuilts/tools/common/lint-psi/uast",
+        "//tools/base/annotations",
+    ],
+)
+
+replace_manifest(
+    name = "studio-checks.lint-rules",
+    manifest = "studio-checks/MANIFEST.MF",
+    original_jar = ":studio-checks",
+    visibility = ["//visibility:public"],
+)
+
+kotlin_test(
+    name = "studio-checks-tests",
+    srcs = ["studio-checks/src/test/java"],
+    coverage = True,
+    jvm_flags = [
+        "-Dtest.suite.jar=studio-checks-tests.jar",
+    ],
+    test_class = "com.android.testutils.JarTestSuite",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":studio-checks",
+        ":tools.lint-api",
+        "//tools/base/lint/libs/lint-tests",
+        "//tools/base/third_party:junit_junit",
+    ],
+)
+
+exports_files(
+    srcs = ["studio-checks/empty_baseline.xml"],
+    visibility = ["//visibility:public"],
 )

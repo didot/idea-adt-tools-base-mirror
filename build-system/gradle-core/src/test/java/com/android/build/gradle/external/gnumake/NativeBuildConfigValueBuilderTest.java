@@ -30,32 +30,27 @@
  */
 package com.android.build.gradle.external.gnumake;
 
+import static com.google.common.truth.Truth.assertAbout;
+
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValue;
 import com.android.build.gradle.truth.NativeBuildConfigValueSubject;
-import com.google.common.truth.Truth;
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import java.io.File;
-import java.io.FileNotFoundException;
 import org.junit.Test;
 
 
 public class NativeBuildConfigValueBuilderTest {
 
-    private static void assertThatNativeBuildConfigEquals(@NonNull String string, String expected) {
+    private static void assertThatNativeBuildConfigEquals(
+            @NonNull String commands, @NonNull String expected) {
         File projectPath = new File("/projects/MyProject/jni/Android.mk");
 
         NativeBuildConfigValue actualValue =
                 new NativeBuildConfigValueBuilder(projectPath, projectPath.getParentFile())
-                        .addCommands("echo build command", "echo clean command", "debug", string)
+                        .setCommands("echo build command", "echo clean command", "debug", commands)
                         .build();
-        String actualResult = new GsonBuilder()
-                .setPrettyPrinting()
-                .create()
-                .toJson(actualValue);
-        System.err.println(actualResult);
 
         if (SdkConstants.currentPlatform() == SdkConstants.PLATFORM_WINDOWS) {
             expected = expected.replace("/", "\\\\");
@@ -64,12 +59,13 @@ public class NativeBuildConfigValueBuilderTest {
         NativeBuildConfigValue expectedValue =
                 new Gson().fromJson(expected, NativeBuildConfigValue.class);
 
-        Truth.assert_().about(NativeBuildConfigValueSubject.FACTORY)
-                .that(actualValue).isEqualTo(expectedValue);
+        assertAbout(NativeBuildConfigValueSubject.nativebuildConfigValues())
+                .that(actualValue)
+                .isEqualTo(expectedValue);
     }
 
     @Test
-    public void doubleTarget() throws FileNotFoundException {
+    public void doubleTarget() {
         assertThatNativeBuildConfigEquals(
                 "g++ -c a.c -o x86_64/a.o\n"
                         + "g++ x86_64/a.o -o x86_64/a.so\n"
@@ -84,6 +80,7 @@ public class NativeBuildConfigValueBuilderTest {
                         + "  \"cleanCommands\": [\n"
                         + "    \"echo clean command\"\n"
                         + "  ],"
+                        + "  \"buildTargetsCommand\": \"echo build command {LIST_OF_TARGETS_TO_BUILD}\",\n"
                         + "  \"libraries\": {\n"
                         + "    \"a-debug-x86_64\": {\n"
                         + "      abi : \"x86_64\","
@@ -140,7 +137,7 @@ public class NativeBuildConfigValueBuilderTest {
     }
 
     @Test
-    public void includeInSource() throws FileNotFoundException {
+    public void includeInSource() {
         assertThatNativeBuildConfigEquals(
                 "g++ -c a.c -o x/aa.o -Isome-include-path\n",
                 "{\n"
@@ -152,6 +149,7 @@ public class NativeBuildConfigValueBuilderTest {
                         + "  \"cleanCommands\": [\n"
                         + "    \"echo clean command\"\n"
                         + "  ],"
+                        + "  \"buildTargetsCommand\": \"echo build command {LIST_OF_TARGETS_TO_BUILD}\",\n"
                         + "  \"libraries\": {\n"
                         + "    \"aa-debug-x\": {\n"
                         + "      \"buildCommand\": \"echo build command x/aa.o\",\n"
@@ -186,7 +184,7 @@ public class NativeBuildConfigValueBuilderTest {
     }
 
     @Test
-    public void weirdExtension1() throws FileNotFoundException {
+    public void weirdExtension1() {
         assertThatNativeBuildConfigEquals(
                 "g++ -c a.c -o x86_64/aa.o\n"
                         + "g++ -c a.S -o x86_64/aS.so\n"
@@ -200,6 +198,7 @@ public class NativeBuildConfigValueBuilderTest {
                         + "  \"cleanCommands\": [\n"
                         + "    \"echo clean command\"\n"
                         + "  ],"
+                        + "  \"buildTargetsCommand\": \"echo build command {LIST_OF_TARGETS_TO_BUILD}\",\n"
                         + "  \"libraries\": {\n"
                         + "    \"a-debug-x86\": {\n"
                         + "      abi : \"x86\","
@@ -241,7 +240,7 @@ public class NativeBuildConfigValueBuilderTest {
     }
 
     @Test
-    public void weirdExtension2() throws FileNotFoundException {
+    public void weirdExtension2() {
         assertThatNativeBuildConfigEquals(
                 "g++ -c a.S -o x86_64/aS.so\n"
                         + "g++ -c a.c -o x86_64/aa.o\n"
@@ -255,6 +254,7 @@ public class NativeBuildConfigValueBuilderTest {
                         + "  \"cleanCommands\": [\n"
                         + "    \"echo clean command\"\n"
                         + "  ],"
+                        + "  \"buildTargetsCommand\": \"echo build command {LIST_OF_TARGETS_TO_BUILD}\",\n"
                         + "  \"libraries\": {\n"
                         + "    \"a-debug-x86\": {\n"
                         + "      abi : \"x86\","

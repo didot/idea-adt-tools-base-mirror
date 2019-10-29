@@ -127,10 +127,11 @@ class JavaEvaluator {
      * both [.extendsClass] and [ ][.implementsInterface].
      */
     open fun inheritsFrom(
-        cls: PsiClass,
+        cls: PsiClass?,
         className: String,
         strict: Boolean
     ): Boolean {
+        cls ?: return false
         return extendsClass(cls, className, strict) || implementsInterface(cls, className, strict)
     }
 
@@ -408,6 +409,36 @@ class JavaEvaluator {
             }
         }
         return signature.toString()
+    }
+
+    /**
+     * Constructs a simplified version of the internal JVM description of the given method. This is
+     * in the same format as {@link #getMethodDescription} above, the difference being we don't have
+     * the actual PSI for the method type, we just construct the signature from the [method] name,
+     * the list of [argumentTypes] and optionally include the [returnType].
+     */
+    open fun constructMethodDescription(
+        method: String,
+        includeName: Boolean = false,
+        argumentTypes: Array<PsiType>,
+        returnType: PsiType? = null,
+        includeReturn: Boolean = false
+    ): String? = buildString {
+        if (includeName) {
+            append(method)
+        }
+        append('(')
+        for (argumentType in argumentTypes) {
+            if (!appendJvmEquivalentSignature(this, argumentType)) {
+                return null
+            }
+        }
+        append(')')
+        if (includeReturn) {
+            if (!appendJvmEquivalentSignature(this, returnType)) {
+                return null
+            }
+        }
     }
 
     @Suppress("DeprecatedCallableAddReplaceWith")
@@ -710,6 +741,9 @@ class JavaEvaluator {
      * a method in the appcompat library, this would return "com.android.support".
      */
     open fun getLibrary(element: PsiElement): MavenCoordinates? {
+        if (element !is PsiCompiledElement) {
+            return null
+        }
         return getLibrary(findJarPath(element))
     }
 
@@ -718,7 +752,10 @@ class JavaEvaluator {
      * a method in the appcompat library, this would return "com.android.support".
      */
     open fun getLibrary(element: UElement): MavenCoordinates? {
-        return getLibrary(findJarPath(element))
+        if (element !is PsiCompiledElement) {
+            return null
+        }
+        return getLibrary(findJarPath(element as UElement))
     }
 
     /** Disambiguate between UElement and PsiElement since a UMethod is both  */

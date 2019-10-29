@@ -19,7 +19,11 @@ package com.android.tools.perflib.vmtrace.viz;
 import com.android.annotations.NonNull;
 import com.android.annotations.VisibleForTesting;
 
-import java.awt.event.*;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.event.MouseMotionListener;
+import java.awt.event.MouseWheelEvent;
+import java.awt.event.MouseWheelListener;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.NoninvertibleTransformException;
 import java.awt.geom.Point2D;
@@ -49,7 +53,7 @@ public class ZoomPanInteractor implements MouseListener, MouseMotionListener, Mo
     private int mLastX;
     private int mLastY;
 
-    private final List<ViewTransformListener> mListeners = new ArrayList<>();
+    private final List<ViewTransformListener> mListeners = new ArrayList<ViewTransformListener>();
 
     @Override
     public void mouseClicked(MouseEvent e) {
@@ -114,9 +118,7 @@ public class ZoomPanInteractor implements MouseListener, MouseMotionListener, Mo
             return;
         }
 
-        int rotation = e.getWheelRotation();
-        if (rotation == 0) return;
-        double scale = 1 + WHEEL_UNIT_SCALE * rotation;
+        double scale = 1 + WHEEL_UNIT_SCALE * e.getWheelRotation();
 
         // convert mouse x, y from screen coordinates to absolute coordinates
         mTmpPoint.setLocation(e.getX(), e.getY());

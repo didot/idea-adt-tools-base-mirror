@@ -15,20 +15,20 @@
  */
 package com.android.ide.common.repository;
 
+import static com.android.SdkConstants.FN_RESOURCE_TEXT;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.builder.model.*;
 import com.android.resources.ResourceType;
 import com.android.resources.ResourceUrl;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.collect.*;
 import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
-
-import static com.android.SdkConstants.FN_RESOURCE_TEXT;
 
 /**
  * Class which provides information about whether Android resources for a given library are

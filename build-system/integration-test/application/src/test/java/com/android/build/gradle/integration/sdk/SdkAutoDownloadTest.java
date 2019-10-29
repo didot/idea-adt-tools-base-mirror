@@ -30,7 +30,7 @@ import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldJniApp;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
 import com.android.build.gradle.options.IntegerOption;
-import com.android.builder.core.AndroidBuilder;
+import com.android.builder.core.ToolsRevisionUtils;
 import com.android.builder.model.AndroidProject;
 import com.android.builder.model.SyncIssue;
 import com.android.ide.common.repository.GradleCoordinate;
@@ -253,7 +253,7 @@ public class SdkAutoDownloadTest {
                         + "\"");
 
         GradleBuildResult result = getExecutor().expectFailure().run("assembleDebug");
-        assertThat(result.getFailureMessage())
+        assertThat(Throwables.getRootCause(result.getException()).getMessage())
                 .contains("Failed to find target with hash string 'MadeUp'");
     }
 
@@ -341,10 +341,10 @@ public class SdkAutoDownloadTest {
 
         GradleBuildResult result = getExecutor().expectFailure().run("assembleDebug");
 
-        assertThat(result.getStdout())
+        assertThat(Throwables.getRootCause(result.getException()).getMessage())
                 .contains(
                         "Failed to install the following Android SDK packages as some licences have not been accepted");
-        assertThat(result.getStdout()).contains("CMake");
+        assertThat(Throwables.getRootCause(result.getException()).getMessage()).contains("CMake");
     }
 
     @Test
@@ -367,13 +367,14 @@ public class SdkAutoDownloadTest {
                 project.file("CMakeLists.txt").toPath(),
                 cmakeLists.getBytes(StandardCharsets.UTF_8));
 
-        // TODO: This should be changed to assembleDebug once b/116539441 is fixed.
-        // Currently assembleDebug causes ninja to its path component limit.
-        // See https://github.com/ninja-build/ninja/issues/1161
-        getExecutor().run("clean");
+        getExecutor().run("assembleDebug");
 
-        File ndkDirectory = FileUtils.join(mSdkHome, SdkConstants.FD_NDK);
-        assertThat(ndkDirectory).isDirectory();
+        // Hard to get the NDK SxS flag here. Just check whether either expected directory exists.
+        File legacyFolder = FileUtils.join(mSdkHome, SdkConstants.FD_NDK);
+        File sxsFolder = FileUtils.join(mSdkHome, SdkConstants.FD_NDK_SIDE_BY_SIDE);
+        if (!legacyFolder.isDirectory() && !sxsFolder.isDirectory()) {
+            assertThat(sxsFolder).isDirectory();
+        }
     }
 
     @Test
@@ -402,10 +403,10 @@ public class SdkAutoDownloadTest {
 
         GradleBuildResult result = getExecutor().expectFailure().run("assembleDebug");
 
-        assertThat(result.getStdout())
+        assertThat(Throwables.getRootCause(result.getException()).getMessage())
                 .contains(
                         "Failed to install the following Android SDK packages as some licences have not been accepted");
-        assertThat(result.getStdout()).contains("ndk-bundle");
+        assertThat(Throwables.getRootCause(result.getException()).getMessage()).contains("ndk");
     }
 
     @Test
@@ -677,7 +678,7 @@ public class SdkAutoDownloadTest {
         assertThat(Throwables.getRootCause(result.getException()).getMessage())
                 .contains("missing components");
         assertThat(Throwables.getRootCause(result.getException()).getMessage())
-                .contains("Build-Tools " + AndroidBuilder.MIN_BUILD_TOOLS_REV.toShortString());
+                .contains("Build-Tools " + ToolsRevisionUtils.MIN_BUILD_TOOLS_REV.toShortString());
         assertThat(Throwables.getRootCause(result.getException()).getMessage())
                 .contains("Android SDK Platform 23");
         assertThat(Throwables.getRootCause(result.getException()).getMessage())

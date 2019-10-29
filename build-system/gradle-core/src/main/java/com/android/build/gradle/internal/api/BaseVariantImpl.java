@@ -38,9 +38,7 @@ import com.android.build.gradle.tasks.ExternalNativeBuildTask;
 import com.android.build.gradle.tasks.GenerateBuildConfig;
 import com.android.build.gradle.tasks.MergeResources;
 import com.android.build.gradle.tasks.MergeSourceSetFolders;
-import com.android.build.gradle.tasks.NdkCompile;
 import com.android.build.gradle.tasks.RenderscriptCompile;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.model.BuildType;
@@ -83,7 +81,6 @@ public abstract class BaseVariantImpl implements BaseVariant {
             "https://d.android.com/r/tools/task-configuration-avoidance";
 
     @NonNull private final ObjectFactory objectFactory;
-    @NonNull protected final AndroidBuilder androidBuilder;
 
     @NonNull protected final ReadOnlyObjectProvider readOnlyObjectProvider;
 
@@ -91,11 +88,9 @@ public abstract class BaseVariantImpl implements BaseVariant {
 
     BaseVariantImpl(
             @NonNull ObjectFactory objectFactory,
-            @NonNull AndroidBuilder androidBuilder,
             @NonNull ReadOnlyObjectProvider readOnlyObjectProvider,
             @NonNull NamedDomainObjectContainer<BaseVariantOutput> outputs) {
         this.objectFactory = objectFactory;
-        this.androidBuilder = androidBuilder;
         this.readOnlyObjectProvider = readOnlyObjectProvider;
         this.outputs = outputs;
     }
@@ -183,8 +178,10 @@ public abstract class BaseVariantImpl implements BaseVariant {
             case JAVA:
                 return getVariantData().getJavaSources();
             default:
-                androidBuilder
-                        .getIssueReporter()
+                getVariantData()
+                        .getScope()
+                        .getGlobalScope()
+                        .getErrorHandler()
                         .reportError(
                                 EvalIssueReporter.Type.GENERIC,
                                 new EvalIssueException("Unknown SourceKind value: " + folderType));
@@ -450,29 +447,6 @@ public abstract class BaseVariantImpl implements BaseVariant {
                         TASK_ACCESS_DEPRECATION_URL,
                         DeprecationReporter.DeprecationTarget.TASK_ACCESS_VIA_VARIANT);
         return variantData.getTaskContainer().getJavacTask().get();
-    }
-
-    @NonNull
-    @Override
-    public NdkCompile getNdkCompile() {
-        BaseVariantData variantData = getVariantData();
-        variantData
-                .getScope()
-                .getGlobalScope()
-                .getDslScope()
-                .getDeprecationReporter()
-                .reportDeprecatedApi(
-                        "variant.getNdkCompileProvider()",
-                        "variant.getNdkCompile()",
-                        TASK_ACCESS_DEPRECATION_URL,
-                        DeprecationReporter.DeprecationTarget.TASK_ACCESS_VIA_VARIANT);
-        return variantData.getTaskContainer().getNdkCompileTask().get();
-    }
-
-    @NonNull
-    @Override
-    public TaskProvider<NdkCompile> getNdkCompileProvider() {
-        return (TaskProvider<NdkCompile>) getVariantData().getTaskContainer().getNdkCompileTask();
     }
 
     @NonNull

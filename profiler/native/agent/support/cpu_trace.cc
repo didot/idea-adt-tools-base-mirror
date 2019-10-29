@@ -17,7 +17,7 @@
 #include <unistd.h>
 
 #include "agent/agent.h"
-#include "agent/support/jni_wrappers.h"
+#include "agent/jni_wrappers.h"
 #include "proto/internal_cpu.grpc.pb.h"
 #include "utils/file_reader.h"
 #include "utils/log.h"
@@ -48,7 +48,7 @@ class TraceMonitor {
   // Called at the entry of various Debug.startMethodTracing(..) calls.
   // Records arguments as seen in a start tracing call. Arugments have been
   // packaged into |input_request|. If the call is invalid (e.g., starting trace
-  // when there is already an ongoing one), those arguments will be throw away
+  // when there is already an ongoing one), those arguments will be thrown away
   // in SubmitStartEvent().
   void RecordStartArguments(const CpuTraceOperationRequest& input_request);
   // Called at the entry of Debug.fixTracePath().
@@ -71,7 +71,7 @@ class TraceMonitor {
 
   void Reset() {
     api_initiated_trace_in_progress_ = false;
-    trace_id_ = -1;
+    ongoing_trace_id_ = -1;
     unconfirmed_start_request_.Clear();
     confirmed_trace_path_.clear();
   }
@@ -79,10 +79,10 @@ class TraceMonitor {
   SteadyClock clock_;
   // Absolute path of the file being created and written by the app.
   bool api_initiated_trace_in_progress_;
-  int trace_id_;
+  int64_t ongoing_trace_id_ = -1;
   // Represents argument values as seen from the last start tracing API call.
   // If the call is invalid (e.g., starting trace when there is already an
-  // ongoing one), those fields will be throw away.
+  // ongoing one), those fields will be thrown away.
   CpuTraceOperationRequest unconfirmed_start_request_;
   // Absolute path to the trace file with the correct extension. It is return
   // value of Debug.fixTracePath().
@@ -111,12 +111,17 @@ void TraceMonitor::CheckFixTracePathCall(int32_t tid,
 }
 
 void TraceMonitor::SubmitStartEvent(int32_t tid, const string& fixed_path) {
+  if (Agent::Instance().agent_config().common().profiler_unified_pipeline()) {
+    return;
+  }
+
   if (tid != unconfirmed_start_request_.thread_id()) {
     Log::E(
         "startMethodTracing called from thread %d but fixTracePath exits from "
         "thread %d",
         unconfirmed_start_request_.thread_id(), tid);
   }
+
   int64_t timestamp = clock_.GetCurrentTime();
   Agent::Instance().SubmitCpuTasks({[this, fixed_path, timestamp](
                                         InternalCpuService::Stub& stub,
@@ -126,29 +131,29 @@ void TraceMonitor::SubmitStartEvent(int32_t tid, const string& fixed_path) {
     request.CopyFrom(unconfirmed_start_request_);
     request.set_pid(pid);
     request.set_timestamp(timestamp);
+    request.set_trace_id(timestamp);
     CpuTraceOperationResponse response;
     Status status = stub.SendTraceEvent(&ctx, request, &response);
     if (status.ok()) {
-      if (response.start_operation_allowed()) {
-        api_initiated_trace_in_progress_ = true;
-        trace_id_ = response.trace_id();
-        confirmed_trace_path_ = fixed_path;
-      } else {
-        // This start operation isn't allowed. Ignore it.
-        unconfirmed_start_request_.Clear();
-        Log::W(
-            "Debug.startMethodTracing(String) called while tracing is already "
-            "in progress; the call is ignored.");
-      }
+      api_initiated_trace_in_progress_ = true;
+      ongoing_trace_id_ = timestamp;
+      confirmed_trace_path_ = fixed_path;
     } else {
-      // Not receiving a response from perfd. Since the profiling state is
-      // unknown, ignore this start operation.
+      // This start operation isn't allowed. Ignore it.
+      unconfirmed_start_request_.Clear();
+      Log::W(
+          "Debug.startMethodTracing(String) called while tracing is already "
+          "in progress; the call is ignored.");
     }
     return status;
   }});
 }
 
 void TraceMonitor::SubmitStopEvent(int tid) {
+  if (Agent::Instance().agent_config().common().profiler_unified_pipeline()) {
+    return;
+  }
+
   if (!api_initiated_trace_in_progress_) return;
   int64_t timestamp = clock_.GetCurrentTime();
   Agent::Instance().SubmitCpuTasks(
@@ -159,6 +164,7 @@ void TraceMonitor::SubmitStopEvent(int tid) {
         request.set_pid(pid);
         request.set_thread_id(tid);
         request.set_timestamp(timestamp);
+        request.set_trace_id(ongoing_trace_id_);
         string trace_content;
         if (confirmed_trace_path_.empty()) {
           Log::E(
@@ -167,7 +173,6 @@ void TraceMonitor::SubmitStopEvent(int tid) {
         } else {
           profiler::FileReader::Read(confirmed_trace_path_, &trace_content);
         }
-        request.mutable_stop()->set_trace_id(trace_id_);
         request.mutable_stop()->set_trace_content(trace_content);
         CpuTraceOperationResponse response;
         Status status = stub.SendTraceEvent(&ctx, request, &response);

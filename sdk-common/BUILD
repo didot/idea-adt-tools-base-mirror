@@ -9,9 +9,7 @@ iml_module(
     srcs = ["src/main/java"],
     iml_files = ["android.sdktools.sdk-common.iml"],
     resources = ["src/main/resources"],
-    tags = [
-        "no_test_windows",
-    ],
+    test_coverage = True,
     test_resources = ["src/test/resources"],
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
@@ -40,7 +38,8 @@ iml_module(
         "//prebuilts/tools/common/m2/repository/org/bouncycastle/bcpkix-jdk15on/1.56:jar",
         "//prebuilts/tools/common/m2/repository/org/bouncycastle/bcprov-jdk15on/1.56:jar",
         "//tools/idea/.idea/libraries:truth[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
+        "//tools/idea/.idea/libraries:kotlin-reflect",
         "//tools/idea/.idea/libraries:jimfs[test]",
         "//tools/base/annotations:studio.android.sdktools.android-annotations[module]",
         "//tools/base/ddmlib:studio.android.sdktools.ddmlib[module]",
@@ -48,7 +47,11 @@ iml_module(
         "//tools/idea/.idea/libraries:equalsverifier[test]",
         "//tools/idea/.idea/libraries:aia-manifest-proto-1.0-jarjar",
         "//tools/idea/.idea/libraries:javax-inject",
-        "//tools/idea/.idea/libraries:jetbrains-annotations-java5",
+        "//tools/idea/.idea/libraries:Trove4j",
+        "//tools/idea/.idea/libraries:aapt-proto",
+        "//tools/idea/.idea/libraries:protobuf",
+        "//tools/idea/.idea/libraries:jetbrains-annotations",
+        "//tools/idea/.idea/libraries:studio-analytics-proto",
     ],
 )
 
@@ -71,6 +74,7 @@ kotlin_library(
     resources = [":tools.resources"],
     visibility = ["//visibility:public"],
     deps = [
+        "//tools/analytics-library/shared:tools.analytics-shared",
         "//tools/base/annotations",
         "//tools/base/build-system/builder-model",
         "//tools/base/build-system/builder-test-api:tools.builder-test-api",
@@ -79,6 +83,7 @@ kotlin_library(
         "//tools/base/layoutlib-api:tools.layoutlib-api",
         "//tools/base/repository:tools.repository",
         "//tools/base/sdklib:tools.sdklib",
+        "//tools/base/third_party:com.android.tools.build_aapt2-proto",
         "//tools/base/third_party:com.google.code.gson_gson",
         "//tools/base/third_party:com.google.guava_guava",
         "//tools/base/third_party:com.google.protobuf_protobuf-java",
@@ -87,6 +92,7 @@ kotlin_library(
         "//tools/base/third_party:org.bouncycastle_bcpkix-jdk15on",
         "//tools/base/third_party:org.bouncycastle_bcprov-jdk15on",
         "//tools/base/third_party:org.jetbrains.kotlin_kotlin-reflect",
+        "//tools/base/third_party:org.jetbrains.trove4j_trove4j",
     ],
 )
 
@@ -106,10 +112,10 @@ maven_pom(
 kotlin_test(
     name = "tools.tests",
     srcs = ["src/test/java"],
+    coverage = True,
     data = ["//prebuilts/studio/sdk:platform-tools"],
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
     resources = glob(["src/test/resources/**"]),
-    tags = ["no_test_windows"],  # b/77288863
     test_class = "com.android.testutils.JarTestSuite",
     visibility = ["//visibility:public"],
     runtime_deps = [
@@ -126,9 +132,11 @@ kotlin_test(
         "//tools/base/repository:tools.repository",
         "//tools/base/sdklib:tools.sdklib",
         "//tools/base/testutils:tools.testutils",
+        "//tools/base/third_party:com.android.tools.build_aapt2-proto",
         "//tools/base/third_party:com.google.code.gson_gson",
         "//tools/base/third_party:com.google.jimfs_jimfs",
         "//tools/base/third_party:com.google.truth_truth",
+        "//tools/base/third_party:net.sf.kxml_kxml2",
         "//tools/base/third_party:nl.jqno.equalsverifier_equalsverifier",
         "//tools/base/third_party:org.easymock_easymock",
         "//tools/base/third_party:org.mockito_mockito-core",

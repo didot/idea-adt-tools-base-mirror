@@ -45,7 +45,7 @@ class Simpleperf {
       : simpleperf_dir_(simpleperf_dir),
         is_emulator_(is_emulator),
         is_user_build_(is_user_build) {}
-  ~Simpleperf() = default;
+  virtual ~Simpleperf() = default;
 
   // Invoke `simpleperf record` given the |pid| of the process to be profiled,
   // its corresponding package name, the path of the resulting trace file, and
@@ -71,8 +71,7 @@ class Simpleperf {
   // simpleperf binary to use. The binary must match the abi of the app.
   virtual bool ReportSample(const std::string& input_path,
                             const std::string& output_path,
-                            const std::string& abi_arch,
-                            std::string* output) const;
+                            const std::string& abi_arch, std::string* output);
 
  protected:
   // Returns a string with the full `simpleperf record` command, containing all

@@ -19,12 +19,12 @@
 #include <map>
 #include <string>
 
+#include "daemon/service_component.h"
 #include "perfd/graphics/graphics_service.h"
-#include "perfd/profiler_component.h"
 
 namespace profiler {
 
-class GraphicsProfilerComponent final : public ProfilerComponent {
+class GraphicsProfilerComponent final : public ServiceComponent {
  public:
   explicit GraphicsProfilerComponent(Clock* clock) : public_service_(clock) {}
 

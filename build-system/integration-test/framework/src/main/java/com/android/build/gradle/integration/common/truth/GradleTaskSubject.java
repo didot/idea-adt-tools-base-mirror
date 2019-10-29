@@ -16,141 +16,68 @@
 
 package com.android.build.gradle.integration.common.truth;
 
-import static com.google.common.truth.Truth.assert_;
+import static com.google.common.truth.Truth.assertAbout;
 
 import com.android.annotations.NonNull;
 import com.android.build.gradle.integration.common.truth.TaskStateList.TaskInfo;
-import com.google.common.truth.FailureStrategy;
+import com.google.common.truth.FailureMetadata;
 import com.google.common.truth.Subject;
-import com.google.common.truth.SubjectFactory;
 
 /**
  * Truth subject to verify execution of a Gradle task base on the stdout produced by Gradle.
  */
 public class GradleTaskSubject extends Subject<GradleTaskSubject, TaskInfo> {
 
-    public static final SubjectFactory<GradleTaskSubject, TaskInfo> FACTORY =
-            new SubjectFactory<GradleTaskSubject, TaskInfo>() {
-                @Override
-                public GradleTaskSubject getSubject(
-                        @NonNull FailureStrategy failureStrategy,
-                        @NonNull TaskInfo subject) {
-                    return new GradleTaskSubject(failureStrategy, subject);
-                }
-            };
+    public static Subject.Factory<GradleTaskSubject, TaskInfo> gradleTasks() {
+        return GradleTaskSubject::new;
+    }
 
-    GradleTaskSubject(
-            @NonNull FailureStrategy failureStrategy,
-            @NonNull TaskInfo taskInfo) {
-        super(failureStrategy, taskInfo);
+    GradleTaskSubject(@NonNull FailureMetadata failureMetadata, @NonNull TaskInfo taskInfo) {
+        super(failureMetadata, taskInfo);
     }
 
     @NonNull
     public static GradleTaskSubject assertThat(@NonNull TaskStateList.TaskInfo taskInfo) {
-        return assert_().about(GradleTaskSubject.FACTORY).that(taskInfo);
+        return assertAbout(gradleTasks()).that(taskInfo);
     }
 
     @Override
-    protected String getDisplaySubject() {
-        return getSubject().getTaskName();
-    }
-
-    /**
-     * Asserts that the task was planned for execution (but it may or may not have actually run as
-     * it may have been skipped for some reason).
-     *
-     * <p>To check that the task actually ran and completed successfully, use {@link #didWork()}.
-     */
-    public void wasPlannedForExecution() {
-        if (!actual().wasPlannedForExecution()) {
-            failWithRawMessage("Not true that %s was executed", getDisplaySubject());
-        }
-    }
-
-    /**
-     * Use {@link #wasPlannedForExecution()} or {@link #didWork()} instead for clearer semantics.
-     */
-    public void wasExecuted() {
-        wasPlannedForExecution();
-    }
-
-    public void wasNotPlannedForExecution() {
-        if (actual().wasPlannedForExecution()) {
-            failWithRawMessage("Not true that %s was not executed", getDisplaySubject());
-        }
-    }
-
-    /**
-     * Use {@link #wasNotPlannedForExecution()} or {@link #didNoWork()} instead for clearer
-     * semantics.
-     */
-    public void wasNotExecuted() {
-        wasNotPlannedForExecution();
+    protected String actualCustomStringRepresentation() {
+        return actual().getTaskName();
     }
 
     public void wasUpToDate() {
         if (!actual().wasUpToDate()) {
-            failWithRawMessage("Not true that %s was UP-TO-DATE", getDisplaySubject());
-        }
-    }
-
-    /** Use {@link #didWork()} instead for clearer semantics. */
-    public void wasNotUpToDate() {
-        if (actual().wasUpToDate()) {
-            failWithRawMessage("Not true that %s was not UP-TO-DATE", getDisplaySubject());
+            failWithRawMessage("Not true that %s was UP-TO-DATE", actualAsString());
         }
     }
 
     public void wasFromCache() {
         if (!actual().wasFromCache()) {
-            failWithRawMessage("Not true that %s was FROM-CACHE", getDisplaySubject());
-        }
-    }
-
-    public void wasNotFromCache() {
-        if (actual().wasFromCache()) {
-            failWithRawMessage("Not true that %s was not FROM-CACHE", getDisplaySubject());
+            failWithRawMessage("Not true that %s was FROM-CACHE", actualAsString());
         }
     }
 
     public void didWork() {
         if (!actual().didWork()) {
-            failWithRawMessage("Not true that %s did work", getDisplaySubject());
-        }
-    }
-
-    public void didNoWork() {
-        if (actual().didWork()) {
-            failWithRawMessage("Not true that %s did no work", getDisplaySubject());
+            failWithRawMessage("Not true that %s did work", actualAsString());
         }
     }
 
     public void wasSkipped() {
         if (!actual().wasSkipped()) {
-            failWithRawMessage("Not true that %s was skipped", getDisplaySubject());
-        }
-    }
-
-    public void wasNotSkipped() {
-        if (actual().wasSkipped()) {
-            failWithRawMessage("Not true that %s was not skipped", getDisplaySubject());
+            failWithRawMessage("Not true that %s was skipped", actualAsString());
         }
     }
 
     public void failed() {
         if (!actual().failed()) {
-            failWithRawMessage("Not true that %s failed ", getDisplaySubject());
-        }
-    }
-
-    public void didNotFail() {
-        if (actual().failed()) {
-            failWithRawMessage("Not true that %s did not fail", getDisplaySubject());
+            failWithRawMessage("Not true that %s failed ", actualAsString());
         }
     }
 
     public void ranBefore(String task) {
-        TaskInfo taskInfo = getSubject();
+        TaskInfo taskInfo = actual();
         TaskStateList taskStateList = taskInfo.getTaskStateList();
 
         if (taskStateList.getTaskIndex(taskInfo.getTaskName()) >= taskStateList.getTaskIndex(task)) {
@@ -159,7 +86,7 @@ public class GradleTaskSubject extends Subject<GradleTaskSubject, TaskInfo> {
     }
 
     public void ranAfter(String task) {
-        TaskInfo taskInfo = getSubject();
+        TaskInfo taskInfo = actual();
         TaskStateList taskStateList = taskInfo.getTaskStateList();
 
         if (taskStateList.getTaskIndex(taskInfo.getTaskName()) <= taskStateList.getTaskIndex(task)) {

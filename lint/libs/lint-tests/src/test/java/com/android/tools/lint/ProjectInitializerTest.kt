@@ -850,6 +850,183 @@ class ProjectInitializerTest {
         )
     }
 
+    @Test
+    fun testJava8Libraries() {
+        val root = temp.newFolder()
+        val projects = lint().files(
+            java(
+                "C.java", """
+                    import java.util.ArrayList;
+                    import java.util.Arrays;
+                    import java.util.Iterator;
+                    import java.util.stream.Stream;
+
+                    @SuppressWarnings({"unused", "SimplifyStreamApiCallChains",
+                        "OptionalGetWithoutIsPresent", "OptionalUsedAsFieldOrParameterType",
+                        "ClassNameDiffersFromFileName", "MethodMayBeStatic"})
+                    public class C {
+                        public void utils(java.util.Collection<String> collection) {
+                            collection.removeIf(s -> s.length() > 5);
+                        }
+
+                        public void streams(ArrayList<String> list, String[] array) {
+                            list.stream().forEach(s -> System.out.println(s.length()));
+                            Stream<String> stream = Arrays.stream(array);
+                        }
+
+                        public void bannedMembers(java.util.Collection collection) {
+                            Stream stream = collection.parallelStream(); // ERROR
+                        }
+                    }
+                    """
+            ).indented()
+        ).createProjects(root)
+        val projectDir = projects[0]
+
+        @Language("XML")
+        val descriptor = """
+            <project>
+            <sdk dir='${TestUtils.getSdk()}'/>
+            <root dir="$projectDir" />
+            <!-- We could have specified desugar="full" instead of specifying android_java8_libs -->
+            <module desugar="default" android_java8_libs="true" name="M" android="true" library="false">
+                <src file="C.java" />
+            </module>
+            </project>""".trimIndent()
+        val descriptorFile = File(root, "project.xml")
+        Files.asCharSink(descriptorFile, Charsets.UTF_8).write(descriptor)
+
+        MainTest.checkDriver(
+            """
+            C.java:20: Error: Call requires API level 24 (current min is 1): java.util.Collection#parallelStream [NewApi]
+                    Stream stream = collection.parallelStream(); // ERROR
+                                               ~~~~~~~~~~~~~~
+            1 errors, 0 warnings
+            """,
+            "",
+
+            // Expected exit code
+            ERRNO_SUCCESS,
+
+            // Args
+            arrayOf(
+                "--quiet",
+                "--check",
+                "NewApi",
+                "--project",
+                descriptorFile.path
+            ),
+
+            null, null
+        )
+    }
+
+    @Test
+    fun testExternalAnnotations() {
+        // Checks that external annotations support works
+        val root = temp.newFolder()
+
+        val projects = lint().projects(ProjectDescription(
+            java(
+                """
+                    package test.pkg;
+                    import android.support.annotation.WorkerThread;
+
+                    public class Client {
+                        @WorkerThread
+                        public static void client() {
+                            new test.pkg1.Library1().method1();
+                            new test.pkg2.Library2().method2();
+                        }
+                    }
+                    """
+            ).indented(),
+            java(
+                """
+                package test.pkg1;
+
+                public class Library1 {
+                    public void method1() { // externally annotated as @UiThread
+                    }
+                }
+                """
+            ).indented(),
+            java(
+                """
+                package test.pkg2;
+
+                public class Library2 {
+                    public void method2() { // externally annotated as @UiThread
+                    }
+                }
+                """
+            ).indented(),
+            base64gzip("libs/support-annotations.jar", SUPPORT_ANNOTATIONS_JAR_BASE64_GZIP),
+            // zip annotations file
+            jar("annotations.zip",
+                xml("test/pkg1/annotations.xml", """
+                    <root>
+                      <item name="test.pkg1.Library1 void method1()">
+                        <annotation name="android.support.annotation.UiThread"/>
+                      </item>
+                    </root>
+                    """).indented()
+            ),
+            // dir annotation files
+            xml("external-annotations/test/pkg2/annotations.xml", """
+                <root>
+                  <item name="test.pkg2.Library2 void method2()">
+                    <annotation name="android.support.annotation.UiThread"/>
+                  </item>
+                </root>
+                """).indented(),
+            xml(
+                "project.xml", """
+                <project>
+                <root dir="$root/project" />
+                <sdk dir='${TestUtils.getSdk()}'/>
+                <annotations file="annotations.zip"/>
+                <annotations dir="external-annotations"/>
+                <module name="M" android="true" library="false">
+                <classpath jar="libs/support-annotations.jar" />
+                <src file="src/test/pkg1/Library1.java" />
+                <src file="src/test/pkg2/Library2.java" />
+                <src file="src/test/pkg/Client.java" />
+                </module>
+                </project>
+            """
+            ).indented()
+        ).name("project")).createProjects(root)
+        val projectDir = projects[0]
+        val descriptorFile = File(projectDir, "project.xml")
+
+        MainTest.checkDriver(
+            "" +
+                    "src/test/pkg/Client.java:7: Error: Method method1 must be called from the UI thread, currently inferred thread is worker thread [WrongThread]\n" +
+                    "        new test.pkg1.Library1().method1();\n" +
+                    "        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                    "src/test/pkg/Client.java:8: Error: Method method2 must be called from the UI thread, currently inferred thread is worker thread [WrongThread]\n" +
+                    "        new test.pkg2.Library2().method2();\n" +
+                    "        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n" +
+                    "2 errors, 0 warnings".replace('/', File.separatorChar),
+            "",
+
+            // Expected exit code
+            ERRNO_SUCCESS,
+
+            // Args
+            arrayOf(
+                "--quiet",
+                "--check",
+                "WrongThread",
+                "--project",
+                descriptorFile.path
+            ),
+
+            null, null
+        )
+    }
+
     companion object {
         @ClassRule
         @JvmField

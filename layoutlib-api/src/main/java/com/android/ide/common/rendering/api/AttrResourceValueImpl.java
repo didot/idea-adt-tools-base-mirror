@@ -19,6 +19,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.resources.ResourceType;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -39,10 +40,9 @@ public class AttrResourceValueImpl extends ResourceValueImpl implements AttrReso
 
     public AttrResourceValueImpl(
             @NonNull ResourceNamespace namespace,
-            @NonNull ResourceType type,
             @NonNull String name,
             @Nullable String libraryName) {
-        super(namespace, type, name, null, libraryName);
+        super(namespace, ResourceType.ATTR, name, null, libraryName);
     }
 
     public AttrResourceValueImpl(
@@ -51,9 +51,9 @@ public class AttrResourceValueImpl extends ResourceValueImpl implements AttrReso
     }
 
     @Override
-    @Nullable
+    @NonNull
     public Map<String, Integer> getAttributeValues() {
-        return valueMap;
+        return valueMap == null ? Collections.emptyMap() : valueMap;
     }
 
     @Override

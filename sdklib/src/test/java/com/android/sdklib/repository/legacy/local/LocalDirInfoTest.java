@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,14 +43,9 @@ public class LocalDirInfoTest extends TestCase {
 
     @Override
     protected void tearDown() throws Exception {
-        try {
-            mFOp.deleteFileOrFolder(mTempDir);
-        }
-        finally {
-            mTempDir = null;
-
-            super.tearDown();
-        }
+        super.tearDown();
+        mFOp.deleteFileOrFolder(mTempDir);
+        mTempDir = null;
     }
 
     // Test: start with empty directory, removing the dir marks it as changed.

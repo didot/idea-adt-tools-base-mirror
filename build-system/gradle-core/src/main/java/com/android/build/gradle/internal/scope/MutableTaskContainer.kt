@@ -27,12 +27,12 @@ import com.android.build.gradle.tasks.GenerateBuildConfig
 import com.android.build.gradle.tasks.ManifestProcessorTask
 import com.android.build.gradle.tasks.MergeResources
 import com.android.build.gradle.tasks.MergeSourceSetFolders
-import com.android.build.gradle.tasks.NdkCompile
 import com.android.build.gradle.tasks.PackageAndroidArtifact
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.android.build.gradle.tasks.RenderscriptCompile
 import org.gradle.api.DefaultTask
 import org.gradle.api.Task
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.TaskProvider
 import org.gradle.api.tasks.bundling.Zip
@@ -66,7 +66,6 @@ class MutableTaskContainer : TaskContainer {
     override lateinit var mergeAssetsTask: TaskProvider<out MergeSourceSetFolders>
     override lateinit var processJavaResourcesTask: TaskProvider<out Sync>
     override var generateBuildConfigTask: TaskProvider<out GenerateBuildConfig>? = null
-    override var ndkCompileTask: TaskProvider<out NdkCompile>? = null
     override var processAndroidResTask: TaskProvider<out ProcessAndroidResources>? = null
     override var processManifestTask: TaskProvider<out ManifestProcessorTask>? = null
     override var packageAndroidTask: TaskProvider<out PackageAndroidArtifact>? = null
@@ -93,7 +92,7 @@ class MutableTaskContainer : TaskContainer {
     var connectedTask: TaskProvider<out Task>? = null
     var microApkTask: TaskProvider<out Task>? = null
     var externalNativeBuildTask: TaskProvider<out ExternalNativeBuildTask>? = null
-    var externalNativeJsonGenerator: ExternalNativeJsonGenerator? = null
+    var externalNativeJsonGenerator: Provider<ExternalNativeJsonGenerator>? = null
     var packageSplitResourcesTask: TaskProvider<out Task>? = null
     var packageSplitAbiTask: TaskProvider<out Task>? = null
     var generateResValuesTask: TaskProvider<out Task>? = null

@@ -46,8 +46,11 @@ abstract class GoogleMavenRepository @JvmOverloads constructor(
     networkTimeoutMs: Int = 3000,
 
     /** Maximum allowed age of cached data; default is 7 days */
-    cacheExpiryHours: Int = TimeUnit.DAYS.toHours(7).toInt()
-) : NetworkCache(GMAVEN_BASE_URL, MAVEN_GOOGLE_CACHE_DIR_KEY, cacheDir, networkTimeoutMs, cacheExpiryHours) {
+    cacheExpiryHours: Int = TimeUnit.DAYS.toHours(7).toInt(),
+
+    /** If false, this repository won't make network requests */
+    useNetwork: Boolean = true
+) : NetworkCache(GMAVEN_BASE_URL, MAVEN_GOOGLE_CACHE_DIR_KEY, cacheDir, networkTimeoutMs, cacheExpiryHours, useNetwork) {
 
     companion object {
         /** Key used in cache directories to locate the maven.google.com network cache */
@@ -64,8 +67,8 @@ abstract class GoogleMavenRepository @JvmOverloads constructor(
         predicate: Predicate<GradleVersion>?,
         allowPreview: Boolean = false
     ): GradleVersion? {
-        val groupId = dependency.groupId ?: return null
-        val artifactId = dependency.artifactId ?: return null
+        val groupId = dependency.groupId
+        val artifactId = dependency.artifactId
         val filter = when {
             dependency.acceptsGreaterRevisions() -> {
                 val prefix = dependency.revision.trimEnd('+')
@@ -103,6 +106,25 @@ abstract class GoogleMavenRepository @JvmOverloads constructor(
         return artifactInfo.findVersion(filter, allowPreview)
     }
 
+    fun getGroups(): Set<String> = getPackageMap().keys.toSet()
+
+    fun getArtifacts(groupId: String): Set<String> = getPackageMap()[groupId]?.artifacts().orEmpty()
+
+    fun getVersions(groupId: String, artifactId: String): Set<GradleVersion> {
+        val artifactInfo = findArtifact(groupId, artifactId) ?: return emptySet()
+        return artifactInfo.getGradleVersions().toSet()
+    }
+
+    fun findCompileDependencies(
+        groupId: String,
+        artifactId: String,
+        version: GradleVersion
+    ): List<GradleCoordinate> {
+        val packageInfo = getPackageMap()[groupId] ?: return emptyList()
+        val artifactInfo = packageInfo.findArtifact(artifactId)
+        return artifactInfo?.findCompileDependencies(version, packageInfo) ?: emptyList()
+    }
+
     private fun findArtifact(groupId: String, artifactId: String): ArtifactInfo? {
         val packageInfo = getPackageMap()[groupId] ?: return null
         return packageInfo.findArtifact(artifactId)
@@ -119,14 +141,40 @@ abstract class GoogleMavenRepository @JvmOverloads constructor(
     }
 
     private data class ArtifactInfo(val id: String, val versions: String) {
+
+        private val dependencyInfo by lazy { HashMap<GradleVersion, List<GradleCoordinate>>() }
+
+        fun getGradleVersions(): Sequence<GradleVersion> =
+          versions.splitToSequence(",")
+            .map { GradleVersion.tryParse(it) }
+            .filterNotNull()
+
         fun findVersion(filter: ((GradleVersion) -> Boolean)?, allowPreview: Boolean = false):
                 GradleVersion? =
-            versions.splitToSequence(",")
-                .map { GradleVersion.tryParse(it) }
-                .filterNotNull()
+          getGradleVersions()
                 .filter { filter == null || filter(it) }
                 .filter { allowPreview || !it.isPreview }
                 .max()
+
+        fun findCompileDependencies(
+            version: GradleVersion,
+            packageInfo: PackageInfo
+        ): List<GradleCoordinate> {
+            return dependencyInfo[version] ?: loadCompileDependencies(version, packageInfo)
+        }
+
+        private fun loadCompileDependencies(
+            version: GradleVersion,
+            packageInfo: PackageInfo
+        ): List<GradleCoordinate> {
+            if (findVersion({ it == version }, true) == null) {
+                // Do not attempt to load a pom file that is known not to exist
+                return emptyList()
+            }
+            val dependencies = packageInfo.loadCompileDependencies(id, version)
+            dependencyInfo[version] = dependencies
+            return dependencies
+        }
     }
 
     override fun readDefaultData(relative: String): InputStream? {
@@ -140,7 +188,7 @@ abstract class GoogleMavenRepository @JvmOverloads constructor(
                 parser.setInput(it, SdkConstants.UTF_8)
                 while (parser.next() != XmlPullParser.END_DOCUMENT) {
                     val eventType = parser.eventType
-                    if (eventType == XmlPullParser.END_TAG) {
+                    if (eventType == XmlPullParser.END_TAG && parser.depth > 1) {
                         val tag = parser.name
                         val packageInfo = PackageInfo(tag)
                         map[tag] = packageInfo
@@ -162,7 +210,15 @@ abstract class GoogleMavenRepository @JvmOverloads constructor(
             map
         }
 
+        fun artifacts(): Set<String> = artifacts.values.map { it.id }.toSet()
+
         fun findArtifact(id: String): ArtifactInfo? = artifacts[id]
+
+        fun loadCompileDependencies(id: String, version: GradleVersion): List<GradleCoordinate> {
+            val file = "${pkg.replace('.', '/')}/$id/$version/$id-$version.pom"
+            val stream = findData(file)
+            return stream?.use { readCompileDependenciesFromPomFile(stream, file) } ?: emptyList()
+        }
 
         private fun initializeIndex(map: MutableMap<String, ArtifactInfo>) {
             val stream = findData("${pkg.replace('.', '/')}/group-index.xml")
@@ -171,23 +227,78 @@ abstract class GoogleMavenRepository @JvmOverloads constructor(
 
         private fun readGroupData(stream: InputStream, map: MutableMap<String, ArtifactInfo>) =
             try {
-                stream.use {
-                    val parser = KXmlParser()
-                    parser.setInput(it, SdkConstants.UTF_8)
-                    while (parser.next() != XmlPullParser.END_DOCUMENT) {
-                        val eventType = parser.eventType
-                        if (eventType == XmlPullParser.START_TAG) {
-                            val artifactId = parser.name
-                            val versions = parser.getAttributeValue(null, "versions")
-                            if (versions != null) {
-                                val artifactInfo = ArtifactInfo(artifactId, versions)
-                                map[artifactId] = artifactInfo
-                            }
+                val parser = KXmlParser()
+                parser.setInput(stream, SdkConstants.UTF_8)
+                while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    val eventType = parser.eventType
+                    if (eventType == XmlPullParser.START_TAG) {
+                        val artifactId = parser.name
+                        val versions = parser.getAttributeValue(null, "versions")
+                        if (versions != null) {
+                            val artifactInfo = ArtifactInfo(artifactId, versions)
+                            map[artifactId] = artifactInfo
                         }
                     }
                 }
             } catch (e: Exception) {
                 error(e, null)
             }
+
+        private fun readCompileDependenciesFromPomFile(
+            stream: InputStream,
+            file: String
+        ): List<GradleCoordinate> {
+
+            return try {
+                val dependencies = mutableListOf<GradleCoordinate>()
+                val parser = KXmlParser()
+                parser.setInput(stream, SdkConstants.UTF_8)
+                while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    val eventType = parser.eventType
+                    if (eventType == XmlPullParser.START_TAG && parser.name == "dependency") {
+                        val dependency = readCompileDependency(parser)
+                        if (dependency != null) {
+                            dependencies.add(dependency)
+                        }
+                    }
+                }
+                dependencies
+            } catch (e: Exception) {
+                error(e, "Problem reading POM file: $file")
+                emptyList()
+            }
+        }
+
+        private fun readCompileDependency(parser: KXmlParser): GradleCoordinate? {
+            var groupId = ""
+            var artifactId = ""
+            var version = ""
+            var scope = ""
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                when (parser.eventType) {
+                    XmlPullParser.START_TAG ->
+                            when (parser.name) {
+                                "groupId" -> groupId = parser.nextText()
+                                "artifactId" -> artifactId = parser.nextText()
+                                "version" -> version = parser.nextText()
+                                "scope" -> scope = parser.nextText()
+                            }
+                    XmlPullParser.END_TAG ->
+                            if (parser.name == "dependency") {
+                                check(groupId, "groupId")
+                                check(artifactId, "artifactId")
+                                check(version, "version")
+                                return if (scope == "compile") GradleCoordinate(groupId, artifactId, version) else null
+                            }
+                }
+            }
+            throw RuntimeException("Unexpected end of file")
+        }
+
+        private fun check(item: String, name: String) {
+            if (item.isEmpty()) {
+                throw RuntimeException("Missing $name field")
+            }
+        }
     }
 }

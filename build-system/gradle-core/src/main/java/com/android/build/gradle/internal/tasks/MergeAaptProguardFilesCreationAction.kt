@@ -18,10 +18,12 @@ package com.android.build.gradle.internal.tasks
 
 import com.android.SdkConstants
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
-import java.io.File
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
 
 /** Configuration action for a task to merge aapt proguard files  */
 class MergeAaptProguardFilesCreationAction(variantScope: VariantScope) :
@@ -32,19 +34,16 @@ class MergeAaptProguardFilesCreationAction(variantScope: VariantScope) :
     override val type: Class<MergeFileTask>
         get() = MergeFileTask::class.java
 
-    private lateinit var outputFile: File
+    private lateinit var outputFile: Provider<RegularFile>
 
     override fun preConfigure(taskName: String) {
         super.preConfigure(taskName)
         outputFile =
-                variantScope
-                    .artifacts
-                    .appendArtifact(
+                variantScope.artifacts.createArtifactFile(
                         InternalArtifactType.MERGED_AAPT_PROGUARD_FILE,
+                        BuildArtifactsHolder.OperationType.APPEND,
                         taskName,
-                        SdkConstants.FN_MERGED_AAPT_RULES
-                    )
-
+                        SdkConstants.FN_MERGED_AAPT_RULES)
     }
 
     override fun configure(task: MergeFileTask) {
@@ -58,7 +57,7 @@ class MergeAaptProguardFilesCreationAction(variantScope: VariantScope) :
                     variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.AAPT_PROGUARD_FILE),
                     variantScope.getArtifactFileCollection(
                         AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,
-                        AndroidArtifacts.ArtifactScope.MODULE,
+                        AndroidArtifacts.ArtifactScope.PROJECT,
                         AndroidArtifacts.ArtifactType.AAPT_PROGUARD_RULES
                     )
                 )

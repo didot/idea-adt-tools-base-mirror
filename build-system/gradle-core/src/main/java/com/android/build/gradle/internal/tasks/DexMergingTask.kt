@@ -18,29 +18,39 @@ package com.android.build.gradle.internal.tasks
 
 import com.android.SdkConstants
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.api.transform.QualifiedContent
 import com.android.build.api.transform.TransformException
 import com.android.build.gradle.internal.LoggerWrapper
-import com.android.build.gradle.internal.api.artifact.singlePath
+import com.android.build.gradle.internal.api.artifact.singleFile
 import com.android.build.gradle.internal.crash.PluginCrashReporter
-import com.android.build.gradle.internal.dependency.getAttributeMap
+import com.android.build.gradle.internal.dependency.getDexingArtifactConfiguration
+import com.android.build.gradle.internal.errors.MessageReceiverImpl
+import com.android.build.gradle.internal.pipeline.ExtendedContentType
 import com.android.build.gradle.internal.pipeline.StreamFilter
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.transforms.DexMergerTransformCallable
+import com.android.build.gradle.options.BooleanOption
+import com.android.build.gradle.options.SyncOptions
 import com.android.builder.dexing.DexMergerTool
 import com.android.builder.dexing.DexingType
 import com.android.ide.common.blame.Message
-import com.android.ide.common.blame.MessageReceiver
 import com.android.ide.common.blame.ParsingProcessOutputHandler
 import com.android.ide.common.blame.parser.DexParser
 import com.android.ide.common.blame.parser.ToolOutputParser
 import com.android.ide.common.process.ProcessException
 import com.android.ide.common.process.ProcessOutput
+import com.android.ide.common.workers.WorkerExecutorFacade
 import com.android.utils.FileUtils
+import com.android.utils.PathUtils.toSystemIndependentPath
+import com.google.common.annotations.VisibleForTesting
 import com.google.common.base.Throwables
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
+import org.gradle.api.logging.Logging
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
@@ -50,10 +60,17 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.workers.WorkerExecutor
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
+import java.io.Serializable
+import java.nio.file.Files
+import java.util.Collections
 import java.util.concurrent.ForkJoinPool
-import java.util.concurrent.ForkJoinTask
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipFile
+import javax.inject.Inject
 
 /**
  * Dex merging task. This task will merge all specified dex files, using the specified parameters.
@@ -77,7 +94,11 @@ import java.util.concurrent.TimeUnit
  * performance regression.
  */
 @CacheableTask
-open class DexMergingTask : AndroidVariantTask() {
+open class DexMergingTask @Inject constructor(workerExecutor: WorkerExecutor) :
+    NonIncrementalTask() {
+
+    private val workers: WorkerExecutorFacade = Workers.preferWorkers(project.name, path, workerExecutor)
+
     @get:Input
     lateinit var dexingType: DexingType
         private set
@@ -109,33 +130,52 @@ open class DexMergingTask : AndroidVariantTask() {
     lateinit var dexFiles: FileCollection
         private set
 
+    @get:Optional
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NONE)
+    var fileDependencyDexFiles: Provider<Directory>? = null
+        private set
+
+    // Dummy folder, used as a way to set up dependency
+    @get:Optional
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    var duplicateClassesCheck: BuildableArtifact? = null
+        private set
+
     @get:OutputDirectory
     lateinit var outputDir: File
         private set
 
     @get:Internal
-    lateinit var messageReceiver: MessageReceiver
+    lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
         private set
 
-    @TaskAction
-    fun taskAction() {
-        DexMergingTaskDelegate(
-            dexingType,
-            messageReceiver,
-            dexMerger,
-            minSdkVersion,
-            isDebuggable,
-            mergingThreshold,
-            mainDexListFile,
-            dexFiles,
-            outputDir
-        ).run()
+    override fun doTaskAction() {
+        workers.use {
+            it.submit(
+                DexMergingTaskRunnable::class.java, DexMergingParams(
+                    dexingType,
+                    errorFormatMode,
+                    dexMerger,
+                    minSdkVersion,
+                    isDebuggable,
+                    mergingThreshold,
+                    mainDexListFile?.singleFile(),
+                    dexFiles.files,
+                    fileDependencyDexFiles?.get()?.asFile,
+                    outputDir
+                )
+            )
+        }
     }
 
     class CreationAction @JvmOverloads constructor(
         variantScope: VariantScope,
         private val action: DexMergingAction,
         private val dexingType: DexingType,
+        private val dexingUsingArtifactTransforms: Boolean = true,
+        private val separateFileDependenciesDexingTask: Boolean = false,
         private val outputType: InternalArtifactType = InternalArtifactType.DEX
     ) : VariantTaskCreationAction<DexMergingTask>(variantScope) {
 
@@ -167,46 +207,88 @@ open class DexMergingTask : AndroidVariantTask() {
                         variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.LEGACY_MULTIDEX_MAIN_DEX_LIST)
             }
 
-            task.messageReceiver = variantScope.globalScope.messageReceiver
+            task.errorFormatMode =
+                SyncOptions.getErrorFormatMode(variantScope.globalScope.projectOptions)
             task.dexMerger = variantScope.dexMerger
-            task.minSdkVersion = variantScope.minSdkVersion.featureLevel
-            task.isDebuggable = variantScope.variantConfiguration.buildType.isDebuggable()
+            task.minSdkVersion = variantScope.variantConfiguration.minSdkVersionWithTargetDeviceApi.featureLevel
+            task.isDebuggable = variantScope.variantConfiguration.buildType.isDebuggable
+            if (variantScope.globalScope.projectOptions[BooleanOption.ENABLE_DUPLICATE_CLASSES_CHECK]) {
+                task.duplicateClassesCheck = variantScope.artifacts.getFinalArtifactFiles(
+                    InternalArtifactType.DUPLICATE_CLASSES_CHECK
+                )
+            }
+            if (separateFileDependenciesDexingTask) {
+                task.fileDependencyDexFiles = variantScope.artifacts.getFinalProduct(
+                    InternalArtifactType.EXTERNAL_FILE_LIB_DEX_ARCHIVES
+                )
+            }
             task.outputDir = output
         }
 
         private fun getDexFiles(action: DexMergingAction): FileCollection {
-            val minSdk = variantScope.minSdkVersion.featureLevel
-            val isDebuggable = variantScope.variantConfiguration.buildType.isDebuggable
-            val attributes = getAttributeMap(minSdk, isDebuggable)
+            val attributes = getDexingArtifactConfiguration(variantScope).getAttributes()
 
             fun forAction(action: DexMergingAction): FileCollection {
                 when (action) {
                     DexMergingAction.MERGE_EXTERNAL_LIBS -> {
-                        return variantScope.getArtifactFileCollection(
-                            AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                            AndroidArtifacts.ArtifactScope.EXTERNAL,
-                            AndroidArtifacts.ArtifactType.DEX,
-                            attributes
-                        )
+                        return if (dexingUsingArtifactTransforms) {
+                            // If the file dependencies are being dexed in a task, don't also include them here
+                            val artifactScope: AndroidArtifacts.ArtifactScope = if (separateFileDependenciesDexingTask) {
+                                AndroidArtifacts.ArtifactScope.REPOSITORY_MODULE
+                            } else {
+                                AndroidArtifacts.ArtifactScope.EXTERNAL
+                            }
+                             variantScope.getArtifactFileCollection(
+                                AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
+                                artifactScope,
+                                AndroidArtifacts.ArtifactType.DEX,
+                                attributes
+                            )
+                        } else {
+                            variantScope.globalScope.project.files(
+                                variantScope.transformManager.getPipelineOutputAsFileCollection(
+                                    StreamFilter.DEX_ARCHIVE,
+                                    StreamFilter {_, scopes -> scopes == setOf(QualifiedContent.Scope.EXTERNAL_LIBRARIES) }
+                                ))
+                        }
                     }
                     DexMergingAction.MERGE_LIBRARY_PROJECTS -> {
-                        return variantScope.getArtifactFileCollection(
-                            AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
-                            AndroidArtifacts.ArtifactScope.MODULE,
-                            AndroidArtifacts.ArtifactType.DEX,
-                            attributes
-                        )
+                        return if (dexingUsingArtifactTransforms) {
+                            variantScope.getArtifactFileCollection(
+                                AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
+                                AndroidArtifacts.ArtifactScope.PROJECT,
+                                AndroidArtifacts.ArtifactType.DEX,
+                                attributes
+                            )
+                        } else {
+                            variantScope.globalScope.project.files(
+                                variantScope.transformManager.getPipelineOutputAsFileCollection(
+                                    StreamFilter.DEX_ARCHIVE,
+                                    StreamFilter {_, scopes ->
+                                        scopes == setOf(QualifiedContent.Scope.SUB_PROJECTS)
+                                                || scopes == setOf(
+                                            QualifiedContent.Scope.SUB_PROJECTS, QualifiedContent.Scope.EXTERNAL_LIBRARIES
+                                        )}
+                                ))
+                        }
                     }
                     DexMergingAction.MERGE_PROJECT -> {
-                        val streams =
-                            variantScope.transformManager.getStreams(StreamFilter.DEX_ARCHIVE)
                         val files =
-                            variantScope.globalScope.project.files(*streams.stream().map { it.fileCollection }.toArray())
+                            variantScope.globalScope.project.files(
+                                variantScope.transformManager.getPipelineOutputAsFileCollection { types, scopes ->
+                                    types.contains(ExtendedContentType.DEX_ARCHIVE) && scopes.contains(
+                                        QualifiedContent.Scope.PROJECT
+                                    )
+                                }
+                            )
                         val variantType = variantScope.type
                         if (variantType.isTestComponent && variantType.isApk) {
                             val testedVariantData =
                                 checkNotNull(variantScope.testedVariantData) { "Test component without testedVariantData" }
-                            if (testedVariantData.type.isAar) {
+                            if (dexingUsingArtifactTransforms && testedVariantData.type.isAar) {
+                                // If dexing using artifact transforms, library production code will
+                                // be dex'ed in a task, so we need to fetch the output directly.
+                                // Otherwise, it will be in the dex'ed in the dex builder transform.
                                 files.from(
                                     testedVariantData.scope.artifacts.getFinalArtifactFiles(
                                         InternalArtifactType.DEX
@@ -218,9 +300,18 @@ open class DexMergingTask : AndroidVariantTask() {
                         return files
                     }
                     DexMergingAction.MERGE_ALL -> {
+                        val external = if (dexingType == DexingType.LEGACY_MULTIDEX) {
+                            // we have to dex it
+                            forAction(DexMergingAction.MERGE_EXTERNAL_LIBS)
+                        } else {
+                            // we merge external dex in a separate task
+                            variantScope.artifacts
+                                .getFinalArtifactFiles(InternalArtifactType.EXTERNAL_LIBS_DEX)
+                                .get()
+                        }
                         return forAction(DexMergingAction.MERGE_PROJECT) +
                                 forAction(DexMergingAction.MERGE_LIBRARY_PROJECTS) +
-                                variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.EXTERNAL_LIBS_DEX).get()
+                                external
                     }
                 }
             }
@@ -238,11 +329,11 @@ open class DexMergingTask : AndroidVariantTask() {
             return when (action) {
                 DexMergingAction.MERGE_LIBRARY_PROJECTS ->
                     when {
-                        variantScope.minSdkVersion.featureLevel < 23 -> {
-                            task.outputs.cacheIf { getAllRegularFiles(task.dexFiles).size < LIBRARIES_MERGING_THRESHOLD }
+                        variantScope.variantConfiguration.minSdkVersionWithTargetDeviceApi.featureLevel < 23 -> {
+                            task.outputs.cacheIf { getAllRegularFiles(task.dexFiles.files).size < LIBRARIES_MERGING_THRESHOLD }
                             LIBRARIES_MERGING_THRESHOLD
                         }
-                        else -> Integer.MAX_VALUE
+                        else -> LIBRARIES_M_PLUS_MAX_THRESHOLD
                     }
                 else -> 0
             }
@@ -250,10 +341,31 @@ open class DexMergingTask : AndroidVariantTask() {
     }
 }
 
-private fun getAllRegularFiles(fc: FileCollection): Collection<File> {
-    return fc.files.flatMap {
+/**
+ * This returns a list of files from a set of files. If a file is in the set of files it is
+ * added to the resulting set. If it is a directory, all files all collected recursively, and they
+ * are sorted. This ensures that files from a single directory are always in deterministic order.
+ *
+ * We do not sort all files from a file collection as Gradle ensures consistent ordering of file
+ * collection content across builds. This holds for artifact transform outputs that are in the file
+ * collection. In fact, sorting it means that artifact transform outputs for library projects will
+ * not be consistent across builds. See http://b/119064593#comment11 for details.
+ */
+private fun getAllRegularFiles(files: Iterable<File>): List<File> {
+    return files.flatMap {
         if (it.isFile) listOf(it)
-        else it.walkTopDown().filter { it.isFile }.toList()
+        else {
+            it.walkTopDown()
+                .filter { it.isFile }
+                .sortedWith(
+                    Comparator { left, right ->
+                        val systemIndependentLeft = toSystemIndependentPath(left.toPath())
+                        val systemIndependentRight = toSystemIndependentPath(right.toPath())
+                        systemIndependentLeft.compareTo(systemIndependentRight)
+                    }
+                )
+                .toList()
+        }
     }
 }
 
@@ -268,6 +380,11 @@ private fun getAllRegularFiles(fc: FileCollection): Collection<File> {
  * is 21 or 22.
  */
 internal const val LIBRARIES_MERGING_THRESHOLD = 51
+/**
+ * Max number of DEX files to generate on 23+, above that dex2out might have issues. See
+ * http://b/110374966 for more info.
+ */
+internal const val LIBRARIES_M_PLUS_MAX_THRESHOLD = 500
 
 enum class DexMergingAction {
     /** Merge only external libraries' dex files. */
@@ -281,21 +398,18 @@ enum class DexMergingAction {
 }
 
 /** Delegate for [DexMergingTask]. It contains all logic for merging dex files. */
-class DexMergingTaskDelegate(
-    private val dexingType: DexingType,
-    private val messageReceiver: MessageReceiver,
-    private val dexMerger: DexMergerTool,
-    private val minSdkVersion: Int,
-    private val isDebuggable: Boolean,
-    private val mergingThreshold: Int,
-    private val mainDexListFile: BuildableArtifact?,
-    private val dexFiles: FileCollection,
-    private val outputDir: File
-) {
-    private val forkJoinPool = ForkJoinPool()
+@VisibleForTesting
+class DexMergingTaskRunnable @Inject constructor(
+    private val params: DexMergingParams
+) : Runnable {
 
-    fun run() {
-        val logger = LoggerWrapper.getLogger(DexMergingTaskDelegate::class.java)
+    override fun run() {
+        val logger = LoggerWrapper.getLogger(DexMergingTaskRunnable::class.java)
+        val messageReceiver = MessageReceiverImpl(
+            params.errorFormatMode,
+            Logging.getLogger(DexMergingTask::class.java)
+        )
+        val forkJoinPool = ForkJoinPool()
 
         val outputHandler = ParsingProcessOutputHandler(
             ToolOutputParser(DexParser(), Message.Kind.ERROR, logger),
@@ -306,17 +420,48 @@ class DexMergingTaskDelegate(
         var processOutput: ProcessOutput? = null
         try {
             processOutput = outputHandler.createOutput()
-            FileUtils.cleanOutputDir(outputDir)
+            val dexFiles = params.getAllDexFiles()
+            FileUtils.cleanOutputDir(params.outputDir)
 
-            if (dexFiles.isEmpty) {
-                return;
+            if (dexFiles.isEmpty()) {
+                return
             }
 
-            if (dexFiles.files.size >= mergingThreshold) {
-                submitForMerging(processOutput).join()
+            val allDexFiles = lazy { getAllRegularFiles(dexFiles) }
+            if (dexFiles.size >= params.mergingThreshold
+                || allDexFiles.value.size >= params.mergingThreshold) {
+                DexMergerTransformCallable(
+                    messageReceiver,
+                    params.dexingType,
+                    processOutput,
+                    params.outputDir,
+                    dexFiles.map { it.toPath() }.iterator(),
+                    params.mainDexListFile?.toPath(),
+                    forkJoinPool,
+                    params.dexMerger,
+                    params.minSdkVersion,
+                    params.isDebuggable
+                ).call()
             } else {
-                for (file in getAllRegularFiles(dexFiles).sorted().withIndex()) {
-                    file.value.copyTo(outputDir.resolve("classes_${file.index}.${SdkConstants.EXT_DEX}"))
+                val outputPath =
+                    { id: Int -> params.outputDir.resolve("classes_$id.${SdkConstants.EXT_DEX}") }
+                var index = 0
+                for (file in allDexFiles.value) {
+                    if (file.extension == SdkConstants.EXT_JAR) {
+                        // Dex files can also come from jars when dexing is not done in artifact
+                        // transforms. See b/130965921 for details.
+                        ZipFile(file).use {
+                            for (entry in it.entries()) {
+                                BufferedInputStream(it.getInputStream(entry)).use { inputStream ->
+                                    BufferedOutputStream(outputPath(index++).outputStream()).use { outputStream ->
+                                        inputStream.copyTo(outputStream)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        file.copyTo(outputPath(index++))
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -336,20 +481,32 @@ class DexMergingTaskDelegate(
             forkJoinPool.awaitTermination(100, TimeUnit.SECONDS)
         }
     }
+}
 
-    private fun submitForMerging(processOutput: ProcessOutput): ForkJoinTask<Void> {
-        val callable = DexMergerTransformCallable(
-            messageReceiver,
-            dexingType,
-            processOutput,
-            outputDir,
-            dexFiles.files.map { it.toPath() }.iterator(),
-            mainDexListFile?.singlePath(),
-            forkJoinPool,
-            dexMerger,
-            minSdkVersion,
-            isDebuggable
-        )
-        return forkJoinPool.submit(callable)
+@VisibleForTesting
+data class DexMergingParams(
+    val dexingType: DexingType,
+    val errorFormatMode: SyncOptions.ErrorFormatMode,
+    val dexMerger: DexMergerTool,
+    val minSdkVersion: Int,
+    val isDebuggable: Boolean,
+    val mergingThreshold: Int,
+    val mainDexListFile: File?,
+    private val dexFiles: Set<File>,
+    private val fileDependencyDexFiles: File?,
+    val outputDir: File
+) : Serializable {
+    fun getAllDexFiles(): List<File> {
+        val allDexFiles = ArrayList<File>(dexFiles)
+        fileDependencyDexFiles?.let {
+            Files.list(it.toPath()).use { files ->
+                files.forEach { file ->
+                    if (Files.isRegularFile(file) && file.toString().endsWith(".jar")) {
+                        allDexFiles.add(file.toFile())
+                    }
+                }
+            }
+        }
+        return Collections.unmodifiableList<File>(allDexFiles)
     }
 }

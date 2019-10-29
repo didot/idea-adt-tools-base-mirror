@@ -23,18 +23,20 @@ import static com.android.builder.core.BuilderConstants.FD_ANDROID_TESTS;
 import static com.android.builder.core.BuilderConstants.FD_FLAVORS;
 import static com.android.builder.core.BuilderConstants.FD_REPORTS;
 import static com.android.builder.model.AndroidProject.FD_OUTPUTS;
-import static com.android.sdklib.BuildToolInfo.PathId.SPLIT_SELECT;
 
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.api.artifact.BuildableArtifact;
+import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.test.AbstractTestDataImpl;
+import com.android.build.gradle.internal.test.InstrumentationTestAnalytics;
+import com.android.build.gradle.internal.test.report.CompositeTestResults;
 import com.android.build.gradle.internal.test.report.ReportType;
 import com.android.build.gradle.internal.test.report.TestReport;
 import com.android.build.gradle.internal.variant.BaseVariantData;
@@ -42,10 +44,8 @@ import com.android.build.gradle.internal.variant.TestVariantData;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.ProjectOptions;
-import com.android.builder.internal.testing.SimpleTestCallable;
+import com.android.builder.internal.testing.SimpleTestRunnable;
 import com.android.builder.model.TestOptions;
-import com.android.builder.sdk.TargetInfo;
-import com.android.builder.testing.ConnectedDeviceProvider;
 import com.android.builder.testing.OnDeviceOrchestratorTestRunner;
 import com.android.builder.testing.ShardedTestRunner;
 import com.android.builder.testing.SimpleTestRunner;
@@ -54,6 +54,7 @@ import com.android.builder.testing.api.DeviceException;
 import com.android.builder.testing.api.DeviceProvider;
 import com.android.builder.testing.api.TestException;
 import com.android.ide.common.process.ProcessExecutor;
+import com.android.ide.common.workers.ExecutorServiceAdapter;
 import com.android.utils.FileUtils;
 import com.android.utils.StringHelper;
 import com.google.common.base.Joiner;
@@ -68,27 +69,32 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import javax.inject.Inject;
 import javax.xml.parsers.ParserConfigurationException;
 import org.gradle.api.GradleException;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.Project;
-import org.gradle.api.file.Directory;
+import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.plugins.JavaBasePlugin;
 import org.gradle.api.provider.Provider;
+import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
 import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.internal.logging.ConsoleRenderer;
 import org.xml.sax.SAXException;
 
 /** Run instrumentation tests for a given variant */
-public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
+public class DeviceProviderInstrumentTestTask extends NonIncrementalTask
         implements AndroidTestTask {
 
     private static final Predicate<File> IS_APK =
@@ -99,25 +105,44 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
     }
 
     private DeviceProvider deviceProvider;
-    private Provider<Directory> coverageDir;
+    private final DirectoryProperty coverageDir;
     private File reportsDir;
     private File resultsDir;
     private FileCollection buddyApks;
     private FileCollection testTargetManifests;
     private ProcessExecutor processExecutor;
     private String flavorName;
-    private Supplier<File> splitSelectExec;
+    private Provider<File> splitSelectExecProvider;
     private AbstractTestDataImpl testData;
     private TestRunnerFactory testRunnerFactory;
     private boolean ignoreFailures;
     private boolean testFailed;
 
+    // For analytics only
+    private boolean codeCoverageEnabled;
+    private TestOptions.Execution testExecution;
+    private Configuration dependencies;
+    
+    /**
+     * The workers object is of type ExecutorServiceAdapter instead of WorkerExecutorFacade to
+     * assert that the object returned is of type ExecutorServiceAdapter as Gradle workers can not
+     * be used here because the device tests doesn't run within gradle.
+     */
+    private final ExecutorServiceAdapter executor;
+
     @Nullable private Collection<String> installOptions;
 
-    @TaskAction
-    protected void runTests() throws DeviceException, IOException, InterruptedException,
-            TestRunner.NoAuthorizedDeviceFoundException, TestException,
-            ParserConfigurationException, SAXException {
+    @Inject
+    public DeviceProviderInstrumentTestTask(ObjectFactory objectFactory) {
+        executor = Workers.INSTANCE.withThreads(getProject().getName(), getPath());
+        coverageDir = objectFactory.directoryProperty();
+    }
+
+    @Override
+    protected void doTaskAction()
+            throws DeviceException, IOException, InterruptedException,
+                    TestRunner.NoAuthorizedDeviceFoundException, TestException,
+                    ParserConfigurationException, SAXException {
         checkForNonApks(
                 buddyApks.getFiles(),
                 message -> {
@@ -127,7 +152,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         File resultsOutDir = getResultsDir();
         FileUtils.cleanOutputDir(resultsOutDir);
 
-        File coverageOutDir = getCoverageDir();
+        File coverageOutDir = getCoverageDir().get().getAsFile();
         FileUtils.cleanOutputDir(coverageOutDir);
 
         // populate the TestData from the tested variant build output.
@@ -142,14 +167,14 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         if (!testsFound()) {
             getLogger().info("No tests found, nothing to do.");
             // If we don't create the coverage file, createXxxCoverageReport task will fail.
-            File emptyCoverageFile = new File(coverageOutDir, SimpleTestCallable.FILE_COVERAGE_EC);
+            File emptyCoverageFile = new File(coverageOutDir, SimpleTestRunnable.FILE_COVERAGE_EC);
             emptyCoverageFile.createNewFile();
             success = true;
         } else {
             deviceProvider.init();
 
             TestRunner testRunner =
-                    testRunnerFactory.build(splitSelectExec.get(), getProcessExecutor());
+                    testRunnerFactory.build(getSplitSelectExec().get(), getProcessExecutor());
 
             Collection<String> extraArgs =
                     installOptions == null || installOptions.isEmpty()
@@ -167,7 +192,11 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                                 extraArgs,
                                 resultsOutDir,
                                 coverageOutDir,
-                                getILogger());
+                                new LoggerWrapper(getLogger()));
+            } catch (Exception e) {
+                InstrumentationTestAnalytics.recordCrashedTestRun(
+                        dependencies, testExecution, codeCoverageEnabled);
+                throw e;
             } finally {
                 deviceProvider.terminate();
             }
@@ -179,7 +208,10 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         FileUtils.cleanOutputDir(reportOutDir);
 
         TestReport report = new TestReport(ReportType.SINGLE_FLAVOR, resultsOutDir, reportOutDir);
-        report.generateReport();
+        CompositeTestResults results = report.generateReport();
+
+        InstrumentationTestAnalytics.recordOkTestRun(
+                dependencies, testExecution, codeCoverageEnabled, results.getTestCount());
 
         if (!success) {
             testFailed = true;
@@ -225,6 +257,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         return !getProject().files(testData.getTestDirectories()).getAsFileTree().isEmpty();
     }
 
+    @OutputDirectory
     public File getReportsDir() {
         return reportsDir;
     }
@@ -234,6 +267,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
     }
 
     @Override
+    @OutputDirectory
     public File getResultsDir() {
         return resultsDir;
     }
@@ -243,8 +277,8 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
     }
 
     @OutputDirectory
-    public File getCoverageDir() {
-        return coverageDir.get().getAsFile();
+    public DirectoryProperty getCoverageDir() {
+        return coverageDir;
     }
 
     @Deprecated
@@ -254,6 +288,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                         "DeviceProviderInstrumentTestTask.setCoverageDir is deprecated and has no effect.");
     }
 
+    @Internal
     public String getFlavorName() {
         return flavorName;
     }
@@ -262,6 +297,8 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         this.flavorName = flavorName;
     }
 
+    @Optional
+    @Input
     public Collection<String> getInstallOptions() {
         return installOptions;
     }
@@ -287,10 +324,12 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
     }
 
     @InputFile
-    public File getSplitSelectExec() {
-        return splitSelectExec.get();
+    @PathSensitive(PathSensitivity.NONE)
+    public Provider<File> getSplitSelectExec() {
+        return splitSelectExecProvider;
     }
 
+    @Internal
     public ProcessExecutor getProcessExecutor() {
         return processExecutor;
     }
@@ -310,6 +349,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
     }
 
     @Override
+    @Internal // This is the result after running this task
     public boolean getTestFailed() {
         return testFailed;
     }
@@ -352,17 +392,24 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
 
         @NonNull
         private final DeviceProvider deviceProvider;
+        @NonNull private final Type type;
         @NonNull private final AbstractTestDataImpl testData;
         @NonNull private final FileCollection testTargetManifests;
-        private Provider<Directory> coverageDir;
+
+        public enum Type {
+            INTERNAL_CONNECTED_DEVICE_PROVIDER,
+            CUSTOM_DEVICE_PROVIDER,
+        }
 
         public CreationAction(
                 @NonNull VariantScope scope,
                 @NonNull DeviceProvider deviceProvider,
+                @NonNull Type type,
                 @NonNull AbstractTestDataImpl testData,
                 @NonNull FileCollection testTargetManifests) {
             super(scope);
             this.deviceProvider = deviceProvider;
+            this.type = type;
             this.testData = testData;
             this.testTargetManifests = testTargetManifests;
         }
@@ -380,36 +427,35 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
         }
 
         @Override
-        public void preConfigure(@NonNull String taskName) {
-            super.preConfigure(taskName);
-
-            if (deviceProvider instanceof ConnectedDeviceProvider) {
-                coverageDir =
-                        getVariantScope()
-                                .getArtifacts()
-                                .createDirectory(
-                                        InternalArtifactType.CODE_COVERAGE,
-                                        taskName,
-                                        deviceProvider.getName());
-            } else {
-                coverageDir =
-                        getVariantScope()
-                                .getArtifacts()
-                                .createDirectory(
-                                        InternalArtifactType.DEVICE_PROVIDER_CODE_COVERAGE,
-                                        BuildArtifactsHolder.OperationType.APPEND,
-                                        taskName,
-                                        deviceProvider.getName());
-            }
-        }
-
-        @Override
         public void handleProvider(
                 @NonNull TaskProvider<? extends DeviceProviderInstrumentTestTask> taskProvider) {
             super.handleProvider(taskProvider);
+
+            if (type == Type.INTERNAL_CONNECTED_DEVICE_PROVIDER) {
+                getVariantScope()
+                        .getArtifacts()
+                        .producesDir(
+                                InternalArtifactType.CODE_COVERAGE,
+                                BuildArtifactsHolder.OperationType.INITIAL,
+                                taskProvider,
+                                taskProvider.map(DeviceProviderInstrumentTestTask::getCoverageDir),
+                                deviceProvider.getName());
+            } else {
+                // NOTE : This task will be created per device provider, assume several tasks instances
+                // will exist in the variant scope.
+                getVariantScope()
+                        .getArtifacts()
+                        .producesDir(
+                                InternalArtifactType.DEVICE_PROVIDER_CODE_COVERAGE,
+                                BuildArtifactsHolder.OperationType.APPEND,
+                                taskProvider,
+                                taskProvider.map(DeviceProviderInstrumentTestTask::getCoverageDir),
+                                deviceProvider.getName());
+            }
+
             VariantScope scope = getVariantScope();
             if (scope.getVariantData() instanceof TestVariantData) {
-                if (deviceProvider instanceof ConnectedDeviceProvider) {
+                if (type == Type.INTERNAL_CONNECTED_DEVICE_PROVIDER) {
                     scope.getTaskContainer().setConnectedTestTask(taskProvider);
                     // possible redundant with setConnectedTestTask?
                     scope.getTaskContainer().setConnectedTask(taskProvider);
@@ -427,16 +473,13 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
             Project project = scope.getGlobalScope().getProject();
             ProjectOptions projectOptions = scope.getGlobalScope().getProjectOptions();
 
-            final boolean connected = deviceProvider instanceof ConnectedDeviceProvider;
-
-
             BaseVariantData testedVariantData = scope.getTestedVariantData();
 
             String variantName =
                     testedVariantData != null
                             ? testedVariantData.getName()
                             : scope.getVariantData().getName();
-            if (connected) {
+            if (type == Type.INTERNAL_CONNECTED_DEVICE_PROVIDER) {
                 task.setDescription("Installs and runs the tests for " + variantName +
                         " on connected devices.");
             } else {
@@ -454,8 +497,7 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
             task.testTargetManifests = testTargetManifests;
             task.setInstallOptions(
                     scope.getGlobalScope().getExtension().getAdbOptions().getInstallOptions());
-            task.setProcessExecutor(
-                    scope.getGlobalScope().getAndroidBuilder().getProcessExecutor());
+            task.setProcessExecutor(scope.getGlobalScope().getProcessExecutor());
 
             boolean shardBetweenDevices = projectOptions.get(BooleanOption.ENABLE_TEST_SHARDING);
 
@@ -470,7 +512,10 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                     task.testRunnerFactory =
                             (splitSelect, processExecutor) ->
                                     new OnDeviceOrchestratorTestRunner(
-                                            splitSelect, processExecutor, executionEnum);
+                                            splitSelect,
+                                            processExecutor,
+                                            executionEnum,
+                                            task.executor);
                     break;
                 case HOST:
                     if (shardBetweenDevices) {
@@ -479,35 +524,36 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                         task.testRunnerFactory =
                                 (splitSelect, processExecutor) ->
                                         new ShardedTestRunner(
-                                                splitSelect, processExecutor, numShards);
+                                                splitSelect,
+                                                processExecutor,
+                                                numShards,
+                                                task.executor);
                     } else {
-                        task.testRunnerFactory = SimpleTestRunner::new;
+                        task.testRunnerFactory =
+                                (splitSelect, processExecutor) ->
+                                        new SimpleTestRunner(
+                                                splitSelect, processExecutor, task.executor);
                     }
                     break;
                 default:
                     throw new AssertionError("Unknown value " + executionEnum);
             }
+            task.codeCoverageEnabled = scope.getVariantConfiguration().isTestCoverageEnabled();
+            task.dependencies = scope.getVariantDependencies().getRuntimeClasspath();
+            task.testExecution = executionEnum;
 
             String flavorFolder = testData.getFlavorName();
             if (!flavorFolder.isEmpty()) {
                 flavorFolder = FD_FLAVORS + "/" + flavorFolder;
             }
-            String providerFolder = connected ? CONNECTED : DEVICE + "/" + deviceProvider.getName();
+            String providerFolder =
+                    type == Type.INTERNAL_CONNECTED_DEVICE_PROVIDER
+                            ? CONNECTED
+                            : DEVICE + "/" + deviceProvider.getName();
             final String subFolder = "/" + providerFolder + "/" + flavorFolder;
 
-            task.splitSelectExec = TaskInputHelper.memoize(() -> {
-                // SDK is loaded somewhat dynamically, plus we don't want to do all this logic
-                // if the task is not going to run, so use a supplier.
-                final TargetInfo info = scope.getGlobalScope().getAndroidBuilder()
-                        .getTargetInfo();
-                String path = info == null ? null : info.getBuildTools().getPath(SPLIT_SELECT);
-                if (path != null) {
-                    File splitSelectExe = new File(path);
-                    return splitSelectExe.exists() ? splitSelectExe : null;
-                } else {
-                    return null;
-                }
-            });
+            task.splitSelectExecProvider =
+                    scope.getGlobalScope().getSdkComponents().getSplitSelectExecutableProvider();
 
             String rootLocation = scope.getGlobalScope().getExtension().getTestOptions()
                     .getResultsDir();
@@ -524,8 +570,6 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
             }
             task.reportsDir = project.file(rootLocation + subFolder);
 
-            task.coverageDir = coverageDir;
-
             // The configuration is not created by the experimental plugin, so just create an empty
             // FileCollection in this case.
             task.buddyApks =
@@ -536,9 +580,6 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                             project.files());
 
             task.setEnabled(deviceProvider.isConfigured());
-
-            // outputs are never up-to-date
-            task.getOutputs().upToDateWhen(t -> false);
 
             // FIXME these should be task inputs!
             // depends on the test APK
@@ -557,6 +598,9 @@ public class DeviceProviderInstrumentTestTask extends AndroidBuilderTask
                 // FIXME handle separate test project BA
 
             }
+
+            // This task should not be UP-TO-DATE as we don't model the device state as input yet.
+            task.getOutputs().upToDateWhen(it -> false);
         }
     }
 }

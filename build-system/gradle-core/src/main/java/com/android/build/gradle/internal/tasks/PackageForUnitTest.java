@@ -21,8 +21,11 @@ import static com.android.build.gradle.internal.scope.InternalArtifactType.MERGE
 import static com.android.build.gradle.internal.scope.InternalArtifactType.PROCESSED_RES;
 
 import com.android.annotations.NonNull;
+import com.android.build.VariantOutput;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
+import com.android.build.gradle.internal.scope.BuildElements;
+import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
@@ -40,17 +43,22 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collections;
+import org.gradle.api.file.Directory;
+import org.gradle.api.provider.ListProperty;
+import org.gradle.api.tasks.CacheableTask;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputFile;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 
-public class PackageForUnitTest extends AndroidVariantTask {
+@CacheableTask
+public class PackageForUnitTest extends NonIncrementalTask {
     BuildableArtifact resApk;
-    BuildableArtifact mergedAssets;
+    ListProperty<Directory> mergedAssets;
     File apkForUnitTest;
 
-    @TaskAction
-    public void generateApkForUnitTest() throws IOException {
+    @Override
+    protected void doTaskAction() throws IOException {
         // this can certainly be optimized by making it incremental...
 
         FileUtils.copyFile(apkFrom(resApk), apkForUnitTest);
@@ -58,8 +66,8 @@ public class PackageForUnitTest extends AndroidVariantTask {
         URI uri = URI.create("jar:" + apkForUnitTest.toURI());
         try (FileSystem apkFs = FileSystems.newFileSystem(uri, Collections.emptyMap())) {
             Path apkAssetsPath = apkFs.getPath("/assets");
-            for (File mergedAssetsDir : mergedAssets.getFiles()) {
-                final Path mergedAssetsPath = mergedAssetsDir.toPath();
+            for (Directory mergedAsset : mergedAssets.get()) {
+                final Path mergedAssetsPath = mergedAsset.getAsFile().toPath();
                 Files.walkFileTree(mergedAssetsPath, new SimpleFileVisitor<Path>() {
                     @Override
                     public FileVisitResult visitFile(Path path,
@@ -78,12 +86,14 @@ public class PackageForUnitTest extends AndroidVariantTask {
     }
 
     @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
     public BuildableArtifact getResApk() {
         return resApk;
     }
 
     @InputFiles
-    public BuildableArtifact getMergedAssets() {
+    @PathSensitive(PathSensitivity.NONE)
+    public ListProperty<Directory> getMergedAssets() {
         return mergedAssets;
     }
 
@@ -93,10 +103,37 @@ public class PackageForUnitTest extends AndroidVariantTask {
     }
 
     @NonNull
-    private static File apkFrom(BuildableArtifact compiledResourcesZip) {
-        return Iterables.getOnlyElement(
-                ExistingBuildElements.from(PROCESSED_RES, compiledResourcesZip))
-                .getOutputFile();
+    static File apkFrom(BuildableArtifact compiledResourcesZip) {
+        BuildElements builtElements =
+                ExistingBuildElements.from(PROCESSED_RES, compiledResourcesZip);
+
+        if (builtElements.size() == 1) {
+            return Iterables.getOnlyElement(builtElements).getOutputFile();
+        }
+        for (BuildOutput buildOutput : builtElements.getElements()) {
+            if (buildOutput.getFilters().isEmpty()) {
+                // universal APK, take it !
+                return buildOutput.getOutputFile();
+            }
+            if (buildOutput.getFilters().size() == 1
+                    && buildOutput.getFilter(VariantOutput.FilterType.ABI.name()) != null) {
+
+                // the only filter is ABI, good enough for getting all resources.
+                return buildOutput.getOutputFile();
+            }
+        }
+
+        // if we are here, we could not find an appropriate build output, raise this as an error.
+        if (builtElements.isEmpty()) {
+            throw new RuntimeException("No resources build output, please file a bug.");
+        }
+        StringBuilder sb = new StringBuilder("Found following build outputs : \n");
+        builtElements.forEach(
+                it -> {
+                    sb.append("BuildOutput: ${Joiner.on(',').join(it.filters)}\n");
+                });
+        sb.append("Cannot find a build output with all resources, please file a bug.");
+        throw new RuntimeException(sb.toString());
     }
 
     public static class CreationAction extends VariantTaskCreationAction<PackageForUnitTest> {
@@ -133,7 +170,7 @@ public class PackageForUnitTest extends AndroidVariantTask {
 
             BuildArtifactsHolder artifacts = getVariantScope().getArtifacts();
             task.resApk = artifacts.getArtifactFiles(PROCESSED_RES);
-            task.mergedAssets = artifacts.getArtifactFiles(MERGED_ASSETS);
+            task.mergedAssets = artifacts.getFinalProducts(MERGED_ASSETS);
             task.apkForUnitTest = apkForUnitTest;
         }
     }

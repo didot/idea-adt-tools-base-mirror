@@ -1,6 +1,7 @@
 load("//tools/base/bazel:bazel.bzl", "fileset")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
 load("//tools/base/bazel:kotlin.bzl", "kotlin_library", "kotlin_test")
+load("//tools/base/bazel:proto.bzl", "java_proto_library")
 
 fileset(
     name = "resources",
@@ -8,16 +9,20 @@ fileset(
         "src/main/resources/**",
         "src/fromGradle/resources/**",
     ]) + [
-        # TODO: this jar needs to contain classes from instant-run-runtime as well.
-        "//tools/base/instant-run/instant-run-server:libinstant-run-server.jar",
         "//prebuilts/tools/common/aapt:aapt2_version.properties",
     ],
     mappings = {
-        "//tools/base/instant-run/instant-run-server:libinstant-run-server.jar": "instant-run/instant-run-server.jar",
         "src/main/resources/": "",
         "src/fromGradle/resources/": "",
         "//prebuilts/tools/common/aapt:aapt2_version.properties": "com/android/build/gradle/internal/res/aapt2_version.properties",
     },
+)
+
+java_proto_library(
+    name = "proto",
+    srcs = glob(["src/main/proto/*.proto"]),
+    resource_strip_prefix = "tools/base/build-system/gradle-core/",
+    visibility = ["//visibility:public"],
 )
 
 kotlin_library(
@@ -27,8 +32,9 @@ kotlin_library(
         "src/main/java",
     ],
     bundled_deps = [
-        "//tools/base/build-system/instant-run-instrumentation",
+        ":proto",
     ],
+    lint_baseline = "lint_baseline.xml",
     pom = ":pom",
     resource_strip_prefix = "tools/base/build-system/gradle-core",
     resources = [":resources"],
@@ -61,6 +67,7 @@ kotlin_library(
         "//tools/base/third_party:com.google.code.gson_gson",
         "//tools/base/third_party:com.google.guava_guava",
         "//tools/base/third_party:com.google.protobuf_protobuf-java",
+        "//tools/base/third_party:com.sun.istack_istack-commons-runtime",
         "//tools/base/third_party:commons-io_commons-io",  # TODO: remove?
         "//tools/base/third_party:net.sf.jopt-simple_jopt-simple",
         "//tools/base/third_party:net.sf.proguard_proguard-gradle",
@@ -101,11 +108,13 @@ kotlin_test(
     size = "large",
     timeout = "long",
     srcs = ["src/test/java"],
+    coverage = True,
     data = [
         "//prebuilts/studio/sdk:add-ons/addon-google_apis-google-latest",
         "//prebuilts/studio/sdk:build-tools/latest",
         "//prebuilts/studio/sdk:platform-tools",
         "//prebuilts/studio/sdk:platforms/android-24",
+        "//prebuilts/studio/sdk:platforms/android-27",
         "//prebuilts/studio/sdk:platforms/latest",
     ],
     friends = [":gradle-core"],
@@ -116,14 +125,13 @@ kotlin_test(
     ],
     resources = glob(["src/test/resources/**"]),
     tags = [
-        "no_test_windows",  # b/72972266 for mac, b/73306170 for win
         "slow",
     ],
     # TODO: Remove the blacklist, once NDK is checked in.
     test_class = "com.android.build.gradle.internal.GradleCoreBazelSuite",
     deps = [
         ":gradle-core",
-        "//prebuilts/tools/common/kotlin-plugin-ij:Kotlin/kotlinc/lib/kotlin-reflect",
+        "//prebuilts/tools/common/m2/repository/org/jetbrains/kotlin/kotlin-reflect/1.3.40:jar",
         "//tools/analytics-library/protos/src/main/proto",
         "//tools/apkzlib",
         "//tools/base/annotations",

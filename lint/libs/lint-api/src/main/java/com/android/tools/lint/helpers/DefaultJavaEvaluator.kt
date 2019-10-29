@@ -23,6 +23,7 @@ import com.android.tools.lint.detector.api.computeKotlinArgumentMapping
 import com.android.tools.lint.detector.api.isKotlin
 import com.google.common.collect.Sets
 import com.intellij.codeInsight.AnnotationUtil
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.psi.JavaDirectoryService
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiAnnotation
@@ -53,6 +54,7 @@ import org.jetbrains.uast.UElement
 import org.jetbrains.uast.UExpression
 import org.jetbrains.uast.getContainingUFile
 import org.jetbrains.uast.java.JavaUAnnotation
+import java.io.File
 
 open class DefaultJavaEvaluator(
     private val myProject: com.intellij.openapi.project.Project?,
@@ -86,7 +88,8 @@ open class DefaultJavaEvaluator(
         return InheritanceUtil.isInheritor(cls, strict, interfaceName)
     }
 
-    override fun inheritsFrom(cls: PsiClass, className: String, strict: Boolean): Boolean {
+    override fun inheritsFrom(cls: PsiClass?, className: String, strict: Boolean): Boolean {
+        cls ?: return false
         return InheritanceUtil.isInheritor(cls, strict, className)
     }
 
@@ -192,6 +195,20 @@ open class DefaultJavaEvaluator(
         return MethodSignatureUtil.areSignaturesEqual(method1, method2)
     }
 
+    override fun getProject(element: PsiElement): Project? {
+        val projects = myLintProject?.client?.knownProjects ?: return null
+        if (projects.isEmpty()) {
+            return null
+        }
+
+        val virtualFile = element.containingFile?.virtualFile ?: return null
+        val file = VfsUtilCore.virtualToIoFile(virtualFile)
+        val path = file.path
+        return projects.asSequence()
+            .filter { path == it.dir.path || path.startsWith(it.dir.path + File.separator) }
+            .maxBy { it.dir.path.length }
+    }
+
     override fun findJarPath(element: PsiElement): String? {
         val containingFile = element.containingFile
         @Suppress("USELESS_CAST")
@@ -200,7 +217,7 @@ open class DefaultJavaEvaluator(
 
     override fun findJarPath(element: UElement): String? {
         val uFile = element.getContainingUFile()
-        return if (uFile != null) findJarPath(uFile.psi as PsiFile?) else null
+        return if (uFile != null) findJarPath(uFile.sourcePsi as PsiFile?) else null
     }
 
     private fun findJarPath(containingFile: PsiFile?): String? {

@@ -18,10 +18,11 @@ package com.android.build.gradle.integration.dependencies;
 
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
 import static com.android.build.gradle.integration.common.utils.TestFileUtils.appendToFile;
-import static com.android.testutils.truth.PathSubject.assertThat;
 
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
+import com.android.build.gradle.integration.common.truth.ScannerSubject;
+import java.util.Scanner;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -49,17 +50,16 @@ public class TestWithMismatchDep {
             "Cannot find a version of 'com.google.guava:guava' that satisfies the version constraints: \n"
                     + "   Dependency path ':testDependency:unspecified' --> 'com.google.guava:guava:19.0'\n"
                     + "   Dependency path ':testDependency:unspecified' --> 'com.google.guava:guava:18.0'\n"
-                    + "   Constraint path ':testDependency:unspecified' --> 'com.google.guava:guava' strictly '18.0' because of the following reason: debugRuntimeClasspath uses version 18.0\n";
+                    + "   Constraint path ':testDependency:unspecified' --> 'com.google.guava:guava:{strictly 18.0}' because of the following reason: debugRuntimeClasspath uses version 18.0\n";
     private static final String ERROR_MSG =
             "Could not resolve all files for configuration ':debugAndroidTestRuntimeClasspath'.\n"
-                    + "> Could not resolve com.google.guava:guava:19.0.\n"
-                    + "  Required by:\n"
-                    + "      project :\n"
-                    + "   > Cannot find a version of 'com.google.guava:guava' that satisfies the version constraints: \n"
-                    + "        Dependency path ':testDependency:unspecified' --> 'com.google.guava:guava:19.0'\n"
-                    + "        Dependency path ':testDependency:unspecified' --> 'com.google.guava:guava:18.0'\n"
-                    + "        Constraint path ':testDependency:unspecified' --> 'com.google.guava:guava' strictly '18.0' because of the following reason: debugRuntimeClasspath uses version 18.0\n";
-
+                    + "   > Could not resolve com.google.guava:guava:19.0.\n"
+                    + "     Required by:\n"
+                    + "         project :\n"
+                    + "      > Cannot find a version of 'com.google.guava:guava' that satisfies the version constraints: \n"
+                    + "           Dependency path ':testDependency:unspecified' --> 'com.google.guava:guava:19.0'\n"
+                    + "           Dependency path ':testDependency:unspecified' --> 'com.google.guava:guava:18.0'\n"
+                    + "           Constraint path ':testDependency:unspecified' --> 'com.google.guava:guava:{strictly 18.0}' because of the following reason: debugRuntimeClasspath uses version 18.0";
     @Test
     public void testMismatchDependencyBreaksTestBuild() throws Exception {
         // want to check the log, so can't use Junit's expected exception mechanism.
@@ -77,7 +77,9 @@ public class TestWithMismatchDep {
         assertThat(t.getMessage()).isEqualTo(EXCEPTION_MSG);
 
         // check there is a version of the error, after the task name:
-        assertThat(result.getStdout()).contains(ERROR_MSG);
+        try (Scanner scanner = result.getStderr()) {
+            ScannerSubject.assertThat(scanner).contains(ERROR_MSG);
+        }
     }
 
     @Test

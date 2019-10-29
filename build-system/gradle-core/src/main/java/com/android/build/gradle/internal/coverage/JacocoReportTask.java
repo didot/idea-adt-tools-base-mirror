@@ -19,14 +19,14 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.scope.AnchorOutputType;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.builder.model.Version;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Closeables;
 import java.io.File;
@@ -42,14 +42,15 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.workers.IsolationMode;
 import org.gradle.workers.WorkerExecutor;
@@ -68,11 +69,11 @@ import org.jacoco.report.html.HTMLFormatter;
 import org.jacoco.report.xml.XMLFormatter;
 
 /** Simple Jacoco report task that calls the Ant version. */
-public class JacocoReportTask extends AndroidVariantTask {
+public class JacocoReportTask extends NonIncrementalTask {
 
     private FileCollection jacocoClasspath;
 
-    private BuildableArtifact coverageDirectories;
+    private Provider<Directory> coverageDirectories;
     private BuildableArtifact classFileCollection;
     private Supplier<FileCollection> sourceFolders;
 
@@ -96,7 +97,7 @@ public class JacocoReportTask extends AndroidVariantTask {
     @InputFiles
     @Optional
     @Nullable
-    public BuildableArtifact getCoverageDirectories() {
+    public Provider<Directory> getCoverageDirectories() {
         return coverageDirectories;
     }
 
@@ -146,8 +147,8 @@ public class JacocoReportTask extends AndroidVariantTask {
         this.tabWidth = tabWidth;
     }
 
-    @TaskAction
-    public void generateReport() throws IOException {
+    @Override
+    protected void doTaskAction() throws IOException {
         Set<File> coverageFiles =
                 coverageDirectories
                         .get()
@@ -161,7 +162,7 @@ public class JacocoReportTask extends AndroidVariantTask {
             throw new IOException(
                     String.format(
                             "No coverage data to process in directories [%1$s]",
-                            coverageDirectories.getFiles()));
+                            coverageDirectories.get().getAsFile().getAbsolutePath()));
         }
         executor.submit(
                 JacocoReportWorkerAction.class,
@@ -221,7 +222,7 @@ public class JacocoReportTask extends AndroidVariantTask {
             task.jacocoClasspath = jacocoAntConfiguration;
 
             task.coverageDirectories =
-                    scope.getArtifacts().getFinalArtifactFiles(InternalArtifactType.CODE_COVERAGE);
+                    scope.getArtifacts().getFinalProduct(InternalArtifactType.CODE_COVERAGE);
 
             task.classFileCollection =
                     testedScope

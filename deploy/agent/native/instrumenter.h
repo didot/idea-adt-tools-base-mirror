@@ -18,24 +18,25 @@
 #ifndef INSTRUMENTER_H
 #define INSTRUMENTER_H
 
-#include "instrumenter.h"
+#include <memory>
+#include <unordered_map>
+
+#include <jvmti.h>
 
 #include "slicer/dex_ir.h"
 #include "slicer/instrumentation.h"
 #include "slicer/reader.h"
 #include "slicer/writer.h"
-
-#include "utils/log.h"
-
-#include <memory>
-#include <unordered_map>
-#include "jvmti.h"
+#include "tools/base/deploy/common/log.h"
 
 using std::shared_ptr;
 using std::string;
 using std::unordered_map;
 
 namespace deploy {
+
+bool InstrumentApplication(jvmtiEnv* jvmti, JNIEnv* jni,
+                           const std::string& package_name);
 
 // Probably should be in a utility header, but also only used here.
 class JvmtiAllocator : public dex::Writer::Allocator {
@@ -62,24 +63,30 @@ class JvmtiAllocator : public dex::Writer::Allocator {
 
 class Transform {
  public:
+  virtual std::string GetClassName() = 0;
   virtual void Apply(std::shared_ptr<ir::DexFile> dex_ir) = 0;
   virtual ~Transform() = default;
 };
 
-class ActivityThreadHandlerTransform : public Transform {
+class ActivityThreadTransform : public Transform {
  public:
+  std::string GetClassName() { return "android/app/ActivityThread"; }
   void Apply(shared_ptr<ir::DexFile> dex_ir) {
-    static const ir::MethodId handleMessage("Landroid/app/ActivityThread$H;",
-                                            "handleMessage",
-                                            "(Landroid/os/Message;)V");
-    static const ir::MethodId entryHook(
-        "Lcom/android/tools/deploy/instrument/ActivityThreadHandlerWrapper;",
-        "entryHook");
+    static const ir::MethodId kHandlePackageBroadcast(
+        "Landroid/app/ActivityThread;", "handleDispatchPackageBroadcast",
+        "(I[Ljava/lang/String;)V");
+    static const ir::MethodId kEntryHook(
+        "Lcom/android/tools/deploy/instrument/ActivityThreadInstrumentation;",
+        "handleDispatchPackageBroadcastEntry");
+    static const ir::MethodId kExitHook(
+        "Lcom/android/tools/deploy/instrument/ActivityThreadInstrumentation;",
+        "handleDispatchPackageBroadcastExit");
 
     slicer::MethodInstrumenter mi(dex_ir);
-    mi.AddTransformation<slicer::EntryHook>(entryHook, true);
-    if (!mi.InstrumentMethod(handleMessage)) {
-      Log::E("Error instrumenting ActivityThread$H.handleMessage");
+    mi.AddTransformation<slicer::EntryHook>(kEntryHook, true);
+    mi.AddTransformation<slicer::ExitHook>(kExitHook);
+    if (!mi.InstrumentMethod(kHandlePackageBroadcast)) {
+      Log::E("Failed to instrument ActivityThread");
     }
   }
 };
@@ -88,14 +95,11 @@ class ActivityThreadHandlerTransform : public Transform {
 // instrumented, so anything more elegant feels like overkill right now. If we
 // instrument a few more things, probably worth refactoring this.
 
-void AddTransform(const string& class_name, Transform* transform);
+// Takes ownership of the Transform object.
+// TODO: use std::unique_ptr<Transform>
+void AddTransform(Transform* transform);
 const unordered_map<string, Transform*>& GetTransforms();
 void DeleteTransforms();
-
-// Applies transformations to classes.
-void TransformClass(jvmtiEnv* jvmti, const char* class_name, int class_data_len,
-                    const unsigned char* class_data, int*& new_class_data_len,
-                    unsigned char**& new_class_data);
 
 }  // namespace deploy
 

@@ -23,7 +23,6 @@ import android.databinding.tool.DataBindingBuilder;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.gradle.api.AndroidBasePlugin;
 import com.android.build.gradle.api.BaseVariantOutput;
 import com.android.build.gradle.internal.ApiObjectFactory;
@@ -33,13 +32,12 @@ import com.android.build.gradle.internal.ClasspathVerifier;
 import com.android.build.gradle.internal.DependencyResolutionChecks;
 import com.android.build.gradle.internal.ExtraModelInfo;
 import com.android.build.gradle.internal.LoggerWrapper;
-import com.android.build.gradle.internal.NativeLibraryFactoryImpl;
 import com.android.build.gradle.internal.NonFinalPluginExpiry;
 import com.android.build.gradle.internal.PluginInitializer;
-import com.android.build.gradle.internal.SdkHandler;
+import com.android.build.gradle.internal.SdkComponents;
+import com.android.build.gradle.internal.SdkLocator;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.VariantManager;
-import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl;
 import com.android.build.gradle.internal.api.dsl.extensions.BaseExtension2;
 import com.android.build.gradle.internal.crash.CrashReporting;
 import com.android.build.gradle.internal.dependency.SourceSetManager;
@@ -51,16 +49,17 @@ import com.android.build.gradle.internal.dsl.SigningConfig;
 import com.android.build.gradle.internal.dsl.SigningConfigFactory;
 import com.android.build.gradle.internal.dsl.Splits;
 import com.android.build.gradle.internal.errors.DeprecationReporterImpl;
+import com.android.build.gradle.internal.errors.SyncIssueHandler;
 import com.android.build.gradle.internal.ide.ModelBuilder;
 import com.android.build.gradle.internal.ide.NativeModelBuilder;
 import com.android.build.gradle.internal.packaging.GradleKeystoreHelper;
 import com.android.build.gradle.internal.plugin.PluginDelegate;
 import com.android.build.gradle.internal.plugin.ProjectWrapper;
 import com.android.build.gradle.internal.plugin.TypedPluginDelegate;
-import com.android.build.gradle.internal.process.GradleJavaProcessExecutor;
-import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.profile.AnalyticsUtil;
+import com.android.build.gradle.internal.profile.ProfileAgent;
 import com.android.build.gradle.internal.profile.ProfilerInitializer;
+import com.android.build.gradle.internal.profile.RecordingBuildListener;
 import com.android.build.gradle.internal.scope.DelayedActionsExecutor;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.VariantScope;
@@ -71,63 +70,44 @@ import com.android.build.gradle.internal.variant.VariantFactory;
 import com.android.build.gradle.internal.variant2.DslScopeImpl;
 import com.android.build.gradle.internal.workeractions.WorkerActionServiceRegistry;
 import com.android.build.gradle.options.BooleanOption;
-import com.android.build.gradle.options.IntegerOption;
 import com.android.build.gradle.options.ProjectOptions;
 import com.android.build.gradle.options.StringOption;
 import com.android.build.gradle.options.SyncOptions;
 import com.android.build.gradle.options.SyncOptions.ErrorFormatMode;
 import com.android.build.gradle.tasks.LintBaseTask;
 import com.android.build.gradle.tasks.factory.AbstractCompilesUtil;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.BuilderConstants;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.errors.EvalIssueReporter.Type;
-import com.android.builder.model.AndroidProject;
 import com.android.builder.model.Version;
 import com.android.builder.profile.ProcessProfileWriter;
 import com.android.builder.profile.Recorder;
 import com.android.builder.profile.ThreadRecorder;
-import com.android.builder.sdk.SdkLibData;
-import com.android.builder.sdk.TargetInfo;
 import com.android.builder.utils.FileCache;
 import com.android.dx.command.dexer.Main;
 import com.android.ide.common.repository.GradleVersion;
-import com.android.repository.api.Channel;
-import com.android.repository.api.ConsoleProgressIndicator;
-import com.android.repository.api.Downloader;
-import com.android.repository.api.SettingsController;
-import com.android.repository.impl.downloader.LocalFileAwareDownloader;
-import com.android.repository.io.FileOpUtils;
-import com.android.sdklib.repository.legacy.LegacyDownloader;
 import com.android.tools.lint.gradle.api.ToolingRegistryProvider;
 import com.android.utils.ILogger;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan.ExecutionType;
 import com.google.wireless.android.sdk.stats.GradleBuildProject;
 import java.io.File;
 import java.lang.reflect.Method;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
-import java.net.UnknownHostException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Properties;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ForkJoinPool;
 import org.gradle.BuildListener;
 import org.gradle.BuildResult;
 import org.gradle.api.Action;
-import org.gradle.api.GradleException;
 import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.initialization.Settings;
 import org.gradle.api.invocation.Gradle;
-import org.gradle.api.logging.LogLevel;
 import org.gradle.api.model.ObjectFactory;
 import org.gradle.api.plugins.JavaBasePlugin;
 import org.gradle.api.plugins.JavaPlugin;
@@ -154,8 +134,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
 
     private GlobalScope globalScope;
 
-    private SdkHandler sdkHandler;
-
     private DataBindingBuilder dataBindingBuilder;
 
     private VariantFactory variantFactory;
@@ -174,8 +152,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
 
     private boolean hasCreatedTasks = false;
 
-    private ExecutorService nativeJsonGenExecutor = null;
-
     BasePlugin(@NonNull ToolingModelBuilderRegistry registry) {
         ClasspathVerifier.checkClasspathSanity();
         this.registry = registry;
@@ -188,7 +164,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
             @NonNull GlobalScope globalScope,
-            @NonNull SdkHandler sdkHandler,
             @NonNull NamedDomainObjectContainer<BuildType> buildTypeContainer,
             @NonNull NamedDomainObjectContainer<ProductFlavor> productFlavorContainer,
             @NonNull NamedDomainObjectContainer<SigningConfig> signingConfigContainer,
@@ -211,7 +186,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
             @NonNull ProjectOptions projectOptions,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig androidConfig,
-            @NonNull SdkHandler sdkHandler,
             @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder threadRecorder);
@@ -225,11 +199,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
 
     public BaseExtension getExtension() {
         return extension;
-    }
-
-    @VisibleForTesting
-    AndroidBuilder getAndroidBuilder() {
-        return globalScope.getAndroidBuilder();
     }
 
     private ILogger getLogger() {
@@ -264,10 +233,10 @@ public abstract class BasePlugin<E extends BaseExtension2>
         checkModulesForErrors();
 
         PluginInitializer.initialize(project);
-        ProfilerInitializer.init(project, projectOptions);
+        RecordingBuildListener buildListener = ProfilerInitializer.init(project, projectOptions);
+        ProfileAgent.INSTANCE.register(project.getName(), buildListener);
         threadRecorder = ThreadRecorder.get();
 
-        // initialize our workers using the project's options.
         Workers.INSTANCE.initFromProject(
                 projectOptions,
                 // possibly, in the future, consider using a pool with a dedicated size
@@ -280,7 +249,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
                 .setPluginGeneration(GradleBuildProject.PluginGeneration.FIRST)
                 .setOptions(AnalyticsUtil.toProto(projectOptions));
 
-        BuildableArtifactImpl.Companion.disableResolution();
         if (!projectOptions.get(BooleanOption.ENABLE_NEW_DSL_AND_API)) {
 
             threadRecorder.record(
@@ -353,31 +321,24 @@ public abstract class BasePlugin<E extends BaseExtension2>
 
         extraModelInfo = new ExtraModelInfo(project.getPath(), projectOptions, project.getLogger());
 
-        sdkHandler = new SdkHandler(project, getLogger());
-        if (!gradle.getStartParameter().isOffline()
-                && projectOptions.get(BooleanOption.ENABLE_SDK_DOWNLOAD)) {
-            SdkLibData sdkLibData = SdkLibData.download(getDownloader(), getSettingsController());
-            sdkHandler.setSdkLibData(sdkLibData);
-        }
+        final SyncIssueHandler syncIssueHandler = extraModelInfo.getSyncIssueHandler();
 
-        AndroidBuilder androidBuilder =
-                new AndroidBuilder(
-                        project == project.getRootProject() ? project.getName() : project.getPath(),
-                        creator,
-                        new GradleProcessExecutor(project),
-                        new GradleJavaProcessExecutor(project),
-                        extraModelInfo.getSyncIssueHandler(),
-                        extraModelInfo.getMessageReceiver(),
+        SdkComponents sdkComponents =
+                SdkComponents.Companion.createSdkComponents(
+                        project,
+                        projectOptions,
+                        // We pass a supplier here because extension will only be set later.
+                        this::getExtension,
                         getLogger(),
-                        isVerbose());
+                        syncIssueHandler);
+
         dataBindingBuilder = new DataBindingBuilder();
         dataBindingBuilder.setPrintMachineReadableOutput(
                 SyncOptions.getErrorFormatMode(projectOptions) == ErrorFormatMode.MACHINE_PARSABLE);
 
         if (projectOptions.hasRemovedOptions()) {
-            androidBuilder
-                    .getIssueReporter()
-                    .reportWarning(Type.GENERIC, projectOptions.getRemovedOptionsErrorMessage());
+            syncIssueHandler.reportWarning(
+                    Type.GENERIC, projectOptions.getRemovedOptionsErrorMessage());
         }
 
         if (projectOptions.hasDeprecatedOptions()) {
@@ -393,17 +354,14 @@ public abstract class BasePlugin<E extends BaseExtension2>
         }
 
         // Enforce minimum versions of certain plugins
-        GradlePluginUtils.enforceMinimumVersionsOfPlugins(
-                project, androidBuilder.getIssueReporter());
+        GradlePluginUtils.enforceMinimumVersionsOfPlugins(project, syncIssueHandler);
 
         // Apply the Java plugin
         project.getPlugins().apply(JavaBasePlugin.class);
 
         DslScopeImpl dslScope =
                 new DslScopeImpl(
-                        extraModelInfo.getSyncIssueHandler(),
-                        extraModelInfo.getDeprecationReporter(),
-                        objectFactory);
+                        syncIssueHandler, extraModelInfo.getDeprecationReporter(), objectFactory);
 
         @Nullable
         FileCache buildCache = BuildCacheUtils.createBuildCacheIfEnabled(project, projectOptions);
@@ -411,18 +369,21 @@ public abstract class BasePlugin<E extends BaseExtension2>
         globalScope =
                 new GlobalScope(
                         project,
+                        creator,
                         new ProjectWrapper(project),
                         projectOptions,
                         dslScope,
-                        androidBuilder,
-                        sdkHandler,
+                        sdkComponents,
                         registry,
-                        buildCache);
+                        buildCache,
+                        extraModelInfo.getMessageReceiver());
 
         project.getTasks()
-                .getByName("assemble")
-                .setDescription(
-                        "Assembles all variants of all applications and secondary packages.");
+                .named("assemble")
+                .configure(
+                        task ->
+                                task.setDescription(
+                                        "Assembles all variants of all applications and secondary packages."));
 
         // call back on execution. This is called after the whole build is done (not
         // after the current project is done).
@@ -431,9 +392,7 @@ public abstract class BasePlugin<E extends BaseExtension2>
         gradle.addBuildListener(
                 new BuildListener() {
                     @Override
-                    public void buildStarted(@NonNull Gradle gradle) {
-                        BuildableArtifactImpl.Companion.disableResolution();
-                    }
+                    public void buildStarted(@NonNull Gradle gradle) {}
 
                     @Override
                     public void settingsEvaluated(@NonNull Settings settings) {}
@@ -450,15 +409,21 @@ public abstract class BasePlugin<E extends BaseExtension2>
                         if (buildResult.getGradle().getParent() != null) {
                             return;
                         }
-                        sdkHandler.unload();
+                        ModelBuilder.clearCaches();
+                        Workers.INSTANCE.shutdown();
+                        sdkComponents.unload();
+                        SdkLocator.resetCache();
                         threadRecorder.record(
                                 ExecutionType.BASE_PLUGIN_BUILD_FINISHED,
                                 project.getPath(),
                                 null,
                                 () -> {
-                                    WorkerActionServiceRegistry.INSTANCE
-                                            .shutdownAllRegisteredServices(
-                                                    ForkJoinPool.commonPool());
+                                    if (!projectOptions.get(
+                                            BooleanOption.KEEP_SERVICES_BETWEEN_BUILDS)) {
+                                        WorkerActionServiceRegistry.INSTANCE
+                                                .shutdownAllRegisteredServices(
+                                                        ForkJoinPool.commonPool());
+                                    }
                                     Main.clearInternTables();
                                 });
                         DeprecationReporterImpl.Companion.clean();
@@ -510,14 +475,18 @@ public abstract class BasePlugin<E extends BaseExtension2>
 
         project.getExtensions().add("buildOutputs", buildOutputs);
 
-        sourceSetManager = createSourceSetManager();
+        sourceSetManager =
+                new SourceSetManager(
+                        project,
+                        isPackagePublished(),
+                        globalScope.getDslScope(),
+                        new DelayedActionsExecutor());
 
         extension =
                 createExtension(
                         project,
                         projectOptions,
                         globalScope,
-                        sdkHandler,
                         buildTypeContainer,
                         productFlavorContainer,
                         signingConfigContainer,
@@ -536,7 +505,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
                         projectOptions,
                         dataBindingBuilder,
                         extension,
-                        sdkHandler,
                         variantFactory,
                         registry,
                         threadRecorder);
@@ -591,10 +559,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
             @NonNull VariantManager variantManager,
             @NonNull AndroidConfig config,
             @NonNull ExtraModelInfo extraModelInfo) {
-        // The call to ModelBuilder to clear caches should take place after the Gradle version check
-        // (https://issuetracker.google.com/73383831) but before the builder is used.
-        ModelBuilder.clearCaches();
-
         // Register a builder for the custom tooling model
         registerModelBuilder(registry, globalScope, variantManager, config, extraModelInfo);
 
@@ -617,9 +581,7 @@ public abstract class BasePlugin<E extends BaseExtension2>
                         taskManager,
                         config,
                         extraModelInfo,
-                        new NativeLibraryFactoryImpl(globalScope.getNdkHandler()),
-                        getProjectType(),
-                        AndroidProject.GENERATION_ORIGINAL));
+                        getProjectType()));
     }
 
     private static class UnsupportedAction implements Action<Object> {
@@ -688,11 +650,7 @@ public abstract class BasePlugin<E extends BaseExtension2>
     @VisibleForTesting
     final void createAndroidTasks() {
         // Make sure unit tests set the required fields.
-        checkState(extension.getBuildToolsRevision() != null,
-                "buildToolsVersion is not specified.");
         checkState(extension.getCompileSdkVersion() != null, "compileSdkVersion is not specified.");
-
-        globalScope.getNdkHandler().setCompileSdkVersion(extension.getCompileSdkVersion());
         extension
                 .getCompileOptions()
                 .setDefaultJavaVersion(
@@ -719,23 +677,17 @@ public abstract class BasePlugin<E extends BaseExtension2>
                     .reportWarning(EvalIssueReporter.Type.GENERIC, warningMsg);
         }
 
-        boolean targetSetupSuccess = ensureTargetSetup();
-        sdkHandler.ensurePlatformToolsIsInstalledWarnOnFailure(
-                extraModelInfo.getSyncIssueHandler());
-        // Stop trying to configure the project if the SDK is not ready.
-        // Sync issues will already have been collected at this point in sync.
-        if (!targetSetupSuccess) {
-            project.getLogger()
-                    .warn("Aborting configuration as SDK is missing components in sync mode.");
+        // TODO(112700217): Only force the SDK resolution when in sync mode. Also move this to
+        // as late as possible so we configure most tasks as possible  during sync.
+        if (globalScope.getSdkComponents().getSdkFolder() == null) {
             return;
         }
-
         // don't do anything if the project was not initialized.
         // Unless TEST_SDK_DIR is set in which case this is unit tests and we don't return.
         // This is because project don't get evaluated in the unit test setup.
         // See AppPluginDslTest
         if ((!project.getState().getExecuted() || project.getState().getFailure() != null)
-                && SdkHandler.sTestSdkFolder == null) {
+                && SdkLocator.getSdkTestDirectory() == null) {
             return;
         }
 
@@ -759,16 +711,10 @@ public abstract class BasePlugin<E extends BaseExtension2>
                     .setKotlinPluginVersion(kotlinPluginVersion);
         }
 
-        // setup SDK repositories.
-        if (projectOptions.get(BooleanOption.INJECT_SDK_MAVEN_REPOS)) {
-            sdkHandler.addLocalRepositories(project);
-        }
-
         List<VariantScope> variantScopes = variantManager.createAndroidTasks();
 
         ApiObjectFactory apiObjectFactory =
                 new ApiObjectFactory(
-                        globalScope.getAndroidBuilder(),
                         extension,
                         variantFactory,
                         project.getObjects());
@@ -810,7 +756,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
         }
 
         checkSplitConfiguration();
-        BuildableArtifactImpl.Companion.enableResolution();
         variantManager.setHasCreatedTasks(true);
     }
 
@@ -856,29 +801,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
                                     + "To learn more, see "
                                     + configApkUrl);
         }
-    }
-
-    private boolean isVerbose() {
-        return project.getLogger().isEnabled(LogLevel.INFO);
-    }
-
-    private boolean ensureTargetSetup() {
-        // check if the target has been set.
-        TargetInfo targetInfo = globalScope.getAndroidBuilder().getTargetInfo();
-        // noinspection VariableNotUsedInsideIf Directly checking if initialized.
-        if (targetInfo != null) {
-            return true;
-        }
-        if (extension.getCompileOptions() == null) {
-            throw new GradleException("Calling getBootClasspath before compileSdkVersion");
-        }
-
-        return sdkHandler.initTarget(
-                extension.getCompileSdkVersion(),
-                extension.getBuildToolsRevision(),
-                extension.getLibraryRequests(),
-                globalScope.getAndroidBuilder(),
-                SdkHandler.useCachedSdk(projectOptions));
     }
 
     /**
@@ -940,94 +862,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
         return registry;
     }
 
-    private SettingsController getSettingsController() {
-        Proxy proxy = createProxy(System.getProperties(), getLogger());
-        return new SettingsController() {
-            @Override
-            public boolean getForceHttp() {
-                return false;
-            }
-
-            @Override
-            public void setForceHttp(boolean force) {
-                // Default, doesn't allow to set force HTTP.
-            }
-
-            @Nullable
-            @Override
-            public Channel getChannel() {
-                Integer channel = projectOptions.get(IntegerOption.ANDROID_SDK_CHANNEL);
-                if (channel != null) {
-                    return Channel.create(channel);
-                } else {
-                    return Channel.DEFAULT;
-                }
-            }
-
-            @NonNull
-            @Override
-            public Proxy getProxy() {
-                return proxy;
-            }
-        };
-    }
-
-    @VisibleForTesting
-    static Proxy createProxy(@NonNull Properties properties, @NonNull ILogger logger) {
-        String host = properties.getProperty("https.proxyHost");
-        int port = 443;
-        if (host != null) {
-            String maybePort = properties.getProperty("https.proxyPort");
-            if (maybePort != null) {
-                try {
-                    port = Integer.parseInt(maybePort);
-                } catch (NumberFormatException e) {
-                    logger.lifecycle(
-                            "Invalid https.proxyPort '" + maybePort + "', using default 443");
-                }
-            }
-        }
-        else {
-            host = properties.getProperty("http.proxyHost");
-            //noinspection VariableNotUsedInsideIf
-            if (host != null) {
-                port = 80;
-                String maybePort = properties.getProperty("http.proxyPort");
-                if (maybePort != null) {
-                    try {
-                        port = Integer.parseInt(maybePort);
-                    } catch (NumberFormatException e) {
-                        logger.lifecycle(
-                                "Invalid http.proxyPort '" + maybePort + "', using default 80");
-                    }
-                }
-            }
-        }
-        if (host != null) {
-            InetSocketAddress proxyAddr = createAddress(host, port);
-            if (proxyAddr != null) {
-                return new Proxy(Proxy.Type.HTTP, proxyAddr);
-            }
-        }
-        return Proxy.NO_PROXY;
-
-    }
-
-    private static InetSocketAddress createAddress(String proxyHost, int proxyPort) {
-        try {
-            InetAddress address = InetAddress.getByName(proxyHost);
-            return new InetSocketAddress(address, proxyPort);
-        } catch (UnknownHostException e) {
-            new ConsoleProgressIndicator().logWarning("Failed to parse host " + proxyHost);
-            return null;
-        }
-    }
-
-    private Downloader getDownloader() {
-        return new LocalFileAwareDownloader(
-                new LegacyDownloader(FileOpUtils.create(), getSettingsController()));
-    }
-
     /**
      * returns the kotlin plugin version, or null if plugin is not applied to this project, or
      * "unknown" if plugin is applied but version can't be determined.
@@ -1049,17 +883,6 @@ public abstract class BasePlugin<E extends BaseExtension2>
             // if kotlin plugin code changes unexpectedly.
             return "unknown";
         }
-    }
-
-    private SourceSetManager createSourceSetManager() {
-        return new SourceSetManager(
-                project,
-                isPackagePublished(),
-                new DslScopeImpl(
-                        extraModelInfo.getSyncIssueHandler(),
-                        extraModelInfo.getDeprecationReporter(),
-                        project.getObjects()),
-                new DelayedActionsExecutor());
     }
 
     /**

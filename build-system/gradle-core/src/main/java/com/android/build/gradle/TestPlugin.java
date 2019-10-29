@@ -20,7 +20,6 @@ import android.databinding.tool.DataBindingBuilder;
 import com.android.annotations.NonNull;
 import com.android.build.gradle.api.BaseVariantOutput;
 import com.android.build.gradle.internal.ExtraModelInfo;
-import com.android.build.gradle.internal.SdkHandler;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.TestApplicationTaskManager;
 import com.android.build.gradle.internal.api.dsl.extensions.TestExtensionImpl;
@@ -42,7 +41,7 @@ import org.gradle.api.NamedDomainObjectContainer;
 import org.gradle.api.Project;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
-/** Gradle plugin class for 'application' projects. */
+/** Gradle plugin class for 'test' projects. */
 public class TestPlugin extends BasePlugin<TestExtensionImpl> {
     @Inject
     public TestPlugin(ToolingModelBuilderRegistry registry) {
@@ -60,7 +59,6 @@ public class TestPlugin extends BasePlugin<TestExtensionImpl> {
             @NonNull Project project,
             @NonNull ProjectOptions projectOptions,
             @NonNull GlobalScope globalScope,
-            @NonNull SdkHandler sdkHandler,
             @NonNull NamedDomainObjectContainer<BuildType> buildTypeContainer,
             @NonNull NamedDomainObjectContainer<ProductFlavor> productFlavorContainer,
             @NonNull NamedDomainObjectContainer<SigningConfig> signingConfigContainer,
@@ -74,7 +72,6 @@ public class TestPlugin extends BasePlugin<TestExtensionImpl> {
                         project,
                         projectOptions,
                         globalScope,
-                        sdkHandler,
                         buildTypeContainer,
                         productFlavorContainer,
                         signingConfigContainer,
@@ -97,7 +94,6 @@ public class TestPlugin extends BasePlugin<TestExtensionImpl> {
             @NonNull ProjectOptions projectOptions,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig androidConfig,
-            @NonNull SdkHandler sdkHandler,
             @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
@@ -107,7 +103,6 @@ public class TestPlugin extends BasePlugin<TestExtensionImpl> {
                 projectOptions,
                 dataBindingBuilder,
                 androidConfig,
-                sdkHandler,
                 variantFactory,
                 toolingRegistry,
                 recorder);

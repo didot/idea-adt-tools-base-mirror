@@ -16,10 +16,13 @@
 
 package com.android.build.gradle.internal.res.namespaced
 
+import com.android.ide.common.symbols.Symbol
+import com.android.ide.common.symbols.SymbolIo
 import com.android.ide.common.symbols.SymbolTable
 import com.android.ide.common.xml.XmlFormatPreferences
 import com.android.ide.common.xml.XmlFormatStyle
 import com.android.ide.common.xml.XmlPrettyPrinter
+import com.android.resources.ResourceType
 import com.android.testutils.TestResources
 import com.android.testutils.truth.PathSubject
 import com.android.testutils.truth.PathSubject.assertThat
@@ -35,6 +38,7 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.StringWriter
+import java.lang.reflect.InvocationTargetException
 import java.net.URLClassLoader
 import java.nio.file.Files
 import java.nio.file.Path
@@ -154,13 +158,14 @@ class NamespaceRewriterTest {
         )
             .rewriteClass(testClass.toPath(), testClass.toPath())
 
-        assertThat(logger.warnings).hasSize(2)
-        assertThat(logger.warnings[0]).contains(
+        assertThat(logger.warnings).hasSize(0)
+        assertThat(logger.infos).hasSize(2)
+        assertThat(logger.infos[0]).contains(
             "In package com.example.mymodule multiple options found in its dependencies for " +
                     "resource string s1. Using com.example.mymodule, other available: " +
                     "com.example.libB"
         )
-        assertThat(logger.warnings[1]).contains(
+        assertThat(logger.infos[1]).contains(
             "In package com.example.mymodule multiple options found in its dependencies for " +
                     "resource string s2. Using com.example.dependency, other available: " +
                     "com.example.libA, com.example.libB"
@@ -192,13 +197,143 @@ class NamespaceRewriterTest {
     }
 
     @Test
+    fun rewriteStyleableChildrenInBytecode() {
+        // Setup:
+        // lib.A -> lib.B -> lib.C
+        // We will rewrite all references in LibA to styleable children to be namespaced.
+
+        // Get the not-namespaced bytecode first.
+        val notNamespacedBytecode = getLibANotNamespacedBytecode()
+
+        // Setting up the Symbol Tables for the re-writer. We will also use them to write the
+        // namespaced R classes for Lib A and Lib B.
+        val libASymbols = SymbolTable.builder()
+            .tablePackage("lib.A")
+            .add(
+                Symbol.StyleableSymbol(
+                    "s2",
+                    ImmutableList.of(),
+                    ImmutableList.of("attr1", "attr2", "attr3", "attr4")))
+            .add(symbol("attr", "attr1", true))
+            .add(symbol("attr", "attr2", true))
+            .add(symbol("attr", "attr3", true))
+            .add(symbol("attr", "attr4")) // only this was actually defined
+            .build()
+        val libBSymbols = SymbolTable.builder()
+            .tablePackage("lib.B")
+            .add(Symbol.StyleableSymbol(
+                "s1",
+                ImmutableList.of(),
+                ImmutableList.of("attr1", "attr2")))
+            .add(symbol("attr", "attr1", true))
+            .add(symbol("attr", "attr2", true))
+            .add(symbol("attr", "attr3"))
+            .build()
+        val libCSymbols = SymbolTable.builder()
+            .tablePackage("lib.C")
+            .add(symbol("attr", "attr1"))
+            .build()
+
+        // The URL class loader needs to take the base directory, not the .class file directly.
+        val namespacedLibADir = temporaryFolder.newFolder()
+        val namespacedLibABytecode = FileUtils.join(namespacedLibADir, "lib", "A", "LibA.class")
+        FileUtils.mkdirs(namespacedLibABytecode.parentFile)
+        val rewriter = NamespaceRewriter(ImmutableList.of(libASymbols, libBSymbols, libCSymbols))
+
+        // Rewrite the bytecode to be namespaced. This is the main thing being tested in this test.
+        rewriter.rewriteClass(notNamespacedBytecode.toPath(), namespacedLibABytecode.toPath())
+
+        // We only need R classes for Lib A and Lib B, since we're not referencing anything from
+        // Lib C directly.
+        val namespacedRJars = temporaryFolder.newFolder()
+        val namespacedLibARJar = FileUtils.join(namespacedRJars, "LibA.jar")
+        rewriter.writeRClass(namespacedLibARJar.toPath())
+        val namespacedLibBRJar = FileUtils.join(namespacedRJars, "LibB.jar")
+        NamespaceRewriter(ImmutableList.of(libBSymbols, libCSymbols))
+            .writeRClass(namespacedLibBRJar.toPath())
+
+        // Let's make sure everything still works after the rewriting and using the namespaced R
+        // classes.
+        var urls = arrayOf(
+            namespacedLibARJar.toURI().toURL(),
+            namespacedLibBRJar.toURI().toURL(),
+            namespacedLibADir.toURI().toURL())
+        URLClassLoader(urls, null).use { classLoader ->
+            // Load the rewritten class. We have the namespaced R classes and not the original
+            // non-namespaced R class, so all the references need to be rewritten correctly for this
+            // to load.
+            val testC = classLoader.loadClass("lib.A.LibA")
+            val method = testC.getMethod("test")
+            val result = method.invoke(null) as Int
+            // The values we use are fake IDs of 1, so the sum should be 7 (just to make sure
+            // the references resolve correctly).
+            assertThat(result).isEqualTo(7)
+        }
+
+        // Now try without the R class for lib B. It should fail to resolve lib.B.R.styleable.
+        urls = arrayOf(
+            namespacedLibARJar.toURI().toURL(),
+            namespacedLibADir.toURI().toURL())
+        val e = assertFailsWith<InvocationTargetException> {
+            URLClassLoader(urls, null).use { classLoader ->
+                val testC = classLoader.loadClass("lib.A.LibA")
+                val method = testC.getMethod("test")
+                method.invoke(null) as Int
+            }
+        }
+        assertThat(e).hasCauseThat().hasMessageThat().contains("lib/B/R\$styleable")
+    }
+
+    private fun getLibANotNamespacedBytecode(): File {
+        // Create non-namespaced R class so the original lib.A java sources can compile. It contains
+        // All the resources from Lib A, Lib B and Lib C.
+        val rSource = temporaryFolder.newFolder()
+        val libANotNamespacedSymbols = SymbolTable.builder()
+            .tablePackage("lib.A")
+            .add(
+                Symbol.StyleableSymbol(
+                    "s1",
+                    ImmutableList.of(),
+                    ImmutableList.of("attr1", "attr2")))
+            .add(
+                Symbol.StyleableSymbol(
+                    "s2",
+                    ImmutableList.of(),
+                    ImmutableList.of("attr1", "attr2", "attr3", "attr4")))
+            .add(symbol("attr", "attr1"))
+            .add(symbol("attr", "attr2"))
+            .add(symbol("attr", "attr3"))
+            .add(symbol("attr", "attr4"))
+            .build()
+        // Non-final IDs since we don't want the values to get inlined!
+        SymbolIo.exportToJava(libANotNamespacedSymbols, rSource, false)
+        val notNamespacedRJava = FileUtils.join(rSource, "lib", "A", "R.java")
+        assertThat(notNamespacedRJava).exists()
+
+        // Get the lib.A non-namespaced java sources.
+        val notNamespacedSources = getFile("LibA.java")
+        assertThat(notNamespacedSources).exists()
+
+        // Compile everything.
+        val output = temporaryFolder.newFolder("out")
+        compileSources(ImmutableList.of(notNamespacedRJava, notNamespacedSources), output)
+
+        val compiledNotNamespacedSources = FileUtils.join(output, "lib", "A", "LibA.class")
+        assertThat(compiledNotNamespacedSources).exists()
+
+        // We only care about the LibA.class (it doesn't have sub-classes and we don't want the
+        // non-namespaced R class), return it.
+        return compiledNotNamespacedSources
+    }
+
+    @Test
     fun rewriteJar() {
         setBytecodeUp()
         val aarsDir = temporaryFolder.newFolder("aars")
         val inputJar = File(aarsDir, "classes.jar")
         val outputJar = File(aarsDir, "namespaced-classes.jar")
 
-        ZFile(inputJar).use {
+        ZFile.openReadWrite(inputJar).use {
             it.add("com/example/mymodule/Test.class", testClass.inputStream())
             it.add("com/example/mymodule/Test2.class", test2Class.inputStream())
         }
@@ -218,7 +353,7 @@ class NamespaceRewriterTest {
             outputJar
         )
         assertThat(outputJar).exists()
-        ZFile(outputJar).use {
+        ZFile.openReadWrite(outputJar).use {
             it.add("com/example/mymodule/R.class", moduleRClass.inputStream())
             it.add("com/example/mymodule/R\$string.class", moduleRStringClass.inputStream())
             it.add("com/example/dependency/R.class", dependencyRClass.inputStream())
@@ -340,11 +475,18 @@ class NamespaceRewriterTest {
         </attr>
     </declare-styleable>
 
+    <declare-styleable name="NoParent" />
+
+    <declare-styleable name="UnnecessaryParent" parent="invalidParentReference" />
+
+    <style name="MyStyleFromAndroid" parent="android:Parent.Theme.Style"/>
+
 </resources>"""
         )
         val namespaced = File(temporaryFolder.newFolder("namespaced", "values"), "values.xml")
         val localTable = SymbolTable.builder()
                 .tablePackage("com.example.local")
+                .add(symbol("attr", "showText"))
                 .build()
         val moduleTable = SymbolTable.builder()
             .tablePackage("com.example.module")
@@ -353,7 +495,6 @@ class NamespaceRewriterTest {
             .add(symbol("string", "string")) // just make sure we don't rewrite the types
             .add(symbol("string", "activity_name")) // overrides library string
             .add(symbol("string", "activity_ref")) // to make sure we will reference the app one
-            .add(symbol("attr", "showText"))
             .add(symbol("attr", "labelPosition"))
             .build()
         val dependencyTable = SymbolTable.builder()
@@ -387,16 +528,23 @@ class NamespaceRewriterTest {
     <style name="MyStyle2" parent="@*com.example.dependency:style/StyleParent">
         <item name="android:textSize">20sp</item>
         <item name="android:textColor">#008</item>
-        <item name="*com.example.module:showText">true</item>
+        <item name="showText">true</item>
     </style>
 
-    <declare-styleable name="PieChart" parent="@*com.example.dependency:styleable/StyleableParent">
-        <attr name="*com.example.module:showText" format="boolean" />
+    <declare-styleable name="PieChart">
+        <attr name="showText" format="boolean" />
         <attr name="*com.example.module:labelPosition" format="enum">
             <enum name="left" value="0" />
             <enum name="right" value="1" />
         </attr>
     </declare-styleable>
+
+    <declare-styleable name="NoParent" />
+
+    <declare-styleable name="UnnecessaryParent" />
+
+    <style name="MyStyleFromAndroid" parent="android:Parent.Theme.Style" />
+
 </resources>""".xmlFormat()
         )
     }
@@ -689,27 +837,76 @@ class NamespaceRewriterTest {
 
 
     @Test
-    fun checkPublicFileGeneration() {
+    fun checkPublicFileGenerationWithPublicTxt() {
         val moduleTable = SymbolTable.builder()
             .tablePackage("com.example.module")
             .add(symbol("color", "abc_color_highlight_material"))
             .add(symbol("style", "Base.Widget.Design.TabLayout"))
             .add(symbol("string", "private"))
+            .add(symbol("attr", "normal_attr"))
+            .add(symbol("attr", "local_attr", true))
+            .add(symbol("attr", "remote_attr", true))
+            .add(symbol("attr", "private_attr"))
             .build()
 
         val publicTable = SymbolTable.builder()
             .tablePackage("com.example.module")
             .add(symbol("color", "abc_color_highlight_material"))
             .add(symbol("style", "Base_Widget_Design_TabLayout"))
+            .add(symbol("attr", "local_attr"))
+            .add(symbol("attr", "normal_attr"))
             .build()
 
+        val dependencyTable = SymbolTable.builder()
+            .tablePackage("com.example.dependency")
+            .add(symbol("attr", "remote_attr"))
+            .build()
+
+        val namespaceRewriter = NamespaceRewriter(ImmutableList.of(moduleTable, dependencyTable))
+
         val result = StringWriter().apply {
-            writePublicFile(this, moduleTable, publicTable)
+            namespaceRewriter.writePublicFile(this, moduleTable, publicTable)
         }.toString().trim()
 
         assertThat(result).isEqualTo("""
             <resources>
+            <public name="local_attr" type="attr" />
+            <public name="normal_attr" type="attr" />
             <public name="abc_color_highlight_material" type="color" />
+            <public name="Base.Widget.Design.TabLayout" type="style" />
+            </resources>
+        """.xmlFormat())
+    }
+
+    @Test
+    fun checkPublicFileGenerationWithoutPublicTxt() {
+        val moduleTable = SymbolTable.builder()
+            .tablePackage("com.example.module")
+            .add(symbol("color", "abc_color_highlight_material"))
+            .add(symbol("style", "Base.Widget.Design.TabLayout"))
+            .add(symbol("string", "local"))
+            .add(symbol("attr", "normal_attr"))
+            .add(symbol("attr", "local_attr", true))
+            .add(symbol("attr", "remote_attr", true))
+            .build()
+
+        val dependencyTable = SymbolTable.builder()
+            .tablePackage("com.example.dependency")
+            .add(symbol("attr", "remote_attr"))
+            .build()
+
+        val namespaceRewriter = NamespaceRewriter(ImmutableList.of(moduleTable, dependencyTable))
+
+        val result = StringWriter().apply {
+            namespaceRewriter.writePublicFile(this, moduleTable, moduleTable)
+        }.toString().trim()
+
+        assertThat(result).isEqualTo("""
+            <resources>
+            <public name="local_attr" type="attr" />
+            <public name="normal_attr" type="attr" />
+            <public name="abc_color_highlight_material" type="color" />
+            <public name="local" type="string" />
             <public name="Base.Widget.Design.TabLayout" type="style" />
             </resources>
         """.xmlFormat())
@@ -939,6 +1136,82 @@ class NamespaceRewriterTest {
 
         val namespaceRewriter = NamespaceRewriter(ImmutableList.of(local, depOne, depTwo, depThree))
         checkAarRewrite(namespaceRewriter, "layout/layout.xml", from, to)
+    }
+
+    @Test
+    fun namespaceStyleablesTest() {
+        // We need to check different scenarios:
+        // - styleables that have no children
+        // - children that already have a namespace
+        // - children that are local and don't need a package
+        // - children that are remote and need to be rewritten to contain a package
+        val oldTable = SymbolTable.builder()
+            .tablePackage("com.local")
+            .add(Symbol.StyleableSymbol(
+                "styleable_no_children",
+                ImmutableList.of(), ImmutableList.of()))
+            .add(Symbol.StyleableSymbol(
+                "styleable_unchanged_remote_children",
+                ImmutableList.of(), ImmutableList.of("android:color", "android:font")))
+            .add(Symbol.StyleableSymbol(
+                "styleable_unchanged_local_children",
+                ImmutableList.of(), ImmutableList.of("local_real_attr", "local_maybe_attr")))
+            .add(Symbol.StyleableSymbol(
+                "styleable_changed_remote_children",
+                ImmutableList.of(), ImmutableList.of("remote_real_attr")))
+            .add(Symbol.StyleableSymbol(
+                "styleable_mixed",
+                ImmutableList.of(),
+                ImmutableList.of("android:color", "local_maybe_attr", "remote_real_attr")))
+            .add(symbol("attr", "local_real_attr"))
+            .add(symbol("attr", "local_maybe_attr", true))
+            .build()
+
+        val remoteTable = SymbolTable.builder()
+            .tablePackage("com.remote")
+            .add(symbol("attr", "remote_real_attr"))
+            .build()
+
+        val namespaceRewriter = NamespaceRewriter(ImmutableList.of(oldTable, remoteTable))
+        val fixedTableBuilder = SymbolTable.builder().tablePackage("com.local")
+        namespaceRewriter
+            .namespaceStyleables(
+                oldTable.getSymbolByResourceType(ResourceType.STYLEABLE), fixedTableBuilder)
+
+        // Check all styleables were kept.
+        val fixedTable = fixedTableBuilder.build()
+        assertThat(fixedTable.getSymbolByResourceType(ResourceType.STYLEABLE)).hasSize(5)
+
+        // Check no extra children were added.
+        val noChildren =
+            fixedTable.symbols.get(ResourceType.STYLEABLE, "styleable_no_children")
+        assertThat(noChildren.children).isEmpty()
+
+        // Check children with namespaces aren't modified.
+        val unchangedRemoteChildren =
+            fixedTable.symbols.get(ResourceType.STYLEABLE, "styleable_unchanged_remote_children")
+        assertThat(unchangedRemoteChildren.children).hasSize(2)
+        assertThat(unchangedRemoteChildren.children)
+            .containsExactly("android:color", "android:font")
+
+        // Check local children (defined as attrs or only under styleables) are not modified.
+        val unchangedLocalChildren =
+            fixedTable.symbols.get(ResourceType.STYLEABLE, "styleable_unchanged_local_children")
+        assertThat(unchangedLocalChildren.children).hasSize(2)
+        assertThat(unchangedLocalChildren.children)
+            .containsExactly("local_real_attr", "local_maybe_attr")
+
+        // Check that remote child now has a package.
+        val changedRemoteChildren =
+            fixedTable.symbols.get(ResourceType.STYLEABLE, "styleable_changed_remote_children")
+        assertThat(changedRemoteChildren.children).hasSize(1)
+        assertThat(changedRemoteChildren.children).containsExactly("com.remote:remote_real_attr")
+
+        // And finally check mixed case.
+        val mixed = fixedTable.symbols.get(ResourceType.STYLEABLE, "styleable_mixed")
+        assertThat(mixed.children).hasSize(3)
+        assertThat(mixed.children)
+            .containsExactly("android:color", "local_maybe_attr", "com.remote:remote_real_attr")
     }
 
     private fun checkAarRewrite(

@@ -34,11 +34,13 @@ import com.android.build.api.transform.Status;
 import com.android.build.api.transform.TransformInput;
 import com.android.build.api.transform.TransformInvocation;
 import com.android.build.api.transform.TransformOutputProvider;
+import com.android.build.gradle.internal.fixtures.FakeFileCollection;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.transforms.testdata.Animal;
 import com.android.build.gradle.internal.transforms.testdata.CarbonForm;
 import com.android.build.gradle.internal.transforms.testdata.Dog;
 import com.android.build.gradle.internal.transforms.testdata.Toy;
+import com.android.build.gradle.options.SyncOptions;
 import com.android.builder.core.DefaultDexOptions;
 import com.android.builder.dexing.DexerTool;
 import com.android.builder.utils.FileCache;
@@ -59,7 +61,6 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -82,7 +83,7 @@ import org.junit.runners.Parameterized;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
-/** Testing the {@link DexArchiveBuilderTransform} and {@link DexMergerTransform}. */
+/** Testing the {@link DexArchiveBuilderTransform}. */
 @RunWith(Parameterized.class)
 public class DexArchiveBuilderTransformTest {
     private File cacheDir;
@@ -334,12 +335,13 @@ public class DexArchiveBuilderTransformTest {
                 getTransform(userCache, 20, false);
         minAndDebuggableChangedTransform.transform(invocation);
         assertThat(cacheEntriesCount(cacheDir)).isEqualTo(4);
-
+        
         DexArchiveBuilderTransform useDifferentDexerTransform =
                 new DexArchiveBuilderTransformBuilder()
-                        .setAndroidJarClasspath(() -> Collections.emptyList())
+                        .setAndroidJarClasspath(new FakeFileCollection())
                         .setDexOptions(new DefaultDexOptions())
                         .setMessageReceiver(new NoOpMessageReceiver())
+                        .setErrorFormatMode(SyncOptions.ErrorFormatMode.HUMAN_READABLE)
                         .setUserLevelCache(userCache)
                         .setMinSdkVersion(20)
                         .setDexer(dexerTool == DexerTool.DX ? DexerTool.D8 : DexerTool.DX)
@@ -663,92 +665,6 @@ public class DexArchiveBuilderTransformTest {
     }
 
     @Test
-    public void testIrSlicingPerPackage() throws Exception {
-        Path folder = tmpDir.getRoot().toPath().resolve("dir_input");
-        dirWithEmptyClasses(
-                folder, ImmutableList.of(PACKAGE + "/A", PACKAGE + "/B", PACKAGE + "/C"));
-        TransformInput dirInput =
-                TransformTestHelper.directoryBuilder(folder.toFile())
-                        .setScope(QualifiedContent.Scope.PROJECT)
-                        .build();
-        TransformInvocation invocation =
-                TransformTestHelper.invocationBuilder()
-                        .setContext(context)
-                        .setInputs(ImmutableSet.of(dirInput))
-                        .setTransformOutputProvider(outputProvider)
-                        .build();
-        DexArchiveBuilderTransform transform =
-                new DexArchiveBuilderTransformBuilder()
-                        .setAndroidJarClasspath(Collections::emptyList)
-                        .setDexOptions(new DefaultDexOptions())
-                        .setMessageReceiver(new NoOpMessageReceiver())
-                        .setMinSdkVersion(21)
-                        .setDexer(dexerTool)
-                        .setIsDebuggable(true)
-                        .setJava8LangSupportType(VariantScope.Java8LangSupport.UNUSED)
-                        .setProjectVariant("myVariant")
-                        .setIsInstantRun(true)
-                        .createDexArchiveBuilderTransform();
-        transform.transform(invocation);
-
-        File dexA = Objects.requireNonNull(FileUtils.find(out.toFile(), "A.dex").orNull());
-        assertThat(dexA.toString()).contains("slice_");
-        assertThat(dexA.toPath().resolveSibling("B.dex")).exists();
-        assertThat(dexA.toPath().resolveSibling("C.dex")).exists();
-    }
-
-    @Test
-    public void testIrRemovedClasses() throws Exception {
-        Path folder = tmpDir.getRoot().toPath().resolve("dir_input");
-        dirWithEmptyClasses(
-                folder, ImmutableList.of(PACKAGE + "/A", PACKAGE + "/B", PACKAGE + "/C"));
-        TransformInput dirInput =
-                TransformTestHelper.directoryBuilder(folder.toFile())
-                        .setScope(QualifiedContent.Scope.PROJECT)
-                        .build();
-        TransformInvocation invocation =
-                TransformTestHelper.invocationBuilder()
-                        .setContext(context)
-                        .setInputs(ImmutableSet.of(dirInput))
-                        .setTransformOutputProvider(outputProvider)
-                        .build();
-        DexArchiveBuilderTransform transform =
-                new DexArchiveBuilderTransformBuilder()
-                        .setAndroidJarClasspath(Collections::emptyList)
-                        .setDexOptions(new DefaultDexOptions())
-                        .setMessageReceiver(new NoOpMessageReceiver())
-                        .setMinSdkVersion(21)
-                        .setDexer(dexerTool)
-                        .setIsDebuggable(true)
-                        .setJava8LangSupportType(VariantScope.Java8LangSupport.UNUSED)
-                        .setProjectVariant("myVariant")
-                        .setIsInstantRun(true)
-                        .createDexArchiveBuilderTransform();
-        transform.transform(invocation);
-
-        dirInput =
-                TransformTestHelper.directoryBuilder(folder.toFile())
-                        .setScope(QualifiedContent.Scope.PROJECT)
-                        .putChangedFiles(
-                                ImmutableMap.of(
-                                        folder.resolve(PACKAGE + "/A.class").toFile(),
-                                        Status.REMOVED))
-                        .build();
-        invocation =
-                TransformTestHelper.invocationBuilder()
-                        .setContext(context)
-                        .setInputs(ImmutableSet.of(dirInput))
-                        .setTransformOutputProvider(outputProvider)
-                        .setIncremental(true)
-                        .build();
-        transform.transform(invocation);
-
-        File dexA = Objects.requireNonNull(FileUtils.find(out.toFile(), "B.dex").orNull());
-        assertThat(dexA.toPath().resolveSibling("A.dex")).doesNotExist();
-        assertThat(dexA.toPath().resolveSibling("C.dex")).exists();
-    }
-
-    @Test
     public void testChangingStreamName() throws Exception {
         // make output provider that outputs based on name
         outputProvider =
@@ -780,9 +696,10 @@ public class DexArchiveBuilderTransformTest {
                         .build();
         DexArchiveBuilderTransform transform =
                 new DexArchiveBuilderTransformBuilder()
-                        .setAndroidJarClasspath(Collections::emptyList)
+                        .setAndroidJarClasspath(new FakeFileCollection())
                         .setDexOptions(new DefaultDexOptions())
                         .setMessageReceiver(new NoOpMessageReceiver())
+                        .setErrorFormatMode(SyncOptions.ErrorFormatMode.HUMAN_READABLE)
                         .setMinSdkVersion(21)
                         .setDexer(dexerTool)
                         .setIsDebuggable(true)
@@ -839,9 +756,10 @@ public class DexArchiveBuilderTransformTest {
 
         DexArchiveBuilderTransform transform =
                 new DexArchiveBuilderTransformBuilder()
-                        .setAndroidJarClasspath(Collections::emptyList)
+                        .setAndroidJarClasspath(new FakeFileCollection())
                         .setDexOptions(new DefaultDexOptions())
                         .setMessageReceiver(new NoOpMessageReceiver())
+                        .setErrorFormatMode(SyncOptions.ErrorFormatMode.HUMAN_READABLE)
                         .setUserLevelCache(userCache)
                         .setMinSdkVersion(21)
                         .setDexer(dexerTool)
@@ -877,9 +795,10 @@ public class DexArchiveBuilderTransformTest {
             @NonNull VariantScope.Java8LangSupport java8Support) {
 
         return new DexArchiveBuilderTransformBuilder()
-                .setAndroidJarClasspath(Collections::emptyList)
+                .setAndroidJarClasspath(new FakeFileCollection())
                 .setDexOptions(new DefaultDexOptions())
                 .setMessageReceiver(new NoOpMessageReceiver())
+                .setErrorFormatMode(SyncOptions.ErrorFormatMode.HUMAN_READABLE)
                 .setUserLevelCache(userCache)
                 .setMinSdkVersion(minSdkVersion)
                 .setDexer(dexerTool)
