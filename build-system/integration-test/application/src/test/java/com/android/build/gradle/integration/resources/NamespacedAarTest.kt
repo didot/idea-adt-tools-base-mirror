@@ -19,13 +19,13 @@ package com.android.build.gradle.integration.resources
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.fixture.app.MinimalSubProject
 import com.android.build.gradle.integration.common.fixture.app.MultiModuleTestProject
-import com.android.build.gradle.integration.common.utils.AssumeUtil
 import com.android.build.gradle.integration.common.utils.getDebugVariant
 import com.android.builder.model.AndroidProject
 import com.android.testutils.truth.FileSubject.assertThat
 import com.google.common.truth.Truth.assertThat
 import org.junit.Rule
 import org.junit.Test
+import java.nio.file.Files
 
 /**
  * Sanity tests for the new namespaced resource pipeline with publication and consumption of an aar.
@@ -43,7 +43,10 @@ class NamespacedAarTest {
             .appendToBuild(buildScriptContent)
             .withFile(
                     "src/main/res/values/strings.xml",
-                    """<resources><string name="foo">publishedLib</string></resources>""")
+                    """<resources>
+                        <string name="foo">publishedLib</string>
+                        <string name="my_version_name">1.0</string>
+                    </resources>""".trimMargin())
             .withFile(
                     "src/main/java/com/example/publishedLib/Example.java",
                     """package com.example.publishedLib;
@@ -51,6 +54,14 @@ class NamespacedAarTest {
                         public static int CONSTANT = 4;
                         public static int getFooString() { return R.string.foo; }
                     }""")
+            .withFile(
+                    "src/main/AndroidManifest.xml",
+                    """
+                                <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+                                         xmlns:dist="http://schemas.android.com/apk/distribution"
+                                    package="com.example.publishedLib"
+                                    android:versionName="@com.example.publishedLib:string/my_version_name">
+                                </manifest>""")
 
     val lib = MinimalSubProject.lib("com.example.lib")
             .appendToBuild(
@@ -81,7 +92,6 @@ class NamespacedAarTest {
                     "src/main/res/values/strings.xml",
                     """<resources>
                         <string name="mystring">My String</string>
-                        <string name="from_lib1">@*com.example.publishedLib:string/foo</string>
                     </resources>""")
             .withFile(
                     "src/main/java/com/example/app/Example.java",
@@ -107,7 +117,6 @@ class NamespacedAarTest {
 
     @Test
     fun checkBuilds() {
-        AssumeUtil.assumeNotWindowsBot() // https://issuetracker.google.com/70931936
         project.executor().run(":publishedLib:assembleRelease")
         project.executor().run(":lib:assembleDebug", ":app:assembleDebug")
 
@@ -132,6 +141,16 @@ class NamespacedAarTest {
             val lib = models.globalLibraryMap.libraries[libraries.single().artifactAddress]!!
             assertThat(lib.resStaticLibrary).exists()
         }
-    }
 
+        // Check that the AndroidManifest.xml in the AAR does not contain namespaces.
+        val aar = project.getSubproject("publishedLib").getAar("release")
+        assertThat(aar.exists()).isTrue()
+        val manifest = aar.getEntry("AndroidManifest.xml")!!
+        Files.readAllLines(manifest).forEach {
+            assertThat(it).doesNotContain("@com.example.publishedLib:string/my_version_name")
+        }
+        assertThat(Files.readAllLines(manifest).any { it.contains ("@string/my_version_name")})
+            .isTrue()
+        // TODO: use the full namespaced manifest when creating res.apk and test its contents.
+    }
 }

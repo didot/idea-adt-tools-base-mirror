@@ -16,7 +16,9 @@
 
 package com.android.build.gradle.integration.application;
 
+import static com.android.build.gradle.integration.common.fixture.TestVersions.ANDROID_ARCH_VERSION;
 import static com.android.build.gradle.integration.common.fixture.TestVersions.PLAY_SERVICES_VERSION;
+import static com.android.build.gradle.integration.common.fixture.TestVersions.SUPPORT_LIB_VERSION;
 import static com.android.build.gradle.integration.common.truth.TruthHelper.assertThat;
 import static com.android.build.gradle.integration.common.utils.LibraryGraphHelper.Property.COORDINATES;
 import static com.android.build.gradle.integration.common.utils.LibraryGraphHelper.Type.ANDROID;
@@ -27,7 +29,6 @@ import com.android.annotations.NonNull;
 import com.android.build.OutputFile;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.ModelContainer;
-import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.utils.AndroidProjectUtils;
 import com.android.build.gradle.integration.common.utils.LibraryGraphHelper;
 import com.android.build.gradle.integration.common.utils.ProductFlavorHelper;
@@ -75,8 +76,8 @@ public class BasicTest2 {
     private static final Set<String> coordinates =
             ImmutableSet.of(
                     "com.google.android.gms:play-services-base:" + PLAY_SERVICES_VERSION + "@aar",
-                    "com.android.support:support-v13:" + TestVersions.SUPPORT_LIB_VERSION + "@aar",
-                    "com.android.support:support-v4:" + TestVersions.SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:support-v13:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:support-v4:" + SUPPORT_LIB_VERSION + "@aar",
                     "com.google.android.gms:play-services-tasks:" + PLAY_SERVICES_VERSION + "@aar",
                     "com.google.android.gms:play-services-basement:"
                             + PLAY_SERVICES_VERSION
@@ -84,22 +85,30 @@ public class BasicTest2 {
                     "com.google.android.gms:play-services-basement:"
                             + PLAY_SERVICES_VERSION
                             + "@aar",
-                    "com.android.support:support-fragment:"
-                            + TestVersions.SUPPORT_LIB_VERSION
-                            + "@aar",
-                    "com.android.support:support-media-compat:"
-                            + TestVersions.SUPPORT_LIB_VERSION
-                            + "@aar",
-                    "com.android.support:support-core-ui:"
-                            + TestVersions.SUPPORT_LIB_VERSION
-                            + "@aar",
-                    "com.android.support:support-core-utils:"
-                            + TestVersions.SUPPORT_LIB_VERSION
-                            + "@aar",
-                    "com.android.support:support-compat:"
-                            + TestVersions.SUPPORT_LIB_VERSION
-                            + "@aar",
-                    "android.arch.lifecycle:runtime:1.0.3@aar");
+                    "com.android.support:loader:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:viewpager:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:coordinatorlayout:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:drawerlayout:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:slidingpanelayout:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:customview:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:swiperefreshlayout:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:asynclayoutinflater:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:versionedparcelable:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:documentfile:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:localbroadcastmanager:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:print:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:interpolator:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:cursoradapter:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:support-fragment:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:support-media-compat:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:support-core-ui:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:support-core-utils:" + SUPPORT_LIB_VERSION + "@aar",
+                    "com.android.support:support-compat:" + SUPPORT_LIB_VERSION + "@aar",
+                    "android.arch.lifecycle:runtime:" + ANDROID_ARCH_VERSION + "@aar",
+                    "android.arch.lifecycle:livedata:" + ANDROID_ARCH_VERSION + "@aar",
+                    "android.arch.lifecycle:livedata-core:" + ANDROID_ARCH_VERSION + "@aar",
+                    "android.arch.core:runtime:" + ANDROID_ARCH_VERSION + "@aar",
+                    "android.arch.lifecycle:viewmodel:" + ANDROID_ARCH_VERSION + "@aar");
 
     public static ModelContainer<AndroidProject> modelContainer;
     public static ProjectBuildOutput outputModel;
@@ -107,8 +116,7 @@ public class BasicTest2 {
     @BeforeClass
     public static void getModel() throws Exception {
         outputModel =
-                project.executeAndReturnModel(
-                        ProjectBuildOutput.class, "clean", "assemble", "assembleAndroidTest");
+                project.executeAndReturnOutputModel("clean", "assemble", "assembleAndroidTest");
         // basic project overwrites buildConfigField which emits a sync warning
         modelContainer = project.model().ignoreSyncIssues().fetchAndroidProjects();
         modelContainer
@@ -144,7 +152,7 @@ public class BasicTest2 {
                 .setVersionName("2.0")
                 .setMinSdkVersion(16)
                 .setTargetSdkVersion(16)
-                .setTestInstrumentationRunner("android.test.InstrumentationTestRunner")
+                .setTestInstrumentationRunner("android.support.test.runner.AndroidJUnitRunner")
                 .setTestHandleProfiling(Boolean.FALSE)
                 .setTestFunctionalTest(null)
                 .test();
@@ -191,11 +199,10 @@ public class BasicTest2 {
         assertThat(helper.on(compileGraph).withType(JAVA).mapTo(COORDINATES))
                 .named("debug compile java libs")
                 .containsExactly(
-                        "com.android.support:support-annotations:"
-                                + TestVersions.SUPPORT_LIB_VERSION
-                                + "@jar",
-                        "android.arch.lifecycle:common:1.0.3@jar",
-                        "android.arch.core:common:1.0.0@jar");
+                        "com.android.support:support-annotations:" + SUPPORT_LIB_VERSION + "@jar",
+                        "com.android.support:collections:" + SUPPORT_LIB_VERSION + "@jar",
+                        "android.arch.lifecycle:common:" + ANDROID_ARCH_VERSION + "@jar",
+                        "android.arch.core:common:" + ANDROID_ARCH_VERSION + "@jar");
 
         LibraryGraphHelper.Items androidItems = helper.on(compileGraph).withType(ANDROID);
 
@@ -350,11 +357,10 @@ public class BasicTest2 {
         assertThat(helper.on(releaseGraph).withType(JAVA).mapTo(COORDINATES))
                 .named("release compile java libs")
                 .containsExactly(
-                        "com.android.support:support-annotations:"
-                                + TestVersions.SUPPORT_LIB_VERSION
-                                + "@jar",
-                        "android.arch.lifecycle:common:1.0.3@jar",
-                        "android.arch.core:common:1.0.0@jar");
+                        "com.android.support:support-annotations:" + SUPPORT_LIB_VERSION + "@jar",
+                        "com.android.support:collections:" + SUPPORT_LIB_VERSION + "@jar",
+                        "android.arch.lifecycle:common:" + ANDROID_ARCH_VERSION + "@jar",
+                        "android.arch.core:common:" + ANDROID_ARCH_VERSION + "@jar");
 
         LibraryGraphHelper.Items androidItems = helper.on(releaseGraph).withType(ANDROID);
         Set<String> coordinateCopies = Sets.newHashSet(coordinates);

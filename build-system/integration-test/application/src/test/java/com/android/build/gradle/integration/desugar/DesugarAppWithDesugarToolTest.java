@@ -25,26 +25,21 @@ import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTaskExecutor;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.app.HelloWorldApp;
+import com.android.build.gradle.integration.common.truth.ScannerSubject;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
-import com.android.build.gradle.integration.instant.InstantRunTestUtils;
 import com.android.build.gradle.internal.coverage.JacocoConfigurations;
 import com.android.build.gradle.options.BooleanOption;
-import com.android.builder.model.InstantRun;
-import com.android.builder.model.OptionalCompilationStep;
+import com.android.build.gradle.options.OptionalBooleanOption;
 import com.android.ide.common.process.ProcessException;
-import com.android.sdklib.AndroidVersion;
 import com.android.testutils.apk.Apk;
 import com.android.testutils.apk.Dex;
-import com.android.testutils.apk.SplitApks;
-import com.android.tools.ir.client.InstantRunArtifactType;
-import com.android.tools.ir.client.InstantRunBuildInfo;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
+import com.google.common.truth.Truth;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Scanner;
 import java.util.stream.Collectors;
 import org.jf.dexlib2.dexbacked.DexBackedClassDef;
 import org.junit.Assume;
@@ -84,15 +79,14 @@ public class DesugarAppWithDesugarToolTest {
     @Test
     public void noTaskIfNoJava8Set() throws IOException, InterruptedException {
         GradleBuildResult result = getProjectExecutor().run("assembleDebug");
-        assertThat(result.getNotUpToDateTasks())
-                .doesNotContain(":transformClassesWithDesugarForDebug");
+        Truth.assertThat(result.findTask(":transformClassesWithDesugarForDebug")).isNull();
     }
 
     @Test
     public void taskRunsIfJava8Set() throws IOException, InterruptedException {
         enableJava8();
         GradleBuildResult result = getProjectExecutor().run("assembleDebug");
-        assertThat(result.getNotUpToDateTasks()).contains(":transformClassesWithDesugarForDebug");
+        assertThat(result.getTask(":transformClassesWithDesugarForDebug")).didWork();
     }
 
     @Test
@@ -111,43 +105,6 @@ public class DesugarAppWithDesugarToolTest {
         for (String klass : TRY_WITH_RESOURCES_RUNTIME) {
             assertThat(apk).containsClass(klass);
             assertThat(testApk).doesNotContainClass(klass);
-        }
-    }
-
-    @Test
-    public void testTryWithResourcesPlatformUnsupportedInstantRun() throws Exception {
-        enableJava8();
-        writeClassWithTryWithResources();
-        TestFileUtils.appendToFile(
-                project.getBuildFile(),
-                String.format(
-                        "\n" + "android.defaultConfig.minSdkVersion %d\n",
-                        MIN_SUPPORTED_API_TRY_WITH_RESOURCES - 1));
-        InstantRun instantRunModel =
-                InstantRunTestUtils.getInstantRunModel(
-                        Iterables.getOnlyElement(
-                                project.model().fetchAndroidProjects().getOnlyModelMap().values()));
-        getProjectExecutor()
-                .withInstantRun(new AndroidVersion(24, null), OptionalCompilationStep.FULL_APK)
-                .run("assembleDebug");
-        InstantRunBuildInfo initialContext = InstantRunTestUtils.loadContext(instantRunModel);
-
-        List<Apk> splits =
-                initialContext
-                        .getArtifacts()
-                        .stream()
-                        .filter(artifact -> artifact.type == InstantRunArtifactType.SPLIT)
-                        .map(
-                                a -> {
-                                    try {
-                                        return new Apk(a.file);
-                                    } catch (IOException e) {
-                                        throw new UncheckedIOException(e);
-                                    }
-                                })
-                        .collect(Collectors.toList());
-        for (String klass : TRY_WITH_RESOURCES_RUNTIME) {
-            assertThat(new SplitApks(splits)).hasClass(klass);
         }
     }
 
@@ -203,7 +160,7 @@ public class DesugarAppWithDesugarToolTest {
                 getProjectExecutor()
                         .with(BooleanOption.ENABLE_BUILD_CACHE, false)
                         .run("assembleDebug");
-        assertThat(result.getNotUpToDateTasks()).contains(":transformClassesWithDesugarForDebug");
+        assertThat(result.getTask(":transformClassesWithDesugarForDebug")).didWork();
     }
 
     @Test
@@ -212,12 +169,11 @@ public class DesugarAppWithDesugarToolTest {
         Assume.assumeFalse(enableGradleWorkers);
         enableJava8();
 
-        assertThat(
-                        getProjectExecutor()
-                                .withEnableInfoLogging(true)
-                                .run("assembleDebug")
-                                .getStdout())
-                .doesNotContain("--legacy_jacoco_fix");
+        try (Scanner stdout =
+                getProjectExecutor().withEnableInfoLogging(true).run("assembleDebug").getStdout()) {
+
+            ScannerSubject.assertThat(stdout).doesNotContain("--legacy_jacoco_fix");
+        }
 
         TestFileUtils.appendToFile(
                 project.getBuildFile(),
@@ -228,12 +184,10 @@ public class DesugarAppWithDesugarToolTest {
                         + "'");
 
         // now it should contain it as Jacoco version is lower
-        assertThat(
-                        getProjectExecutor()
-                                .withEnableInfoLogging(true)
-                                .run("assembleDebug")
-                                .getStdout())
-                .contains("--legacy_jacoco_fix");
+        try (Scanner stdout =
+                getProjectExecutor().withEnableInfoLogging(true).run("assembleDebug").getStdout()) {
+            ScannerSubject.assertThat(stdout).contains("--legacy_jacoco_fix");
+        }
     }
 
     @Test
@@ -248,10 +202,16 @@ public class DesugarAppWithDesugarToolTest {
                         + "  buildTypes {\n"
                         + "    debug {\n"
                         + "      minifyEnabled true\n"
-                        + "      testProguardFiles getDefaultProguardFile('proguard-android.txt')\n"
+                        + "      testProguardFiles getDefaultProguardFile('proguard-android.txt'), 'test-proguard-rules.pro'\n"
                         + "    }\n"
                         + "  }\n"
                         + "}\n");
+
+        Files.write(
+                project.file("test-proguard-rules.pro").toPath(),
+                ImmutableList.of(
+                        "# Part of the XML pull API comes with the platform, but ATSL depends on kxml2 which bundles the same classes.",
+                        "-dontwarn org.xmlpull.**"));
 
         // add try with catch in test
         TestFileUtils.addMethod(
@@ -260,7 +220,9 @@ public class DesugarAppWithDesugarToolTest {
                         + "    try(java.io.StringWriter sw = new java.io.StringWriter(1)) {}\n"
                         + "}\n");
 
-        getProjectExecutor().with(BooleanOption.ENABLE_R8, false).run("assembleDebugAndroidTest");
+        getProjectExecutor()
+                .with(OptionalBooleanOption.ENABLE_R8, false)
+                .run("assembleDebugAndroidTest");
 
         assertThatApk(project.getApk(GradleTestProject.ApkType.ANDROIDTEST_DEBUG))
                 .containsClass("Lcom/example/helloworld/HelloWorldTest;");

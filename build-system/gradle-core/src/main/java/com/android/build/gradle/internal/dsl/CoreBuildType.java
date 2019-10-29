@@ -21,6 +21,7 @@ import com.android.annotations.Nullable;
 import com.android.build.gradle.api.JavaCompileOptions;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.builder.model.BuildType;
+import org.gradle.api.provider.Property;
 
 /**
  * A build type with addition properties for building with Gradle plugin.
@@ -33,15 +34,6 @@ public interface CoreBuildType extends BuildType {
     @Nullable
     CoreExternalNativeBuildOptions getExternalNativeBuildOptions();
 
-    /**
-     * The Jack toolchain is deprecated.
-     *
-     * <p>If you want to use Java 8 language features, use the improved support included in the
-     * default toolchain. To learn more, read <a
-     * href="https://developer.android.com/studio/write/java8-support.html">Use Java 8 language
-     * features</a>.
-     */
-    @Deprecated
     @NonNull
     JavaCompileOptions getJavaCompileOptions();
 
@@ -70,4 +62,7 @@ public interface CoreBuildType extends BuildType {
     /** @deprecated Can go away once {@link AaptOptions#cruncherEnabled} is removed. */
     @Deprecated
     boolean isCrunchPngsDefault();
+
+    /** Whether this product flavor should be selected in Studio by default */
+    Property<Boolean> getIsDefault();
 }

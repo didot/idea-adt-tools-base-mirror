@@ -76,10 +76,10 @@ class IncrementalJavaCompileWithAPsTest(
         private const val PROCESSOR_MODULE = ":processor"
 
         private const val SOURCE_DIR = "src/main/java"
-        private const val GENERATED_SOURCE_DIR = "build/generated/source/apt/debug"
+        private const val GENERATED_SOURCE_DIR = "build/generated/ap_generated_sources/debug/out"
         private const val GENERATED_SOURCE_KAPT_DIR = "build/generated/source/kapt/debug"
         private const val COMPILED_CLASSES_DIR =
-            "build/intermediates/javac/debug/compileDebugJavaWithJavac/classes"
+            "build/intermediates/javac/debug/classes"
 
         private const val MAIN_ACTIVITY_PACKAGE = "com.example.app"
         private const val MAIN_ACTIVITY = "MainActivity"
@@ -531,8 +531,7 @@ class IncrementalJavaCompileWithAPsTest(
         // Check the tasks' status. Checking this once in this test is good enough, the other tests
         // don't need to repeat this check.
         if (withKapt || !withSeparateAP) {
-            assertThat(fullBuildResult.getTask(PROCESS_ANNOTATIONS_TASK))
-                .wasNotPlannedForExecution()
+            assertThat(fullBuildResult.findTask(PROCESS_ANNOTATIONS_TASK)).isNull()
         } else {
             assertThat(fullBuildResult.getTask(PROCESS_ANNOTATIONS_TASK)).didWork()
         }
@@ -619,7 +618,7 @@ class IncrementalJavaCompileWithAPsTest(
 
         // Check the tasks' status
         if (withKapt || !withSeparateAP) {
-            assertThat(result.getTask(PROCESS_ANNOTATIONS_TASK)).wasNotPlannedForExecution()
+            assertThat(result.findTask(PROCESS_ANNOTATIONS_TASK)).isNull()
         } else {
             assertThat(fullBuildResult.getTask(PROCESS_ANNOTATIONS_TASK)).didWork()
         }
@@ -709,7 +708,7 @@ class IncrementalJavaCompileWithAPsTest(
 
         // Check the tasks' status
         if (withKapt || !withSeparateAP) {
-            assertThat(result.getTask(PROCESS_ANNOTATIONS_TASK)).wasNotPlannedForExecution()
+            assertThat(result.findTask(PROCESS_ANNOTATIONS_TASK)).isNull()
         } else {
             assertThat(result.getTask(PROCESS_ANNOTATIONS_TASK)).didWork()
         }
@@ -789,7 +788,7 @@ class IncrementalJavaCompileWithAPsTest(
 
         // Check the tasks' status
         if (withKapt || !withSeparateAP) {
-            assertThat(result.getTask(PROCESS_ANNOTATIONS_TASK)).wasNotPlannedForExecution()
+            assertThat(result.findTask(PROCESS_ANNOTATIONS_TASK)).isNull()
         } else {
             assertThat(result.getTask(PROCESS_ANNOTATIONS_TASK)).wasUpToDate()
         }

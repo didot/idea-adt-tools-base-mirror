@@ -5,6 +5,7 @@ iml_module(
     name = "studio.android.sdktools.flags",
     srcs = ["src/main/java"],
     iml_files = ["android.sdktools.flags.iml"],
+    test_coverage = True,
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
@@ -13,6 +14,6 @@ iml_module(
         "//tools/idea/.idea/libraries:Guava[test]",
         "//tools/idea/.idea/libraries:JUnit4[test]",
         "//tools/idea/.idea/libraries:truth[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )

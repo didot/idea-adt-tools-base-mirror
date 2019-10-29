@@ -18,7 +18,8 @@
 
 package com.android.builder.dexing
 
-import com.android.SdkConstants
+import com.android.SdkConstants.DOT_CLASS
+import com.android.SdkConstants.PROGUARD_RULES_FOLDER
 import com.android.builder.dexing.r8.ClassFileProviderFactory
 import com.android.ide.common.blame.MessageReceiver
 import com.android.tools.r8.ArchiveProgramResourceProvider
@@ -30,23 +31,32 @@ import com.android.tools.r8.DataEntryResource
 import com.android.tools.r8.DataResourceConsumer
 import com.android.tools.r8.DataResourceProvider
 import com.android.tools.r8.DexIndexedConsumer
+import com.android.tools.r8.DiagnosticsHandler
 import com.android.tools.r8.ProgramResource
 import com.android.tools.r8.ProgramResourceProvider
 import com.android.tools.r8.R8
 import com.android.tools.r8.StringConsumer
+import com.android.tools.r8.Version
 import com.android.tools.r8.origin.Origin
 import com.android.tools.r8.utils.ArchiveResourceProvider
+import com.android.utils.PathUtils.toSystemIndependentPath
+import com.google.common.io.ByteStreams
+import java.io.BufferedOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.logging.Level
 import java.util.logging.Logger
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 fun isProguardRule(name: String): Boolean {
     val lowerCaseName = name.toLowerCase()
-    return lowerCaseName.startsWith("meta-inf/proguard/")
-            || lowerCaseName.startsWith("/meta-inf/proguard/")
+    return lowerCaseName.startsWith("$PROGUARD_RULES_FOLDER/")
+            || lowerCaseName.startsWith("/$PROGUARD_RULES_FOLDER/")
 }
+
+fun getR8Version(): String = Version.getVersionString()
 
 /**
  * Converts the specified inputs, according to the configuration, and writes dex or classes to
@@ -74,20 +84,22 @@ fun runR8(
         logger.fine("Java resources: $inputJavaResources")
         logger.fine("Library classes: $libraries")
     }
+    val r8CommandBuilder = CompatProguardCommandBuilder(!useFullR8, D8DiagnosticsHandler(messageReceiver, "R8"))
 
-    val r8CommandBuilder = CompatProguardCommandBuilder(!useFullR8, D8DiagnosticsHandler(messageReceiver))
+    if (toolConfig.r8OutputType == R8OutputType.DEX) {
+        r8CommandBuilder.minApiLevel = toolConfig.minSdkVersion
+        if (toolConfig.minSdkVersion < 21) {
+            // specify main dex related options only when minSdkVersion is below 21
+            r8CommandBuilder
+                .addMainDexRulesFiles(mainDexListConfig.mainDexRulesFiles)
+                .addMainDexListFiles(mainDexListConfig.mainDexListFiles)
 
-    if (toolConfig.minSdkVersion < 21) {
-        // specify main dex related options only when minSdkVersion is below 21
-        r8CommandBuilder
-            .addMainDexRulesFiles(mainDexListConfig.mainDexRulesFiles)
-            .addMainDexListFiles(mainDexListConfig.mainDexListFiles)
-
-        if (mainDexListConfig.mainDexRules.isNotEmpty()) {
-            r8CommandBuilder.addMainDexRules(mainDexListConfig.mainDexRules, Origin.unknown())
-        }
-        mainDexListConfig.mainDexListOutput?.let {
-            r8CommandBuilder.setMainDexListConsumer(StringConsumer.FileConsumer(it))
+            if (mainDexListConfig.mainDexRules.isNotEmpty()) {
+                r8CommandBuilder.addMainDexRules(mainDexListConfig.mainDexRules, Origin.unknown())
+            }
+            mainDexListConfig.mainDexListOutput?.let {
+                r8CommandBuilder.setMainDexListConsumer(StringConsumer.FileConsumer(it))
+            }
         }
     }
 
@@ -107,6 +119,7 @@ fun runR8(
     }
 
     if (proguardConfig.proguardMapOutput != null) {
+        Files.deleteIfExists(proguardConfig.proguardMapOutput)
         Files.createDirectories(proguardConfig.proguardMapOutput.parent)
         r8CommandBuilder.setProguardMapOutputPath(proguardConfig.proguardMapOutput)
     }
@@ -114,7 +127,7 @@ fun runR8(
     val compilationMode =
         if (toolConfig.isDebuggable) CompilationMode.DEBUG else CompilationMode.RELEASE
 
-    val dataResourceConsumer = ClassFileConsumer.ArchiveConsumer(javaResourcesJar)
+    val dataResourceConsumer = JavaResourcesConsumer(javaResourcesJar)
     val programConsumer =
         if (toolConfig.r8OutputType == R8OutputType.CLASSES) {
             val baseConsumer: ClassFileConsumer = if (Files.isDirectory(output)) {
@@ -145,7 +158,6 @@ fun runR8(
         .setDisableMinification(toolConfig.disableMinification)
         .setDisableTreeShaking(toolConfig.disableTreeShaking)
         .setDisableDesugaring(toolConfig.disableDesugaring)
-        .setMinApiLevel(toolConfig.minSdkVersion)
         .setMode(compilationMode)
         .setProgramConsumer(programConsumer)
 
@@ -156,8 +168,11 @@ fun runR8(
         when {
             Files.isRegularFile(path) -> r8ProgramResourceProvider.addProgramResourceProvider(
                 ArchiveProgramResourceProvider.fromArchive(path))
-            Files.isDirectory(path) -> Files.walk(path).use {
-                it.filter { Files.isRegularFile(it) && it.toString().endsWith(SdkConstants.DOT_CLASS) }
+            Files.isDirectory(path) -> Files.walk(path).use { stream ->
+                stream.filter {
+                    val relativePath = toSystemIndependentPath(path.relativize(it))
+                    Files.isRegularFile(it) && ClassFileInput.CLASS_MATCHER.test(relativePath)
+                }
                     .forEach { r8CommandBuilder.addProgramFiles(it) }
             }
             else -> throw IOException("Unexpected file format: $path")
@@ -166,9 +181,9 @@ fun runR8(
 
     val dirResources = inputJavaResources.filter {
         if (!Files.isDirectory(it)) {
-            // API is missing to create java resources jars, but this works
-            r8ProgramResourceProvider.addProgramResourceProvider(
-                ArchiveResourceProvider.fromArchive(it, false))
+            val resourceOnlyProvider =
+                ResourceOnlyProvider(ArchiveResourceProvider.fromArchive(it, true))
+            r8ProgramResourceProvider.dataResourceProviders.add(resourceOnlyProvider.dataResourceProvider)
             false
         } else {
             true
@@ -270,7 +285,9 @@ private class R8DataResourceProvider(val dirResources: Collection<Path>) : DataR
             Files.walk(resourceBase).use {
                 it.forEach {
                     val relative = resourceBase.relativize(it)
-                    if (it != resourceBase && seen.add(relative)) {
+                    if (it != resourceBase
+                        && !it.toString().endsWith(DOT_CLASS)
+                        && seen.add(relative)) {
                         when {
                             Files.isDirectory(it) -> visitor!!.visit(
                                 DataDirectoryResource.fromFile(
@@ -284,10 +301,53 @@ private class R8DataResourceProvider(val dirResources: Collection<Path>) : DataR
                             )
                         }
                     } else {
-                        logger.fine { "Ignoring duplicate Java resources $relative" }
+                        logger.fine { "Ignoring entry $relative from $resourceBase" }
                     }
                 }
             }
+        }
+    }
+}
+
+private class ResourceOnlyProvider(val originalProvider: ProgramResourceProvider): ProgramResourceProvider {
+    override fun getProgramResources() = listOf<ProgramResource>()
+
+    override fun getDataResourceProvider() = originalProvider.getDataResourceProvider()
+}
+
+/** Custom Java resources consumer to make sure we compress Java resources in the jar. */
+private class JavaResourcesConsumer(private val outputJar: Path): DataResourceConsumer {
+
+    private val output = lazy { ZipOutputStream(BufferedOutputStream(outputJar.toFile().outputStream())) }
+    private val zipLock = Any()
+
+    /** Accept can be called from multiple threads. */
+    override fun accept(directory: DataDirectoryResource, diagnosticsHandler: DiagnosticsHandler) {
+        val entry: ZipEntry = createNewZipEntry(directory.getName() + "/")
+        synchronized(zipLock) {
+            output.value.putNextEntry(entry)
+            output.value.closeEntry()
+        }
+    }
+
+    /** Accept can be called from multiple threads. */
+    override fun accept(file: DataEntryResource, diagnosticsHandler: DiagnosticsHandler) {
+        val entry:ZipEntry = createNewZipEntry(file.getName())
+        synchronized(zipLock) {
+            output.value.putNextEntry(entry)
+            output.value.write(ByteStreams.toByteArray(file.getByteStream()))
+            output.value.closeEntry()
+        }
+    }
+
+    override fun finished(handler: DiagnosticsHandler) {
+        output.value.close()
+    }
+
+    private fun createNewZipEntry(name: String): ZipEntry {
+        return ZipEntry(name).apply {
+            method = ZipEntry.DEFLATED
+            time = 0
         }
     }
 }

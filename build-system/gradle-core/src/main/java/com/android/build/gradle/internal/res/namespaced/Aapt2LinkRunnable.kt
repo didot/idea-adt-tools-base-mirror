@@ -17,23 +17,38 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.build.gradle.internal.LoggerWrapper
+import com.android.build.gradle.internal.res.rewriteLinkException
+import com.android.build.gradle.options.SyncOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
+import com.android.builder.internal.aapt.v2.Aapt2Exception
 import org.gradle.api.logging.Logging
 import java.io.Serializable
 import javax.inject.Inject
 
 class Aapt2LinkRunnable @Inject constructor(
-        private val params: Params) : Runnable {
+    private val params: Params
+) : Runnable {
 
     override fun run() {
-        val logger = LoggerWrapper(Logging.getLogger(this::class.java))
+        val logger = Logging.getLogger(this::class.java)
         useAaptDaemon(params.aapt2ServiceKey) { daemon ->
-            daemon.link(params.request, logger)
+            try {
+                daemon.link(params.request, LoggerWrapper(logger))
+            } catch (exception: Aapt2Exception) {
+                throw rewriteLinkException(
+                    exception,
+                    params.errorFormatMode,
+                    null,
+                    null,
+                    logger
+                )
+            }
         }
     }
 
     class Params(
         val aapt2ServiceKey: Aapt2ServiceKey,
-        val request: AaptPackageConfig
+        val request: AaptPackageConfig,
+        val errorFormatMode: SyncOptions.ErrorFormatMode
     ) : Serializable
 }

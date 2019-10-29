@@ -20,13 +20,15 @@ import static com.android.build.gradle.integration.common.truth.TruthHelper.asse
 
 import com.android.build.gradle.integration.common.fixture.GradleBuildResult;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
-import com.android.build.gradle.integration.common.utils.AssumeUtil;
+import com.android.build.gradle.integration.common.truth.TaskStateList;
+import com.android.build.gradle.integration.common.utils.AssumeBuildToolsUtil;
 import com.android.build.gradle.options.IntegerOption;
 import com.android.testutils.apk.Apk;
 import com.android.testutils.apk.Dex;
 import com.google.common.collect.ImmutableSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
@@ -44,15 +46,15 @@ public class DeploymentApiOverrideTest {
 
     @BeforeClass
     public static void checkBuildTools() {
-        AssumeUtil.assumeBuildToolsAtLeast(21);
+        AssumeBuildToolsUtil.assumeBuildToolsAtLeast(21);
     }
 
     @Test
     public void testMultiDexOnPre21Build() throws Exception {
-
         GradleBuildResult lastBuild = project.executor().run("clean", "assembleIcsDebug");
-        assertThat(lastBuild).isNotNull();
-        assertThat(lastBuild.getStdout()).contains("Multidexlist");
+        TaskStateList.TaskInfo multidexTask =
+                Objects.requireNonNull(lastBuild.findTask(":multiDexListIcsDebug"));
+        assertThat(multidexTask).didWork();
     }
 
     @Test
@@ -61,9 +63,8 @@ public class DeploymentApiOverrideTest {
                 project.executor()
                         .with(IntegerOption.IDE_TARGET_DEVICE_API, 21)
                         .run("clean", "assembleIcsDebug");
-        assertThat(lastBuild).isNotNull();
-        assertThat(lastBuild.getStdout()).doesNotContain("Multidexlist");
-
+        TaskStateList.TaskInfo multidexTask = lastBuild.findTask(":multiDexListIcsDebug");
+        assertThat(multidexTask).isNull();
     }
 
     @Test
@@ -72,8 +73,9 @@ public class DeploymentApiOverrideTest {
                 project.executor()
                         .with(IntegerOption.IDE_TARGET_DEVICE_API, 21)
                         .run("clean", "assembleIcsRelease");
-        assertThat(lastBuild).isNotNull();
-        assertThat(lastBuild.getStdout()).contains("Multidexlist");
+        TaskStateList.TaskInfo multidexTask =
+                Objects.requireNonNull(lastBuild.findTask(":multiDexListIcsRelease"));
+        assertThat(multidexTask).didWork();
     }
 
     /** Regression test for https://issuetracker.google.com/72085541. */
@@ -99,5 +101,14 @@ public class DeploymentApiOverrideTest {
         for (String userClass : userClasses) {
             assertThat(apk).containsClass(userClass);
         }
+    }
+
+    @Test
+    public void testDexingUsesDeviceApi() throws Exception {
+        project.executor().run("assembleIcsDebug");
+        assertThat(project.getApk(GradleTestProject.ApkType.DEBUG, "ics")).hasDexVersion(35);
+
+        project.executor().with(IntegerOption.IDE_TARGET_DEVICE_API, 24).run("assembleIcsDebug");
+        assertThat(project.getApk(GradleTestProject.ApkType.DEBUG, "ics")).hasDexVersion(37);
     }
 }

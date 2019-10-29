@@ -17,20 +17,18 @@
 package com.android.ide.common.rendering.api;
 
 
-import com.android.ide.common.rendering.api.Result.Status;
+import static com.android.ide.common.rendering.api.Result.Status.NOT_IMPLEMENTED;
 
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.EnumSet;
 import java.util.Map;
 
-import static com.android.ide.common.rendering.api.Result.Status.NOT_IMPLEMENTED;
-
 /**
- * Entry point of the Layout Library. Extensions of this class provide a method to compute
- * and render a layout.
+ * Entry point of the Layout Library. Extensions of this class provide a method to compute and
+ * render a layout.
  */
-@SuppressWarnings({"MethodMayBeStatic", "UnusedDeclaration"})
+@SuppressWarnings({"UnusedDeclaration"})
 public abstract class Bridge {
 
     public static final int API_CURRENT = 17;
@@ -68,7 +66,7 @@ public abstract class Bridge {
     /**
      * Returns true if the layout library supports the given feature.
      *
-     * @see com.android.ide.common.rendering.api.Features
+     * @see Features
      */
     public boolean supports(int feature) {
         return false;
@@ -79,25 +77,19 @@ public abstract class Bridge {
      *
      * @param platformProperties The build properties for the platform.
      * @param fontLocation the location of the fonts.
+     * @param icuDataPath the location of the ICU data used natively.
      * @param enumValueMap map attrName ⇒ { map enumFlagName ⇒ Integer value }. This is typically
-     *          read from attrs.xml in the SDK target.
+     *     read from attrs.xml in the SDK target.
      * @param log a {@link LayoutLog} object. Can be null.
      * @return true if success.
      */
-    public boolean init(Map<String, String> platformProperties,
+    public boolean init(
+            Map<String, String> platformProperties,
             File fontLocation,
-            String nativeLibraryPath,
-            String dataPath,
+            String icuDataPath,
             Map<String, Map<String, Integer>> enumValueMap,
             LayoutLog log) {
         return false;
-    }
-
-    public boolean init(Map<String, String> platformProperties,
-            File fontLocation,
-            Map<String, Map<String, Integer>> enumValueMap,
-            LayoutLog log) {
-        return init(platformProperties, fontLocation, null, null, enumValueMap, log);
     }
 
     /**
@@ -125,23 +117,37 @@ public abstract class Bridge {
      * @return the result of the action.
      */
     public Result renderDrawable(DrawableParams params) {
-        return Status.NOT_IMPLEMENTED.createResult();
+        return NOT_IMPLEMENTED.createResult();
     }
 
     /**
      * Clears the resource cache for a specific project.
+     *
      * <p>This cache contains bitmaps and nine patches that are loaded from the disk and reused
      * until this method is called.
-     * <p>The cache is not configuration dependent and should only be cleared when a
-     * resource changes (at this time only bitmaps and 9 patches go into the cache).
-     * <p>
-     * The project key provided must be similar to the one passed in {@link RenderParams}.
+     *
+     * <p>The cache is not configuration dependent and should only be cleared when a resource
+     * changes (at this time only bitmaps and 9 patches go into the cache).
+     *
+     * <p>The project key provided must be similar to the one passed in {@link RenderParams}.
      *
      * @param projectKey the key for the project.
      */
-    public void clearCaches(Object projectKey) {
+    public void clearResourceCaches(Object projectKey) {}
 
-    }
+    /**
+     * Removes a font file from the Typeface cache.
+     *
+     * @param path path of the font file to remove from the cache
+     */
+    public void clearFontCache(String path) {}
+
+    /**
+     * Clears all caches for a specific project.
+     *
+     * @param projectKey the key for the project.
+     */
+    public void clearAllCaches(Object projectKey) {}
 
     /**
      * Utility method returning the parent of a given view object.

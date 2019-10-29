@@ -25,7 +25,6 @@ import com.android.build.gradle.api.BaseVariant;
 import com.android.build.gradle.api.BaseVariantOutput;
 import com.android.build.gradle.internal.CompileOptions;
 import com.android.build.gradle.internal.ExtraModelInfo;
-import com.android.build.gradle.internal.SdkHandler;
 import com.android.build.gradle.internal.SourceSetSourceProviderWrapper;
 import com.android.build.gradle.internal.coverage.JacocoOptions;
 import com.android.build.gradle.internal.dependency.SourceSetManager;
@@ -45,13 +44,12 @@ import com.android.build.gradle.internal.dsl.TestOptions;
 import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.options.BooleanOption;
 import com.android.build.gradle.options.ProjectOptions;
-import com.android.builder.core.AndroidBuilder;
 import com.android.builder.core.BuilderConstants;
 import com.android.builder.core.LibraryRequest;
+import com.android.builder.core.ToolsRevisionUtils;
 import com.android.builder.errors.EvalIssueException;
 import com.android.builder.errors.EvalIssueReporter;
 import com.android.builder.model.SourceProvider;
-import com.android.builder.sdk.TargetInfo;
 import com.android.builder.testing.api.DeviceProvider;
 import com.android.builder.testing.api.TestServer;
 import com.android.repository.Revision;
@@ -60,6 +58,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
@@ -115,8 +114,6 @@ public abstract class BaseExtension implements AndroidConfig {
     private final List<List<Object>> transformDependencies = Lists.newArrayList();
 
     protected final GlobalScope globalScope;
-
-    private final SdkHandler sdkHandler;
 
     private final DefaultConfig defaultConfig;
 
@@ -190,7 +187,6 @@ public abstract class BaseExtension implements AndroidConfig {
             @NonNull final Project project,
             @NonNull final ProjectOptions projectOptions,
             @NonNull GlobalScope globalScope,
-            @NonNull SdkHandler sdkHandler,
             @NonNull NamedDomainObjectContainer<BuildType> buildTypes,
             @NonNull NamedDomainObjectContainer<ProductFlavor> productFlavors,
             @NonNull NamedDomainObjectContainer<SigningConfig> signingConfigs,
@@ -199,7 +195,6 @@ public abstract class BaseExtension implements AndroidConfig {
             @NonNull ExtraModelInfo extraModelInfo,
             boolean isBaseModule) {
         this.globalScope = globalScope;
-        this.sdkHandler = sdkHandler;
         this.buildTypes = buildTypes;
         //noinspection unchecked
         this.productFlavors = productFlavors;
@@ -247,7 +242,7 @@ public abstract class BaseExtension implements AndroidConfig {
         createAndroidTestUtilConfiguration();
 
         sourceSetManager.setUpSourceSet(defaultConfig.getName());
-        buildToolsRevision = AndroidBuilder.DEFAULT_BUILD_TOOLS_REVISION;
+        buildToolsRevision = ToolsRevisionUtils.DEFAULT_BUILD_TOOLS_REVISION;
         setDefaultConfigValues();
     }
 
@@ -628,21 +623,19 @@ public abstract class BaseExtension implements AndroidConfig {
     }
 
     /**
-     * Configuring JaCoCo using this block is deprecated.
+     * Configure JaCoCo version that is used for offline instrumentation and coverage report.
      *
-     * <p>To specify the version of JaCoCo you want to use, you now need to include it as a
-     * buildscript dependency in your project-level <code>build.gradle</code> file, as follows:
+     * <p>To specify the version of JaCoCo you want to use, add the following to <code>build.gradle
+     * </code> file:
      *
      * <pre>
-     * buildscript {
-     *     dependencies {
-     *         classpath "org.jacoco:org.jacoco.core:&lt;jacoco-version&gt;"
-     *         ...
+     * android {
+     *     jacoco {
+     *         version "&lt;jacoco-version&gt;"
      *     }
      * }
      * </pre>
      */
-    @Deprecated
     public void jacoco(Action<JacocoOptions> action) {
         checkWritability();
         action.execute(jacoco);
@@ -888,7 +881,7 @@ public abstract class BaseExtension implements AndroidConfig {
      * with the SDK Manager</a>.
      */
     public File getSdkDirectory() {
-        return sdkHandler.getSdkFolder();
+        return globalScope.getSdkComponents().getSdkFolder();
     }
 
     /**
@@ -901,15 +894,14 @@ public abstract class BaseExtension implements AndroidConfig {
      * the standalone NDK package</a>.
      */
     public File getNdkDirectory() {
-        return sdkHandler.getNdkFolder();
+        // do not call this method from within the plugin code as it forces part of SDK initialization.
+        return globalScope.getSdkComponents().getNdkFolderProvider().get();
     }
 
+    @Override
     public List<File> getBootClasspath() {
-        if (!ensureTargetSetup()) {
-            // In sync mode where the SDK could not be installed.
-            return ImmutableList.of();
-        }
-        return globalScope.getAndroidBuilder().getBootClasspath(false);
+        // do not call this method from within the plugin code as it forces SDK initialization.
+        return new ArrayList<>(globalScope.getBootClasspath().getFiles());
     }
 
     /**
@@ -918,7 +910,7 @@ public abstract class BaseExtension implements AndroidConfig {
      * (ADB)</a> executable from the Android SDK.
      */
     public File getAdbExecutable() {
-        return sdkHandler.getSdkInfo().getAdb();
+        return globalScope.getSdkComponents().getAdbExecutableProvider().get();
     }
 
     /** This property is deprecated. Instead, use {@link #getAdbExecutable()}. */
@@ -978,7 +970,6 @@ public abstract class BaseExtension implements AndroidConfig {
     }
 
     /** {@inheritDoc} */
-    @Deprecated
     @Override
     public JacocoOptions getJacoco() {
         return jacoco;
@@ -1012,20 +1003,6 @@ public abstract class BaseExtension implements AndroidConfig {
     @Override
     public TestOptions getTestOptions() {
         return testOptions;
-    }
-
-    private boolean ensureTargetSetup() {
-        // check if the target has been set.
-        TargetInfo targetInfo = globalScope.getAndroidBuilder().getTargetInfo();
-        if (targetInfo == null) {
-            return sdkHandler.initTarget(
-                    getCompileSdkVersion(),
-                    buildToolsRevision,
-                    libraryRequests,
-                    globalScope.getAndroidBuilder(),
-                    SdkHandler.useCachedSdk(projectOptions));
-        }
-        return true;
     }
 
     // For compatibility with LibraryExtension.

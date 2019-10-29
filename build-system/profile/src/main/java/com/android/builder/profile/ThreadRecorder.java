@@ -18,6 +18,7 @@ package com.android.builder.profile;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.google.common.collect.ImmutableList;
 import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan;
 import com.google.wireless.android.sdk.stats.GradleBuildProfileSpan.ExecutionType;
 import com.google.wireless.android.sdk.stats.GradleTransformExecution;
@@ -50,8 +51,8 @@ public final class ThreadRecorder implements Recorder {
     protected final ThreadLocal<Deque<Long>> recordStacks =
             ThreadLocal.withInitial(ArrayDeque::new);
 
-    protected final ThreadLocal<Long> threadId =
-            ThreadLocal.withInitial(THREAD_ID_ALLOCATOR::getAndIncrement);
+    //protected final ThreadLocal<Long> threadId =
+    //        ThreadLocal.withInitial(THREAD_ID_ALLOCATOR::getAndIncrement);
 
     public static Recorder get() {
         return ProcessProfileWriterFactory.getFactory().isInitialized() ? RECORDER : NO_OP_RECORDER;
@@ -83,6 +84,9 @@ public final class ThreadRecorder implements Recorder {
             throw new UncheckedIOException(e);
         } finally {
             write(profileRecordWriter, currentRecord, projectPath, variant);
+            if (recordStacks.get().isEmpty()) {
+                recordStacks.remove();
+            }
         }
     }
 
@@ -104,6 +108,9 @@ public final class ThreadRecorder implements Recorder {
             block.handleException(e);
         } finally {
             write(profileRecordWriter, currentRecord, projectPath, variant);
+            if (recordStacks.get().isEmpty()) {
+                recordStacks.remove();
+            }
         }
         // we always return null when an exception occurred and was not rethrown.
         return null;
@@ -125,6 +132,7 @@ public final class ThreadRecorder implements Recorder {
                 GradleBuildProfileSpan.newBuilder()
                         .setId(thisRecordId)
                         .setType(executionType)
+                        .setThreadId(Thread.currentThread().getId())
                         .setStartTimeInMs(startTimeInMs);
 
         if (transform != null) {
@@ -135,7 +143,7 @@ public final class ThreadRecorder implements Recorder {
             currentRecord.setParentId(parentId);
         }
 
-        currentRecord.setThreadId(threadId.get());
+        currentRecord.setThreadId(Thread.currentThread().getId());
         recordStacks.get().push(thisRecordId);
         return currentRecord;
     }
@@ -152,6 +160,6 @@ public final class ThreadRecorder implements Recorder {
         }
         currentRecord.setDurationInMs(
                 System.currentTimeMillis() - currentRecord.getStartTimeInMs());
-        profileRecordWriter.writeRecord(projectPath, variant, currentRecord);
+        profileRecordWriter.writeRecord(projectPath, variant, currentRecord, ImmutableList.of());
     }
 }

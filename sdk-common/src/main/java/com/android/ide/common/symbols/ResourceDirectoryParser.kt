@@ -74,7 +74,8 @@ import javax.xml.parsers.ParserConfigurationException
 fun parseResourceSourceSetDirectory(
         directory: File,
         idProvider: IdProvider,
-        platformAttrSymbols: SymbolTable?
+        platformAttrSymbols: SymbolTable?,
+        tablePackage: String? = null
 ): SymbolTable {
     Preconditions.checkArgument(directory.isDirectory, "!directory.isDirectory()")
 
@@ -96,6 +97,10 @@ fun parseResourceSourceSetDirectory(
 
         parseResourceDirectory(
                 resourceDirectory, builder, idProvider, documentBuilder, platformAttrSymbols)
+    }
+
+    if (tablePackage != null) {
+        builder.tablePackage(tablePackage)
     }
 
     return builder.build()
@@ -177,15 +182,14 @@ private fun parseResourceDirectory(
                     && SdkUtils.endsWithIgnoreCase(fileName, DOT_XML)) {
                 // If we are parsing an XML file (but not in values directories), parse the file in
                 // search of lazy constructions like `@+id/name` that also declare resources.
-                val domTree = try {
-                    documentBuilder.parse(maybeResourceFile)
+                try {
+                    val domTree = documentBuilder.parse(maybeResourceFile)
+                    val extraSymbols = parseResourceForInlineResources(domTree, idProvider)
+                    extraSymbols.symbols.values().forEach { s -> addIfNotExisting(builder, s) }
                 } catch (e: Exception) {
                     throw ResourceDirectoryParseException(
                             "Failed to parse XML file '${maybeResourceFile.absolutePath}'", e)
                 }
-
-                val extraSymbols = parseResourceForInlineResources(domTree, idProvider)
-                extraSymbols.symbols.values().forEach { s -> addIfNotExisting(builder, s) }
             }
         }
     }

@@ -46,6 +46,7 @@ import com.android.ide.common.resources.ResourceMerger;
 import com.android.ide.common.resources.ResourceSet;
 import com.android.sdklib.AndroidVersion;
 import com.android.utils.StringHelper;
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -482,27 +483,8 @@ public class VariantConfiguration<T extends BuildType, D extends ProductFlavor, 
     @NonNull
     public String getDirName() {
         if (mDirName == null) {
-            StringBuilder sb = new StringBuilder(mFlavors.size() * 20 + 100);
-            if (mType.isHybrid()) {
-                sb.append("feature/");
-            }
-
-            if (mType.isTestComponent()) {
-                sb.append(mType.getPrefix()).append("/");
-            }
-
-            if (!mFlavors.isEmpty()) {
-                StringHelper.combineAsCamelCase(sb, mFlavors, F::getName);
-                sb.append('/').append(mBuildType.getName());
-
-            } else {
-                sb.append(mBuildType.getName());
-            }
-
-            mDirName = sb.toString();
-
+            mDirName = Joiner.on('/').join(getDirectorySegments());
         }
-
         return mDirName;
     }
 
@@ -526,17 +508,10 @@ public class VariantConfiguration<T extends BuildType, D extends ProductFlavor, 
             }
 
             if (!mFlavors.isEmpty()) {
-                StringBuilder sb = new StringBuilder(mFlavors.size() * 10);
-                for (F flavor : mFlavors) {
-                    StringHelper.appendCamelCase(sb, flavor.getName());
-                }
-                builder.add(sb.toString());
-
-                builder.add(mBuildType.getName());
-
-            } else {
-                builder.add(mBuildType.getName());
+                builder.add(StringHelper.combineAsCamelCase(mFlavors, F::getName));
             }
+
+            builder.add(mBuildType.getName());
 
             mDirSegments = builder.build();
         }
@@ -1049,41 +1024,6 @@ public class VariantConfiguration<T extends BuildType, D extends ProductFlavor, 
         }
 
         return inputs;
-    }
-
-    /**
-     * Returns a list of sorted navigation files, with files toward the start of the list taking
-     * precedence over those toward the end of the list.
-     *
-     * @return a list of navigation files
-     */
-    @NonNull
-    public List<File> getNavigationFiles() {
-
-        ImmutableList.Builder<File> builder = ImmutableList.builder();
-
-        List<SourceProvider> sourceProviders = getSortedSourceProviders();
-        // iterate over sourceProviders in reverse order to match order of getManifestOverlays()
-        for (int n = sourceProviders.size() - 1; n >= 0; n--) {
-            Collection<File> resDirs = sourceProviders.get(n).getResDirectories();
-            for (File resDir : resDirs) {
-                if (resDir == null) {
-                    continue;
-                }
-                File navigationDir = new File(resDir.getPath(), SdkConstants.FD_RES_NAVIGATION);
-                File[] navigationFiles = navigationDir.listFiles();
-                if (navigationFiles == null) {
-                    continue;
-                }
-                for (File navigationFile : navigationFiles) {
-                    if (navigationFile != null && navigationFile.isFile()) {
-                        builder.add(navigationFile);
-                    }
-                }
-            }
-        }
-
-        return builder.build();
     }
 
     @NonNull

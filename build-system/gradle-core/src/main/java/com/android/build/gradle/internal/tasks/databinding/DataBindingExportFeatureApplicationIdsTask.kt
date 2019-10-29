@@ -21,17 +21,15 @@ import android.databinding.tool.store.FeatureInfoList
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSplitDeclaration
 import com.android.utils.FileUtils
-import org.gradle.api.DefaultTask
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
 import org.gradle.tooling.BuildException
 import org.gradle.workers.WorkerExecutor
 import java.io.File
@@ -46,20 +44,19 @@ import javax.inject.Inject
 @CacheableTask
 open class DataBindingExportFeatureApplicationIdsTask @Inject constructor(
     workerExecutor: WorkerExecutor
-) : AndroidVariantTask() {
+) : NonIncrementalTask() {
     // where to keep the log of the task
     @get:OutputDirectory lateinit var packageListOutFolder: File
         private set
     @get:InputFiles lateinit var featureDeclarations: FileCollection
         private set
 
-    val workers = Workers.getWorker(workerExecutor)
+    val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
-    @TaskAction
-    fun fullTaskAction() {
+    override fun doTaskAction() {
         workers.use {
-            it.submit(ExportApplicationIdsRunnable::class.java,
-                ExportApplicationIdsParams(
+            it.submit(
+                ExportApplicationIdsRunnable::class.java, ExportApplicationIdsParams(
                     featureDeclarations = featureDeclarations.asFileTree.files,
                     packageListOutFolder = packageListOutFolder
                 )
@@ -94,7 +91,7 @@ open class DataBindingExportFeatureApplicationIdsTask @Inject constructor(
             task.packageListOutFolder = packageListOutFolder
             task.featureDeclarations = variantScope.getArtifactFileCollection(
                     AndroidArtifacts.ConsumedConfigType.METADATA_VALUES,
-                    AndroidArtifacts.ArtifactScope.MODULE,
+                    AndroidArtifacts.ArtifactScope.PROJECT,
                     AndroidArtifacts.ArtifactType.METADATA_FEATURE_DECLARATION
             )
         }

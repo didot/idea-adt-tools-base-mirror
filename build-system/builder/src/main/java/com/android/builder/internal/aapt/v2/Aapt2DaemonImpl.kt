@@ -16,12 +16,14 @@
 
 package com.android.builder.internal.aapt.v2
 
+import com.android.SdkConstants
 import com.android.builder.internal.aapt.AaptPackageConfig
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.utils.GrabProcessOutput
 import com.android.utils.ILogger
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.SettableFuture
+import java.io.File
 import java.io.IOException
 import java.io.Writer
 import java.nio.file.Files
@@ -79,7 +81,8 @@ class Aapt2DaemonImpl(
     override fun startProcess() {
         val waitForReady = WaitForReadyOnStdOut(displayName, logger)
         processOutput.delegate = waitForReady
-        process = ProcessBuilder(aaptCommand).start()
+        val processBuilder = ProcessBuilder(aaptCommand)
+        process = processBuilder.start()
         writer = try {
             GrabProcessOutput.grabProcessOutput(
                     process,
@@ -237,15 +240,15 @@ class Aapt2DaemonImpl(
         override fun out(line: String?) {
             if (line != null) {
                 logger.error(null, "$displayName: Unexpected standard output: $line")
-            } else {
-                // Don't try to handle process exit here, just allow the next task to fail.
-                logger.error(null, "$displayName: Unexpectedly exit.")
             }
         }
 
         override fun err(line: String?) {
-            line?.let {
-                logger.error(null, "$displayName: Unexpected error output: $it")
+            if (line != null) {
+                logger.error(null, "$displayName: Unexpected error output: $line")
+            } else {
+                // Don't try to handle process exit here, just allow the next task to fail.
+                logger.error(null, "$displayName: Idle daemon unexpectedly exit. This should not happen.")
             }
         }
     }
@@ -295,7 +298,14 @@ class Aapt2DaemonImpl(
         private var foundError: Boolean = false
 
         override fun out(line: String?) {
-            line?.let { logger.lifecycle("%1\$s: %2\$s", displayName, it) }
+            line?.let {
+                if (line.contains("resources.arsc") && line.contains("is compressed")) {
+                    // Ignore information about android.jar symbols being compressed (std out)
+                    // b/130617130
+                    return
+                }
+                logger.lifecycle("%1\$s: %2\$s", displayName, it)
+            }
         }
 
         override fun err(line: String?) {
@@ -328,6 +338,11 @@ class Aapt2DaemonImpl(
                     }
                 }
                 else -> {
+                    if (line.contains("resources.arsc") && line.contains("is compressed")) {
+                        // Ignore information about android.jar symbols being compressed (std err)
+                        // b/130617130
+                        return
+                    }
                     if (errors == null) {
                         errors = StringBuilder()
                     }

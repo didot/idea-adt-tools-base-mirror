@@ -31,16 +31,16 @@ import com.android.SdkConstants.SUPPRESS_ALL
 import com.android.SdkConstants.SUPPRESS_LINT
 import com.android.SdkConstants.TOOLS_URI
 import com.android.SdkConstants.VALUE_TRUE
-import com.android.annotations.VisibleForTesting
 import com.android.ide.common.repository.GradleCoordinate
 import com.android.ide.common.repository.GradleVersion
 import com.android.ide.common.repository.ResourceVisibilityLookup
 import com.android.ide.common.resources.ResourceItem
 import com.android.ide.common.resources.ResourceRepository
 import com.android.ide.common.resources.configuration.FolderConfiguration.QUALIFIER_SPLITTER
+import com.android.ide.common.util.PathString
+import com.android.repository.Revision
 import com.android.repository.api.ProgressIndicator
 import com.android.resources.ResourceFolderType
-import com.android.sdklib.BuildToolInfo
 import com.android.sdklib.IAndroidTarget
 import com.android.sdklib.repository.AndroidSdkHandler
 import com.android.tools.lint.client.api.LintListener.EventType
@@ -49,6 +49,7 @@ import com.android.tools.lint.detector.api.Category
 import com.android.tools.lint.detector.api.ClassContext
 import com.android.tools.lint.detector.api.ClassScanner
 import com.android.tools.lint.detector.api.Context
+import com.android.tools.lint.detector.api.Desugaring
 import com.android.tools.lint.detector.api.Detector
 import com.android.tools.lint.detector.api.GradleContext
 import com.android.tools.lint.detector.api.GradleScanner
@@ -76,6 +77,7 @@ import com.android.tools.lint.detector.api.isXmlFile
 import com.android.utils.Pair
 import com.android.utils.SdkUtils.isBitmapFile
 import com.google.common.annotations.Beta
+import com.google.common.annotations.VisibleForTesting
 import com.google.common.base.Objects
 import com.google.common.base.Splitter
 import com.google.common.collect.ArrayListMultimap
@@ -114,6 +116,7 @@ import org.objectweb.asm.tree.MethodNode
 import org.w3c.dom.Attr
 import org.w3c.dom.Document
 import org.w3c.dom.Element
+import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.io.IOException
 import java.net.URL
@@ -2174,6 +2177,8 @@ class LintDriver
 
         override fun getClientRevision(): String? = delegate.getClientRevision()
 
+        override fun getClientDisplayRevision(): String? = delegate.getClientDisplayRevision()
+
         override fun runReadAction(runnable: Runnable) = delegate.runReadAction(runnable)
 
         override fun <T> runReadAction(computable: Computable<T>): T =
@@ -2199,8 +2204,8 @@ class LintDriver
         override fun getTestSourceFolders(project: Project): List<File> =
             delegate.getTestSourceFolders(project)
 
-        override fun getBuildTools(project: Project): BuildToolInfo? =
-            delegate.getBuildTools(project)
+        override fun getBuildToolsRevision(project: Project): Revision? =
+            delegate.getBuildToolsRevision(project)
 
         override fun createSuperClassMap(project: Project): Map<String, String> =
             delegate.createSuperClassMap(project)
@@ -2326,6 +2331,26 @@ class LintDriver
             filter: Predicate<GradleVersion>?
         ): GradleVersion? {
             return delegate.getHighestKnownVersion(coordinate, filter)
+        }
+
+        override fun readBytes(resourcePath: PathString): ByteArray {
+            return delegate.readBytes(resourcePath)
+        }
+
+        override fun getDesugaring(project: Project): Set<Desugaring> {
+            return delegate.getDesugaring(project)
+        }
+
+        override fun createXmlPullParser(resourcePath: PathString): XmlPullParser? {
+            return delegate.createXmlPullParser(resourcePath)
+        }
+
+        override fun getExternalAnnotations(projects: Collection<Project>): List<File> {
+            return delegate.getExternalAnnotations(projects)
+        }
+
+        override fun getRelativePath(baseFile: File?, file: File?): String? {
+            return delegate.getRelativePath(baseFile, file)
         }
     }
 
@@ -2947,6 +2972,21 @@ class LintDriver
             if (throwable.message?.isNotBlank() == true) {
                 sb.append("Message: ${throwable.message}\n")
             }
+
+            val associated = getAssociatedDetector(throwable, driver)
+            if (associated != null) {
+                sb.append("\n")
+                sb.append("The crash seems to involve the detector `${associated.first}`.\n")
+                sb.append("You can try disabling it with something like this:\n")
+                val indent = "\u00a0\u00a0\u00a0\u00a0" // non-breaking spaces
+                sb.append("${indent}android {\n")
+                sb.append("$indent${indent}lintOptions {\n")
+                sb.append("$indent$indent${indent}disable ${associated.second.joinToString { "\"${it.id}\"" }}\n")
+                sb.append("$indent$indent}\n")
+                sb.append("$indent}\n")
+                sb.append("\n")
+            }
+
             sb.append("Stack: ")
             sb.append("`")
             sb.append(throwable.javaClass.simpleName)
@@ -3014,6 +3054,40 @@ class LintDriver
             }
 
             return true
+        }
+
+        /**
+         * Given a stack trace from a detector crash, returns the issues associated with
+         * the most likely crashing detector
+         */
+        private fun getAssociatedDetector(
+            throwable: Throwable,
+            driver: LintDriver
+        ): kotlin.Pair<String, List<Issue>>? {
+            val issues = mutableListOf<Issue>()
+
+            for (frame in throwable.stackTrace) {
+                val className = frame.className
+                if (className.endsWith("Detector") || className.contains("Detector$")) {
+                    for (issue in driver.registry.issues) {
+                        val detectorClass = issue.implementation.detectorClass.name
+                        if (className == detectorClass || className.startsWith(detectorClass) &&
+                            className[detectorClass.length] == '$'
+                        ) {
+                            issues.add(issue)
+                        }
+                    }
+
+                    val detector = if (issues.isNotEmpty()) {
+                        issues.first().implementation.detectorClass.name
+                    } else {
+                        className
+                    }
+                    return kotlin.Pair(detector, issues)
+                }
+            }
+
+            return null
         }
 
         fun appendStackTraceSummary(throwable: Throwable, sb: StringBuilder) {

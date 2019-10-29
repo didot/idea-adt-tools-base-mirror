@@ -26,7 +26,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.android.annotations.NonNull;
-import com.android.ide.common.blame.SourceFilePosition;
 import com.android.ide.common.blame.SourcePosition;
 import com.android.testutils.MockLog;
 import com.google.common.base.Optional;
@@ -41,6 +40,8 @@ import org.xml.sax.SAXException;
  * Tests for the {@link com.android.manifmerger.PlaceholderHandler}
  */
 public class PlaceholderHandlerTest extends TestCase {
+
+    private final ManifestModel mModel = new ManifestModel();
 
     @Mock
     ActionRecorder mActionRecorder;
@@ -79,8 +80,9 @@ public class PlaceholderHandlerTest extends TestCase {
                 + "    </activity>\n"
                 + "</manifest>";
 
-        XmlDocument refDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml);
+        XmlDocument refDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml, mModel);
 
         PlaceholderHandler.visit(
                 MergingReport.Record.Severity.ERROR, refDocument, key -> "newValue", mBuilder);
@@ -127,8 +129,9 @@ public class PlaceholderHandlerTest extends TestCase {
                 + "         android:attr4=\"${first}.${second}\"/>\n"
                 + "</manifest>";
 
-        XmlDocument refDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml);
+        XmlDocument refDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml, mModel);
 
         PlaceholderHandler.visit(
                 MergingReport.Record.Severity.ERROR,
@@ -186,15 +189,18 @@ public class PlaceholderHandlerTest extends TestCase {
                 + "         android:attr1=\"${landscapePH}\"/>\n"
                 + "</manifest>";
 
-        XmlDocument refDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml);
+        XmlDocument refDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml, mModel);
 
         PlaceholderHandler.visit(
                 MergingReport.Record.Severity.ERROR, refDocument, nullResolver, mBuilder);
         // verify the error was recorded.
-        verify(mBuilder).addMessage(
-                any(SourceFilePosition.class),
-                eq(MergingReport.Record.Severity.ERROR), anyString());
+        verify(mBuilder)
+                .addMessage(
+                        any(XmlAttribute.class),
+                        eq(MergingReport.Record.Severity.ERROR),
+                        anyString());
     }
 
     public void testPlaceHolder_notProvided_inLibrary()
@@ -206,15 +212,18 @@ public class PlaceholderHandlerTest extends TestCase {
                 + "         android:attr1=\"${landscapePH}\"/>\n"
                 + "</manifest>";
 
-        XmlDocument refDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml);
+        XmlDocument refDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml, mModel);
 
         PlaceholderHandler.visit(
                 MergingReport.Record.Severity.INFO, refDocument, nullResolver, mBuilder);
         // verify the error was recorded.
-        verify(mBuilder).addMessage(
-                any(SourceFilePosition.class),
-                eq(MergingReport.Record.Severity.INFO), anyString());
+        verify(mBuilder)
+                .addMessage(
+                        any(XmlAttribute.class),
+                        eq(MergingReport.Record.Severity.INFO),
+                        anyString());
     }
 
     public void testPlaceHolder_change_keyId()
@@ -229,7 +238,7 @@ public class PlaceholderHandlerTest extends TestCase {
 
         XmlDocument refDocument =
                 TestUtils.xmlDocumentFromString(
-                        TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml);
+                        TestUtils.sourceFile(getClass(), "testPlaceholders#xml"), xml, mModel);
 
         MergingReport.Builder builder = new MergingReport.Builder(logger);
         PlaceholderHandler.visit(

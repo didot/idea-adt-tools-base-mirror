@@ -24,6 +24,7 @@ import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
 import com.android.build.gradle.internal.tasks.factory.dependsOn
 import com.android.build.gradle.options.BooleanOption
+import com.android.utils.appendCapitalized
 
 /**
  * Responsible for the creation of tasks to build namespaced resources.
@@ -62,6 +63,11 @@ class NamespacedResourcesTaskManager(
 
         // Compile
         createCompileResourcesTask()
+        // We need to strip namespaces from the manifest to bundle, so that it's consumable by
+        // non-namespaced projects.
+        taskFactory.register(CreateNonNamespacedLibraryManifestTask.CreationAction(variantScope))
+        // TODO: If we want to read the namespaced manifest from the static library, we need to keep
+        // all the data in it, not just a skeleton with the package. See b/117869877
         taskFactory.register(StaticLibraryManifestTask.CreationAction(variantScope))
         taskFactory.register(LinkLibraryAndroidResourcesTask.CreationAction(variantScope))
         // TODO: also generate a private R.jar holding private resources.
@@ -120,8 +126,8 @@ class NamespacedResourcesTaskManager(
 
     private fun createCompileResourcesTask() {
         for((sourceSetName, artifacts) in variantScope.variantData.androidResources) {
-            val name = "compile${sourceSetName.capitalize()}" +
-                    "ResourcesFor${variantScope.fullVariantName.capitalize()}"
+            val name = "compile".appendCapitalized(sourceSetName) +
+                    "ResourcesFor".appendCapitalized(variantScope.fullVariantName)
             // TODO : figure out when we need explicit task dependency and potentially remove it.
             taskFactory.register(CompileSourceSetResources.CreationAction(
                     name = name,

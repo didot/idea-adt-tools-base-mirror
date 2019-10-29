@@ -8,26 +8,29 @@ cc_library(
         "internal_memory_service.cc",
         "memory_cache.cc",
         "memory_collector.cc",
-        "memory_levels_sampler.cc",
         "memory_service.cc",
+        "memory_usage_reader_impl.cc",
     ],
     hdrs = [
         "internal_memory_service.h",
         "memory_cache.h",
         "memory_collector.h",
-        "memory_levels_sampler.h",
         "memory_profiler_component.h",
         "memory_service.h",
+        "memory_usage_reader.h",
+        "memory_usage_reader_impl.h",
     ],
     copts = ANDROID_COPTS + [
         "-Itools/base/profiler/native",
-        "-I$(GENDIR)/tools/base/profiler",
+        "-Itools/base/transport",
+        "-I$(GENDIR)/tools/base/transport",
     ],
     tags = ["no_windows"],
     deps = [
         "//tools/base/profiler/native/perfd:perfd_internal_headers",
-        "//tools/base/profiler/native/utils:profiler_utils",
-        "//tools/base/profiler/proto:profiler_cc_proto",
+        "//tools/base/transport/daemon",
+        "//tools/base/transport/proto:cc_proto",
+        "//tools/base/transport/utils",
     ],
 )
 
@@ -35,11 +38,13 @@ cc_test(
     name = "perfd_memory_tests",
     srcs = [
         "memory_cache_test.cc",
-        "memory_levels_sampler_test.cc",
+        "memory_usage_reader_impl_test.cc",
     ],
     copts = [
         "-Itools/base/profiler/native",
-        "-I$(GENDIR)/tools/base/profiler",
+        "-Itools/base/transport",
+        "-Itools/base/transport/tests",
+        "-I$(GENDIR)/tools/base/transport",
     ],
     data = [
         "//tools/base/profiler/native/testdata:perfd/memory",
@@ -50,5 +55,6 @@ cc_test(
         ":profiler_memory",
         "//external:gmock_main",
         "//tools/base/profiler/native/test:testutils",
+        "//tools/base/transport/tests/test:testutils",
     ],
 )

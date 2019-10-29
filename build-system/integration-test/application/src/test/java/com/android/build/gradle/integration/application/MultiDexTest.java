@@ -27,7 +27,7 @@ import com.android.build.gradle.integration.common.fixture.GradleTestProject.Apk
 import com.android.build.gradle.integration.common.fixture.TestVersions;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
-import com.android.build.gradle.options.BooleanOption;
+import com.android.build.gradle.options.OptionalBooleanOption;
 import com.android.ide.common.process.ProcessException;
 import com.android.testutils.apk.Apk;
 import com.android.testutils.apk.Dex;
@@ -203,7 +203,7 @@ public class MultiDexTest {
         Apk testApk = project.getTestApk("ics");
         assertThat(testApk).contains("classes.dex");
         assertThat(testApk).contains("classes2.dex");
-        assertThat(testApk).containsMainClass("Lcom/android/tests/basic/OtherActivityTest;");
+        assertThat(testApk).containsClass("Lcom/android/tests/basic/OtherActivityTest;");
     }
 
     @Test
@@ -279,6 +279,6 @@ public class MultiDexTest {
 
     @NonNull
     private GradleTaskExecutor executor() {
-        return project.executor().with(BooleanOption.ENABLE_R8, tool == MainDexListTool.R8);
+        return project.executor().with(OptionalBooleanOption.ENABLE_R8, tool == MainDexListTool.R8);
     }
 }

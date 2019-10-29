@@ -19,7 +19,6 @@ import static com.android.ide.common.vectordrawable.Svg2Vector.SVG_FILL_OPACITY;
 import static com.android.ide.common.vectordrawable.Svg2Vector.SVG_OPACITY;
 import static com.android.ide.common.vectordrawable.Svg2Vector.SVG_STROKE_OPACITY;
 import static com.android.ide.common.vectordrawable.Svg2Vector.presentationMap;
-import static com.android.ide.common.vectordrawable.SvgColor.colorSvg2Vd;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
@@ -30,28 +29,26 @@ import java.io.OutputStreamWriter;
 import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.w3c.dom.Node;
+import org.w3c.dom.Element;
 
 /** Represents an SVG file's leaf element. */
 class SvgLeafNode extends SvgNode {
     private static final Logger logger = Logger.getLogger(SvgLeafNode.class.getSimpleName());
 
-    private String mPathData;
-    private boolean mHasFillGradient;
-    private boolean mHasStrokeGradient;
-    private SvgGradientNode mFillGradientNode;
-    private SvgGradientNode mStrokeGradientNode;
+    @Nullable private String mPathData;
+    @Nullable private SvgGradientNode mFillGradientNode;
+    @Nullable private SvgGradientNode mStrokeGradientNode;
 
-    public SvgLeafNode(@NonNull SvgTree svgTree, @NonNull Node node, @Nullable String nodeName) {
-        super(svgTree, node, nodeName);
+    SvgLeafNode(@NonNull SvgTree svgTree, @NonNull Element element, @Nullable String nodeName) {
+        super(svgTree, element, nodeName);
     }
 
     @Override
     @NonNull
     public SvgLeafNode deepCopy() {
-        SvgLeafNode newInstance = new SvgLeafNode(getTree(), getDocumentNode(), getName());
-        newInstance.copyFrom(this);
-        return newInstance;
+        SvgLeafNode newNode = new SvgLeafNode(getTree(), mDocumentElement, getName());
+        newNode.copyFrom(this);
+        return newNode;
     }
 
     protected void copyFrom(@NonNull SvgLeafNode from) {
@@ -71,7 +68,7 @@ class SvgLeafNode extends SvgNode {
             String attribute = presentationMap.get(key);
             String svgValue = entry.getValue().trim();
             String vdValue;
-            vdValue = colorSvg2Vd(svgValue, "#000000", this);
+            vdValue = colorSvg2Vd(svgValue, "#000000");
 
             if (vdValue == null) {
                 if (svgValue.endsWith("px")) {
@@ -87,7 +84,6 @@ class SvgLeafNode extends SvgNode {
                         mFillGradientNode = (SvgGradientNode)node.deepCopy();
                         mFillGradientNode.setSvgLeafNode(this);
                         mFillGradientNode.setGradientUsage(SvgGradientNode.GradientUsage.FILL);
-                        mHasFillGradient = true;
                     } else if (key.equals("stroke")) {
                         SvgNode node = getTree().getSvgNodeFromId(vdValue);
                         if (node == null) {
@@ -96,7 +92,6 @@ class SvgLeafNode extends SvgNode {
                         mStrokeGradientNode = (SvgGradientNode)node.deepCopy();
                         mStrokeGradientNode.setSvgLeafNode(this);
                         mStrokeGradientNode.setGradientUsage(SvgGradientNode.GradientUsage.STROKE);
-                        mHasStrokeGradient = true;
                     }
                     continue;
                 } else {
@@ -156,10 +151,11 @@ class SvgLeafNode extends SvgNode {
                                (mName != null ? mName : " null name "));
     }
 
-    public void setPathData(String pathData) {
+    public void setPathData(@NonNull String pathData) {
         mPathData = pathData;
     }
 
+    @Nullable
     public String getPathData() {
         return mPathData;
     }
@@ -170,7 +166,7 @@ class SvgLeafNode extends SvgNode {
     }
 
     public boolean hasGradient() {
-        return mHasFillGradient || mHasStrokeGradient;
+        return mFillGradientNode != null || mStrokeGradientNode != null;
     }
 
     @Override
@@ -196,14 +192,19 @@ class SvgLeafNode extends SvgNode {
 
         if (mVdAttributesMap.containsKey(Svg2Vector.SVG_STROKE_WIDTH)
                 && ((mStackedTransform.getType() & AffineTransform.TYPE_MASK_SCALE) != 0)) {
-            getTree().logErrorLine("Scaling of the stroke width is ignored",
-                                   getDocumentNode(), SvgTree.SvgLogLevel.WARNING);
+            logWarning("Scaling of the stroke width is ignored");
         }
     }
 
     @Override
-    public void writeXML(@NonNull OutputStreamWriter writer, boolean inClipPath,
-            @NonNull String indent) throws IOException {
+    public void writeXml(
+            @NonNull OutputStreamWriter writer, boolean inClipPath, @NonNull String indent)
+            throws IOException {
+        // First, decide whether or not we can skip this path, since it has no visible effect.
+        if (mPathData == null || mPathData.isEmpty()) {
+            return; // No path to draw.
+        }
+
         if (inClipPath) {
             // Write data that is part of the clip-path data.
             writer.write(mPathData);
@@ -213,10 +214,6 @@ class SvgLeafNode extends SvgNode {
             return;
         }
 
-        // First, decide whether or not we can skip this path, since it has no visible effect.
-        if (mPathData == null || mPathData.isEmpty()) {
-            return; // No path to draw.
-        }
         String fillColor = mVdAttributesMap.get(Svg2Vector.SVG_FILL_COLOR);
         String strokeColor = mVdAttributesMap.get(Svg2Vector.SVG_STROKE_COLOR);
         logger.log(Level.FINE, "fill color " + fillColor);
@@ -230,7 +227,7 @@ class SvgLeafNode extends SvgNode {
         writer.write(indent);
         writer.write("<path");
         writer.write(System.lineSeparator());
-        if (fillColor == null && !mHasFillGradient) {
+        if (fillColor == null && mFillGradientNode == null) {
             logger.log(Level.FINE, "Adding default fill color");
             writer.write(indent);
             writer.write(CONTINUATION_INDENT);
@@ -239,7 +236,7 @@ class SvgLeafNode extends SvgNode {
         }
         if (!emptyStroke
                 && !mVdAttributesMap.containsKey(Svg2Vector.SVG_STROKE_WIDTH)
-                && !mHasStrokeGradient) {
+                && mStrokeGradientNode == null) {
             logger.log(Level.FINE, "Adding default stroke width");
             writer.write(indent);
             writer.write(CONTINUATION_INDENT);
@@ -258,11 +255,11 @@ class SvgLeafNode extends SvgNode {
         writer.write('>');
         writer.write(System.lineSeparator());
 
-        if (mHasFillGradient) {
-            mFillGradientNode.writeXML(writer, false, indent + INDENT_UNIT);
+        if (mFillGradientNode != null) {
+            mFillGradientNode.writeXml(writer, false, indent + INDENT_UNIT);
         }
-        if (mHasStrokeGradient) {
-            mStrokeGradientNode.writeXML(writer, false, indent + INDENT_UNIT);
+        if (mStrokeGradientNode != null) {
+            mStrokeGradientNode.writeXml(writer, false, indent + INDENT_UNIT);
         }
         if (hasGradient()) {
             writer.write(indent);

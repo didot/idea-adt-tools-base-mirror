@@ -17,21 +17,18 @@
 package com.android.build.gradle.tasks;
 
 import com.android.annotations.NonNull;
-import com.android.build.gradle.internal.CombinedInput;
 import com.android.build.gradle.internal.publishing.AndroidArtifacts;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidVariantTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import java.io.File;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputFile;
-import org.gradle.api.tasks.TaskAction;
 
 /** Task to check if Proguard needs to be enabled for test plugin. */
-public class CheckTestedAppObfuscation extends AndroidVariantTask {
+public class CheckTestedAppObfuscation extends NonIncrementalTask {
     FileCollection mappingFile;
 
     @InputFiles
@@ -47,11 +44,11 @@ public class CheckTestedAppObfuscation extends AndroidVariantTask {
         return null;
     }
 
-    @TaskAction
-    void checkIfAppIsObfuscated() {
+    @Override
+    protected void doTaskAction() {
         if (!mappingFile.isEmpty()) {
             throw new RuntimeException(
-                    "Mapping file found in tested application. Proguard must also be enabled in "
+                    "Mapping file found in tested application. Code shrinker must also be enabled in "
                             + "test plugin with:\n"
                             + "android {\n"
                             + "    buildTypes {\n"
@@ -59,7 +56,6 @@ public class CheckTestedAppObfuscation extends AndroidVariantTask {
                             + getVariantName()
                             + " {\n"
                             + "            minifyEnabled true\n"
-                            + "            useProguard true\n"
                             + "        }\n"
                             + "    }\n"
                             + "}\n");
@@ -96,12 +92,5 @@ public class CheckTestedAppObfuscation extends AndroidVariantTask {
                                     AndroidArtifacts.ArtifactScope.ALL,
                                     AndroidArtifacts.ArtifactType.APK_MAPPING);
         }
-    }
-
-    // Workaround for https://issuetracker.google.com/67418335
-    @Input
-    @NonNull
-    public String getCombinedInput() {
-        return new CombinedInput().add("dummyOutput", getDummyOutput()).toString();
     }
 }

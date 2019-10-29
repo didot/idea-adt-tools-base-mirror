@@ -4,6 +4,7 @@
     <exclude-output />
     <content url="file://$MODULE_DIR$/src/test">
       <sourceFolder url="file://$MODULE_DIR$/src/test/java" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/src/test/resources" type="java-test-resource" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
@@ -15,7 +16,8 @@
     <orderEntry type="library" scope="TEST" name="truth" level="project" />
     <orderEntry type="library" scope="TEST" name="dexlib2" level="project" />
     <orderEntry type="library" scope="TEST" name="jimfs" level="project" />
-    <orderEntry type="library" scope="TEST" name="KotlinJavaRuntime" level="project" />
-    <orderEntry type="library" scope="TEST" name="KotlinTest" level="project" />
+    <orderEntry type="library" scope="TEST" name="kotlin-stdlib-jdk8" level="project" />
+    <orderEntry type="library" scope="TEST" name="kotlin-test" level="project" />
+    <orderEntry type="library" name="truth-java8-extension" level="project" />
   </component>
 </module>

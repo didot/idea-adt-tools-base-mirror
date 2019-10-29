@@ -21,7 +21,6 @@ import static com.android.build.gradle.internal.workeractions.WorkerActionServic
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.build.api.transform.Context;
 import com.android.build.api.transform.DirectoryInput;
 import com.android.build.api.transform.Format;
@@ -38,13 +37,14 @@ import com.android.build.api.transform.TransformOutputProvider;
 import com.android.build.gradle.internal.InternalScope;
 import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.crash.PluginCrashReporter;
+import com.android.build.gradle.internal.errors.MessageReceiverImpl;
 import com.android.build.gradle.internal.pipeline.ExtendedContentType;
 import com.android.build.gradle.internal.pipeline.TransformManager;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.workeractions.WorkerActionServiceRegistry;
+import com.android.build.gradle.options.SyncOptions;
 import com.android.builder.core.DefaultDexOptions;
 import com.android.builder.core.DexOptions;
-import com.android.builder.core.SerializableMessageReceiver;
 import com.android.builder.dexing.ClassFileEntry;
 import com.android.builder.dexing.ClassFileInput;
 import com.android.builder.dexing.ClassFileInputs;
@@ -64,7 +64,9 @@ import com.android.ide.common.internal.WaitableExecutor;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.process.ProcessOutput;
 import com.android.ide.common.process.ProcessOutputHandler;
+import com.android.sdklib.AndroidVersion;
 import com.android.utils.FileUtils;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -91,11 +93,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
+import org.gradle.api.file.FileCollection;
+import org.gradle.api.logging.Logging;
 import org.gradle.tooling.BuildException;
 import org.gradle.workers.IsolationMode;
 
@@ -178,9 +181,10 @@ public class DexArchiveBuilderTransform extends Transform {
     private static final int DEFAULT_NUM_BUCKETS =
             Math.max(Runtime.getRuntime().availableProcessors() / 2, 1);
 
-    @NonNull private final Supplier<List<File>> androidJarClasspath;
+    @NonNull private final FileCollection androidJarClasspath;
     @NonNull private final DexOptions dexOptions;
     @NonNull private final MessageReceiver messageReceiver;
+    @NonNull private final SyncOptions.ErrorFormatMode errorFormatMode;
     @VisibleForTesting @NonNull final WaitableExecutor executor;
     private final int minSdkVersion;
     @NonNull private final DexerTool dexer;
@@ -193,14 +197,15 @@ public class DexArchiveBuilderTransform extends Transform {
     @NonNull private final VariantScope.Java8LangSupport java8LangSupportType;
     private final int numberOfBuckets;
     private final boolean includeFeaturesInScopes;
-    private boolean isInstantRun;
 
     private boolean enableDexingArtifactTransform;
+    private final boolean needsClasspath;
 
     DexArchiveBuilderTransform(
-            @NonNull Supplier<List<File>> androidJarClasspath,
+            @NonNull FileCollection androidJarClasspath,
             @NonNull DexOptions dexOptions,
             @NonNull MessageReceiver messageReceiver,
+            @NonNull SyncOptions.ErrorFormatMode errorFormatMode,
             @Nullable FileCache userLevelCache,
             int minSdkVersion,
             @NonNull DexerTool dexer,
@@ -212,11 +217,11 @@ public class DexArchiveBuilderTransform extends Transform {
             @NonNull String projectVariant,
             @Nullable Integer numberOfBuckets,
             boolean includeFeaturesInScopes,
-            boolean isInstantRun,
             boolean enableDexingArtifactTransform) {
         this.androidJarClasspath = androidJarClasspath;
         this.dexOptions = dexOptions;
         this.messageReceiver = messageReceiver;
+        this.errorFormatMode = errorFormatMode;
         this.minSdkVersion = minSdkVersion;
         this.dexer = dexer;
         this.projectVariant = projectVariant;
@@ -231,14 +236,12 @@ public class DexArchiveBuilderTransform extends Transform {
                 (outBufferSize == null ? DEFAULT_BUFFER_SIZE_IN_KB : outBufferSize) * 1024;
         this.isDebuggable = isDebuggable;
         this.java8LangSupportType = java8LangSupportType;
-        if (isInstantRun) {
-            this.numberOfBuckets = NUMBER_OF_SLICES_FOR_PROJECT_CLASSES;
-        } else {
-            this.numberOfBuckets = numberOfBuckets == null ? DEFAULT_NUM_BUCKETS : numberOfBuckets;
-        }
+        this.numberOfBuckets = numberOfBuckets == null ? DEFAULT_NUM_BUCKETS : numberOfBuckets;
         this.includeFeaturesInScopes = includeFeaturesInScopes;
-        this.isInstantRun = isInstantRun;
         this.enableDexingArtifactTransform = enableDexingArtifactTransform;
+        this.needsClasspath =
+                java8LangSupportType == VariantScope.Java8LangSupport.D8
+                        && minSdkVersion < AndroidVersion.VersionCodes.N;
     }
 
     @NonNull
@@ -274,6 +277,10 @@ public class DexArchiveBuilderTransform extends Transform {
     @NonNull
     @Override
     public Set<? super Scope> getReferencedScopes() {
+        if (!needsClasspath) {
+            return ImmutableSet.of();
+        }
+
         Set<? super QualifiedContent.ScopeType> referenced =
                 Sets.newHashSet(Scope.PROVIDED_ONLY, Scope.TESTED_CODE);
         if (enableDexingArtifactTransform) {
@@ -297,7 +304,6 @@ public class DexArchiveBuilderTransform extends Transform {
             params.put("jumbo", dexOptions.getJumboMode());
             params.put("min-sdk-version", minSdkVersion);
             params.put("dex-builder-tool", dexer.name());
-            params.put("instant-run", isInstantRun);
             params.put("enable-dexing-artifact-transform", enableDexingArtifactTransform);
 
             return params;
@@ -346,12 +352,12 @@ public class DexArchiveBuilderTransform extends Transform {
         List<DexArchiveBuilderCacheHandler.CacheableItem> cacheableItems = new ArrayList<>();
         boolean isIncremental = transformInvocation.isIncremental();
         List<Path> classpath =
-                getClasspath(transformInvocation, java8LangSupportType)
+                getClasspath(transformInvocation)
                         .stream()
                         .map(Paths::get)
                         .collect(Collectors.toList());
         List<Path> bootclasspath =
-                getBootClasspath(androidJarClasspath, java8LangSupportType)
+                getBootClasspath(androidJarClasspath)
                         .stream()
                         .map(Paths::get)
                         .collect(Collectors.toList());
@@ -518,9 +524,7 @@ public class DexArchiveBuilderTransform extends Transform {
                     fileToDelete = relativePath.toString();
                 }
 
-                int bucketId =
-                        getBucketForFile(input, file.toString(), numberOfBuckets, isInstantRun);
-                File outputFile = getOutputForDir(outputProvider, input, bucketId);
+                File outputFile = getOutputForDir(outputProvider, input);
                 FileUtils.deleteRecursivelyIfExists(
                         outputFile.toPath().resolve(fileToDelete).toFile());
             }
@@ -632,8 +636,7 @@ public class DexArchiveBuilderTransform extends Transform {
         private final boolean isIncremental;
         private final VariantScope.Java8LangSupport java8LangSupportType;
         @NonNull private final Set<File> additionalPaths;
-        @Nonnull private final MessageReceiver messageReceiver;
-        private final boolean isInstantRun;
+        @Nonnull private final SyncOptions.ErrorFormatMode errorFormatMode;
 
         public DexConversionParameters(
                 @NonNull QualifiedContent input,
@@ -651,8 +654,7 @@ public class DexArchiveBuilderTransform extends Transform {
                 boolean isIncremental,
                 @NonNull VariantScope.Java8LangSupport java8LangSupportType,
                 @NonNull Set<File> additionalPaths,
-                @Nonnull MessageReceiver messageReceiver,
-                boolean isInstantRun) {
+                @Nonnull SyncOptions.ErrorFormatMode errorFormatMode) {
             this.input = input;
             this.bootClasspath = bootClasspath;
             this.classpath = classpath;
@@ -668,12 +670,11 @@ public class DexArchiveBuilderTransform extends Transform {
             this.isIncremental = isIncremental;
             this.java8LangSupportType = java8LangSupportType;
             this.additionalPaths = additionalPaths;
-            this.messageReceiver = messageReceiver;
-            this.isInstantRun = isInstantRun;
+            this.errorFormatMode = errorFormatMode;
         }
 
         public boolean belongsToThisBucket(String path) {
-            return getBucketForFile(input, path, numberOfBuckets, isInstantRun) == buckedId;
+            return getBucketForFile(input, path, numberOfBuckets) == buckedId;
         }
 
         public boolean isDirectoryBased() {
@@ -697,7 +698,9 @@ public class DexArchiveBuilderTransform extends Transform {
                         dexConversionParameters,
                         System.out,
                         System.err,
-                        dexConversionParameters.messageReceiver);
+                        new MessageReceiverImpl(
+                                dexConversionParameters.errorFormatMode,
+                                Logging.getLogger(DexArchiveBuilderTransform.class)));
             } catch (Exception e) {
                 throw new BuildException(e.getMessage(), e);
             }
@@ -784,8 +787,7 @@ public class DexArchiveBuilderTransform extends Transform {
 
             File preDexOutputFile;
             if (input instanceof DirectoryInput) {
-                preDexOutputFile =
-                        getOutputForDir(outputProvider, (DirectoryInput) input, bucketId);
+                preDexOutputFile = getOutputForDir(outputProvider, (DirectoryInput) input);
                 FileUtils.mkdirs(preDexOutputFile);
             } else {
                 preDexOutputFile = getOutputForJar(outputProvider, (JarInput) input, bucketId);
@@ -809,8 +811,7 @@ public class DexArchiveBuilderTransform extends Transform {
                             isIncremental,
                             java8LangSupportType,
                             additionalPaths,
-                            new SerializableMessageReceiver(messageReceiver),
-                            isInstantRun);
+                            errorFormatMode);
 
             if (useGradleWorkers) {
                 context.getWorkerExecutor()
@@ -911,10 +912,8 @@ public class DexArchiveBuilderTransform extends Transform {
     }
 
     @NonNull
-    private static List<String> getClasspath(
-            @NonNull TransformInvocation transformInvocation,
-            @NonNull VariantScope.Java8LangSupport java8LangSupportType) {
-        if (java8LangSupportType != VariantScope.Java8LangSupport.D8) {
+    private List<String> getClasspath(@NonNull TransformInvocation transformInvocation) {
+        if (!needsClasspath) {
             return Collections.emptyList();
         }
         ImmutableList.Builder<String> classpathEntries = ImmutableList.builder();
@@ -941,15 +940,13 @@ public class DexArchiveBuilderTransform extends Transform {
     }
 
     @NonNull
-    private static List<String> getBootClasspath(
-            @NonNull Supplier<List<File>> androidJarClasspath,
-            @NonNull VariantScope.Java8LangSupport java8LangSupportType) {
-
-        if (java8LangSupportType != VariantScope.Java8LangSupport.D8) {
+    private List<String> getBootClasspath(@NonNull FileCollection androidJarClasspath) {
+        if (!needsClasspath) {
             return Collections.emptyList();
         }
         ImmutableList.Builder<String> classpathEntries = ImmutableList.builder();
-        classpathEntries.addAll(androidJarClasspath.get().stream().map(File::getPath).iterator());
+        classpathEntries.addAll(
+                androidJarClasspath.getFiles().stream().map(File::getPath).iterator());
 
         return classpathEntries.build();
     }
@@ -968,20 +965,9 @@ public class DexArchiveBuilderTransform extends Transform {
 
     @NonNull
     private File getOutputForDir(
-            @NonNull TransformOutputProvider output,
-            @NonNull DirectoryInput directoryInput,
-            int bucketId) {
-        String name;
-        if (isInstantRun
-                && Sets.difference(
-                                directoryInput.getScopes(), TransformManager.SCOPE_IR_FOR_SLICING)
-                        .isEmpty()) {
-            name = getSliceName(bucketId);
-        } else {
-            name = directoryInput.getFile().toString();
-        }
+            @NonNull TransformOutputProvider output, @NonNull DirectoryInput directoryInput) {
         return output.getContentLocation(
-                name,
+                directoryInput.getFile().toString(),
                 ImmutableSet.of(ExtendedContentType.DEX_ARCHIVE),
                 directoryInput.getScopes(),
                 Format.DIRECTORY);
@@ -997,11 +983,8 @@ public class DexArchiveBuilderTransform extends Transform {
      * specified.
      */
     private static int getBucketForFile(
-            @NonNull QualifiedContent content,
-            @NonNull String path,
-            int numberOfBuckets,
-            boolean isInstantRun) {
-        if (!isInstantRun || !(content instanceof DirectoryInput)) {
+            @NonNull QualifiedContent content, @NonNull String path, int numberOfBuckets) {
+        if (!(content instanceof DirectoryInput)) {
             return Math.abs(path.hashCode()) % numberOfBuckets;
         } else {
             Path filePath = Paths.get(path);

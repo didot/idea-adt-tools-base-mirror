@@ -22,11 +22,13 @@ import org.gradle.api.artifacts.result.ResolvedDependencyResult
 
 class FakeResolvedDependencyResult(
     private val from: ResolvedComponentResult? = null,
+    private val constraint: Boolean? = null,
     private val selected: ResolvedComponentResult? = null,
     private val requested: ComponentSelector? = null
 ) : ResolvedDependencyResult {
 
     override fun getFrom() = from ?: error("value not set")
+    override fun isConstraint() = constraint ?: error("value not set")
     override fun getSelected() = selected ?: error("value not set")
     override fun getRequested() = requested ?: error("value not set")
 }

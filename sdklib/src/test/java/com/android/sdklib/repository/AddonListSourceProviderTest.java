@@ -24,11 +24,10 @@ import com.android.repository.testframework.MockFileOp;
 import com.android.testutils.TestResources;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableSet;
-import junit.framework.TestCase;
-
 import java.io.File;
 import java.net.URL;
 import java.util.List;
+import junit.framework.TestCase;
 
 /**
  * Tests for {@link RepositorySourceProvider}s.

@@ -80,6 +80,25 @@ enum class RemovedOptions(
     EXCLUDE_R_AND_MANIFEST_DOT_JAVA_FROM_GENERATED_SOURCES(
         "android.excludeRAndManifestDotJavaFromGeneratedSources",
         "Subsumed by android.enableSeparateRClassCompilation"),
+    DEPRECATED_NDK_COMPILE_LEASE(
+        "android.deprecatedNdkCompileLease",
+        "NdkCompile is no longer supported"),
+    ENABLE_DEPRECATED_NDK(
+        "android.useDeprecatedNdk",
+        "NdkCompile is no longer supported"),
+    SERIAL_AAPT2(
+        "android.injected.aapt2.serial",
+        "Invoking AAPT2 serially is no longer supported."
+    ),
+    ENABLE_DATA_BINDING_V2("android.databinding.enableV2", "Databinding v1 is removed."),
+    INJECT_SDK_MAVEN_REPOS(
+        "android.injectSdkMavenRepos",
+        "The ability to inject the Android SDK maven repos is removed in AGP 3.5"
+    ),
+    USE_NON_FINAL_RES_IDS_IN_TESTS(
+        "android.androidTest.nonFinalResIds",
+        "This property has been replaced by android.nonFinalResIds"
+    ),
     ;
 
     override val status: Option.Status

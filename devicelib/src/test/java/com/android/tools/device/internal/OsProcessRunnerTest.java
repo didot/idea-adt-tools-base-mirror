@@ -15,6 +15,7 @@
  */
 package com.android.tools.device.internal;
 
+import static com.android.testutils.AssumeUtil.assumeNotWindows;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.TruthJUnit.assume;
 
@@ -24,7 +25,6 @@ import com.android.tools.device.internal.adb.AdbVersion;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -40,7 +40,7 @@ public class OsProcessRunnerTest {
 
     @Test
     public void getBaseName_windows() {
-        assume().withFailureMessage("Is Windows?").that(isWindows()).isTrue();
+        assume().withMessage("Is Windows?").that(isWindows()).isTrue();
         assertThat(OsProcessRunner.getBaseName(ImmutableList.of("C:\\path\\to\\adb.exe")))
                 .isEqualTo("adb.exe");
     }
@@ -51,7 +51,7 @@ public class OsProcessRunnerTest {
 
     @Test
     public void getBaseName_unix() {
-        assume().withFailureMessage("Is Unix?").that(isWindows()).isFalse();
+        assume().withMessage("Is Unix?").that(isWindows()).isFalse();
         assertThat(OsProcessRunner.getBaseName(ImmutableList.of("/path/to/adb"))).isEqualTo("adb");
     }
 
@@ -78,9 +78,9 @@ public class OsProcessRunnerTest {
         runner.start(pb);
         assertThat(runner.waitFor(10, TimeUnit.SECONDS)).isTrue();
 
-        // 1.0.39+ of adb print the help message on stdout
+        // 1.0.39 of adb print the help message on stdout
         AdbVersion adbVersion = AdbVersion.get(pathToAdb);
-        if (adbVersion.micro >= 39) {
+        if (adbVersion.micro == 39) {
             assertThat(runner.getStdout()).isNotEmpty();
             assertThat(runner.getStderr()).isEmpty();
         } else {
@@ -90,8 +90,8 @@ public class OsProcessRunnerTest {
     }
 
     @Test
-    public void waitFor_neverEndingProcess()
-            throws IOException, InterruptedException, URISyntaxException {
+    public void waitFor_neverEndingProcess() throws IOException, InterruptedException {
+        assumeNotWindows();
         File script = TestResources.getFile(OsProcessRunnerTest.class, "/process/yes.py");
 
         // first, lets make sure we can exec the script properly

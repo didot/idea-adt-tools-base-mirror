@@ -34,8 +34,6 @@ import static org.objectweb.asm.ClassReader.SKIP_FRAMES;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
-import com.android.build.gradle.internal.incremental.ByteCodeUtils;
 import com.android.builder.dexing.AnalysisCallback;
 import com.android.builder.dexing.R8ResourceShrinker;
 import com.android.builder.utils.ZipEntryUtils;
@@ -47,8 +45,10 @@ import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.utils.Pair;
 import com.android.utils.XmlUtils;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -66,7 +66,9 @@ import java.io.StringWriter;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -77,6 +79,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 import javax.xml.parsers.ParserConfigurationException;
 import org.objectweb.asm.AnnotationVisitor;
@@ -195,12 +198,13 @@ public class ResourceUsageAnalyzer {
     /** Special marker regexp which does not match a resource name */
     static final String NO_MATCH = "-nomatch-";
 
-    private final File mResourceClassDir;
+    /* A source of resource classes to track, can be either a folder or a jar */
+    private final File mResourceClasseseSource;
     private final File mProguardMapping;
     /** These can be class or dex files. */
     private final Iterable<File> mClasses;
     private final File mMergedManifest;
-    private final File mMergedResourceDir;
+    private final Iterable<File> mResourceDirs;
 
     private final File mReportFile;
     private final StringWriter mDebugOutput;
@@ -229,18 +233,18 @@ public class ResourceUsageAnalyzer {
     private String mResourcesWrapper;
 
     public ResourceUsageAnalyzer(
-            @NonNull File rDir,
+            @NonNull File rClasses,
             @NonNull Iterable<File> classes,
             @NonNull File manifest,
             @Nullable File mapping,
-            @NonNull File resources,
+            @NonNull Iterable<File> resources,
             @Nullable File reportFile,
             @NonNull ApkFormat format) {
-        mResourceClassDir = rDir;
+        mResourceClasseseSource = rClasses;
         mProguardMapping = mapping;
         mClasses = classes;
         mMergedManifest = manifest;
-        mMergedResourceDir = resources;
+        mResourceDirs = resources;
 
         mReportFile = reportFile;
         if (reportFile != null || mDebug) {
@@ -258,6 +262,17 @@ public class ResourceUsageAnalyzer {
         PROTO,
     }
 
+    public ResourceUsageAnalyzer(
+            @NonNull File rClasses,
+            @NonNull Iterable<File> classes,
+            @NonNull File manifest,
+            @Nullable File mapping,
+            @NonNull File resources,
+            @Nullable File reportFile,
+            @NonNull ApkFormat format) {
+        this(rClasses, classes, manifest, mapping, Arrays.asList(resources), reportFile, format);
+    }
+
     public void dispose() {
         if (mDebugOutput != null) {
             String output = mDebugOutput.toString();
@@ -271,7 +286,7 @@ public class ResourceUsageAnalyzer {
                 if (dir != null) {
                     if ((dir.exists() || dir.mkdir()) && dir.canWrite()) {
                         try {
-                            Files.write(output, mReportFile, Charsets.UTF_8);
+                            Files.asCharSink(mReportFile, Charsets.UTF_8).write(output);
                         } catch (IOException ignore) {
                         }
                     }
@@ -281,15 +296,14 @@ public class ResourceUsageAnalyzer {
     }
 
     public void analyze() throws IOException, ParserConfigurationException, SAXException {
-        gatherResourceValues(mResourceClassDir);
+        gatherResourceValues(mResourceClasseseSource);
         recordMapping(mProguardMapping);
 
         for (File jarOrDir : mClasses) {
             recordClassUsages(jarOrDir);
         }
-
         recordManifestUsages(mMergedManifest);
-        recordResources(mMergedResourceDir);
+        recordResources(mResourceDirs);
         keepPossiblyReferencedResources();
         dumpReferences();
         mModel.processToolsAttributes();
@@ -570,7 +584,19 @@ public class ResourceUsageAnalyzer {
                 throw new IOException("Could not create " + destination);
             }
         }
-        Files.write(mModel.dumpWhitelistedResources(), destinationFile, UTF_8);
+        Files.asCharSink(destinationFile, UTF_8).write(mModel.dumpWhitelistedResources());
+    }
+
+    public void emitConfig(Path destination) throws IOException {
+        File destinationFile = destination.toFile();
+        if (!destinationFile.exists()) {
+            destinationFile.getParentFile().mkdirs();
+            boolean success = destinationFile.createNewFile();
+            if (!success) {
+                throw new IOException("Could not create " + destination);
+            }
+        }
+        Files.asCharSink(destinationFile, UTF_8).write(mModel.dumpConfig());
     }
 
 
@@ -632,8 +658,10 @@ public class ResourceUsageAnalyzer {
             }
 
             // Special case the base values.xml folder
-            File values = new File(mMergedResourceDir,
-                    FD_RES_VALUES + File.separatorChar + "values.xml");
+            File values =
+                    new File(
+                            Iterables.get(mResourceDirs, 0),
+                            FD_RES_VALUES + File.separatorChar + "values.xml");
             boolean valuesExists = values.exists();
             if (valuesExists) {
                 rewrite.add(values);
@@ -705,10 +733,12 @@ public class ResourceUsageAnalyzer {
                 for (Map.Entry<File, String> entry : rewritten.entrySet()) {
                     File file = entry.getKey();
                     String formatted = entry.getValue();
-                    Files.write(formatted, file, UTF_8);
+                    Files.asCharSink(file, UTF_8).write(formatted);
                 }
             } else {
-                filteredCopy(mMergedResourceDir, destination, skip, rewritten);
+                for (File dir : mResourceDirs) {
+                    filteredCopy(dir, destination, skip, rewritten);
+                }
             }
         } else {
             assert false;
@@ -738,7 +768,7 @@ public class ResourceUsageAnalyzer {
             } else if (!skip.contains(source) && source.isFile()) {
                 String contents = replace.get(source);
                 if (contents != null) {
-                    Files.write(contents, destination, UTF_8);
+                    Files.asCharSink(destination, UTF_8).write(contents);
                 } else {
                     Files.copy(source, destination);
                 }
@@ -1237,14 +1267,17 @@ public class ResourceUsageAnalyzer {
         return false;
     }
 
-    private void recordResources(File resDir)
+    private void recordResources(Iterable<File> resources)
             throws IOException, SAXException, ParserConfigurationException {
-        File[] resourceFolders = resDir.listFiles();
-        if (resourceFolders != null) {
-            for (File folder : resourceFolders) {
-                ResourceFolderType folderType = ResourceFolderType.getFolderType(folder.getName());
-                if (folderType != null) {
-                    recordResources(folderType, folder);
+        for (File resDir : resources) {
+            File[] resourceFolders = resDir.listFiles();
+            if (resourceFolders != null) {
+                for (File folder : resourceFolders) {
+                    ResourceFolderType folderType =
+                            ResourceFolderType.getFolderType(folder.getName());
+                    if (folderType != null) {
+                        recordResources(folderType, folder);
+                    }
                 }
             }
         }
@@ -1344,7 +1377,7 @@ public class ResourceUsageAnalyzer {
                 end = line.length();
             }
             String target = line.substring(arrow + ARROW.length(), end).trim();
-            String ownerName = ByteCodeUtils.toInternalName(target);
+            String ownerName = target.replace('.', '/');
 
             nameMap = Maps.newHashMap();
             Pair<ResourceType, Map<String, String>> pair = Pair.of(type, nameMap);
@@ -1534,13 +1567,78 @@ public class ResourceUsageAnalyzer {
                     gatherResourceValues(child);
                 }
             }
-        } else if (file.isFile() && file.getName().equals(SdkConstants.FN_RESOURCE_CLASS)) {
-            parseResourceClass(file);
+        } else if (file.isFile()) {
+            if (file.getName().equals(SdkConstants.FN_RESOURCE_CLASS)) {
+                parseResourceSourceClass(file);
+            } else if (file.getName().equals(SdkConstants.FN_R_CLASS_JAR)) {
+                parseResourceRJar(file);
+            }
         }
     }
 
+    private static ResourceType extractResourceType(String entryName) {
+        String rClassName = entryName.substring(entryName.lastIndexOf('/') + 1);
+        if (!rClassName.startsWith("R$")) {
+            return null;
+        }
+        String resourceTypeName =
+                rClassName.substring("R$".length(), rClassName.length() - DOT_CLASS.length());
+        return ResourceType.fromClassName(resourceTypeName);
+    }
+
+    private void parseResourceRJar(File jarFile) throws IOException {
+        try (ZipFile zFile = new ZipFile(jarFile)) {
+            Enumeration<? extends ZipEntry> entries = zFile.entries();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                String entryName = entry.getName();
+                if (entryName.endsWith(DOT_CLASS)) {
+                    ResourceType resourceType = extractResourceType(entryName);
+                    if (resourceType == null) {
+                        continue;
+                    }
+                    String owner = entryName.substring(0, entryName.length() - DOT_CLASS.length());
+                    byte[] classData = ByteStreams.toByteArray(zFile.getInputStream(entry));
+                    parseResourceCompiledClass(classData, owner, resourceType);
+                }
+            }
+        }
+    }
+
+    private void parseResourceCompiledClass(
+            byte[] classData, String owner, ResourceType resourceType) {
+        ClassReader classReader = new ClassReader(classData);
+        ClassVisitor fieldVisitor =
+                new ClassVisitor(Opcodes.ASM5) {
+                    @Override
+                    public FieldVisitor visitField(
+                            int access, String name, String desc, String signature, Object value) {
+                        // We only want integer or integer array (styleable) fields
+                        if (desc.equals("I") || desc.equals("[I")) {
+                            String resourceValue =
+                                    resourceType == ResourceType.STYLEABLE
+                                            ? null
+                                            : value.toString();
+                            mModel.addResource(resourceType, name, resourceValue);
+                            addOwner(owner, resourceType);
+                        }
+                        return null;
+                    }
+                };
+        classReader.accept(fieldVisitor, SKIP_DEBUG | SKIP_FRAMES);
+    }
+
+    private void addOwner(@NonNull String owner, @NonNull ResourceType type) {
+        Pair<ResourceType, Map<String, String>> pair = mResourceObfuscation.get(owner);
+        if (pair == null) {
+            Map<String, String> nameMap = Maps.newHashMap();
+            pair = Pair.of(type, nameMap);
+        }
+        mResourceObfuscation.put(owner, pair);
+    }
+
     // TODO: Use PSI here
-    private void parseResourceClass(File file) throws IOException {
+    private void parseResourceSourceClass(File file) throws IOException {
         String s = Files.toString(file, UTF_8);
         // Simple parser which handles only aapt's special R output
         String pkg = null;
@@ -1569,13 +1667,7 @@ public class ResourceUsageAnalyzer {
             }
 
             if (pkg != null) {
-                String owner = pkg + "/R$" + type.getName();
-                Pair<ResourceType, Map<String, String>> pair = mResourceObfuscation.get(owner);
-                if (pair == null) {
-                    Map<String, String> nameMap = Maps.newHashMap();
-                    pair = Pair.of(type, nameMap);
-                }
-                mResourceObfuscation.put(owner, pair);
+                addOwner(pkg + "/R$" + type.getName(), type);
             }
 
             index = end;

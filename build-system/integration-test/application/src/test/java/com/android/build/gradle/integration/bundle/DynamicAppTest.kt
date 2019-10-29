@@ -17,15 +17,19 @@
 package com.android.build.gradle.integration.bundle
 
 import com.android.SdkConstants
+import com.android.apksig.ApkVerifier
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.utils.TestFileUtils
 import com.android.build.gradle.integration.common.utils.getOutputByName
 import com.android.build.gradle.integration.common.utils.getVariantByName
 import com.android.build.gradle.options.BooleanOption
+import com.android.build.gradle.options.OptionalBooleanOption
 import com.android.build.gradle.options.StringOption
 import com.android.builder.model.AndroidProject
 import com.android.builder.model.AppBundleProjectBuildOutput
 import com.android.builder.model.AppBundleVariantBuildOutput
+import com.android.ide.common.signing.KeystoreHelper
+import com.android.testutils.TestUtils
 import com.android.testutils.apk.Dex
 import com.android.testutils.apk.Zip
 import com.android.testutils.truth.DexSubject.assertThat
@@ -45,6 +49,19 @@ import java.nio.file.Path
 import kotlin.test.fail
 
 private const val MAIN_DEX_LIST_PATH = "/BUNDLE-METADATA/com.android.tools.build.bundletool/mainDexList.txt"
+
+internal val multiDexSupportLibClasses = listOf(
+    "Landroid/support/multidex/MultiDex;",
+    "Landroid/support/multidex/MultiDexApplication;",
+    "Landroid/support/multidex/MultiDexExtractor;",
+    "Landroid/support/multidex/MultiDexExtractor\$1;",
+    "Landroid/support/multidex/MultiDexExtractor\$ExtractedDex;",
+    "Landroid/support/multidex/MultiDex\$V14;",
+    "Landroid/support/multidex/MultiDex\$V19;",
+    "Landroid/support/multidex/MultiDex\$V4;",
+    "Landroid/support/multidex/ZipUtil;",
+    "Landroid/support/multidex/ZipUtil\$CentralDirectory;"
+)
 
 class DynamicAppTest {
 
@@ -71,34 +88,21 @@ class DynamicAppTest {
         "/feature2/dex/classes.dex",
         "/feature2/manifest/AndroidManifest.xml",
         "/feature2/res/layout/feature2_layout.xml",
-        "/feature2/resources.pb")
+        "/feature2/resources.pb",
+        "/BUNDLE-METADATA/com.android.tools.build.libraries/dependencies.pb")
 
-    private val debugSignedContent: Array<String> = bundleContent.plus(arrayOf(
-        "/base/dex/classes2.dex", // Legacy multidex has minimal main dex in debug mode.
-        "/META-INF/ANDROIDD.RSA",
-        "/META-INF/ANDROIDD.SF",
-        "/META-INF/MANIFEST.MF"))
+    // Debuggable Bundles are always unsigned.
+    private val debugUnsignedContent: Array<String> = bundleContent.plus(arrayOf(
+        "/base/dex/classes2.dex" // Legacy multidex has minimal main dex in debug mode
+    ))
 
     private val releaseUnsignedContent: Array<String> = bundleContent.plus(arrayOf(
         // Only the release variant is shrunk, so only it will contain a proguard mapping file.
         "/BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map"
     ))
 
-    private val multiDexSuppotLibClasses = listOf(
-        "Landroid/support/multidex/MultiDex;",
-        "Landroid/support/multidex/MultiDexApplication;",
-        "Landroid/support/multidex/MultiDexExtractor;",
-        "Landroid/support/multidex/MultiDexExtractor\$1;",
-        "Landroid/support/multidex/MultiDexExtractor\$ExtractedDex;",
-        "Landroid/support/multidex/MultiDex\$V14;",
-        "Landroid/support/multidex/MultiDex\$V19;",
-        "Landroid/support/multidex/MultiDex\$V4;",
-        "Landroid/support/multidex/ZipUtil;",
-        "Landroid/support/multidex/ZipUtil\$CentralDirectory;"
-    )
-
     private val mainDexClasses: List<String> =
-        multiDexSuppotLibClasses.plus("Lcom/example/app/AppClassNeededInMainDexList;")
+        multiDexSupportLibClasses.plus("Lcom/example/app/AppClassNeededInMainDexList;")
 
     private val mainDexListClassesInBundle: List<String> =
         mainDexClasses.plus("Lcom/example/feature1/Feature1ClassNeededInMainDexList;")
@@ -126,7 +130,7 @@ class DynamicAppTest {
     @Test
     fun `test buildInstantApk task`() {
         project.executor()
-            .with(BooleanOption.DEPLOY_AS_INSTANT_APP, true)
+            .with(BooleanOption.IDE_DEPLOY_AS_INSTANT_APP, true)
             .run("assembleDebug")
 
 
@@ -137,8 +141,6 @@ class DynamicAppTest {
                     "intermediates",
                     "instant_app_manifest",
                     "debug",
-                    "processDebugManifest",
-                    "instant-app-manifest",
                     "AndroidManifest.xml")
             FileSubject.assertThat(manifestFile).isFile()
             FileSubject.assertThat(manifestFile).contains("android:targetSandboxVersion=\"2\"")
@@ -207,7 +209,7 @@ class DynamicAppTest {
         FileSubject.assertThat(bundleFile).exists()
 
         Zip(bundleFile).use {
-            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugSignedContent)
+            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugUnsignedContent)
             val dex = Dex(it.getEntry("base/dex/classes.dex")!!)
             // Legacy multidex is applied to the dex of the base directly for the case
             // when the build author has excluded all the features from fusing.
@@ -277,7 +279,7 @@ class DynamicAppTest {
     @Test
     fun `test unsigned bundleRelease task with proguard`() {
         val bundleTaskName = getBundleTaskName("release")
-        project.executor().with(BooleanOption.ENABLE_R8, false).run("app:$bundleTaskName")
+        project.executor().with(OptionalBooleanOption.ENABLE_R8, false).run("app:$bundleTaskName")
 
         val bundleFile = getApkFolderOutput("release").bundleFile
         FileSubject.assertThat(bundleFile).exists()
@@ -292,7 +294,7 @@ class DynamicAppTest {
     @Test
     fun `test unsigned bundleRelease task with r8`() {
         val bundleTaskName = getBundleTaskName("release")
-        project.executor().with(BooleanOption.ENABLE_R8, true).run("app:$bundleTaskName")
+        project.executor().with(OptionalBooleanOption.ENABLE_R8, true).run("app:$bundleTaskName")
 
         val bundleFile = getApkFolderOutput("release").bundleFile
         FileSubject.assertThat(bundleFile).exists()
@@ -309,7 +311,7 @@ class DynamicAppTest {
         project.getSubproject("app").testDir.resolve("proguard-rules.pro")
             .writeText("-dontobfuscate")
         val bundleTaskName = getBundleTaskName("release")
-        project.executor().with(BooleanOption.ENABLE_R8, true).run("app:$bundleTaskName")
+        project.executor().with(OptionalBooleanOption.ENABLE_R8, true).run("app:$bundleTaskName")
 
         val bundleFile = getApkFolderOutput("release").bundleFile
         FileSubject.assertThat(bundleFile).exists()
@@ -319,7 +321,7 @@ class DynamicAppTest {
 
             val mainDexList = Files.readAllLines(it.getEntry(MAIN_DEX_LIST_PATH))
             val expectedMainDexList =
-                multiDexSuppotLibClasses.map { it.substring(1, it.length - 1) + ".class" }
+                multiDexSupportLibClasses.map { it.substring(1, it.length - 1) + ".class" }
             assertThat(mainDexList).containsExactlyElementsIn(expectedMainDexList)
         }
     }
@@ -342,12 +344,13 @@ class DynamicAppTest {
         FileSubject.assertThat(bundleFile).exists()
 
         Zip(bundleFile).use {
-            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugSignedContent)
+            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugUnsignedContent)
         }
     }
 
     @Test
     fun `test abiFilter with Bundle task`() {
+        TestUtils.disableIfOnWindowsWithBazel()
         val appProject = project.getSubproject(":app")
         createAbiFile(appProject, SdkConstants.ABI_ARMEABI_V7A, "libbase.so")
         createAbiFile(appProject, SdkConstants.ABI_INTEL_ATOM, "libbase.so")
@@ -376,7 +379,7 @@ class DynamicAppTest {
         val bundleFile = getApkFolderOutput("debug").bundleFile
         FileSubject.assertThat(bundleFile).exists()
 
-        val bundleContentWithAbis = debugSignedContent.plus(listOf(
+        val bundleContentWithAbis = debugUnsignedContent.plus(listOf(
                 "/base/native.pb",
                 "/base/lib/${SdkConstants.ABI_ARMEABI_V7A}/libbase.so",
                 "/feature1/native.pb",
@@ -409,11 +412,7 @@ class DynamicAppTest {
         Truth.assertThat(apkFileArray.toList()).named("APK List for API 27")
             .containsExactly(
                 "base-master.apk",
-                "base-xxhdpi.apk",
-                "feature1-master.apk",
-                "feature1-xxhdpi.apk",
-                "feature2-master.apk",
-                "feature2-xxhdpi.apk")
+                "base-xxhdpi.apk")
 
         val baseApk = File(apkFolder, "base-master.apk")
         Zip(baseApk).use {
@@ -500,8 +499,6 @@ class DynamicAppTest {
             .containsExactly(
                 "base-master.apk",
                 "base-xxhdpi.apk",
-                "feature1-master.apk",
-                "feature1-xxhdpi.apk",
                 "feature2-master.apk",
                 "feature2-xxhdpi.apk")
 
@@ -551,8 +548,9 @@ class DynamicAppTest {
             .with(StringOption.IDE_APK_LOCATION, "out/test/my-bundle")
             .run("app:bundle")
 
-        val bundleFile = getApkFolderOutput("redDebug").bundleFile
+
         for (flavor in listOf("red", "blue")) {
+            val bundleFile = getApkFolderOutput("${flavor}Debug").bundleFile
             FileSubject.assertThat(
                 FileUtils.join(
                     project.getSubproject(":app").testDir,
@@ -573,6 +571,7 @@ class DynamicAppTest {
             .run("app:bundle")
 
         for (flavor in listOf("red", "blue")) {
+            val bundleFile = getApkFolderOutput("${flavor}Debug").bundleFile
             FileSubject.assertThat(
                 FileUtils.join(File(absolutePath), flavor, "debug", bundleFile.name))
                 .exists()
@@ -745,6 +744,58 @@ class DynamicAppTest {
         }
     }
 
+    @Test
+    fun `test bundleRelease is signed correctly`() {
+        val unicodeStorePass = "парольОтStoreåçêÏñüöé"
+        val unicodeKeyPass = "парольОтKeyåçêÏñüöé"
+        val keyAlias = "key0"
+
+        val keyStoreFile = tmpFile.root.resolve("keystore")
+        KeystoreHelper.createNewStore(
+            "jks",
+            keyStoreFile,
+            unicodeStorePass,
+            unicodeKeyPass,
+            keyAlias,
+            "CN=Bundle signing test",
+            100)
+
+        val bundleTaskName = getBundleTaskName("release")
+        project.executor()
+            .with(StringOption.IDE_SIGNING_STORE_FILE, keyStoreFile.path)
+            .with(StringOption.IDE_SIGNING_STORE_PASSWORD, unicodeStorePass)
+            .with(StringOption.IDE_SIGNING_KEY_ALIAS, keyAlias)
+            .with(StringOption.IDE_SIGNING_KEY_PASSWORD, unicodeKeyPass)
+            .run("app:$bundleTaskName")
+
+        val bundleFile = getApkFolderOutput("release").bundleFile
+        FileSubject.assertThat(bundleFile).exists()
+
+        Zip(bundleFile).use {
+            val entries = it.entries.map { it.toString() }
+            Truth.assertThat(entries).contains("/META-INF/MANIFEST.MF")
+            Truth.assertThat(entries).contains("/META-INF/${keyAlias.toUpperCase()}.RSA")
+            Truth.assertThat(entries).contains("/META-INF/${keyAlias.toUpperCase()}.SF")
+        }
+
+        val result = ApkVerifier.Builder(bundleFile)
+            .setMaxCheckedPlatformVersion(18)
+            .setMinCheckedPlatformVersion(18)
+            .build()
+            .verify()
+        assertThat(result.isVerified).isTrue()
+
+        assertThat(
+            ProcessBuilder(
+                listOf(
+                    getJarSignerPath(),
+                    "-verify",
+                    bundleFile.absolutePath))
+                .start()
+                .waitFor())
+            .isEqualTo(0)
+    }
+
     private fun getBundleTaskName(name: String): String {
         // query the model to get the task name
         val syncModels = project.model()
@@ -798,5 +849,41 @@ class DynamicAppTest {
         FileUtils.mkdirs(abiFolder)
 
         Files.write(File(abiFolder, libName).toPath(), "some content".toByteArray())
+    }
+
+    companion object {
+
+        private val jarSignerExecutable =
+            if (SdkConstants.currentPlatform() == SdkConstants.PLATFORM_WINDOWS) "jarsigner.exe"
+            else "jarsigner"
+
+        /**
+         * Return the "jarsigner" tool location or null if it cannot be determined.
+         */
+        private fun locatedJarSigner(): File? {
+            // Look in the java.home bin folder, on jdk installations or Mac OS X, this is where the
+            // javasigner will be located.
+            val javaHome = File(System.getProperty("java.home"))
+            var jarSigner = getJarSigner(javaHome)
+            if (jarSigner.exists()) {
+                return jarSigner
+            } else {
+                // if not in java.home bin, it's probable that the java.home points to a JRE
+                // installation, we should then look one folder up and in the bin folder.
+                jarSigner = getJarSigner(javaHome.parentFile)
+                // if still cant' find it, give up.
+                return if (jarSigner.exists()) jarSigner else null
+            }
+        }
+
+        /**
+         * Returns the jarsigner tool location with the bin folder.
+         */
+        private fun getJarSigner(parentDir: File) = File(File(parentDir, "bin"), jarSignerExecutable)
+
+        fun getJarSignerPath(): String {
+            val jarSigner = locatedJarSigner()
+            return if (jarSigner!=null) jarSigner.absolutePath else jarSignerExecutable
+        }
     }
 }

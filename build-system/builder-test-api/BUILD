@@ -1,11 +1,13 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
+load("//tools/base/bazel:coverage.bzl", "coverage_java_test")
 
 # managed by go/iml_to_build
 iml_module(
     name = "studio.android.sdktools.builder-test-api",
     srcs = ["src/main/java"],
     iml_files = ["android.sdktools.builder-test-api.iml"],
+    test_coverage = True,
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
@@ -15,7 +17,7 @@ iml_module(
         "//tools/base/ddmlib:studio.android.sdktools.ddmlib[module]",
         "//tools/idea/.idea/libraries:Guava",
         "//tools/idea/.idea/libraries:JUnit4[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )
 
@@ -40,7 +42,7 @@ maven_pom(
     source = "//tools/buildSrc/base:build_version",
 )
 
-java_test(
+coverage_java_test(
     name = "tools.builder-test-api_tests",
     srcs = glob(["src/test/java/**"]),
     jvm_flags = ["-Dtest.suite.jar=tools.builder-test-api_tests.jar"],

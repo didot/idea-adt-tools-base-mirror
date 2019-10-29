@@ -18,18 +18,17 @@ package com.android.sdklib.repository.legacy.remote.internal.sources;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
-import com.android.annotations.VisibleForTesting.Visibility;
 import com.android.prefs.AndroidLocation;
 import com.android.prefs.AndroidLocation.AndroidLocationException;
 import com.android.repository.api.RepoManager;
 import com.android.sdklib.repository.AndroidSdkHandler;
-
+import com.google.common.annotations.VisibleForTesting;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Properties;
 
@@ -143,7 +142,11 @@ class SdkSourceProperties {
         StringBuilder sb = new StringBuilder("<SdkSourceProperties");      //$NON-NLS-1$
         synchronized (sSourcesProperties) {
             List<Object> keys = Collections.list(sSourcesProperties.keys());
-            Collections.sort(keys, (o1, o2) -> o1.toString().compareTo(o2.toString()));
+            Collections.sort(keys, new Comparator<Object>() {
+                @Override
+                public int compare(Object o1, Object o2) {
+                    return o1.toString().compareTo(o2.toString());
+                }});
 
             for (Object key : keys) {
                 sb.append('\n').append(key)
@@ -178,10 +181,10 @@ class SdkSourceProperties {
     /**
      * Load properties from default file. Extracted so that it can be mocked in tests.
      *
-     * @return True if actually loaded the file. False if there was an IO error or no
-     *   file and nothing was loaded.
+     * @return True if actually loaded the file. False if there was an IO error or no file and
+     *     nothing was loaded.
      */
-    @VisibleForTesting(visibility=Visibility.PRIVATE)
+    @VisibleForTesting
     protected boolean loadProperties() {
         try {
             String folder = AndroidLocation.getFolder();
@@ -210,11 +213,10 @@ class SdkSourceProperties {
     }
 
     /**
-     * Save file to disk. Expects sSourcesProperties to be synchronized.
-     * Made accessible for testing purposes.
-     * For public usage, please use {@link #save()} instead.
+     * Save file to disk. Expects sSourcesProperties to be synchronized. Made accessible for testing
+     * purposes. For public usage, please use {@link #save()} instead.
      */
-    @VisibleForTesting(visibility=Visibility.PRIVATE)
+    @VisibleForTesting
     protected void saveLocked() {
         // Persist it to the file
         FileOutputStream fos = null;
@@ -240,7 +242,7 @@ class SdkSourceProperties {
     }
 
     /** Empty current property list. Made accessible for testing purposes. */
-    @VisibleForTesting(visibility=Visibility.PRIVATE)
+    @VisibleForTesting
     protected void clear() {
         synchronized (sSourcesProperties) {
             sSourcesProperties.clear();

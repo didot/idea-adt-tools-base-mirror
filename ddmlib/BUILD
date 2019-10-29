@@ -1,5 +1,6 @@
 load("//tools/base/bazel:bazel.bzl", "iml_module")
 load("//tools/base/bazel:maven.bzl", "maven_java_library", "maven_pom")
+load("//tools/base/bazel:coverage.bzl", "coverage_java_test")
 
 # managed by go/iml_to_build
 iml_module(
@@ -7,7 +8,7 @@ iml_module(
     srcs = ["src/main/java"],
     iml_files = ["android.sdktools.ddmlib.iml"],
     javacopts = ["-Xep:MissingCasesInEnumSwitch:WARN"],
-    tags = ["no_windows"],
+    test_coverage = True,
     test_data = ["//prebuilts/studio/sdk:platform-tools"],
     test_resources = ["src/test/resources"],
     test_srcs = ["src/test/java"],
@@ -27,7 +28,7 @@ iml_module(
         "//tools/idea/.idea/libraries:mockito[test]",
         "//tools/idea/.idea/libraries:truth[test]",
         "//tools/base/fakeadbserver:studio.android.sdktools.fakeadbserver[module, test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8",
     ],
 )
 
@@ -53,13 +54,12 @@ maven_pom(
     source = "//tools/buildSrc/base:base_version",
 )
 
-java_test(
+coverage_java_test(
     name = "tools.tests",
     srcs = glob(["src/test/java/**"]),
     data = ["//prebuilts/studio/sdk:platform-tools"],
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
     resources = glob(["src/test/resources/**"]),
-    tags = ["no_windows"],
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.ddmlib",

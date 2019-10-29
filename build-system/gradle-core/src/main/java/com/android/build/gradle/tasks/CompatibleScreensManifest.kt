@@ -18,35 +18,34 @@ package com.android.build.gradle.tasks
 
 import com.android.SdkConstants
 import com.android.build.VariantOutput
+import com.android.build.gradle.internal.scope.ApkData
 import com.android.build.gradle.internal.scope.BuildElements
 import com.android.build.gradle.internal.scope.BuildOutput
 import com.android.build.gradle.internal.scope.InternalArtifactType.COMPATIBLE_SCREEN_MANIFEST
 import com.android.build.gradle.internal.scope.OutputScope
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.TaskInputHelper
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
-import com.android.ide.common.build.ApkData
 import com.android.resources.Density
 import com.android.utils.FileUtils
 import com.google.common.base.Charsets
 import com.google.common.io.Files
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
 import org.gradle.tooling.BuildException
 import java.io.File
 import java.io.IOException
-import java.util.function.Supplier
 
 /**
  * Task to generate a manifest snippet that just contains a compatible-screens node with the given
  * density and the given list of screen sizes.
  */
 @CacheableTask
-open class CompatibleScreensManifest : AndroidVariantTask() {
+open class CompatibleScreensManifest : NonIncrementalTask() {
 
     @get:Input
     lateinit var screenSizes: Set<String>
@@ -59,22 +58,15 @@ open class CompatibleScreensManifest : AndroidVariantTask() {
     lateinit var outputScope: OutputScope
         private set
 
-    lateinit var minSdkVersion: Supplier<String?>
-        internal set
-
     @get:Input
     val splits: List<ApkData>
         get() = outputScope.apkDatas
 
-    @Input
-    @Optional
-    internal fun getMinSdkVersion(): String? {
-        return minSdkVersion.get()
-    }
+    @get:Input
+    @get:Optional
+    lateinit var minSdkVersion: Provider<String?> internal set
 
-    @TaskAction
-    @Throws(IOException::class)
-    fun generateAll() {
+    override fun doTaskAction() {
 
         BuildElements(
                 outputScope.apkDatas.mapNotNull { apkInfo ->
@@ -96,7 +88,7 @@ open class CompatibleScreensManifest : AndroidVariantTask() {
             .append("<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\"\n")
             .append("    package=\"\${packageName}\">\n")
             .append("\n")
-        if (minSdkVersion.get() != null) {
+        if (minSdkVersion.isPresent) {
             content.append("    <uses-sdk android:minSdkVersion=\"")
                 .append(minSdkVersion.get())
                 .append("\"/>\n")
@@ -163,7 +155,7 @@ open class CompatibleScreensManifest : AndroidVariantTask() {
             task.outputFolder = outputFolder
 
             val config = variantScope.variantConfiguration
-            task.minSdkVersion = TaskInputHelper.memoize {
+            task.minSdkVersion = TaskInputHelper.memoizeToProvider(task.project) {
                 val minSdk = config.mergedFlavor.minSdkVersion
                 minSdk?.apiString
             }

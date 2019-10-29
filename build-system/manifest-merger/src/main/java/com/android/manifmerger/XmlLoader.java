@@ -20,6 +20,7 @@ import static com.android.manifmerger.PlaceholderHandler.KeyBasedValueResolver;
 
 import com.android.annotations.NonNull;
 import com.android.ide.common.blame.SourceFile;
+import com.android.resources.NamespaceReferenceRewriter;
 import com.android.utils.PositionXmlParser;
 import com.google.common.base.Optional;
 import java.io.File;
@@ -27,6 +28,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 
 /**
@@ -51,21 +53,31 @@ public final class XmlLoader {
             @NonNull File xmlFile,
             @NonNull InputStream inputStream,
             @NonNull XmlDocument.Type type,
-            @NonNull Optional<String> mainManifestPackageName)
+            @NonNull Optional<String> mainManifestPackageName,
+            @NonNull DocumentModel<ManifestModel.NodeTypes> model,
+            boolean rewriteNamespaces)
             throws IOException, SAXException, ParserConfigurationException {
         Document domDocument = PositionXmlParser.parse(inputStream);
+        if (rewriteNamespaces) {
+            Element rootElement = domDocument.getDocumentElement();
+            String localPackage = rootElement.getAttribute("package");
+            new NamespaceReferenceRewriter(localPackage, (String t, String n) -> localPackage)
+                    .rewriteManifestNode(rootElement, true);
+        }
         return new XmlDocument(
                 new SourceFile(xmlFile, displayName),
                 selectors,
                 systemPropertyResolver,
                 domDocument.getDocumentElement(),
                 type,
-                mainManifestPackageName);
+                mainManifestPackageName,
+                model);
     }
 
     /**
      * Loads a xml document from its {@link String} representation without doing xml validation and
      * return a {@link com.android.manifmerger.XmlDocument}
+     *
      * @param sourceFile the source location to use for logging and record collection.
      * @param xml the persisted xml.
      * @return the initialized {@link com.android.manifmerger.XmlDocument}
@@ -80,15 +92,17 @@ public final class XmlLoader {
             @NonNull SourceFile sourceFile,
             @NonNull String xml,
             @NonNull XmlDocument.Type type,
-            @NonNull Optional<String> mainManifestPackageName)
+            @NonNull Optional<String> mainManifestPackageName,
+            @NonNull DocumentModel<ManifestModel.NodeTypes> model)
             throws IOException, SAXException, ParserConfigurationException {
         Document domDocument = PositionXmlParser.parse(xml);
         return new XmlDocument(
-                        sourceFile,
-                        selectors,
-                        systemPropertyResolver,
-                        domDocument.getDocumentElement(),
-                        type,
-                        mainManifestPackageName);
+                sourceFile,
+                selectors,
+                systemPropertyResolver,
+                domDocument.getDocumentElement(),
+                type,
+                mainManifestPackageName,
+                model);
     }
 }

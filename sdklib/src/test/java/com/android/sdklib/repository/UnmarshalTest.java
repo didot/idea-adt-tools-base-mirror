@@ -17,7 +17,12 @@ package com.android.sdklib.repository;
 
 import com.android.annotations.NonNull;
 import com.android.repository.Revision;
-import com.android.repository.api.*;
+import com.android.repository.api.License;
+import com.android.repository.api.LocalPackage;
+import com.android.repository.api.RemotePackage;
+import com.android.repository.api.RepoManager;
+import com.android.repository.api.Repository;
+import com.android.repository.api.SchemaModule;
 import com.android.repository.impl.meta.Archive;
 import com.android.repository.impl.meta.RemotePackageImpl;
 import com.android.repository.impl.meta.SchemaModuleUtil;
@@ -26,14 +31,12 @@ import com.android.repository.testframework.MockFileOp;
 import com.android.sdklib.repository.meta.DetailsTypes;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-import junit.framework.TestCase;
-
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import junit.framework.TestCase;
 
 /**
  * Tests for unmarshalling an xml repository
@@ -50,9 +53,13 @@ public class UnmarshalTest extends TestCase {
         SchemaModule addonEx = AndroidSdkHandler.getAddonModule();
         FakeProgressIndicator progress = new FakeProgressIndicator();
         RepoManager mgr = handler.getSdkManager(progress);
-        Repository repo = (Repository) SchemaModuleUtil.unmarshal(xmlStream,
-                ImmutableList.of(repoEx, addonEx, RepoManager.getGenericModule()),
-                mgr.getResourceResolver(progress), true, progress);
+        Repository repo =
+                (Repository)
+                        SchemaModuleUtil.unmarshal(
+                                xmlStream,
+                                ImmutableList.of(repoEx, addonEx, RepoManager.getGenericModule()),
+                                true,
+                                progress);
         progress.assertNoErrorsOrWarnings();
         List<? extends License> licenses = repo.getLicense();
         assertEquals(licenses.size(), 2);
@@ -122,19 +129,24 @@ public class UnmarshalTest extends TestCase {
         AndroidSdkHandler handler = getAndroidSdkHandler();
         FakeProgressIndicator progress = new FakeProgressIndicator();
         RepoManager mgr = handler.getSdkManager(progress);
-        Repository repo = (Repository) SchemaModuleUtil
-                .unmarshal(new ByteArrayInputStream(INVALID_XML.getBytes(StandardCharsets.UTF_8)),
-                        ImmutableList.of(RepoManager.getGenericModule()),
-                        mgr.getResourceResolver(progress), false, progress);
+        Repository repo =
+                (Repository)
+                        SchemaModuleUtil.unmarshal(
+                                new ByteArrayInputStream(INVALID_XML.getBytes()),
+                                ImmutableList.of(RepoManager.getGenericModule()),
+                                false,
+                                progress);
         assertFalse(progress.getWarnings().isEmpty());
         LocalPackage local = repo.getLocalPackage();
         assertEquals("dummy;foo", local.getPath());
         assertEquals(new Revision(1, 2, 3), local.getVersion());
 
         try {
-            SchemaModuleUtil.unmarshal(new ByteArrayInputStream(INVALID_XML.getBytes(StandardCharsets.UTF_8)),
+            SchemaModuleUtil.unmarshal(
+                    new ByteArrayInputStream(INVALID_XML.getBytes()),
                     ImmutableList.of(RepoManager.getGenericModule()),
-                    mgr.getResourceResolver(progress), true, progress);
+                    true,
+                    progress);
             fail();
         }
         catch (Exception e) {
@@ -161,20 +173,26 @@ public class UnmarshalTest extends TestCase {
         AndroidSdkHandler handler = getAndroidSdkHandler();
         FakeProgressIndicator progress = new FakeProgressIndicator();
         RepoManager mgr = handler.getSdkManager(progress);
-        Repository repo = (Repository) SchemaModuleUtil
-                .unmarshal(new ByteArrayInputStream(FUTURE_XML.getBytes(StandardCharsets.UTF_8)),
-                        ImmutableList
-                                .of(RepoManager.getGenericModule(), RepoManager.getCommonModule()),
-                        mgr.getResourceResolver(progress), false, progress);
+        Repository repo =
+                (Repository)
+                        SchemaModuleUtil.unmarshal(
+                                new ByteArrayInputStream(FUTURE_XML.getBytes()),
+                                ImmutableList.of(
+                                        RepoManager.getGenericModule(),
+                                        RepoManager.getCommonModule()),
+                                false,
+                                progress);
         assertFalse(progress.getWarnings().isEmpty());
         LocalPackage local = repo.getLocalPackage();
         assertEquals("dummy;foo", local.getPath());
         assertEquals(new Revision(1, 2, 3), local.getVersion());
 
         try {
-            SchemaModuleUtil.unmarshal(new ByteArrayInputStream(FUTURE_XML.getBytes(StandardCharsets.UTF_8)),
+            SchemaModuleUtil.unmarshal(
+                    new ByteArrayInputStream(FUTURE_XML.getBytes()),
                     ImmutableList.of(RepoManager.getCommonModule(), RepoManager.getGenericModule()),
-                    mgr.getResourceResolver(progress), true, progress);
+                    true,
+                    progress);
             fail();
         }
         catch (Exception e) {

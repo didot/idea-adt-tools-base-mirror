@@ -6,6 +6,7 @@
       <sourceFolder url="file://$MODULE_DIR$/testSrc" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/sdk/src" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/sdk/testSrc" isTestSource="true" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
@@ -33,15 +34,6 @@
       <library>
         <CLASSES>
           <root url="jar://$MODULE_DIR$/../../idea/build/lib/jps/util.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$MODULE_DIR$/../../../prebuilts/tools/common/m2/repository/org/codehaus/groovy/groovy-all/2.3.6/groovy-all-2.3.6.jar!/" />
         </CLASSES>
         <JAVADOC />
         <SOURCES />
@@ -115,15 +107,6 @@
     </orderEntry>
     <orderEntry type="module" module-name="android.sdktools.repository" />
     <orderEntry type="module" module-name="android.sdktools.common" />
-    <orderEntry type="module-library">
-      <library>
-        <CLASSES>
-          <root url="jar://$MODULE_DIR$/../../../prebuilts/tools/common/m2/repository/org/gradle/gradle-tooling-api/4.5/gradle-tooling-api-4.5.jar!/" />
-        </CLASSES>
-        <JAVADOC />
-        <SOURCES />
-      </library>
-    </orderEntry>
     <orderEntry type="module" module-name="android.sdktools.testutils" />
     <orderEntry type="module-library" scope="TEST">
       <library>
@@ -137,5 +120,10 @@
     <orderEntry type="module" module-name="perf-logger" scope="TEST" />
     <orderEntry type="library" name="protobuf" level="project" />
     <orderEntry type="library" scope="PROVIDED" name="jacoco-core" level="project" />
+    <orderEntry type="library" name="groovy" level="project" />
+    <orderEntry type="library" name="gradle-api" level="project" />
+    <orderEntry type="module" module-name="android.sdktools.base.lint.cli" />
+    <orderEntry type="library" scope="TEST" name="jimfs" level="project" />
+    <orderEntry type="library" scope="TEST" name="truth" level="project" />
   </component>
 </module>

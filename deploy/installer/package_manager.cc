@@ -1,8 +1,10 @@
 #include "package_manager.h"
 #include <cstring>
+#include <iostream>
 #include <sstream>
 
-#include "trace.h"
+#include "tools/base/deploy/common/event.h"
+#include "tools/base/deploy/installer/workspace.h"
 
 namespace deploy {
 
@@ -10,19 +12,18 @@ namespace {
 const char* PM_EXEC = "/system/bin/pm";
 }  // namespace
 
-PackageManager::PackageManager() : ShellCommandRunner(PM_EXEC) {}
-
-bool PackageManager::GetApks(const std::string& package_name, Apks* apks,
+bool PackageManager::GetApks(const std::string& package_name,
+                             std::vector<std::string>* apks,
                              std::string* error_string) const {
-  Trace trace("PackageManager::GetAppBaseFolder");
-  std::string parameters;
-  parameters.append("path ");
-  parameters.append(package_name);
-  std::string output;
-  bool success = Run(parameters, &output);
+  Phase p("PackageManager::GetAppBaseFolder");
+  std::vector<std::string> parameters;
+  parameters.emplace_back("path");
+  parameters.emplace_back(package_name);
+  std::string out;
+  std::string err;
+  bool success = workspace_.GetExecutor().Run(PM_EXEC, parameters, &out, &err);
   if (!success) {
-    *error_string = output;
-    // TODO Improve error logging.
+    *error_string = err;
     return false;
   }
   // pm returns the path to the apk. We need to parse the response:
@@ -30,7 +31,7 @@ bool PackageManager::GetApks(const std::string& package_name, Apks* apks,
   // into
   // /data/app/net.fabiensanglard.shmup-1
   //  Make sure input is well-formed.
-  std::stringstream ss(output);
+  std::stringstream ss(out);
   std::string line;
 
   // Return path prefixed with "package:"
@@ -43,5 +44,27 @@ bool PackageManager::GetApks(const std::string& package_name, Apks* apks,
   return true;
 }
 void PackageManager::SetPath(const char* path) { PM_EXEC = path; }
+
+bool PackageManager::Install(const std::string& apk_path,
+                             const std::vector<std::string>& options,
+                             std::string* output) const noexcept {
+  Phase p("PackageManger::Install");
+
+  std::vector<std::string> parameters;
+  parameters.emplace_back("install");
+  for (const std::string& option : options) {
+    parameters.emplace_back(option);
+  }
+  parameters.emplace_back(apk_path);
+
+  std::string err;
+  bool success =
+      workspace_.GetExecutor().Run(PM_EXEC, parameters, output, &err);
+  if (!success) {
+    *output = err;
+    return false;
+  }
+  return true;
+}
 
 }  // namespace deploy

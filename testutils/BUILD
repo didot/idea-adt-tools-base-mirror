@@ -18,7 +18,7 @@ iml_module(
         "//tools/idea/.idea/libraries:dexlib2[test]",
         "//tools/idea/.idea/libraries:jimfs[test]",
         "//tools/idea/.idea/libraries:asm-tools[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime[test]",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8[test]",
     ],
 )
 
@@ -26,8 +26,9 @@ iml_module(
 iml_module(
     name = "studio.testutils-tests",
     iml_files = ["testutils-tests.iml"],
-    tags = ["no_test_windows"],  # b/116613514
+    test_coverage = True,
     test_data = ["//prebuilts/studio/sdk:platforms/latest"] + glob(["src/test/data/**"]),
+    test_resources = ["src/test/resources"],
     test_srcs = ["src/test/java"],
     visibility = ["//visibility:public"],
     # do not sort: must match IML order
@@ -40,8 +41,9 @@ iml_module(
         "//tools/idea/.idea/libraries:truth[test]",
         "//tools/idea/.idea/libraries:dexlib2[test]",
         "//tools/idea/.idea/libraries:jimfs[test]",
-        "//tools/idea/.idea/libraries:KotlinJavaRuntime[test]",
-        "//tools/idea/.idea/libraries:KotlinTest[test]",
+        "//tools/idea/.idea/libraries:kotlin-stdlib-jdk8[test]",
+        "//tools/idea/.idea/libraries:kotlin-test[test]",
+        "//tools/idea/.idea/libraries:truth-java8-extension",
     ],
 )
 
@@ -74,15 +76,17 @@ maven_pom(
 kotlin_test(
     name = "tools.tests",
     srcs = ["src/test/java"],
+    coverage = True,
     data = ["//prebuilts/studio/sdk:platforms/latest"] + glob(["src/test/data/**"]),
     jvm_flags = ["-Dtest.suite.jar=tools.tests.jar"],
-    tags = ["no_test_windows"],  # b/115982625
+    resources = glob(["src/test/resources/**"]),
     test_class = "com.android.testutils.JarTestSuite",
     deps = [
         ":tools.testutils",
         "//tools/base/annotations",
         "//tools/base/common:tools.common",
         "//tools/base/third_party:com.google.jimfs_jimfs",
+        "//tools/base/third_party:com.google.truth.extensions_truth-java8-extension",
         "//tools/base/third_party:com.google.truth_truth",
         "//tools/base/third_party:org.jetbrains.kotlin_kotlin-stdlib-jdk8",
         "//tools/base/third_party:org.jetbrains.kotlin_kotlin-test",

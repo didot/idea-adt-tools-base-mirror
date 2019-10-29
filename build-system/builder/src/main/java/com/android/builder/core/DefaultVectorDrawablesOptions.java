@@ -81,10 +81,6 @@ public class DefaultVectorDrawablesOptions implements VectorDrawablesOptions, Se
         return mUseSupportLibrary;
     }
 
-    public void useSupportLibrary(@Nullable Boolean useSupportLibrary) {
-        setUseSupportLibrary(useSupportLibrary);
-    }
-
     public void setUseSupportLibrary(@Nullable Boolean useSupportLibrary) {
         mUseSupportLibrary = useSupportLibrary;
     }

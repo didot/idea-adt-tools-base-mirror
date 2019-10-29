@@ -17,8 +17,13 @@
 package com.android.build.gradle.internal.fixtures
 
 import org.gradle.api.Named
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.RegularFileProperty
+import org.gradle.api.file.SourceDirectorySet
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.ListProperty
+import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.SetProperty
 import org.gradle.internal.reflect.JavaReflectionUtil
@@ -31,6 +36,21 @@ import java.lang.reflect.Constructor
  *
  */
 class FakeObjectFactory : ObjectFactory {
+    override fun <K : Any?, V : Any?> mapProperty(p0: Class<K>, p1: Class<V>): MapProperty<K, V> {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun sourceDirectorySet(p0: String, p1: String): SourceDirectorySet {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun directoryProperty(): DirectoryProperty {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun fileProperty(): RegularFileProperty {
+        TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
 
     override fun <T : Any?> newInstance(theClass: Class<out T>, vararg constructorParams: Any?): T {
         @Suppress("UNCHECKED_CAST")
@@ -61,6 +81,10 @@ class FakeObjectFactory : ObjectFactory {
 
     override fun <T : Any?> setProperty(p0: Class<T>?): SetProperty<T> {
         TODO("not implemented") //To change body of created functions use File | Settings | File Templates.
+    }
+
+    override fun fileCollection(): ConfigurableFileCollection {
+        TODO("not implemented")
     }
 
     private fun getParamTypes(params: Array<out Any?>): Array<Class<*>?> {

@@ -18,14 +18,12 @@ package com.android.tools.perflib.vmtrace;
 
 import com.android.testutils.TestResources;
 import com.google.common.primitives.Ints;
-import junit.framework.TestCase;
-
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
+import junit.framework.TestCase;
 
 public class VmTraceParserTest extends TestCase {
     public void testParseHeader() throws IOException {
@@ -122,7 +120,7 @@ public class VmTraceParserTest extends TestCase {
         MethodInfo info = traceData.getMethod(0x259c);
         assertEquals("ˊ", info.methodName);
         assertEquals(1, info.methodName.length());
-        assertEquals(2, info.methodName.getBytes(StandardCharsets.UTF_8).length);
+        assertEquals(2, info.methodName.getBytes().length);
     }
 
     public void testMisMatchedTrace() throws IOException {
@@ -172,13 +170,16 @@ public class VmTraceParserTest extends TestCase {
         final ThreadInfo thread = traceData.getThread("AsyncTask #1");
         List<Map.Entry<Long, MethodInfo>> methods = new ArrayList<Map.Entry<Long, MethodInfo>>(
                 traceData.getMethods().entrySet());
-        Collections.sort(methods, (o1, o2) -> {
-            long diff =
-                    o2.getValue().getProfileData().getInclusiveTime(
-                            thread, ClockType.THREAD, TimeUnit.NANOSECONDS) -
-                    o1.getValue().getProfileData().getInclusiveTime(
-                            thread, ClockType.THREAD, TimeUnit.NANOSECONDS);
-            return Ints.saturatedCast(diff);
+        Collections.sort(methods, new Comparator<Map.Entry<Long, MethodInfo>>() {
+            @Override
+            public int compare(Map.Entry<Long, MethodInfo> o1, Map.Entry<Long, MethodInfo> o2) {
+                long diff =
+                        o2.getValue().getProfileData().getInclusiveTime(
+                                thread, ClockType.THREAD, TimeUnit.NANOSECONDS) -
+                        o1.getValue().getProfileData().getInclusiveTime(
+                                thread, ClockType.THREAD, TimeUnit.NANOSECONDS);
+                return Ints.saturatedCast(diff);
+            }
         });
 
         // verify that the top level actually comes out with the max time

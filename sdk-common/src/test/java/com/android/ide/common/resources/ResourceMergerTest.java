@@ -35,6 +35,7 @@ import com.android.ide.common.blame.SourceFilePosition;
 import com.android.ide.common.blame.SourcePosition;
 import com.android.ide.common.rendering.api.ResourceNamespace;
 import com.android.ide.common.rendering.api.ResourceValue;
+import com.android.ide.common.workers.ExecutorServiceAdapter;
 import com.android.resources.ResourceFolderType;
 import com.android.resources.ResourceType;
 import com.android.testutils.TestResources;
@@ -73,6 +74,8 @@ public class ResourceMergerTest extends BaseTestCase {
 
     @Mock
     ResourcePreprocessor mPreprocessor;
+
+    @Mock ExecutorServiceAdapter mExecutorServiceAdapter;
 
     @Rule
     public TemporaryFolder mTemporaryFolder = new TemporaryFolder();
@@ -522,7 +525,7 @@ public class ResourceMergerTest extends BaseTestCase {
         assertNotNull(parsedFile);
         assertTrue(parsedFile.getFile().equals(layoutFile));
         assertEquals("", parsedFile.getQualifiers());
-        assertEquals(12, parsedFile.getItems().size());
+        assertEquals(13, parsedFile.getItems().size());
         Collection<ResourceMergerItem> layoutItems =
                 Collections2.filter(
                         parsedFile.getItems(),
@@ -547,7 +550,7 @@ public class ResourceMergerTest extends BaseTestCase {
                                 input.getType() == ResourceType.ID
                                         && input.getSourceFile() != null
                                         && input.getSourceFile().equals(parsedFile));
-        assertEquals(11, idItems.size());
+        assertEquals(12, idItems.size());
 
         File folder = TestUtils.createTempDirDeletedOnExit();
         folder.deleteOnExit();
@@ -873,6 +876,7 @@ public class ResourceMergerTest extends BaseTestCase {
         // write the content of the resource merger.
         MergedResourceWriter writer =
                 MergedResourceWriter.createWriterWithoutPngCruncher(
+                        mExecutorServiceAdapter,
                         resFolder,
                         null /*publicFile*/,
                         mergeLogFolder,
@@ -1008,6 +1012,7 @@ public class ResourceMergerTest extends BaseTestCase {
         // write the content of the resource merger.
         MergedResourceWriter writer =
                 MergedResourceWriter.createWriterWithoutPngCruncher(
+                        mExecutorServiceAdapter,
                         resFolder,
                         null /*publicFile*/,
                         mergeLogFolder,
@@ -2114,10 +2119,12 @@ public class ResourceMergerTest extends BaseTestCase {
     @NonNull
     private MergedResourceWriter getConsumer(File tempDir) {
         return MergedResourceWriter.createWriterWithoutPngCruncher(
+                mExecutorServiceAdapter,
                 tempDir,
                 null /*publicFile*/,
                 null /*blameLogFolder*/,
                 mPreprocessor,
                 mTemporaryFolder.getRoot());
     }
+
 }

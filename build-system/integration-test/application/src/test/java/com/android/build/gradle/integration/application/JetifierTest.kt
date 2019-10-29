@@ -19,6 +19,7 @@ package com.android.build.gradle.integration.application
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.runner.FilterableParameterized
 import com.android.build.gradle.integration.common.truth.ApkSubject.assertThat
+import com.android.build.gradle.integration.common.truth.ScannerSubject.Companion.assertThat
 import com.android.build.gradle.integration.common.utils.TestFileUtils
 import com.android.build.gradle.options.BooleanOption
 import com.google.common.truth.Truth.assertThat
@@ -146,7 +147,7 @@ class JetifierTest(private val withKotlin: Boolean) {
         TestFileUtils.appendToFile(
             project.getSubproject(":app").buildFile,
             "dependencies{\n" +
-                    "implementation 'android.arch.navigation:navigation-fragment:1.0.0-alpha01'\n" +
+                    "implementation 'android.arch.navigation:navigation-fragment:1.0.0-rc01'\n" +
                     "}\n"
         )
 
@@ -186,8 +187,12 @@ class JetifierTest(private val withKotlin: Boolean) {
             .with(BooleanOption.ENABLE_JETIFIER, true)
             .expectFailure()
             .run("assembleDebug")
-        val stacktrace = Throwables.getStackTraceAsString(checkNotNull(result.exception))
-        assertThat(stacktrace).contains("Transformation hasn't been executed yet")
+        result.stderr.use {
+            assertThat(it).contains(
+                "Failed to transform artifact 'doNotJetifyLib.jar" +
+                        " (com.example.javalib:doNotJetifyLib:1.0)"
+            )
+        }
 
         // Add doNotJetifyLib to a blacklist, the build should succeed
         TestFileUtils.appendToFile(
@@ -200,11 +205,33 @@ class JetifierTest(private val withKotlin: Boolean) {
             .run("assembleDebug")
     }
 
+    @Test
+    fun testStripSignatures() {
+        // It's enough to test without Kotlin (to save test execution time)
+        assumeFalse(withKotlin)
+
+        prepareProjectForAndroidX()
+        TestFileUtils.appendToFile(
+            project.getSubproject(":app").buildFile,
+            """
+            dependencies {
+                implementation 'com.example.javalib:libWithSignatures:1.0'
+            }
+            """.trimIndent()
+        )
+
+        // Jetifier should be able to convert libWithSignatures
+        project.executor()
+            .with(BooleanOption.USE_ANDROID_X, true)
+            .with(BooleanOption.ENABLE_JETIFIER, true)
+            .run("assembleDebug")
+    }
+
     private fun prepareProjectForAndroidX() {
         TestFileUtils.searchAndReplace(
             project.getSubproject(":app").buildFile,
             "compileSdkVersion rootProject.latestCompileSdk",
-            "compileSdkVersion \"android-P\""
+            "compileSdkVersion \"android-28\""
         )
         TestFileUtils.searchAndReplace(
             project.getSubproject(":app")

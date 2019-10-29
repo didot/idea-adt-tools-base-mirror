@@ -16,6 +16,7 @@
 
 package com.android.manifmerger;
 
+import static com.android.SdkConstants.ATTR_SPLIT;
 import static com.android.manifmerger.PlaceholderHandler.APPLICATION_ID;
 import static com.android.manifmerger.PlaceholderHandler.KeyBasedValueResolver;
 import static com.android.manifmerger.PlaceholderHandler.PACKAGE_NAME;
@@ -30,11 +31,14 @@ import com.android.ide.common.xml.XmlPrettyPrinter;
 import com.android.utils.ILogger;
 import com.android.utils.Pair;
 import com.android.utils.XmlUtils;
+import com.google.common.base.Joiner;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import java.io.BufferedInputStream;
 import java.io.File;
@@ -44,10 +48,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -62,6 +68,9 @@ public class ManifestMerger2 {
 
     static final String BOOTSTRAP_INSTANT_RUN_CONTENT_PROVIDER =
             "com.android.tools.ir.server.InstantRunContentProvider";
+
+    private static final String SPLIT_IN_DYNAMIC_FEATURE =
+            "https://d.android.com/r/studio-ui/dynamic-delivery/dynamic-feature-manifest";
 
     @NonNull
     private final File mManifestFile;
@@ -89,6 +98,7 @@ public class ManifestMerger2 {
     @NonNull private final String mFeatureName;
     @NonNull private final FileStreamProvider mFileStreamProvider;
     @NonNull private final ImmutableList<File> mNavigationFiles;
+    @NonNull private final DocumentModel<ManifestModel.NodeTypes> mModel;
 
     private ManifestMerger2(
             @NonNull ILogger logger,
@@ -117,6 +127,10 @@ public class ManifestMerger2 {
         this.mFeatureName = featureName;
         this.mFileStreamProvider = fileStreamProvider;
         this.mNavigationFiles = navigationFiles;
+        this.mModel =
+                new ManifestModel(
+                        mOptionalFeatures.contains(
+                                Invoker.Feature.HANDLE_VALUE_CONFLICTS_AUTOMATICALLY));
     }
 
     /**
@@ -130,7 +144,7 @@ public class ManifestMerger2 {
     @NonNull
     private MergingReport merge() throws MergeFailureException {
         // initiate a new merging report
-        MergingReport.Builder mergingReportBuilder = new MergingReport.Builder(mLogger, this);
+        MergingReport.Builder mergingReportBuilder = new MergingReport.Builder(mLogger);
 
         SelectorResolver selectors = new SelectorResolver();
 
@@ -160,6 +174,12 @@ public class ManifestMerger2 {
             return mergingReportBuilder.build();
         }
 
+        if (!mFeatureName.isEmpty()) {
+            loadedMainManifestInfo =
+                    removeDynamicFeatureManifestSplitAttributeIfSpecified(
+                            loadedMainManifestInfo, mergingReportBuilder);
+        }
+
         // load all the libraries xml files early to have a list of all possible node:selector
         // values.
         List<LoadedManifestInfo> loadedLibraryDocuments =
@@ -169,6 +189,11 @@ public class ManifestMerger2 {
                         mainPackageAttribute.isPresent()
                                 ? mainPackageAttribute.get().getValue()
                                 : null);
+
+        if (mOptionalFeatures.contains(Invoker.Feature.ENFORCE_UNIQUE_PACKAGE_NAME)) {
+            checkUniquePackageName(
+                    loadedMainManifestInfo, loadedLibraryDocuments, mergingReportBuilder);
+        }
 
         // perform system property injection
         performSystemPropertiesInjection(mergingReportBuilder,
@@ -194,6 +219,12 @@ public class ManifestMerger2 {
                                     mainPackageAttribute.transform(it -> it.getValue())),
                             selectors,
                             mergingReportBuilder);
+
+            if (!mFeatureName.isEmpty()) {
+                overlayDocument =
+                        removeDynamicFeatureManifestSplitAttributeIfSpecified(
+                                overlayDocument, mergingReportBuilder);
+            }
 
             // check package declaration.
             Optional<XmlAttribute> packageAttribute =
@@ -294,12 +325,16 @@ public class ManifestMerger2 {
                 throw new MergeFailureException(e);
             }
         }
-        xmlDocumentOptional =
-                Optional.of(
-                        NavGraphExpander.INSTANCE.expandNavGraphs(
-                                xmlDocumentOptional.get(),
-                                loadedNavigationMap,
-                                mergingReportBuilder));
+
+        if (mMergeType == MergeType.APPLICATION) {
+            xmlDocumentOptional =
+                    Optional.of(
+                            NavGraphExpander.INSTANCE.expandNavGraphs(
+                                    xmlDocumentOptional.get(),
+                                    loadedNavigationMap,
+                                    mergingReportBuilder));
+        }
+
         if (mergingReportBuilder.hasErrors()) {
             return mergingReportBuilder.build();
         }
@@ -333,13 +368,35 @@ public class ManifestMerger2 {
 
         XmlDocument finalMergedDocument = xmlDocumentOptional.get();
 
+        Optional<XmlAttribute> packageAttr = finalMergedDocument.getPackage();
+        // We allow single word package name for library... so far...
+        if (mMergeType != MergeType.LIBRARY && packageAttr.isPresent()) {
+            XmlAttribute packageNameAttribute = packageAttr.get();
+            String packageName = packageNameAttribute.getValue();
+            // We accept absence of dot only if NO_PLACEHOLDER_REPLACEMENT is true and packageName
+            // is a placeholder
+            if (!(mOptionalFeatures.contains(Invoker.Feature.NO_PLACEHOLDER_REPLACEMENT)
+                            && PlaceholderHandler.isPlaceHolder(packageName))
+                    && !packageName.contains(".")) {
+                mergingReportBuilder.addMessage(
+                        loadedMainManifestInfo.getXmlDocument().getSourceFile(),
+                        MergingReport.Record.Severity.ERROR,
+                        String.format(
+                                "Package name '%1$s' at position %2$s should contain at "
+                                        + "least one '.' (dot) character",
+                                packageName, packageNameAttribute.printPosition()));
+                return mergingReportBuilder.build();
+            }
+        }
+
         if (!mOptionalFeatures.contains(Invoker.Feature.REMOVE_TOOLS_DECLARATIONS)) {
             PostValidator.enforceToolsNamespaceDeclaration(finalMergedDocument);
         }
 
         PostValidator.validate(finalMergedDocument, mergingReportBuilder);
         if (mergingReportBuilder.hasErrors()) {
-            finalMergedDocument.getRootNode().addMessage(mergingReportBuilder,
+            mergingReportBuilder.addMessage(
+                    finalMergedDocument.getRootNode(),
                     MergingReport.Record.Severity.WARNING,
                     "Post merge validation failed");
         }
@@ -378,9 +435,40 @@ public class ManifestMerger2 {
         return mergingReport;
     }
 
-    /** Returns whether the given feature is enabled for this merger */
-    public boolean hasFeature(@NonNull Invoker.Feature feature) {
-        return mOptionalFeatures.contains(feature);
+    private LoadedManifestInfo removeDynamicFeatureManifestSplitAttributeIfSpecified(
+            @NonNull LoadedManifestInfo dynamicFeatureManifest,
+            @NonNull MergingReport.Builder mergingReportBuilder) {
+        Optional<XmlAttribute> splitAttribute =
+                dynamicFeatureManifest
+                        .getXmlDocument()
+                        .getRootNode()
+                        .getAttribute(XmlNode.fromXmlName(ATTR_SPLIT));
+        if (splitAttribute.isPresent()) {
+            String message =
+                    String.format(
+                            "Attribute '%1$s' was removed from %2$s.\n"
+                                    + "The Android Gradle plugin includes it for you "
+                                    + "when building your project.\n"
+                                    + "See %3$s for details.",
+                            ATTR_SPLIT,
+                            splitAttribute.get().printPosition(),
+                            SPLIT_IN_DYNAMIC_FEATURE);
+            mergingReportBuilder.addMessage(
+                    dynamicFeatureManifest.getXmlDocument().getSourceFile(),
+                    MergingReport.Record.Severity.WARNING,
+                    message);
+            dynamicFeatureManifest
+                    .getXmlDocument()
+                    .getXml()
+                    .getDocumentElement()
+                    .removeAttribute(ATTR_SPLIT);
+            return new LoadedManifestInfo(
+                    dynamicFeatureManifest,
+                    dynamicFeatureManifest.getOriginalPackageName(),
+                    dynamicFeatureManifest.getXmlDocument().reparse());
+        }
+
+        return dynamicFeatureManifest;
     }
 
     /**
@@ -429,13 +517,6 @@ public class ManifestMerger2 {
             PlaceholderEncoder.visit(document);
             mergingReport.setMergedDocument(
                     MergingReport.MergedManifestKind.AAPT_SAFE, prettyPrint(document));
-        }
-
-        // Always save the pre InstantRun state in case some APT plugins require it.
-        if (mOptionalFeatures.contains(Invoker.Feature.INSTANT_RUN_REPLACEMENT)) {
-            instantRunReplacement(document);
-            mergingReport.setMergedDocument(
-                    MergingReport.MergedManifestKind.INSTANT_RUN, prettyPrint(document));
         }
 
         if (mOptionalFeatures.contains(Invoker.Feature.ADD_FEATURE_SPLIT_ATTRIBUTE)) {
@@ -729,25 +810,6 @@ public class ManifestMerger2 {
     }
 
     /**
-     * Adds attributes and provider element to document's application element for instant run.
-     *
-     * @param document the document which gets edited.
-     */
-    private static void instantRunReplacement(@NonNull Document document) {
-        Element manifest = document.getDocumentElement();
-        ImmutableList<Element> applicationElements =
-                getChildElementsByName(manifest, SdkConstants.TAG_APPLICATION);
-        if (applicationElements.isEmpty()) {
-            throw new RuntimeException("Application not defined in AndroidManifest.xml");
-        }
-        // assumes just 1 application element among manifest's immediate children.
-        Element application = applicationElements.get(0);
-        setAttributeToTrue(application, SdkConstants.ATTR_ENABLED);
-        setAttributeToTrue(application, SdkConstants.ATTR_HAS_CODE);
-        addIrContentProvider(document, application);
-    }
-
-    /**
      * Adds internet permission to document if not already present.
      *
      * @param document the document which gets edited if necessary.
@@ -956,11 +1018,11 @@ public class ManifestMerger2 {
      * @param xmlElement the xml element to process recursively.
      */
     private static void extractFqcns(@NonNull String packageName, @NonNull XmlElement xmlElement) {
+        String packagePrefix = packageName + ".";
         for (XmlAttribute xmlAttribute : xmlElement.getAttributes()) {
             if (xmlAttribute.getModel() != null && xmlAttribute.getModel().isPackageDependent()) {
                 String value = xmlAttribute.getValue();
-                if (value.startsWith(packageName) &&
-                        value.charAt(packageName.length()) == '.') {
+                if (value.startsWith(packagePrefix)) {
                     xmlAttribute.getXml().setValue(value.substring(packageName.length()));
                 }
             }
@@ -987,17 +1049,24 @@ public class ManifestMerger2 {
             @NonNull MergingReport.Builder mergingReportBuilder)
             throws MergeFailureException {
 
+        boolean rewriteNamespaces =
+                mOptionalFeatures.contains(Invoker.Feature.FULLY_NAMESPACE_LOCAL_RESOURCES);
+
         File xmlFile = manifestInfo.mLocation;
         XmlDocument xmlDocument;
         try {
             InputStream inputStream = mFileStreamProvider.getInputStream(xmlFile);
-            xmlDocument = XmlLoader.load(selectors,
-                    mSystemPropertyResolver,
-                    manifestInfo.mName,
-                    xmlFile,
-                    inputStream,
-                    manifestInfo.getType(),
-                    manifestInfo.getMainManifestPackageName());
+            xmlDocument =
+                    XmlLoader.load(
+                            selectors,
+                            mSystemPropertyResolver,
+                            manifestInfo.mName,
+                            xmlFile,
+                            inputStream,
+                            manifestInfo.getType(),
+                            manifestInfo.getMainManifestPackageName(),
+                            mModel,
+                            rewriteNamespaces);
         } catch (Exception e) {
             throw new MergeFailureException(e);
         }
@@ -1006,7 +1075,7 @@ public class ManifestMerger2 {
         MergingReport.Builder builder =
                 manifestInfo.getType() == XmlDocument.Type.MAIN
                         ? mergingReportBuilder
-                        : new MergingReport.Builder(mergingReportBuilder.getLogger(), this);
+                        : new MergingReport.Builder(mergingReportBuilder.getLogger());
 
         // create updatedManifestInfo to have access to the packageName for
         // placeholder substitution if this is the MAIN manifest
@@ -1120,6 +1189,7 @@ public class ManifestMerger2 {
             throws MergeFailureException {
 
         ImmutableList.Builder<LoadedManifestInfo> loadedLibraryDocuments = ImmutableList.builder();
+
         for (Pair<String, File> libraryFile : Sets.newLinkedHashSet(mLibraryFiles)) {
             mLogger.verbose("Loading library manifest " + libraryFile.getSecond().getPath());
             ManifestInfo manifestInfo =
@@ -1140,7 +1210,9 @@ public class ManifestMerger2 {
                                 xmlFile,
                                 inputStream,
                                 XmlDocument.Type.LIBRARY,
-                                Optional.absent() /* mainManifestPackageName */);
+                                Optional.absent(), /* mainManifestPackageName */
+                                mModel,
+                                false);
             } catch (Exception e) {
                 throw new MergeFailureException(e);
             }
@@ -1155,7 +1227,7 @@ public class ManifestMerger2 {
             // a placeholder in a key element, we however do not need to record these
             // substitutions so feed it with a fake merging report.
             MergingReport.Builder builder =
-                    new MergingReport.Builder(mergingReportBuilder.getLogger(), this);
+                    new MergingReport.Builder(mergingReportBuilder.getLogger());
             builder.getActionRecorder().recordAddedNodeAction(libraryDocument.getRootNode(), false);
             performPlaceHolderSubstitution(
                     manifestInfo, libraryDocument, builder, MergingReport.Record.Severity.INFO);
@@ -1165,11 +1237,63 @@ public class ManifestMerger2 {
                 builder.build().log(mLogger);
             }
 
-            loadedLibraryDocuments.add(new LoadedManifestInfo(manifestInfo,
-                    Optional.fromNullable(libraryDocument.getPackageName()),
-                    libraryDocument));
+            LoadedManifestInfo info =
+                    new LoadedManifestInfo(
+                            manifestInfo,
+                            Optional.fromNullable(libraryDocument.getPackageName()),
+                            libraryDocument);
+
+            loadedLibraryDocuments.add(info);
         }
+
         return loadedLibraryDocuments.build();
+    }
+
+    private void checkUniquePackageName(
+            @NonNull LoadedManifestInfo mainPackage,
+            @NonNull List<LoadedManifestInfo> libraries,
+            @NonNull MergingReport.Builder mergingReportBuilder) {
+        Multimap<String, LoadedManifestInfo> uniquePackageNameMap = ArrayListMultimap.create();
+
+        // Is main manifest is a Overlay we need to fallback.
+        if (mainPackage.getOriginalPackageName().isPresent()) {
+            uniquePackageNameMap.put(mainPackage.getOriginalPackageName().get(), mainPackage);
+        } else if (mainPackage.getMainManifestPackageName().isPresent()) {
+            uniquePackageNameMap.put(mainPackage.getMainManifestPackageName().get(), mainPackage);
+        }
+
+        libraries
+                .stream()
+                .filter(l -> l.getOriginalPackageName().isPresent())
+                .forEach(l -> uniquePackageNameMap.put(l.getOriginalPackageName().get(), l));
+
+        uniquePackageNameMap
+                .asMap()
+                .entrySet()
+                .stream()
+                .filter(e -> e.getValue().size() > 1)
+                .forEach(
+                        e -> {
+                            Collection<String> offendingTargets =
+                                    e.getValue()
+                                            .stream()
+                                            .map(i -> i.getName())
+                                            .collect(Collectors.toList());
+                            String repeatedPackageErrors =
+                                    "Package name '"
+                                            + e.getKey()
+                                            + "' used in: "
+                                            + Joiner.on(", ").join(offendingTargets)
+                                            + ".";
+                            // We know that there is at least one because of the filter check.
+                            LoadedManifestInfo info = e.getValue().stream().findFirst().get();
+                            // Report only once per error, since the error message contain the path
+                            // to all manifests with the repeated package name.
+                            mergingReportBuilder.addMessage(
+                                    info.getXmlDocument().getSourceFile(),
+                                    MergingReport.Record.Severity.ERROR,
+                                    repeatedPackageErrors);
+                        });
     }
 
     /**
@@ -1393,11 +1517,6 @@ public class ManifestMerger2 {
             MAKE_AAPT_SAFE,
 
             /**
-             * Perform InstantRun related swapping in the merged manifest file.
-             */
-            INSTANT_RUN_REPLACEMENT,
-
-            /**
              * Clients will not request the blame history
              */
             SKIP_BLAME,
@@ -1470,6 +1589,12 @@ public class ManifestMerger2 {
              * application name if none is specified. Used for legacy multidex.
              */
             ADD_SUPPORT_MULTIDEX_APPLICATION_IF_NO_NAME,
+
+            /** Rewrite local resource references with fully qualified namespace */
+            FULLY_NAMESPACE_LOCAL_RESOURCES,
+
+            /** Enforce that dependencies manifests don't have duplicated package names. */
+            ENFORCE_UNIQUE_PACKAGE_NAME,
         }
 
         /**

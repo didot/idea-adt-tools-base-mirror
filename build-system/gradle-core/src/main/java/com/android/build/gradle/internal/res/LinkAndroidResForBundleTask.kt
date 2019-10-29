@@ -17,31 +17,42 @@
 package com.android.build.gradle.internal.res
 
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.LoggerWrapper
 import com.android.build.gradle.internal.dsl.convert
-import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.MODULE
+import com.android.build.gradle.internal.publishing.AndroidArtifacts
+import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.PROJECT
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.FEATURE_RESOURCE_PKG
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH
 import com.android.build.gradle.internal.res.namespaced.registerAaptService
+import com.android.build.gradle.internal.scope.ApkData
 import com.android.build.gradle.internal.scope.ExistingBuildElements
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.TaskInputHelper
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.build.gradle.internal.tasks.featuresplit.FeatureSetMetadata
 import com.android.build.gradle.options.StringOption
+import com.android.build.gradle.internal.utils.toImmutableList
+import com.android.build.gradle.options.BooleanOption
+
+import com.android.build.gradle.options.SyncOptions
 import com.android.builder.core.VariantTypeImpl
+import com.android.builder.internal.aapt.AaptOptions
 import com.android.builder.internal.aapt.AaptPackageConfig
-import com.android.ide.common.build.ApkInfo
 import com.android.sdklib.AndroidVersion
-import com.android.sdklib.IAndroidTarget
 import com.android.utils.FileUtils
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.ImmutableSet
+import org.gradle.api.artifacts.ArtifactCollection
+import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.FileCollection
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.Nested
@@ -50,7 +61,6 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
-import org.gradle.api.tasks.TaskAction
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import java.io.IOException
@@ -61,20 +71,30 @@ import javax.inject.Inject
  * Task to link app resources into a proto format so that it can be consumed by the bundle tool.
  */
 @CacheableTask
-open class LinkAndroidResForBundleTask
-@Inject constructor(workerExecutor: WorkerExecutor) : AndroidBuilderTask() {
+abstract class LinkAndroidResForBundleTask
+@Inject constructor(workerExecutor: WorkerExecutor) : NonIncrementalTask() {
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @get:Input
     var debuggable: Boolean = false
         private set
 
-    private lateinit var aaptOptions: com.android.build.gradle.internal.dsl.AaptOptions
+    private lateinit var aaptOptions: AaptOptions
+
+    private lateinit var errorFormatMode: SyncOptions.ErrorFormatMode
 
     private var mergeBlameLogFolder: File? = null
 
+    // Not an input as it is only used to rewrite exception and doesn't affect task output
+    private lateinit var manifestMergeBlameFile: Provider<RegularFile>
+
     private var buildTargetDensity: String? = null
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    lateinit var androidJar: Provider<File>
+        private set
 
     @get:OutputFile
     lateinit var bundledResFile: File
@@ -93,36 +113,30 @@ open class LinkAndroidResForBundleTask
     val resOffset: Int?
         get() = resOffsetSupplier?.get()
 
-    @get:Internal lateinit var versionNameSupplier: Supplier<String?>
-        private set
-
     @get:Input
     @get:Optional
-    val versionName
-        get() = versionNameSupplier.get()
+    lateinit var versionName: Provider<String?> private set
 
-    @get:Internal lateinit var versionCodeSupplier: Supplier<Int?>
-        private set
-
-    @get:Input val versionCode
-        get() = versionCodeSupplier.get()
+    @get:Input
+    lateinit var versionCode: Provider<Int?> private set
 
     @get:OutputDirectory
     lateinit var incrementalFolder: File
         private set
 
     @get:Input
-    lateinit var mainSplit: ApkInfo
+    lateinit var mainSplit: ApkData
         private set
 
-    @get:InputFiles
-    @get:Optional
-    @get:PathSensitive(PathSensitivity.RELATIVE)
-    var aapt2FromMaven: FileCollection? = null
+    @get:Input
+    lateinit var aapt2Version: String
         private set
+    @get:Internal
+    abstract val aapt2FromMaven: ConfigurableFileCollection
 
-    @TaskAction
-    fun taskAction() {
+    private var compiledRemoteResources: ArtifactCollection? = null
+
+    override fun doTaskAction() {
 
         val manifestFile = ExistingBuildElements.from(InternalArtifactType.BUNDLE_MANIFEST, manifestFiles)
                 .element(mainSplit)
@@ -142,32 +156,48 @@ open class LinkAndroidResForBundleTask
             featurePackagesBuilder.add(buildElements.iterator().next().outputFile)
         }
 
+        val compiledRemoteResourcesDirs =
+            if (getCompiledRemoteResources() == null) emptyList<File>()
+            else {
+                // the order of the artifact is descending order, so we need to reverse it.
+                getCompiledRemoteResources()!!.reversed().toImmutableList()
+            }
+
         val config = AaptPackageConfig(
-                androidJarPath = builder.target.getPath(IAndroidTarget.ANDROID_JAR),
-                generateProtos = true,
-                manifestFile = manifestFile,
-                options = aaptOptions.convert(),
-                resourceOutputApk = bundledResFile,
-                variantType = VariantTypeImpl.BASE_APK,
-                debuggable = debuggable,
-                packageId =  resOffset,
-                allowReservedPackageId = minSdkVersion < AndroidVersion.VersionCodes.O,
-                dependentFeatures = featurePackagesBuilder.build(),
-                resourceDirs = ImmutableList.of(checkNotNull(getInputResourcesDir()).single()),
-                resourceConfigs = ImmutableSet.copyOf(resConfig))
+            androidJarPath = androidJar.get().absolutePath,
+            generateProtos = true,
+            manifestFile = manifestFile,
+            options = aaptOptions,
+            resourceOutputApk = bundledResFile,
+            variantType = VariantTypeImpl.BASE_APK,
+            debuggable = debuggable,
+            packageId = resOffset,
+            allowReservedPackageId = minSdkVersion < AndroidVersion.VersionCodes.O,
+            dependentFeatures = featurePackagesBuilder.build(),
+            resourceDirs = ImmutableList.Builder<File>().addAll(compiledRemoteResourcesDirs).add(
+                checkNotNull(getInputResourcesDir()).single()
+            ).build(),
+            resourceConfigs = ImmutableSet.copyOf(resConfig)
+        )
         if (logger.isInfoEnabled) {
             logger.info("Aapt output file {}", bundledResFile.absolutePath)
         }
 
         val aapt2ServiceKey = registerAaptService(
             aapt2FromMaven = aapt2FromMaven,
-            buildToolInfo = null,
-            logger = builder.logger
+            logger = LoggerWrapper(logger)
         )
-        //TODO: message rewriting.
         workers.use {
-            it.submit(Aapt2ProcessResourcesRunnable::class.java,
-                Aapt2ProcessResourcesRunnable.Params(aapt2ServiceKey, config))
+            it.submit(
+                Aapt2ProcessResourcesRunnable::class.java,
+                Aapt2ProcessResourcesRunnable.Params(
+                    aapt2ServiceKey,
+                    config,
+                    errorFormatMode,
+                    mergeBlameLogFolder,
+                    manifestMergeBlameFile.orNull?.asFile
+                )
+            )
         }
     }
 
@@ -188,14 +218,20 @@ open class LinkAndroidResForBundleTask
     @get:Input
     lateinit var resConfig: Collection<String> private set
 
-    @Input
-    fun getBuildToolsVersion(): String {
-        return buildTools.revision.toString()
+    @Nested
+    fun getAaptOptionsInput(): LinkingTaskInputAaptOptions {
+        return LinkingTaskInputAaptOptions(aaptOptions)
     }
 
-    @Nested
-    fun getAaptOptions(): com.android.build.gradle.internal.dsl.AaptOptions? {
-        return aaptOptions
+    /**
+     * Returns a file collection of the directories containing the compiled remote libraries
+     * resource files.
+     */
+    @Optional
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    fun getCompiledRemoteResources(): FileCollection? {
+        return compiledRemoteResources?.artifactFiles
     }
 
     @get:Input
@@ -233,10 +269,10 @@ open class LinkAndroidResForBundleTask
 
             task.incrementalFolder = variantScope.getIncrementalDir(name)
 
-            task.versionCodeSupplier = TaskInputHelper.memoize {
+            task.versionCode = TaskInputHelper.memoizeToProvider(task.project) {
                 config.versionCode
             }
-            task.versionNameSupplier = TaskInputHelper.memoize {
+            task.versionName = TaskInputHelper.memoizeToProvider(task.project) {
                 config.versionName
             }
 
@@ -249,7 +285,7 @@ open class LinkAndroidResForBundleTask
                     variantScope.artifacts.getFinalArtifactFiles(InternalArtifactType.MERGED_RES)
 
             task.featureResourcePackages = variantScope.getArtifactFileCollection(
-                COMPILE_CLASSPATH, MODULE, FEATURE_RESOURCE_PKG)
+                COMPILE_CLASSPATH, PROJECT, FEATURE_RESOURCE_PKG)
 
             if (variantScope.type.isFeatureSplit) {
                 // get the res offset supplier
@@ -259,17 +295,39 @@ open class LinkAndroidResForBundleTask
             }
 
             task.debuggable = config.buildType.isDebuggable
-            task.aaptOptions = variantScope.globalScope.extension.aaptOptions
+            task.aaptOptions = variantScope.globalScope.extension.aaptOptions.convert()
 
             task.buildTargetDensity =
                     projectOptions.get(StringOption.IDE_BUILD_TARGET_DENSITY)
 
             task.mergeBlameLogFolder = variantScope.resourceBlameLogDir
-            task.aapt2FromMaven = getAapt2FromMaven(variantScope.globalScope)
+            val (aapt2FromMaven, aapt2Version) = getAapt2FromMavenAndVersion(variantScope.globalScope)
+            task.aapt2FromMaven.from(aapt2FromMaven)
+            task.aapt2Version = aapt2Version
             task.minSdkVersion = variantScope.minSdkVersion.apiLevel
 
             task.resConfig =
                     variantScope.variantConfiguration.mergedFlavor.resourceConfigurations
+
+            task.androidJar = variantScope.globalScope.sdkComponents.androidJarProvider
+
+            task.errorFormatMode = SyncOptions.getErrorFormatMode(
+                variantScope.globalScope.projectOptions
+            )
+
+            task.manifestMergeBlameFile = variantScope.artifacts.getFinalProduct(
+                InternalArtifactType.MANIFEST_MERGE_BLAME_FILE
+            )
+
+            if (variantScope.globalScope.projectOptions.
+                    get(BooleanOption.PRECOMPILE_REMOTE_RESOURCES)) {
+                task.compiledRemoteResources =
+                    variantScope.getArtifactCollection(
+                        AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH,
+                        AndroidArtifacts.ArtifactScope.ALL,
+                        AndroidArtifacts.ArtifactType.COMPILED_REMOTE_RESOURCES
+                    )
+            }
         }
     }
 }

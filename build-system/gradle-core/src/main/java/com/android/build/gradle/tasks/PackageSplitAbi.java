@@ -22,19 +22,25 @@ import com.android.build.OutputFile;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.core.VariantConfiguration;
 import com.android.build.gradle.internal.packaging.IncrementalPackagerBuilder;
-import com.android.build.gradle.internal.pipeline.StreamFilter;
+import com.android.build.gradle.internal.scope.ApkData;
+import com.android.build.gradle.internal.scope.BuildElementsTransformParams;
+import com.android.build.gradle.internal.scope.BuildElementsTransformRunnable;
 import com.android.build.gradle.internal.scope.ExistingBuildElements;
+import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.MutableTaskContainer;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
+import com.android.build.gradle.internal.tasks.PerModuleBundleTaskKt;
 import com.android.build.gradle.internal.tasks.SigningConfigMetadata;
+import com.android.build.gradle.internal.tasks.Workers;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
+import com.android.build.gradle.options.BooleanOption;
 import com.android.builder.files.IncrementalRelativeFileSets;
 import com.android.builder.files.RelativeFile;
 import com.android.builder.internal.packaging.IncrementalPackager;
-import com.android.ide.common.build.ApkInfo;
 import com.android.ide.common.resources.FileStatus;
+import com.android.ide.common.workers.WorkerExecutorFacade;
 import com.android.sdklib.AndroidVersion;
 import com.android.utils.FileUtils;
 import com.google.common.collect.ImmutableMap;
@@ -44,16 +50,17 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
+import javax.inject.Inject;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskProvider;
 import org.gradle.tooling.BuildException;
+import org.gradle.workers.WorkerExecutor;
 
 /** Package a abi dimension specific split APK */
-public class PackageSplitAbi extends AndroidBuilderTask {
+public class PackageSplitAbi extends NonIncrementalTask {
 
     private BuildableArtifact processedAbiResources;
 
@@ -72,6 +79,17 @@ public class PackageSplitAbi extends AndroidBuilderTask {
     private Collection<String> aaptOptionsNoCompress;
 
     private Set<String> splits;
+
+    private boolean keepTimestampsInApk;
+
+    private final WorkerExecutorFacade workers;
+
+    private String createdBy;
+
+    @Inject
+    public PackageSplitAbi(WorkerExecutor workerExecutor) {
+        workers = Workers.INSTANCE.preferWorkers(getProject().getName(), getPath(), workerExecutor);
+    }
 
     @InputFiles
     public BuildableArtifact getProcessedAbiResources() {
@@ -113,59 +131,117 @@ public class PackageSplitAbi extends AndroidBuilderTask {
         return aaptOptionsNoCompress != null ? aaptOptionsNoCompress : Collections.emptyList();
     }
 
-    @TaskAction
-    protected void doFullTaskAction() throws IOException {
+    @Input
+    public boolean getKeepTimestampsInApk() {
+        return keepTimestampsInApk;
+    }
 
+    @Input
+    public String getCreatedBy() {
+        return createdBy;
+    }
+
+    @Override
+    protected void doTaskAction() throws IOException {
         FileUtils.cleanOutputDir(incrementalDir);
 
         ExistingBuildElements.from(
                         InternalArtifactType.ABI_PROCESSED_SPLIT_RES, processedAbiResources)
                 .transform(
-                        (split, output) -> {
-                            String apkName = getApkName(split);
-                            File outFile = new File(outputDirectory, apkName);
-
-                            try (IncrementalPackager pkg =
-                                    new IncrementalPackagerBuilder(
-                                                    IncrementalPackagerBuilder.ApkFormat.FILE)
-                                            .withOutputFile(outFile)
-                                            .withSigning(
-                                                    SigningConfigMetadata.Companion.load(
-                                                            signingConfig))
-                                            .withCreatedBy(getBuilder().getCreatedBy())
-                                            .withMinSdk(getMinSdkVersion())
-                                            // .withManifest(manifest)
-                                            .withAaptOptionsNoCompress(aaptOptionsNoCompress)
-                                            .withIntermediateDir(incrementalDir)
-                                            .withProject(getProject())
-                                            .withDebuggableBuild(isJniDebuggable())
-                                            .withJniDebuggableBuild(isJniDebuggable())
-                                            .withAcceptedAbis(
-                                                    ImmutableSet.of(split.getFilterName()))
-                                            .withIssueReporter(getBuilder().getIssueReporter())
-                                            .build()) {
-                                ImmutableMap<RelativeFile, FileStatus> nativeLibs =
-                                        IncrementalRelativeFileSets.fromZipsAndDirectories(
-                                                getJniFolders());
-                                pkg.updateNativeLibraries(nativeLibs);
-
-                                ImmutableMap<RelativeFile, FileStatus> androidResources =
-                                        IncrementalRelativeFileSets.fromZip(output);
-                                pkg.updateAndroidResources(androidResources);
-                            } catch (IOException e) {
-                                throw new BuildException(e.getMessage(), e);
-                            }
-                            return outFile;
-                        })
+                        workers,
+                        PackageSplitAbiTransformRunnable.class,
+                        (apkInfo, input) ->
+                                new PackageSplitAbiTransformParams(apkInfo, input, this))
                 .into(InternalArtifactType.ABI_PACKAGED_SPLIT, outputDirectory);
     }
 
-    private String getApkName(final ApkInfo apkData) {
-        String archivesBaseName = (String) getProject().getProperties().get("archivesBaseName");
+    private static class PackageSplitAbiTransformRunnable extends BuildElementsTransformRunnable {
+
+        @Inject
+        public PackageSplitAbiTransformRunnable(@NonNull PackageSplitAbiTransformParams params) {
+            super(params);
+        }
+
+        @Override
+        public void run() {
+            PackageSplitAbiTransformParams params = (PackageSplitAbiTransformParams) getParams();
+            try (IncrementalPackager pkg =
+                    new IncrementalPackagerBuilder(IncrementalPackagerBuilder.ApkFormat.FILE)
+                            .withOutputFile(params.getOutput())
+                            .withSigning(
+                                    SigningConfigMetadata.Companion.load(params.signingConfigFile),
+                                    params.minSdkVersion)
+                            .withCreatedBy(params.createdBy)
+                            // .withManifest(manifest)
+                            .withAaptOptionsNoCompress(params.aaptOptionsNoCompress)
+                            .withIntermediateDir(params.incrementalDir)
+                            .withKeepTimestampsInApk(params.keepTimestampsInApk)
+                            .withDebuggableBuild(params.isJniDebuggable)
+                            .withJniDebuggableBuild(params.isJniDebuggable)
+                            .withAcceptedAbis(ImmutableSet.of(params.apkInfo.getFilterName()))
+                            .build()) {
+
+                ImmutableMap<RelativeFile, FileStatus> nativeLibs =
+                        IncrementalRelativeFileSets.fromZipsAndDirectories(params.jniFolders);
+
+                pkg.updateNativeLibraries(nativeLibs);
+
+                ImmutableMap<RelativeFile, FileStatus> androidResources =
+                        IncrementalRelativeFileSets.fromZip(params.input);
+                pkg.updateAndroidResources(androidResources);
+            } catch (IOException e) {
+                throw new BuildException(e.getMessage(), e);
+            }
+        }
+    }
+
+    private static class PackageSplitAbiTransformParams extends BuildElementsTransformParams {
+        private final File input;
+        private final ApkData apkInfo;
+        private final File output;
+        private final File incrementalDir;
+        private final File signingConfigFile;
+        private final String createdBy;
+        private final Collection<String> aaptOptionsNoCompress;
+        private final Set<File> jniFolders;
+        private final boolean keepTimestampsInApk;
+        private final boolean isJniDebuggable;
+        private final int minSdkVersion;
+
+        PackageSplitAbiTransformParams(ApkData apkInfo, File input, PackageSplitAbi task) {
+            this.apkInfo = apkInfo;
+            this.input = input;
+            output =
+                    new File(
+                            task.outputDirectory,
+                            getApkName(
+                                    apkInfo,
+                                    (String)
+                                            task.getProject()
+                                                    .getProperties()
+                                                    .get("archivesBaseName"),
+                                    task.signingConfig != null));
+            incrementalDir = task.incrementalDir;
+            signingConfigFile = SigningConfigMetadata.Companion.getOutputFile(task.signingConfig);
+            createdBy = task.getCreatedBy();
+            aaptOptionsNoCompress = task.aaptOptionsNoCompress;
+            jniFolders = task.getJniFolders().getFiles();
+            keepTimestampsInApk = task.getKeepTimestampsInApk();
+            isJniDebuggable = task.jniDebuggable;
+            minSdkVersion = task.getMinSdkVersion();
+        }
+
+        @NonNull
+        @Override
+        public File getOutput() {
+            return output;
+        }
+    }
+
+    private static String getApkName(
+            final ApkData apkData, String archivesBaseName, boolean isSigned) {
         String apkName = archivesBaseName + "-" + apkData.getBaseName();
-        return apkName
-                + (getSigningConfig() == null ? "-unsigned" : "")
-                + SdkConstants.DOT_ANDROID_PACKAGE;
+        return apkName + (isSigned ? "" : "-unsigned") + SdkConstants.DOT_ANDROID_PACKAGE;
     }
 
     // ----- CreationAction -----
@@ -173,9 +249,11 @@ public class PackageSplitAbi extends AndroidBuilderTask {
     public static class CreationAction extends VariantTaskCreationAction<PackageSplitAbi> {
 
         private File outputDirectory;
+        private final boolean packageCustomClassDependencies;
 
-        public CreationAction(VariantScope scope) {
+        public CreationAction(VariantScope scope, boolean packageCustomClassDependencies) {
             super(scope);
+            this.packageCustomClassDependencies = packageCustomClassDependencies;
         }
 
         @Override
@@ -210,6 +288,7 @@ public class PackageSplitAbi extends AndroidBuilderTask {
         public void configure(@NonNull PackageSplitAbi task) {
             super.configure(task);
             VariantScope scope = getVariantScope();
+            final GlobalScope globalScope = scope.getGlobalScope();
 
             VariantConfiguration config = scope.getVariantConfiguration();
             task.processedAbiResources =
@@ -221,19 +300,20 @@ public class PackageSplitAbi extends AndroidBuilderTask {
             task.incrementalDir = scope.getIncrementalDir(task.getName());
 
             task.aaptOptionsNoCompress =
-                    scope.getGlobalScope().getExtension().getAaptOptions().getNoCompress();
+                    globalScope.getExtension().getAaptOptions().getNoCompress();
             task.jniDebuggable = config.getBuildType().isJniDebuggable();
 
             task.jniFolders =
-                    scope.getTransformManager()
-                            .getPipelineOutputAsFileCollection(StreamFilter.NATIVE_LIBS);
+                    PerModuleBundleTaskKt.getNativeLibsFiles(scope, packageCustomClassDependencies);
             task.jniDebuggable = config.getBuildType().isJniDebuggable();
             task.splits = scope.getVariantData().getFilters(OutputFile.FilterType.ABI);
 
+            task.keepTimestampsInApk =
+                    globalScope.getProjectOptions().get(BooleanOption.KEEP_TIMESTAMPS_IN_APK);
+
+            task.createdBy = globalScope.getCreatedBy();
+
             MutableTaskContainer taskContainer = scope.getTaskContainer();
-            if (taskContainer.getNdkCompileTask() != null) {
-                task.dependsOn(taskContainer.getNdkCompileTask());
-            }
 
             if (taskContainer.getExternalNativeBuildTask() != null) {
                 task.dependsOn(taskContainer.getExternalNativeBuildTask());

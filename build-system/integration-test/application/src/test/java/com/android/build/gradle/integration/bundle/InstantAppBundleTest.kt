@@ -19,21 +19,16 @@ package com.android.build.gradle.integration.bundle
 import com.android.SdkConstants
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.utils.TestFileUtils
-import com.android.build.gradle.integration.common.utils.getOutputByName
 import com.android.build.gradle.integration.common.utils.getVariantByName
-import com.android.build.gradle.options.BooleanOption
 import com.android.build.gradle.options.StringOption
 import com.android.builder.model.AndroidProject
-import com.android.builder.model.AppBundleProjectBuildOutput
-import com.android.builder.model.AppBundleVariantBuildOutput
-import com.android.testutils.apk.Dex
+import com.android.builder.model.SyncIssue
+import com.android.testutils.TestUtils
 import com.android.testutils.apk.Zip
-import com.android.testutils.truth.DexSubject.assertThat
 import com.android.testutils.truth.FileSubject
 import com.android.testutils.truth.FileSubject.assertThat
 import com.android.utils.FileUtils
 import com.google.common.truth.Truth
-import com.google.common.truth.Truth.assertThat
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -67,18 +62,19 @@ class InstantAppBundleTest {
         "/feature2/dex/classes.dex",
         "/feature2/manifest/AndroidManifest.xml",
         "/feature2/res/layout/activity_main.xml",
-        "/feature2/resources.pb")
+        "/feature2/resources.pb",
+        "/BUNDLE-METADATA/com.android.tools.build.libraries/dependencies.pb")
 
-    private val debugSignedContent: Array<String> = bundleContent.plus(arrayOf(
-        "/base/dex/classes2.dex", // Legacy multidex has minimal main dex in debug mode.
-        "/META-INF/ANDROIDD.RSA",
-        "/META-INF/ANDROIDD.SF",
-        "/META-INF/MANIFEST.MF"))
+    // Debuggable Bundles are always unsigned.
+    private val debugUnsignedContent: Array<String> = bundleContent.plus(arrayOf(
+        "/base/dex/classes2.dex" // Legacy multidex has minimal main dex in debug mode.
+    ))
 
     @Test
     @Throws(IOException::class)
     fun `test model contains feature information`() {
         val rootBuildModelMap = project.model()
+            .ignoreSyncIssues(SyncIssue.SEVERITY_WARNING)
             .fetchAndroidProjects()
             .rootBuildModelMap
 
@@ -104,7 +100,7 @@ class InstantAppBundleTest {
         FileSubject.assertThat(bundleFile).exists()
 
         Zip(bundleFile).use {
-            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugSignedContent)
+            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugUnsignedContent)
         }
 
         // also test that the feature manifest contains the feature name.
@@ -158,12 +154,13 @@ class InstantAppBundleTest {
         FileSubject.assertThat(bundleFile).exists()
 
         Zip(bundleFile).use {
-            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugSignedContent)
+            Truth.assertThat(it.entries.map { it.toString() }).containsExactly(*debugUnsignedContent)
         }
     }
 
     @Test
     fun `test abiFilter with Bundle task`() {
+        TestUtils.disableIfOnWindowsWithBazel()
         val appProject = project.getSubproject(":base")
         createAbiFile(appProject, SdkConstants.ABI_ARMEABI_V7A, "libbase.so")
         createAbiFile(appProject, SdkConstants.ABI_INTEL_ATOM, "libbase.so")
@@ -192,7 +189,7 @@ class InstantAppBundleTest {
         val bundleFile = getBundleFile("debug")
         FileSubject.assertThat(bundleFile).exists()
 
-        val bundleContentWithAbis = debugSignedContent.plus(listOf(
+        val bundleContentWithAbis = debugUnsignedContent.plus(listOf(
                 "/base/native.pb",
                 "/base/lib/${SdkConstants.ABI_ARMEABI_V7A}/libbase.so",
                 "/feature1/native.pb",
@@ -277,6 +274,7 @@ class InstantAppBundleTest {
     private fun getBundleTaskName(name: String): String {
         // query the model to get the task name
         val syncModels = project.model()
+            .ignoreSyncIssues(SyncIssue.SEVERITY_WARNING)
             .fetchAndroidProjects()
         val appModel =
             syncModels.rootBuildModelMap[":base"] ?: fail("Failed to get sync model for :base module")
@@ -288,6 +286,7 @@ class InstantAppBundleTest {
     private fun getApkFromBundleTaskName(name: String): String {
         // query the model to get the task name
         val syncModels = project.model()
+            .ignoreSyncIssues(SyncIssue.SEVERITY_WARNING)
             .fetchAndroidProjects()
         val appModel =
             syncModels.rootBuildModelMap[":base"] ?: fail("Failed to get sync model for :base module")
@@ -298,7 +297,7 @@ class InstantAppBundleTest {
 
     private fun getBundleFile(variantName: String): File {
         return File(project.getSubproject(":base").buildDir,
-            FileUtils.join("outputs", "bundle", variantName + "Feature", "base.aab"))
+            FileUtils.join("outputs", "bundle", variantName + "Feature", "base-$variantName.aab"))
     }
 
     private fun getJsonFile(api: Int): Path {

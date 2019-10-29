@@ -20,13 +20,12 @@ import com.android.SdkConstants
 import com.android.build.gradle.internal.scope.ExistingBuildElements
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
-import com.android.ide.common.build.ApkData
 import com.android.utils.FileUtils
+import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.TaskAction
 import java.io.File
 
 /**
@@ -35,22 +34,20 @@ import java.io.File
  * This also allow to record the choices made during configuration time about what APKs will be
  * produced and which ones are enabled.
  */
-open class MainApkListPersistence : AndroidVariantTask() {
+@CacheableTask
+open class MainApkListPersistence : NonIncrementalTask() {
 
     @get:OutputFile
     lateinit var outputFile: File
         private set
 
     @get:Input
-    lateinit var apkData : Collection<ApkData>
+    lateinit var apkDataListJson : String
         private set
 
-    @TaskAction
-    fun fullTaskAction() {
-
+    public override fun doTaskAction() {
         FileUtils.deleteIfExists(outputFile)
-        val apkDataList = ExistingBuildElements.persistApkList(apkData)
-        FileUtils.createFile(outputFile, apkDataList)
+        FileUtils.createFile(outputFile, apkDataListJson)
     }
 
     class CreationAction(
@@ -76,7 +73,8 @@ open class MainApkListPersistence : AndroidVariantTask() {
         override fun configure(task: MainApkListPersistence) {
             super.configure(task)
 
-            task.apkData = variantScope.outputScope.apkDatas
+            task.apkDataListJson =
+                    ExistingBuildElements.persistApkList(variantScope.outputScope.apkDatas)
             task.outputFile = outputFile
         }
     }

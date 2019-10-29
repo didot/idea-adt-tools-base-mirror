@@ -22,9 +22,9 @@
 #include <vector>
 
 #include "agent/agent.h"
-#include "agent/support/memory_stats_logger.h"
-#include "perfa/jvmti_helper.h"
-#include "perfa/scoped_local_ref.h"
+#include "agent/jvmti_helper.h"
+#include "agent/scoped_local_ref.h"
+#include "support/memory_stats_logger.h"
 #include "utils/clock.h"
 #include "utils/log.h"
 #include "utils/native_backtrace.h"
@@ -193,9 +193,12 @@ void MemoryTrackingEnv::Initialize() {
   SetEventNotification(jvmti_, JVMTI_ENABLE,
                        JVMTI_EVENT_GARBAGE_COLLECTION_FINISH);
 
-  Agent::Instance().memory_component().RegisterMemoryControlHandler(std::bind(
-      &MemoryTrackingEnv::HandleControlSignal, this, std::placeholders::_1));
-  Agent::Instance().memory_component().OpenControlStream();
+  Agent::Instance()
+      .wait_and_get_memory_component()
+      .RegisterMemoryControlHandler(
+          std::bind(&MemoryTrackingEnv::HandleControlSignal, this,
+                    std::placeholders::_1));
+  Agent::Instance().wait_and_get_memory_component().OpenControlStream();
 
   JNIEnv* jni = GetThreadLocalJNI(g_vm);
   // Start AllocWorkerThread - this is alive for the duration of the agent, but
@@ -673,10 +676,10 @@ void MemoryTrackingEnv::ObjectAllocCallback(jvmtiEnv* jvmti, JNIEnv* jni,
 
     int32_t class_tag = -1;
     {
-        std::lock_guard<std::mutex> lock(g_env->class_data_mutex_);
-        auto itr = g_env->class_tag_map_.find(klass_info);
-        assert(itr != g_env->class_tag_map_.end());
-        class_tag = itr->second;
+      std::lock_guard<std::mutex> lock(g_env->class_data_mutex_);
+      auto itr = g_env->class_tag_map_.find(klass_info);
+      assert(itr != g_env->class_tag_map_.end());
+      class_tag = itr->second;
     }
 
     AllocationEvent event;

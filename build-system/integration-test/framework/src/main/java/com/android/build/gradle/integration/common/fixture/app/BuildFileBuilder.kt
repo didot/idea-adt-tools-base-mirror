@@ -20,8 +20,11 @@ package com.android.build.gradle.integration.common.fixture.app
 class BuildFileBuilder {
 
     var plugin: String? = null
+    var useKotlin: Boolean = false
     var compileSdkVersion: String? = null
     var minSdkVersion: String? = null
+
+    var dataBindingEnabled: Boolean = false
 
     private val dependencies: StringBuilder = StringBuilder()
 
@@ -31,8 +34,13 @@ class BuildFileBuilder {
 
     fun build(): String {
         val contents = StringBuilder()
+
         if (plugin != null) {
             contents.append("apply plugin: '$plugin'")
+        }
+        if (useKotlin) {
+            contents.append("\n\napply plugin: 'kotlin-android'")
+            contents.append("\napply plugin: 'kotlin-android-extensions'")
         }
         if (compileSdkVersion != null) {
             contents.append("\n\nandroid.compileSdkVersion = $compileSdkVersion")
@@ -40,11 +48,17 @@ class BuildFileBuilder {
         if (minSdkVersion != null) {
             contents.append("\n\nandroid.defaultConfig.minSdkVersion = $minSdkVersion")
         }
+
+        if (dataBindingEnabled) {
+            contents.append("\n\nandroid.dataBinding.enabled = true")
+        }
+
         if (!dependencies.isEmpty()) {
             contents.append("\n\ndependencies{")
             contents.append("$dependencies")
             contents.append("\n}")
         }
+
         return contents.toString()
     }
 }

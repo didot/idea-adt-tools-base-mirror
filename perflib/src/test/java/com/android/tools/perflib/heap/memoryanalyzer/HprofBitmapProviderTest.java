@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 The Android Open Source Project
+ * Copyright (C) 2015 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -55,15 +55,11 @@ public class HprofBitmapProviderTest extends TestCase {
 
     @Override
     protected void tearDown() throws Exception {
-        try {
-            mSnapshot.dispose();
-        }
-        finally {
-            mSnapshot = null;
-            mAppHeap = null;
+        super.tearDown();
 
-            super.tearDown();
-        }
+        mSnapshot.dispose();
+        mSnapshot = null;
+        mAppHeap = null;
     }
 
     public void testGetBitmapFromBitmapBitmap() {

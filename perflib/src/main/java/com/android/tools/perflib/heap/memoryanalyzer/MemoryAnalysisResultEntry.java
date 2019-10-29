@@ -29,7 +29,7 @@ public abstract class MemoryAnalysisResultEntry implements AnalysisResultEntry<I
 
     protected MemoryAnalysisResultEntry(@NonNull String offenseDescription,
             @NonNull List<Instance> offendingInstance) {
-        mOffender = new Offender<>(offenseDescription, offendingInstance);
+        mOffender = new Offender<Instance>(offenseDescription, offendingInstance);
     }
 
     @NonNull

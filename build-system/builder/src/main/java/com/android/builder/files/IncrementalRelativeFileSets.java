@@ -19,23 +19,18 @@ package com.android.builder.files;
 import com.android.annotations.NonNull;
 import com.android.ide.common.resources.FileStatus;
 import com.android.tools.build.apkzlib.utils.IOExceptionRunnable;
-import com.android.tools.build.apkzlib.zip.StoredEntry;
-import com.android.tools.build.apkzlib.zip.StoredEntryType;
-import com.android.tools.build.apkzlib.zip.ZFile;
-import com.android.tools.build.apkzlib.zip.ZFileOptions;
 import com.google.common.base.Functions;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.io.Closer;
-import com.google.common.io.Files;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Utilities for incremental relative file sets, immutable maps of relative files to status.
@@ -49,13 +44,15 @@ public final class IncrementalRelativeFileSets {
     }
 
     /**
-     * Reads a directory and adds all files in the directory in a new incremental relative set.
-     * The status of each file is set to {@link FileStatus#NEW}. This method is used to construct
-     * an initial set of files and is, therefore, an incremental update from zero.
+     * Reads a directory and adds all files in the directory in a new incremental relative set. The
+     * status of each file is set to {@link FileStatus#NEW}. This method is used to construct an
+     * initial set of files and is, therefore, an incremental update from zero.
      *
      * @param directory the directory, must be an existing directory
      * @return the file set
+     * @deprecated Prefer the new Gradle InputChanges API.
      */
+    @Deprecated
     @NonNull
     public static ImmutableMap<RelativeFile, FileStatus> fromDirectory(@NonNull File directory) {
         Preconditions.checkArgument(directory.isDirectory(), "!directory.isDirectory()");
@@ -99,64 +96,92 @@ public final class IncrementalRelativeFileSets {
         return ImmutableMap.<RelativeFile, FileStatus>builder()
                 .putAll(
                         Maps.asMap(
-                            RelativeFiles.fromZip(zip),
-                            f -> status))
+                                RelativeFiles.fromZip(new ZipCentralDirectory(zip)), f -> status))
                 .build();
     }
 
     /**
-     * Computes the incremental file set that results from comparing a zip file with a possibly
-     * existing cached file. If the cached file does not exist, then the whole zip is reported
-     * as {@link FileStatus#NEW}. If {@code zip} does not exist and a cached file exists, then
-     * the whole zip is reported as {@link FileStatus#REMOVED}. Otherwise, both zips are compared
-     * and the difference returned.
+     * Reads a zip file and adds all files in the file in a new incremental relative set. The status
+     * of each file is set to {@link FileStatus#NEW}. This method is used to construct an initial
+     * set of files and is, therefore, an incremental update from zero.
      *
      * @param zip the zip file to read, must be a valid, existing zip file
-     * @param cache the cache where to find the old version of the zip
-     * @param cacheUpdates receives all runnables that will update the cache; running all runnables
-     * placed in this set will ensure that a second invocation of this method reports no changes
+     * @return the file set
+     * @throws IOException failed to read the zip file
+     */
+    @NonNull
+    public static ImmutableMap<RelativeFile, FileStatus> fromZip(@NonNull ZipCentralDirectory zip)
+            throws IOException {
+        return fromZip(zip, FileStatus.NEW);
+    }
+
+    /**
+     * Reads a zip file and adds all files in the file in a new incremental relative set. The status
+     * of each file is set to {@code status}.
+     *
+     * @param zip the zip file to read, must be a valid, existing zip file
+     * @param status the status to set the files to
      * @return the file set
      * @throws IOException failed to read the zip file
      */
     @NonNull
     public static ImmutableMap<RelativeFile, FileStatus> fromZip(
-            @NonNull File zip,
+            @NonNull ZipCentralDirectory zip, FileStatus status) throws IOException {
+        return ImmutableMap.<RelativeFile, FileStatus>builder()
+                .putAll(Maps.asMap(RelativeFiles.fromZip(zip), f -> status))
+                .build();
+    }
+
+    /**
+     * Computes the incremental file set that results from comparing a zip file with a possibly
+     * existing cached file. If the cached file does not exist, then the whole zip is reported as
+     * {@link FileStatus#NEW}. If {@code zip} does not exist and a cached file exists, then the
+     * whole zip is reported as {@link FileStatus#REMOVED}. Otherwise, both zips are compared and
+     * the difference returned.
+     *
+     * @param zipCentralDirectory the zip file to read, must be a valid, existing zip file
+     * @param cache the cache where to find the old version of the zip
+     * @param cacheUpdates receives all runnables that will update the cache; running all runnables
+     *     placed in this set will ensure that a second invocation of this method reports no changes
+     * @return the file set
+     * @throws IOException failed to read the zip file
+     */
+    @NonNull
+    public static Map<RelativeFile, FileStatus> fromZip(
+            @NonNull ZipCentralDirectory zipCentralDirectory,
             @NonNull FileCacheByPath cache,
-            @NonNull Set<Runnable> cacheUpdates) throws IOException {
-        File oldFile = cache.get(zip);
+            @NonNull Set<Runnable> cacheUpdates)
+            throws IOException {
+        File zipFile = zipCentralDirectory.getFile();
+        File oldFile = cache.get(zipFile);
         if (oldFile == null) {
             /*
              * No old zip in cache. If the zip also doesn't exist, report all empty.
              */
-            if (!zip.isFile()) {
+            if (!zipFile.isFile()) {
                 return ImmutableMap.of();
             }
 
-            cacheUpdates.add(IOExceptionRunnable.asRunnable(() -> cache.add(zip)));
-            return fromZip(zip, FileStatus.NEW);
+            cacheUpdates.add(IOExceptionRunnable.asRunnable(() -> cache.add(zipCentralDirectory)));
+            return fromZip(zipCentralDirectory, FileStatus.NEW);
         }
 
-        if (!zip.isFile()) {
+        if (!zipFile.isFile()) {
             /*
              * Zip does not exist, but a cached version does. This means the zip was deleted
              * and all entries are removed.
              */
+            ZipCentralDirectory oldCdr = new ZipCentralDirectory(oldFile);
+            Collection<DirectoryEntry> entries = oldCdr.getEntries().values();
 
-            ImmutableMap.Builder<RelativeFile, FileStatus> builder = ImmutableMap.builder();
+            Map<RelativeFile, FileStatus> map = Maps.newHashMapWithExpectedSize(entries.size());
 
-            try (ZFile zipReader = new ZFile(oldFile, new ZFileOptions(), true)) {
-                for (StoredEntry entry : zipReader.entries()) {
-                    if (entry.getType() == StoredEntryType.FILE) {
-                        builder.put(
-                                new RelativeFile(zip, entry.getCentralDirectoryHeader().getName()),
-                                FileStatus.REMOVED);
-                    }
-                }
+            for (DirectoryEntry entry : entries) {
+                map.put(new RelativeFile(zipFile, entry.getName()), FileStatus.REMOVED);
             }
 
-
-            cacheUpdates.add(IOExceptionRunnable.asRunnable(() -> cache.remove(zip)));
-            return builder.build();
+            cacheUpdates.add(IOExceptionRunnable.asRunnable(() -> cache.remove(zipFile)));
+            return Collections.unmodifiableMap(map);
         }
 
         /*
@@ -166,48 +191,42 @@ public final class IncrementalRelativeFileSets {
 
         Closer closer = Closer.create();
         try {
-            ZFile newZipReader = closer.register(new ZFile(zip, new ZFileOptions(), true));
-            ZFile oldZipReader = closer.register(new ZFile(oldFile, new ZFileOptions(), true));
+            Map<String, DirectoryEntry> newEntries = zipCentralDirectory.getEntries();
+            Map<String, DirectoryEntry> oldEntries = new ZipCentralDirectory(oldFile).getEntries();
 
             /*
              * Search for new and modified files.
              */
-            for (StoredEntry entry : newZipReader.entries()) {
-                String path = entry.getCentralDirectoryHeader().getName();
-                if (entry.getType() == StoredEntryType.FILE) {
-                    RelativeFile newRelative = new RelativeFile(zip, path);
+            for (DirectoryEntry entry : newEntries.values()) {
+                String path = entry.getName();
+                RelativeFile newRelative = new RelativeFile(zipFile, path);
 
-                    StoredEntry oldEntry = oldZipReader.get(path);
-                    if (oldEntry == null || oldEntry.getType() != StoredEntryType.FILE) {
-                        result.put(newRelative, FileStatus.NEW);
-                        continue;
-                    }
-
-                    if (oldEntry.getCentralDirectoryHeader().getCrc32()
-                            != entry.getCentralDirectoryHeader().getCrc32()
-                            || oldEntry.getCentralDirectoryHeader().getUncompressedSize()
-                            != entry.getCentralDirectoryHeader().getUncompressedSize()) {
-                        result.put(newRelative, FileStatus.CHANGED);
-                    }
-
-                    /*
-                     * If we get here, then the file exists in both unmodified.
-                     */
+                DirectoryEntry oldEntry = oldEntries.get(path);
+                if (oldEntry == null) {
+                    result.put(newRelative, FileStatus.NEW);
+                    continue;
                 }
+
+                if (oldEntry.getCrc32() != entry.getCrc32()
+                        || oldEntry.getSize() != entry.getSize()) {
+                    result.put(newRelative, FileStatus.CHANGED);
+                }
+
+                /*
+                 * If we get here, then the file exists in both unmodified.
+                 */
             }
 
-            for (StoredEntry entry : oldZipReader.entries()) {
-                String path = entry.getCentralDirectoryHeader().getName();
-                if (entry.getType() == StoredEntryType.FILE) {
-                    RelativeFile oldRelative = new RelativeFile(zip, path);
+            for (DirectoryEntry entry : oldEntries.values()) {
+                String path = entry.getName();
+                RelativeFile oldRelative = new RelativeFile(zipFile, path);
 
-                    StoredEntry newEntry = newZipReader.get(path);
-                    if (newEntry == null || newEntry.getType() != StoredEntryType.FILE) {
-                        /*
-                         * File does not exist in new. It has been deleted.
-                         */
-                        result.put(oldRelative, FileStatus.REMOVED);
-                    }
+                DirectoryEntry newEntry = newEntries.get(path);
+                if (newEntry == null) {
+                    /*
+                     * File does not exist in new. It has been deleted.
+                     */
+                    result.put(oldRelative, FileStatus.REMOVED);
                 }
             }
         } catch (Throwable t) {
@@ -216,8 +235,8 @@ public final class IncrementalRelativeFileSets {
             closer.close();
         }
 
-        cacheUpdates.add(IOExceptionRunnable.asRunnable(() -> cache.add(zip)));
-        return ImmutableMap.copyOf(result);
+        cacheUpdates.add(IOExceptionRunnable.asRunnable(() -> cache.add(zipCentralDirectory)));
+        return Collections.unmodifiableMap(result);
     }
 
     /**
@@ -240,28 +259,11 @@ public final class IncrementalRelativeFileSets {
     }
 
     /**
-     * Counts how many different base directories are there in a relative file set. This method will
-     * look at the base of every {@link RelativeFile} and count how many distinct bases are that
-     * that are directories.
-     *
-     * @param set the file set
-     * @return the number of distinct base directories
-     */
-    public static int getBaseDirectoryCount(@NonNull ImmutableMap<RelativeFile, FileStatus> set) {
-        return set.keySet()
-                .stream()
-                .map(RelativeFile::getBase)
-                .filter(Files.isDirectory())
-                .collect(Collectors.toSet())
-                .size();
-    }
-
-    /**
-     * Reads files and builds an incremental relative file set. Each individual file in
-     * {@code files} may be a file or directory. If it is a directory, then all files in the
-     * directory are added as if {@link #fromDirectory(File)} had been invoked; if it is a file,
-     * then it is assumed to be a zip file and all files in the zip are added as if
-     * {@link #fromZip(File)} had been invoked.
+     * Reads files and builds an incremental relative file set. Each individual file in {@code
+     * files} may be a file or directory. If it is a directory, then all files in the directory are
+     * added as if {@link #fromDirectory(File)} had been invoked; if it is a file, then it is
+     * assumed to be a zip file and all files in the zip are added as if {@link #fromZip(File)} had
+     * been invoked.
      *
      * <p>The status of each file is set to {@link FileStatus#NEW}. This method is used to construct
      * an initial set of files and is, therefore, an incremental update from zero.
@@ -269,7 +271,9 @@ public final class IncrementalRelativeFileSets {
      * @param files the files and directories
      * @return the file set
      * @throws IOException failed to read the files
+     * @deprecated Prefer the new Gradle InputChanges API.
      */
+    @Deprecated
     @NonNull
     public static ImmutableMap<RelativeFile, FileStatus> fromZipsAndDirectories(
             @NonNull Iterable<File> files) throws IOException {
@@ -306,7 +310,9 @@ public final class IncrementalRelativeFileSets {
      * @param fileDeletionPolicy the policy for file deletions
      * @return the data
      * @throws IOException failed to read a zip file
+     * @deprecated Prefer the new Gradle InputChanges API.
      */
+    @Deprecated
     @NonNull
     public static ImmutableMap<RelativeFile, FileStatus> makeFromBaseFiles(
             @NonNull Collection<File> baseFiles,
@@ -316,7 +322,7 @@ public final class IncrementalRelativeFileSets {
             @NonNull FileDeletionPolicy fileDeletionPolicy)
             throws IOException {
         for (File f : baseFiles) {
-            Preconditions.checkArgument(f.exists(), "!f.exists()");
+            Preconditions.checkArgument(f.exists(), "!f.exists(): %s", f);
         }
 
         Map<RelativeFile, FileStatus> relativeUpdates = Maps.newHashMap();
@@ -334,15 +340,8 @@ public final class IncrementalRelativeFileSets {
             }
 
             if (baseFiles.contains(file)) {
-                relativeUpdates.putAll(fromZip(file, cache, cacheUpdates));
+                relativeUpdates.putAll(fromZip(new ZipCentralDirectory(file), cache, cacheUpdates));
             } else {
-                /*
-                 * We ignore directories because there are no relative files for directories.
-                 */
-                if (file.isDirectory()) {
-                    continue;
-                }
-
                 /*
                  * We ignore directories because there are no relative files for directories.
                  */
@@ -372,14 +371,16 @@ public final class IncrementalRelativeFileSets {
     /**
      * Policy for file deletions.
      *
-     * <p>For incremental tasks, currently Gradle does not provide information about whether a
-     * deletion is done on a normal file or a directory. Therefore, we use this class to either
+     * <p>For incremental tasks, the previous gradle API does not provide information about whether
+     * a deletion is done on a normal file or a directory. Therefore, we use this class to either
      * assume deletions to be done on normal files, or not allow deletions at all.
      *
-     * <p>TODO: Once Gradle provides this information, we should remove this class and its usages.
+     * <p>TODO: Remove this class and its usages in preference for the new InputChanges Gradle API.
+     *
+     * @deprecated Prefer the new Gradle InputChanges API.
      */
+    @Deprecated
     public enum FileDeletionPolicy {
-
         /** Deletions are assumed to be done on normal files, not directories. */
         ASSUME_NO_DELETED_DIRECTORIES,
 

@@ -78,11 +78,11 @@ public abstract class GradleModule {
 
         content += "dependencies {\n";
         for (GradleModule dep : projectDeps) {
-            content += "  compile project('" + dep.getGradlePath() + "')\n";
+            content += "  api project('" + dep.getGradlePath() + "')\n";
         }
         content += "}\n";
 
-
-        Files.write(content, new File(moduleDir, "build.gradle"), Charset.defaultCharset());
+        Files.asCharSink(new File(moduleDir, "build.gradle"), Charset.defaultCharset())
+                .write(content);
     }
 }

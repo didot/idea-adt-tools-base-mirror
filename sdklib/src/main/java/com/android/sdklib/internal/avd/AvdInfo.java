@@ -116,7 +116,7 @@ public final class AvdInfo implements Comparable<AvdInfo> {
         mIniFile = iniFile;
         mFolderPath = folderPath;
         mSystemImage = systemImage;
-        mProperties = properties == null ? Collections.emptyMap()
+        mProperties = properties == null ? Collections.<String, String>emptyMap()
                 : Collections.unmodifiableMap(properties);
         mStatus = status;
         String psString = mProperties.get(AvdManager.AVD_INI_PLAYSTORE_ENABLED);

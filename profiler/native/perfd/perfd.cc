@@ -14,103 +14,69 @@
  * limitations under the License.
  */
 
+#include "perfd/perfd.h"
 #include <cstring>
-#include "gflags/gflags.h"
-#include "perfd/connector.h"
+#include "daemon/daemon.h"
+#include "perfd/commands/begin_session.h"
+#include "perfd/commands/end_session.h"
+#include "perfd/common_profiler_component.h"
 #include "perfd/cpu/cpu_profiler_component.h"
-#include "perfd/daemon.h"
 #include "perfd/energy/energy_profiler_component.h"
 #include "perfd/event/event_profiler_component.h"
-#include "perfd/generic_component.h"
 #include "perfd/graphics/graphics_profiler_component.h"
 #include "perfd/memory/memory_profiler_component.h"
 #include "perfd/network/network_profiler_component.h"
-#include "perfd/termination_service.h"
-#include "utils/config.h"
 #include "utils/current_process.h"
-#include "utils/device_info.h"
-#include "utils/file_cache.h"
-#include "utils/fs/path.h"
-#include "utils/socket_utils.h"
+#include "utils/daemon_config.h"
+#include "utils/termination_service.h"
 #include "utils/trace.h"
 
-DEFINE_bool(experimental_pipeline, false, "Use unified pipeline");
-DEFINE_bool(profiler_test, false, "Run profiler test");
-DEFINE_string(config_file, profiler::kConfigFileDefaultPath,
-              "Path to agent config file");
-DEFINE_string(connect, "", "Communicate with an agent");
+namespace profiler {
 
-int main(int argc, char** argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
+int Perfd::Initialize(Daemon* daemon) {
+  Trace::Init();
+  auto daemon_config = daemon->config()->GetConfig();
 
-  // If directed by command line argument, establish a communication channel
-  // with the agent which is running a Unix socket server and send the arguments
-  // over.  When this argument is used, the program is usually invoked by from
-  // GenericComponent's ProfilerServiceImpl::AttachAgent().
-  if (!FLAGS_connect.empty()) {
-    if (profiler::ConnectAndSendDataToPerfa(FLAGS_connect)) {
-      return 0;
-    } else {
-      return -1;
-    }
-    // Note that in this case we should not initialize various profiler
-    // components as the following code does. They create threads but the
-    // associated thread objects might be destructed before the threads exit,
-    // causing 'terminate called without an active exception' error.
+  auto* termination_service = TerminationService::Instance();
+
+  // Register Components
+  daemon->RegisterProfilerComponent(std::unique_ptr<CommonProfilerComponent>(
+      new CommonProfilerComponent(daemon)));
+
+  daemon->RegisterProfilerComponent(std::unique_ptr<CpuProfilerComponent>(
+      new CpuProfilerComponent(daemon->clock(), daemon->file_cache(),
+                               daemon_config.cpu(), termination_service)));
+
+  daemon->RegisterProfilerComponent(std::unique_ptr<MemoryProfilerComponent>(
+      new MemoryProfilerComponent(daemon->clock(), daemon->file_cache())));
+
+  std::unique_ptr<EventProfilerComponent> event_component(
+      new EventProfilerComponent(daemon->clock()));
+
+  daemon->AddAgentStatusChangedCallback(
+      std::bind(&EventProfilerComponent::AgentStatusChangedCallback,
+                event_component.get(), std::placeholders::_1));
+  daemon->RegisterProfilerComponent(std::move(event_component));
+
+  daemon->RegisterProfilerComponent(
+      std::unique_ptr<NetworkProfilerComponent>(new NetworkProfilerComponent(
+          *(daemon->config()), daemon->clock(), daemon->file_cache())));
+
+  if (daemon_config.common().energy_profiler_enabled()) {
+    daemon->RegisterProfilerComponent(std::unique_ptr<EnergyProfilerComponent>(
+        new EnergyProfilerComponent(daemon->file_cache())));
   }
 
-  profiler::Trace::Init();
+  daemon->RegisterProfilerComponent(std::unique_ptr<GraphicsProfilerComponent>(
+      new GraphicsProfilerComponent(daemon->clock())));
 
-  profiler::SteadyClock clock;
-  profiler::Config config(FLAGS_config_file);
-  profiler::EventBuffer buffer;
-  profiler::FileCache file_cache(FLAGS_profiler_test
-                                     ? getenv("TEST_TMPDIR")
-                                     : profiler::CurrentProcess::dir());
-  auto* termination_service = profiler::TerminationService::Instance();
-  profiler::Daemon daemon(&clock, &config, &file_cache, &buffer);
-  auto agent_config = daemon.config()->GetAgentConfig();
-
-  profiler::GenericComponent generic_component(&daemon, daemon.sessions());
-  daemon.RegisterComponent(&generic_component);
-
-  profiler::CpuProfilerComponent cpu_component(
-      &clock, &file_cache, agent_config.cpu_config(), termination_service);
-  daemon.RegisterComponent(&cpu_component);
-
-  profiler::MemoryProfilerComponent memory_component(&clock, &file_cache);
-  daemon.RegisterComponent(&memory_component);
-
-  profiler::EventProfilerComponent event_component(&clock);
-  daemon.RegisterComponent(&event_component);
-  generic_component.AddAgentStatusChangedCallback(std::bind(
-      &profiler::EventProfilerComponent::AgentStatusChangedCallback,
-      &event_component, std::placeholders::_1, std::placeholders::_2));
-
-  profiler::NetworkProfilerComponent network_component(&clock, &file_cache);
-  daemon.RegisterComponent(&network_component);
-
-  profiler::EnergyProfilerComponent energy_component(&file_cache);
-  if (agent_config.energy_profiler_enabled()) {
-    daemon.RegisterComponent(&energy_component);
-  }
-
-  profiler::GraphicsProfilerComponent graphics_component(&clock);
-  daemon.RegisterComponent(&graphics_component);
-
-  if (profiler::DeviceInfo::feature_level() >= 26 &&
-      agent_config.socket_type() == profiler::proto::ABSTRACT_SOCKET) {
-    // For O and newer devices, use a Unix abstract socket.
-    // Since we are building a gRPC server, we need a special prefix to inform
-    // gRPC that this is a Unix socket name.
-    std::string grpc_target{profiler::kGrpcUnixSocketAddrPrefix};
-    grpc_target.append(agent_config.service_socket_name());
-
-    daemon.RunServer(grpc_target);
-  } else {
-    // For legacy devices (Nougat or older), use an internet address.
-    daemon.RunServer(agent_config.service_address());
-  }
+  // Register Commands.
+  daemon->RegisterCommandHandler(proto::Command::BEGIN_SESSION,
+                                 &BeginSession::Create);
+  daemon->RegisterCommandHandler(proto::Command::END_SESSION,
+                                 &EndSession::Create);
 
   return 0;
 }
+
+}  // namespace profiler

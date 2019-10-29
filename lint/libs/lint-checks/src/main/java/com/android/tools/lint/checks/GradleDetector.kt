@@ -16,11 +16,11 @@
 package com.android.tools.lint.checks
 
 import com.android.SdkConstants
+import com.android.SdkConstants.ANDROIDX_PKG_PREFIX
 import com.android.SdkConstants.FD_BUILD_TOOLS
 import com.android.SdkConstants.GRADLE_PLUGIN_MINIMUM_VERSION
 import com.android.SdkConstants.GRADLE_PLUGIN_RECOMMENDED_VERSION
 import com.android.SdkConstants.SUPPORT_LIB_GROUP_ID
-import com.android.annotations.VisibleForTesting
 import com.android.builder.model.AndroidLibrary
 import com.android.builder.model.Dependencies
 import com.android.builder.model.JavaLibrary
@@ -32,7 +32,7 @@ import com.android.ide.common.repository.GradleCoordinate
 import com.android.ide.common.repository.GradleCoordinate.COMPARE_PLUS_HIGHER
 import com.android.ide.common.repository.GradleVersion
 import com.android.ide.common.repository.MavenRepositories
-import com.android.ide.common.repository.SdkMavenRepository
+import com.android.projectmodel.ProjectType
 import com.android.repository.io.FileOpUtils
 import com.android.sdklib.AndroidTargetHash
 import com.android.sdklib.SdkVersionInfo
@@ -55,15 +55,18 @@ import com.android.tools.lint.detector.api.Location
 import com.android.tools.lint.detector.api.Project
 import com.android.tools.lint.detector.api.Scope
 import com.android.tools.lint.detector.api.Severity
+import com.android.tools.lint.detector.api.getLanguageLevel
 import com.android.tools.lint.detector.api.guessGradleLocation
 import com.android.tools.lint.detector.api.isNumberString
 import com.android.tools.lint.detector.api.readUrlData
 import com.android.tools.lint.detector.api.readUrlDataAsString
+import com.android.utils.capitalize
 import com.google.common.base.Charsets.UTF_8
 import com.google.common.base.Joiner
 import com.google.common.base.Splitter
 import com.google.common.collect.ArrayListMultimap
-import org.jetbrains.annotations.TestOnly
+import com.intellij.pom.java.LanguageLevel.JDK_1_7
+import com.intellij.pom.java.LanguageLevel.JDK_1_8
 import java.io.File
 import java.io.IOException
 import java.io.UnsupportedEncodingException
@@ -73,6 +76,7 @@ import java.util.Calendar
 import java.util.Collections
 import java.util.HashMap
 import java.util.HashSet
+import java.util.Locale
 import java.util.function.Predicate
 
 /** Checks Gradle files for potential errors */
@@ -120,6 +124,18 @@ open class GradleDetector : Detector(), GradleScanner {
      */
     private var mCheckedWearableLibs: Boolean = false
 
+    /**
+     * If incrementally editing a single build.gradle file, tracks whether we've already
+     * applied kotlin-android plugin.
+     */
+    private var mAppliedKotlinAndroidPlugin: Boolean = false
+
+    /**
+     * If incrementally editing a single build.gradle file, tracks whether we've already
+     * applied kotlin-kapt plugin.
+     */
+    private var mAppliedKotlinKaptPlugin: Boolean = false
+
     private val blacklisted = HashMap<Project, BlacklistedDeps>()
 
     // ---- Implements GradleScanner ----
@@ -154,6 +170,7 @@ open class GradleDetector : Detector(), GradleScanner {
         value: String,
         parent: String,
         parentParent: String?,
+        propertyCookie: Any,
         valueCookie: Any,
         statementCookie: Any
     ) {
@@ -358,6 +375,13 @@ open class GradleDetector : Detector(), GradleScanner {
                         .replace().text(plugin).with(replaceWith).autoFix().build()
                     report(context, valueCookie, DEPRECATED, message, fix)
                 }
+
+                if (plugin == "kotlin-android") {
+                    mAppliedKotlinAndroidPlugin = true
+                }
+                if (plugin == "kotlin-kapt") {
+                    mAppliedKotlinKaptPlugin = true
+                }
             }
         } else if (parent == "dependencies") {
             if (value.startsWith("files('") && value.endsWith("')")) {
@@ -425,7 +449,18 @@ open class GradleDetector : Detector(), GradleScanner {
                             checkDependency(context, gc, isResolved, valueCookie, statementCookie)
                         })
                     }
+                    if (hasLifecycleAnnotationProcessor(dependency) &&
+                        targetJava8Plus(context.project)
+                    ) {
+                        report(
+                            context, valueCookie, LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8,
+                            "Use the Lifecycle Java 8 API provided by the " +
+                                    "`lifecycle-common-java8` library instead of Lifecycle annotations " +
+                                    "for faster incremental build.", null
+                        )
+                    }
                 }
+                checkDeprecatedConfigurations(property, context, propertyCookie)
             }
         } else if (property == "packageNameSuffix") {
             val message = "Deprecated: Replace 'packageNameSuffix' with 'applicationIdSuffix'"
@@ -452,6 +487,123 @@ open class GradleDetector : Detector(), GradleScanner {
                 DEV_MODE_OBSOLETE,
                 "You no longer need a `dev` mode to enable multi-dexing during development, and this can break API version checks"
             )
+        } else if ((property == "enabled" || property == "isEnabled") && parent == "dataBinding") {
+            // Note: "enabled" is used by build.gradle and "isEnabled" is used by build.gradle.kts
+            if (value == SdkConstants.VALUE_TRUE) {
+                if (mAppliedKotlinAndroidPlugin && !mAppliedKotlinKaptPlugin) {
+                    val message =
+                        "If you plan to use data binding in a Kotlin project, you should apply the kotlin-kapt plugin."
+                    report(context, valueCookie, DATA_BINDING_WITHOUT_KAPT, message, null)
+                }
+            }
+        }
+    }
+
+    private enum class DeprecatedConfiguration(
+        private val deprecatedName: String,
+        private val replacementName: String
+    ) {
+        COMPILE("compile", "implementation"),
+        PROVIDED("provided", "compileOnly"),
+        APK("apk", "runtimeOnly"),
+        ;
+
+        private val deprecatedSuffix: String = deprecatedName.capitalize()
+        private val replacementSuffix: String = replacementName.capitalize()
+
+        fun matches(configurationName: String): Boolean {
+            return configurationName == deprecatedName || configurationName.endsWith(
+                deprecatedSuffix
+            )
+        }
+
+        fun replacement(configurationName: String): String {
+            return if (configurationName == deprecatedName) {
+                replacementName
+            } else {
+                configurationName.removeSuffix(deprecatedSuffix) + replacementSuffix
+            }
+        }
+    }
+
+    private fun checkDeprecatedConfigurations(
+        configuration: String,
+        context: GradleContext,
+        propertyCookie: Any
+    ) {
+        if (context.project.gradleModelVersion?.isAtLeastIncludingPreviews(3, 0, 0) == false) {
+            // All of these deprecations were made in AGP 3.0.0
+            return
+        }
+
+        for (deprecatedConfiguration in DeprecatedConfiguration.values()) {
+            if (deprecatedConfiguration.matches(configuration)) {
+                // Compile was replaced by API and Implementation, but only suggest API if it was used
+                if (deprecatedConfiguration == DeprecatedConfiguration.COMPILE &&
+                    suggestApiConfigurationUse(context.project, configuration)
+                ) {
+                    val implementation: String
+                    val api: String
+                    if (configuration == "compile") {
+                        implementation = "implementation"
+                        api = "api"
+                    } else {
+                        val prefix = configuration.removeSuffix("Compile")
+                        implementation = "${prefix}Implementation"
+                        api = "${prefix}Api"
+                    }
+
+                    val message =
+                        "`$configuration` is deprecated; " +
+                                "replace with either `$api` to maintain current behavior, " +
+                                "or `$implementation` to improve build performance " +
+                                "by not sharing this dependency transitively."
+                    val apiFix = fix()
+                        .name("Replace '$configuration' with '$api'")
+                        .family("Replace compile with api")
+                        .replace()
+                        .text(configuration)
+                        .with(api)
+                        .independent(true)
+                        .build()
+                    val implementationFix = fix()
+                        .name("Replace '$configuration' with '$implementation'")
+                        .family("Replace compile with implementation")
+                        .replace()
+                        .text(configuration)
+                        .with(implementation)
+                        .independent(true)
+                        .build()
+
+                    val fixes = fix()
+                        .alternatives()
+                        .name("Replace '$configuration' with '$api' or '$implementation'")
+                        .add(apiFix)
+                        .add(implementationFix)
+                        .build()
+
+                    report(
+                        context,
+                        propertyCookie,
+                        DEPRECATED_CONFIGURATION,
+                        message,
+                        fixes
+                    )
+                } else {
+                    // Unambiguous replacement case
+                    val replacement = deprecatedConfiguration.replacement(configuration)
+                    val message = "`$configuration` is deprecated; replace with `$replacement`"
+                    val fix = fix()
+                        .name("Replace '$configuration' with '$replacement'")
+                        .family("Replace deprecated configurations")
+                        .replace()
+                        .text(configuration)
+                        .with(replacement)
+                        .autoFix()
+                        .build()
+                    report(context, propertyCookie, DEPRECATED_CONFIGURATION, message, fix)
+                }
+            }
         }
     }
 
@@ -507,6 +659,13 @@ open class GradleDetector : Detector(), GradleScanner {
                     .replace().text(plugin).with(replaceWith).autoFix().build()
                 report(context, cookie, DEPRECATED, message, fix)
             }
+
+            if (plugin == "kotlin-android") {
+                mAppliedKotlinAndroidPlugin = true
+            }
+            if (plugin == "kotlin-kapt") {
+                mAppliedKotlinKaptPlugin = true
+            }
         }
     }
 
@@ -544,58 +703,13 @@ open class GradleDetector : Detector(), GradleScanner {
         }
         var newerVersion: GradleVersion? = null
 
-        val filter = getUpgradeVersionFilter(groupId, artifactId)
+        val filter = getUpgradeVersionFilter(context, groupId, artifactId, revision)
 
         when (groupId) {
-            SUPPORT_LIB_GROUP_ID, "com.android.support.test" -> {
-                // Check to make sure you have the Android support repository installed.
-                val sdkHome = context.client.getSdkHome()
-                val repository = SdkMavenRepository.ANDROID.getRepositoryLocation(
-                    sdkHome, true, FileOpUtils.create()
-                )
-                if (repository != null) {
-                    val max = MavenRepositories.getHighestInstalledVersionNumber(
-                        groupId,
-                        artifactId,
-                        repository,
-                        filter,
-                        false,
-                        FileOpUtils.create()
-                    )
-                    if (max != null &&
-                        version < max &&
-                        context.isEnabled(DEPENDENCY)
-                    ) {
-                        newerVersion = max
-                    }
-                }
-            }
-
             GMS_GROUP_ID, FIREBASE_GROUP_ID, GOOGLE_SUPPORT_GROUP_ID, ANDROID_WEAR_GROUP_ID -> {
                 // Play services
 
                 checkPlayServices(context, dependency, version, revision, cookie)
-
-                val sdkHome = context.client.getSdkHome()
-                val repository = SdkMavenRepository.GOOGLE.getRepositoryLocation(
-                    sdkHome, true, FileOpUtils.create()
-                )
-                if (repository != null) {
-                    val max = MavenRepositories.getHighestInstalledVersionNumber(
-                        groupId,
-                        artifactId,
-                        repository,
-                        filter,
-                        false,
-                        FileOpUtils.create()
-                    )
-                    if (max != null &&
-                        version < max &&
-                        context.isEnabled(DEPENDENCY)
-                    ) {
-                        newerVersion = max
-                    }
-                }
             }
 
             "com.android.tools.build" -> {
@@ -649,7 +763,7 @@ open class GradleDetector : Detector(), GradleScanner {
                             cookie,
                             DEPENDENCY,
                             "Use Fabric Gradle plugin version 1.21.6 or later to " +
-                                "improve Instant Run performance (was $revision)",
+                                    "improve Instant Run performance (was $revision)",
                             fix
                         )
                     } else {
@@ -667,13 +781,32 @@ open class GradleDetector : Detector(), GradleScanner {
                             cookie,
                             DEPENDENCY,
                             "Use BugSnag Gradle plugin version 2.1.2 or later to " +
-                                "improve Instant Run performance (was $revision)",
+                                    "improve Instant Run performance (was $revision)",
                             fix
                         )
                     } else {
                         // From http://search.maven.org/#search%7Cgav%7C1%7Cg%3A%22com.bugsnag%22%20AND
                         // %20a%3A%22bugsnag-android-gradle-plugin%22
                         newerVersion = getNewerVersion(version, 3, 2, 5)
+                    }
+                }
+            }
+
+            // https://issuetracker.google.com/120098460
+            "org.robolectric" -> {
+                if ("robolectric" == artifactId &&
+                    System.getProperty("os.name").toLowerCase(Locale.US).contains("windows")
+                ) {
+                    if (!version.isAtLeast(4, 2, 1)) {
+                        val fix = getUpdateDependencyFix(revision, "4.2.1")
+                        report(
+                            context,
+                            cookie,
+                            DEPENDENCY,
+                            "Use robolectric version 4.2.1 or later to " +
+                                    "fix issues with parsing of Windows paths",
+                            fix
+                        )
                     }
                 }
             }
@@ -773,8 +906,10 @@ open class GradleDetector : Detector(), GradleScanner {
      * there are no constraints.
      */
     private fun getUpgradeVersionFilter(
+        context: GradleContext,
         groupId: String,
-        artifactId: String
+        artifactId: String,
+        revision: String
     ): Predicate<GradleVersion>? {
         // Logic here has to match checkSupportLibraries method to avoid creating contradictory
         // warnings.
@@ -783,6 +918,21 @@ open class GradleDetector : Detector(), GradleScanner {
                 return Predicate { version -> version.major == compileSdkVersion }
             } else if (targetSdkVersion > 0) {
                 return Predicate { version -> version.major >= targetSdkVersion }
+            }
+        }
+
+        if (groupId == "com.android.tools.build" && LintClient.isStudio) {
+            val clientRevision = context.client.getClientRevision() ?: return null
+            val ideVersion = GradleVersion.parse(clientRevision)
+            val version = GradleVersion.parse(revision)
+            return Predicate { v ->
+                // Any higher IDE version that matches major and minor
+                // (e.g. from 3.3.0 offer 3.3.2 but not 3.4.0)
+                (v.major == ideVersion.major &&
+                        v.minor == ideVersion.minor) ||
+                        // Also allow matching latest current existing major/minor version
+                        (v.major == version.major &&
+                                v.minor == version.minor)
             }
         }
         return null
@@ -883,6 +1033,17 @@ open class GradleDetector : Detector(), GradleScanner {
                 dependency.majorVersion != GradleCoordinate.PLUS_REV_VALUE &&
                 context.isEnabled(COMPATIBILITY)
             ) {
+                if (compileSdkVersion >= 29 && dependency.majorVersion < 29) {
+                    reportNonFatalCompatibilityIssue(context, cookie,
+                        "Version 28 (intended for Android Pie and below) is the last " +
+                                "version of the legacy support library, so we recommend that " +
+                                "you migrate to AndroidX libraries when using Android Q and " +
+                                "moving forward. The IDE can help with this: " +
+                                "Refactor > Migrate to AndroidX..."
+                    )
+                    return
+                }
+
                 var fix: LintFix? = null
                 if (newerVersion != null) {
                     fix = fix().name("Replace with $newerVersion")
@@ -970,23 +1131,12 @@ open class GradleDetector : Detector(), GradleScanner {
         if ("5.2.08" == revision && context.isEnabled(COMPATIBILITY)) {
             // This specific version is actually a preview version which should
             // not be used (https://code.google.com/p/android/issues/detail?id=75292)
-            var maxVersion = "10.2.1"
-            // Try to find a more recent available version, if one is available
-            val sdkHome = context.client.getSdkHome()
-            val repository = SdkMavenRepository.GOOGLE.getRepositoryLocation(
-                sdkHome, true, FileOpUtils.create()
+            val maxVersion = GradleVersion.max(
+                GradleVersion.parse("10.2.1"),
+                getGoogleMavenRepoVersion(context, dependency, null)
             )
-            if (repository != null) {
-                val max = MavenRepositories.getHighestInstalledVersion(
-                    groupId, artifactId, repository, null, false, FileOpUtils.create()
-                )
-                if (max != null) {
-                    if (COMPARE_PLUS_HIGHER.compare(dependency, max) < 0) {
-                        maxVersion = max.revision
-                    }
-                }
-            }
-            val fix = getUpdateDependencyFix(revision, maxVersion)
+
+            val fix = getUpdateDependencyFix(revision, maxVersion.toString())
             val message =
                 "Version `5.2.08` should not be used; the app " +
                         "can not be published with this version. Use version `$maxVersion` " +
@@ -1058,11 +1208,55 @@ open class GradleDetector : Detector(), GradleScanner {
         }
     }
 
+    private fun MavenCoordinates.isSupportLibArtifact() =
+        isSupportLibraryDependentOnCompileSdk(groupId, artifactId)
+
+    /**
+     * Returns if the given group id belongs to an AndroidX artifact. This usually means that it
+     * starts with "androidx." but there is an special case for the navigation artifact which does
+     * start with "androidx." but links to non-androidx classes
+     */
+    private fun MavenCoordinates.isAndroidxArtifact() =
+        groupId.startsWith(ANDROIDX_PKG_PREFIX) && groupId != "androidx.navigation"
+
     private fun checkConsistentSupportLibraries(
         context: Context,
         cookie: Any?
     ) {
         checkConsistentLibraries(context, cookie, SUPPORT_LIB_GROUP_ID, null)
+
+        val androidLibraries = getAndroidLibraries(context.project)
+        var usesOldSupportLib: MavenCoordinates? = null
+        var usesAndroidX: MavenCoordinates? = null
+        for (library in androidLibraries) {
+            val coordinates = library.resolvedCoordinates
+            if (usesOldSupportLib == null && coordinates.isSupportLibArtifact()) {
+                usesOldSupportLib = coordinates
+            }
+            if (usesAndroidX == null && coordinates.isAndroidxArtifact()) {
+                usesAndroidX = coordinates
+            }
+
+            if (usesOldSupportLib != null && usesAndroidX != null) {
+                break
+            }
+        }
+
+        if (usesOldSupportLib != null && usesAndroidX != null) {
+            val message = "Dependencies using groupId " +
+                    "`$SUPPORT_LIB_GROUP_ID` and `$ANDROIDX_PKG_PREFIX*` " +
+                    "can not be combined but " +
+                    "found `$usesOldSupportLib` and `$usesAndroidX` incompatible dependencies"
+            if (cookie != null) {
+                reportNonFatalCompatibilityIssue(context, cookie, message)
+            } else {
+                reportNonFatalCompatibilityIssue(
+                    context,
+                    guessGradleLocation(context.project),
+                    message
+                )
+            }
+        }
     }
 
     private fun checkConsistentPlayServices(context: Context, cookie: Any?) {
@@ -1609,7 +1803,7 @@ open class GradleDetector : Detector(), GradleScanner {
                 "`jarjar`."
         if (direct) {
             message =
-                    "`${path[0].resolvedCoordinates.artifactId}` defines classes that conflict with classes now provided by Android. $resolution"
+                "`${path[0].resolvedCoordinates.artifactId}` defines classes that conflict with classes now provided by Android. $resolution"
         } else {
             val sb = StringBuilder()
             var first = true
@@ -1744,6 +1938,22 @@ open class GradleDetector : Detector(), GradleScanner {
             category = Category.CORRECTNESS,
             priority = 6,
             androidSpecific = true,
+            severity = Severity.WARNING,
+            implementation = IMPLEMENTATION
+        )
+
+        /** Deprecated Gradle configurations */
+        @JvmField
+        val DEPRECATED_CONFIGURATION = Issue.create(
+            id = "GradleDeprecatedConfiguration",
+            briefDescription = "Deprecated Gradle Configuration",
+            explanation = """
+                Some Gradle configurations have been deprecated since Android Gradle Plugin 3.0.0 \
+                and will be removed in a future version of the Android Gradle Plugin.
+             """,
+            category = Category.CORRECTNESS,
+            moreInfo = "https://d.android.com/r/tools/update-dependency-configurations",
+            priority = 6,
             severity = Severity.WARNING,
             implementation = IMPLEMENTATION
         )
@@ -2113,6 +2323,50 @@ open class GradleDetector : Detector(), GradleScanner {
             implementation = IMPLEMENTATION
         )
 
+        /** Using data binding with Kotlin but not Kotlin annotation processing */
+        @JvmField
+        val DATA_BINDING_WITHOUT_KAPT = Issue.create(
+            id = "DataBindingWithoutKapt",
+            briefDescription = "Data Binding without Annotation Processing",
+            moreInfo = "https://kotlinlang.org/docs/reference/kapt.html",
+            explanation = """
+                Apps that use Kotlin and data binding should also apply the kotlin-kapt plugin. \
+                """,
+            category = Category.CORRECTNESS,
+            priority = 1,
+            severity = Severity.WARNING,
+            androidSpecific = true,
+            implementation = IMPLEMENTATION
+        )
+
+        /** Using Lifecycle annotation processor with java8 */
+        @JvmField
+        val LIFECYCLE_ANNOTATION_PROCESSOR_WITH_JAVA8 = Issue.create(
+            id = "LifecycleAnnotationProcessorWithJava8",
+            briefDescription = "Lifecycle Annotation Processor with Java 8 Compile Option",
+            moreInfo = "https://d.android.com/r/studio-ui/lifecycle-release-notes",
+            explanation = """
+                For faster incremental build, switch to the Lifecycle Java 8 API with these steps:
+
+                First replace
+
+                `annotationProcessor "androidx.lifecycle:lifecycle-compiler:*version*"`
+                `kapt "androidx.lifecycle:lifecycle-compiler:*version*"`
+
+                with
+
+                `implementation "androidx.lifecycle:lifecycle-common-java8:*version*"`
+
+                Then remove any `OnLifecycleEvent` annotations from `Observer` classes \
+                and make them implement the `DefaultLifecycleObserver` interface.
+                """,
+            category = Category.PERFORMANCE,
+            priority = 6,
+            severity = Severity.WARNING,
+            androidSpecific = true,
+            implementation = IMPLEMENTATION
+        )
+
         /** Using a vulnerable library */
         @JvmField
         val RISKY_LIBRARY = Issue.create(
@@ -2427,5 +2681,29 @@ open class GradleDetector : Detector(), GradleScanner {
 
             return latestBuildTools
         }
+
+        private fun suggestApiConfigurationUse(project: Project, configuration: String): Boolean {
+            return when {
+                configuration.startsWith("test") || configuration.startsWith("androidTest") -> false
+                else -> when (project.projectType) {
+                    ProjectType.APP ->
+                        // Applications can only generally be consumed if there are dynamic features
+                        // (Ignoring the test-only project for this purpose)
+                        project.hasDynamicFeatures()
+                    ProjectType.LIBRARY -> true
+                    ProjectType.FEATURE, ProjectType.DYNAMIC_FEATURE, ProjectType.ATOM -> true
+                    ProjectType.TEST -> false
+                    ProjectType.INSTANT_APP -> false
+                }
+            }
+        }
+
+        private fun targetJava8Plus(project: Project): Boolean {
+            return getLanguageLevel(project, JDK_1_7).isAtLeast(JDK_1_8)
+        }
+
+        private fun hasLifecycleAnnotationProcessor(dependency: String) =
+            dependency.contains("android.arch.lifecycle:compiler") ||
+                    dependency.contains("androidx.lifecycle:lifecycle-compiler")
     }
 }

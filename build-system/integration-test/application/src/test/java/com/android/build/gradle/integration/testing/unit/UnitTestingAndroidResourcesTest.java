@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.integration.testing.unit;
 
+import static com.android.build.gradle.integration.common.truth.GradleTaskSubject.assertThat;
 import static com.android.testutils.truth.PathSubject.assertThat;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertNotNull;
@@ -85,21 +86,16 @@ public class UnitTestingAndroidResourcesTest {
     @Parameterized.Parameters(name = "plugin={0}, rClassStrategy={1}, resourcesMode={2}")
     public static Object[][] data() {
         return new Object[][] {
-            {Plugin.APPLICATION, null, ResourcesMode.RAW},
-            {Plugin.APPLICATION, null, ResourcesMode.COMPILED},
-            {Plugin.LIBRARY, RClassStrategy.COMPILE_SOURCES, ResourcesMode.RAW},
-            {Plugin.LIBRARY, RClassStrategy.COMPILE_SOURCES, ResourcesMode.COMPILED},
-            {Plugin.LIBRARY, RClassStrategy.GENERATE_JAR, ResourcesMode.RAW},
-            {Plugin.LIBRARY, RClassStrategy.GENERATE_JAR, ResourcesMode.COMPILED},
+            {Plugin.APPLICATION, ResourcesMode.RAW},
+            {Plugin.APPLICATION, ResourcesMode.COMPILED},
+            {Plugin.LIBRARY, ResourcesMode.RAW},
+            {Plugin.LIBRARY, ResourcesMode.COMPILED},
         };
     }
 
     @Parameterized.Parameter public Plugin plugin;
 
     @Parameterized.Parameter(value = 1)
-    public RClassStrategy rClassStrategy;
-
-    @Parameterized.Parameter(value = 2)
     public ResourcesMode resourcesMode;
 
     @Before
@@ -138,12 +134,8 @@ public class UnitTestingAndroidResourcesTest {
 
     @Test
     public void runUnitTests() throws Exception {
-
         GradleTaskExecutor runGradleTasks =
-                project.executor()
-                        .with(
-                                BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION,
-                                rClassStrategy == RClassStrategy.GENERATE_JAR);
+                project.executor().with(BooleanOption.USE_RELATIVE_PATH_IN_TEST_CONFIG, true);
 
         runGradleTasks.with(
                 BooleanOption.ENABLE_UNIT_TEST_BINARY_RESOURCES,
@@ -154,7 +146,7 @@ public class UnitTestingAndroidResourcesTest {
         Files.write(project.file("src/main/assets/foo.txt").toPath(), "CHANGE".getBytes());
         GradleBuildResult result = runGradleTasks.run("testDebugUnitTest");
 
-        assertThat(result.getNotUpToDateTasks()).contains(":testDebugUnitTest");
+        assertThat(result.getTask(":testDebugUnitTest")).didWork();
 
         // Sanity check: make sure we're actually executing Robolectric code.
         File xmlResults =
@@ -168,9 +160,7 @@ public class UnitTestingAndroidResourcesTest {
         // Check that the model contains the generated file
         AndroidProject model =
                 project.model()
-                        .with(
-                                BooleanOption.ENABLE_SEPARATE_R_CLASS_COMPILATION,
-                                rClassStrategy == RClassStrategy.GENERATE_JAR)
+                        .with(BooleanOption.USE_RELATIVE_PATH_IN_TEST_CONFIG, true)
                         .fetchAndroidProjects()
                         .getOnlyModelMap()
                         .get(":");
@@ -187,8 +177,6 @@ public class UnitTestingAndroidResourcesTest {
         }
         commands.add(debugUnitTest.getCompileTaskName());
         runGradleTasks.run(commands.build());
-
-
 
         Path configFile = getConfigFile(debugUnitTest.getAdditionalClassesFolders());
         assertNotNull(configFile);
@@ -217,7 +205,7 @@ public class UnitTestingAndroidResourcesTest {
                             throw new UncheckedIOException(e);
                         }
                     } else {
-                        assertThat(Paths.get(value.toString())).exists();
+                        assertThat(project.file(value.toString())).exists();
                     }
                 });
 
@@ -228,7 +216,7 @@ public class UnitTestingAndroidResourcesTest {
         // Check the tests see the assets from dependencies, even in the library case where they
         // would not otherwise be merged.
         List<String> filenames =
-                Files.walk(Paths.get(properties.getProperty("android_merged_assets")))
+                Files.walk(project.file(properties.getProperty("android_merged_assets")).toPath())
                         .filter(Files::isRegularFile)
                         .map(path -> path.getFileName().toString())
                         .collect(Collectors.toList());
@@ -260,11 +248,10 @@ public class UnitTestingAndroidResourcesTest {
         files.addAll(main.getAdditionalClassesFolders());
         files.add(test.getClassesFolder(), test.getJavaResourcesFolder());
         files.addAll(test.getAdditionalClassesFolders());
-        List<URL> urls =
+        return new URLClassLoader(
                 files.build()
                         .stream()
                         .map(IOExceptionFunction.asFunction(SdkUtils::fileToUrl))
-                        .collect(Collectors.toList());
-        return new URLClassLoader(urls.toArray(new URL[0]));
+                        .toArray(URL[]::new));
     }
 }

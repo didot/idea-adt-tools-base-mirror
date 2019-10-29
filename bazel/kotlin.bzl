@@ -2,6 +2,7 @@ load(":coverage.bzl", "coverage_java_test")
 load(":functions.bzl", "create_java_compiler_args_srcs", "explicit_target", "label_workspace_path", "workspace_path")
 load(":maven.bzl", "maven_pom")
 load(":utils.bzl", "singlejar")
+load(":lint.bzl", "lint_test")
 
 def kotlin_impl(ctx, name, roots, java_srcs, kotlin_srcs, kotlin_deps, package_prefixes, kotlin_jar, friends):
     merged = []
@@ -11,14 +12,15 @@ def kotlin_impl(ctx, name, roots, java_srcs, kotlin_srcs, kotlin_deps, package_p
         merged += [label_workspace_path(ctx.label) + "/" + root]
 
     kotlin_deps = list(kotlin_deps) + ctx.files._kotlin
-    args, option_files = create_java_compiler_args_srcs(ctx, merged, kotlin_jar, kotlin_deps)
+    args, option_files = create_java_compiler_args_srcs(ctx, merged, kotlin_jar, ctx.files._bootclasspath + kotlin_deps)
 
     args += ["--module_name", name]
     for friend in friends:
         args += ["--friend_dir", friend.path]
+    args += ["--no-jdk"]
 
     ctx.action(
-        inputs = java_srcs + kotlin_srcs + option_files + kotlin_deps + friends,
+        inputs = java_srcs + kotlin_srcs + option_files + kotlin_deps + friends + ctx.files._bootclasspath,
         outputs = [kotlin_jar],
         mnemonic = "kotlinc",
         arguments = args,
@@ -104,6 +106,8 @@ def kotlin_library(
         visibility = None,
         jar_name = None,
         testonly = None,
+        lint_baseline = None,
+        lint_classpath = [],
         **kwargs):
     kotlins = native.glob([src + "/**/*.kt" for src in srcs])
     javas = native.glob([src + "/**/*.java" for src in srcs]) + java_srcs
@@ -161,7 +165,18 @@ def kotlin_library(
             source = pom,
         )
 
-def kotlin_test(name, srcs, deps = [], runtime_deps = [], friends = [], visibility = None, **kwargs):
+    lint_srcs = javas + kotlins
+    if lint_srcs and lint_baseline:
+        lint_test(
+            name = name + "_lint_test",
+            srcs = lint_srcs,
+            baseline = lint_baseline,
+            deps = deps + bundled_deps + lint_classpath,
+            custom_rules = ["//tools/base/lint:studio-checks.lint-rules.jar"],
+            tags = ["no_windows"],
+        )
+
+def kotlin_test(name, srcs, deps = [], runtime_deps = [], friends = [], coverage = False, visibility = None, **kwargs):
     kotlin_library(
         name = name + ".testlib",
         srcs = srcs,
@@ -177,6 +192,7 @@ def kotlin_test(name, srcs, deps = [], runtime_deps = [], friends = [], visibili
         runtime_deps = [
             ":" + name + ".testlib",
         ] + runtime_deps,
+        coverage = coverage,
         **kwargs
     )
 

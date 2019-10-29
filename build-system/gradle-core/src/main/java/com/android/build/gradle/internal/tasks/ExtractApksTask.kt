@@ -45,13 +45,13 @@ import javax.inject.Inject
  * Task that extract APKs from the apk zip (created with [BundleToApkTask] into a folder. a Device
  * info file indicate which APKs to extract. Only APKs for that particular device are extracted.
  */
-open class ExtractApksTask @Inject constructor(workerExecutor: WorkerExecutor) : AndroidVariantTask() {
+open class ExtractApksTask @Inject constructor(workerExecutor: WorkerExecutor) : NonIncrementalTask() {
 
     companion object {
         fun getTaskName(scope: VariantScope) = scope.getTaskName("extractApksFor")
     }
 
-    private val workers = Workers.getWorker(workerExecutor)
+    private val workers = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.NONE)
@@ -72,8 +72,7 @@ open class ExtractApksTask @Inject constructor(workerExecutor: WorkerExecutor) :
     var extractInstant = false
         private set
 
-    @TaskAction
-    fun generateApk() {
+    override fun doTaskAction() {
 
         workers.use {
             it.submit(

@@ -16,7 +16,7 @@
 
 package com.android.build.gradle.integration.databinding;
 
-import com.android.build.gradle.integration.common.category.DeviceTests;
+import com.android.build.gradle.integration.common.category.DeviceTestsQuarantine;
 import com.android.build.gradle.integration.common.fixture.Adb;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.GradleTestProjectBuilder;
@@ -38,36 +38,29 @@ public class DataBindingIntegrationTestAppsConnectedTest {
     @Rule public GradleTestProject project;
     @Rule public Adb adb = new Adb();
 
-    public DataBindingIntegrationTestAppsConnectedTest(
-            String projectName, boolean useV2, boolean useAndroidX) {
+    public DataBindingIntegrationTestAppsConnectedTest(String projectName, boolean useAndroidX) {
         GradleTestProjectBuilder builder =
                 GradleTestProject.builder()
                         .fromDataBindingIntegrationTest(projectName, useAndroidX)
                         .addGradleProperties(
-                                BooleanOption.ENABLE_DATA_BINDING_V2.getPropertyName()
-                                        + "="
-                                        + useV2)
-                        .addGradleProperties(
                                 BooleanOption.USE_ANDROID_X.getPropertyName() + "=" + useAndroidX)
                         .withDependencyChecker(!"KotlinTestApp".equals(projectName));
         if (SdkVersionInfo.HIGHEST_KNOWN_STABLE_API < 28 && useAndroidX) {
-            builder.withCompileSdkVersion("\"android-P\"");
+            builder.withCompileSdkVersion("28");
         }
         this.project = builder.create();
     }
 
-    @Parameterized.Parameters(name = "app_{0}_useV2_{1}_useAndroidX_{2}")
+    @Parameterized.Parameters(name = "app_{0}_useAndroidX_{1}")
     public static Iterable<Object[]> classNames() {
         List<Object[]> params = new ArrayList<>();
-        for (boolean useV2 : new boolean[] {true, false}) {
-            for (boolean useAndroidX : new boolean[] {true, false}) {
-                params.add(new Object[] {"IndependentLibrary", useV2, useAndroidX});
-                params.add(new Object[] {"TestApp", useV2, useAndroidX});
-                params.add(new Object[] {"ProguardedAppWithTest", useV2, useAndroidX});
-                params.add(new Object[] {"AppWithDataBindingInTests", useV2, useAndroidX});
-            }
-            params.add(new Object[] {"KotlinTestApp", useV2, true});
+        for (boolean useAndroidX : new boolean[] {true, false}) {
+            params.add(new Object[] {"IndependentLibrary", useAndroidX});
+            params.add(new Object[] {"TestApp", useAndroidX});
+            params.add(new Object[] {"ProguardedAppWithTest", useAndroidX});
+            params.add(new Object[] {"AppWithDataBindingInTests", useAndroidX});
         }
+        params.add(new Object[] {"KotlinTestApp", true});
         return params;
     }
 
@@ -77,7 +70,7 @@ public class DataBindingIntegrationTestAppsConnectedTest {
     }
 
     @Test
-    @Category(DeviceTests.class)
+    @Category(DeviceTestsQuarantine.class)
     public void connectedCheck() throws Exception {
         project.executeConnectedCheck();
     }

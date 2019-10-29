@@ -57,6 +57,7 @@ import org.jetbrains.uast.UParenthesizedExpression
 import org.jetbrains.uast.UPolyadicExpression
 import org.jetbrains.uast.UPrefixExpression
 import org.jetbrains.uast.UReferenceExpression
+import org.jetbrains.uast.UResolvable
 import org.jetbrains.uast.UReturnExpression
 import org.jetbrains.uast.UVariable
 import org.jetbrains.uast.UastBinaryOperator
@@ -461,7 +462,7 @@ class TypedefDetector : AbstractAnnotationDetector(), SourceCodeScanner {
 
             reportTypeDef(
                 context, argument, errorNode, flag,
-                initializers, allAnnotations
+                initializers, allAnnotations, annotation
             )
         }
     }
@@ -508,7 +509,15 @@ class TypedefDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         if (allowed != null && allowed.isArrayInitializer()) {
             val initializerExpression = allowed as UCallExpression
             val initializers = initializerExpression.valueArguments
-            reportTypeDef(context, argument, errorNode, false, initializers, allAnnotations)
+            reportTypeDef(
+                context,
+                argument,
+                errorNode,
+                false,
+                initializers,
+                allAnnotations,
+                annotation
+            )
         }
     }
 
@@ -518,7 +527,8 @@ class TypedefDetector : AbstractAnnotationDetector(), SourceCodeScanner {
         errorNode: UElement?,
         flag: Boolean,
         allowedValues: List<UExpression>,
-        allAnnotations: List<UAnnotation>
+        allAnnotations: List<UAnnotation>,
+        annotation: UAnnotation
     ) {
         // Allow "0" as initial value in variable expressions
         if (UastLintUtils.isZero(node)) {
@@ -528,11 +538,30 @@ class TypedefDetector : AbstractAnnotationDetector(), SourceCodeScanner {
             }
         }
 
+        // Some typedef annotations can be specified as "open"; that means they allow
+        // other values as well. The typedef is specified to help with things like
+        // code completion and documentation.
+        if (getAnnotationBooleanValue(annotation, ATTR_OPEN) == true) {
+            return
+        }
+
         val values = listAllowedValues(node, allowedValues)
         var message = if (flag) {
             "Must be one or more of: $values"
         } else {
             "Must be one of: $values"
+        }
+
+        if (values == "RecyclerView.HORIZONTAL, RecyclerView.VERTICAL" &&
+            errorNode is UResolvable &&
+            (errorNode.resolve() as? PsiField)?.containingClass?.name == "LinearLayoutManager"
+        ) {
+            return
+        }
+
+        if (values.startsWith("MediaMetadataCompat.METADATA_KEY_")) {
+            // Workaround for 117529548: older libraries didn't ship with open=true
+            return
         }
 
         val rangeAnnotation = RangeDetector.findIntRange(allAnnotations)
@@ -587,6 +616,8 @@ class TypedefDetector : AbstractAnnotationDetector(), SourceCodeScanner {
             TypedefDetector::class.java,
             Scope.JAVA_FILE_SCOPE
         )
+
+        const val ATTR_OPEN = "open"
 
         /** Passing the wrong constant to an int or String method  */
         @JvmField

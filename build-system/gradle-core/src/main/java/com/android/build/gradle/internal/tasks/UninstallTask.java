@@ -16,39 +16,32 @@
 package com.android.build.gradle.internal.tasks;
 
 import com.android.annotations.NonNull;
+import com.android.build.gradle.internal.LoggerWrapper;
 import com.android.build.gradle.internal.TaskManager;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
-import com.android.builder.sdk.SdkInfo;
 import com.android.builder.testing.ConnectedDeviceProvider;
 import com.android.builder.testing.api.DeviceConnector;
 import com.android.builder.testing.api.DeviceException;
 import com.android.builder.testing.api.DeviceProvider;
+import com.android.utils.ILogger;
 import com.android.utils.StringHelper;
 import java.io.File;
 import java.util.List;
-import java.util.function.Supplier;
 import org.gradle.api.logging.Logger;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.InputFile;
-import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.TaskProvider;
 
-public class UninstallTask extends AndroidBuilderTask {
+public class UninstallTask extends NonIncrementalTask {
 
     private BaseVariantData variant;
 
     private int mTimeOutInMs = 0;
 
-    private Supplier<File> adbSupplier = TaskInputHelper.memoize(() -> {
-                SdkInfo sdkInfo = getBuilder().getSdkInfo();
-                if (sdkInfo == null) {
-                    return null;
-                }
-                return sdkInfo.getAdb();
-            }
-    );
+    private Provider<File> adbExecutableProvider;
 
     public UninstallTask() {
         this.getOutputs().upToDateWhen(task -> {
@@ -57,17 +50,16 @@ public class UninstallTask extends AndroidBuilderTask {
         });
     }
 
-    @TaskAction
-    public void uninstall() throws DeviceException {
+    @Override
+    protected void doTaskAction() throws DeviceException {
         final Logger logger = getLogger();
         final String applicationId = variant.getApplicationId();
 
         logger.info("Uninstalling app: {}", applicationId);
 
-        final DeviceProvider deviceProvider = new ConnectedDeviceProvider(
-                adbSupplier.get(),
-                getTimeOutInMs(),
-                getILogger());
+        final ILogger iLogger = new LoggerWrapper(getLogger());
+        final DeviceProvider deviceProvider =
+                new ConnectedDeviceProvider(adbExecutableProvider.get(), getTimeOutInMs(), iLogger);
 
         deviceProvider.init();
 
@@ -75,7 +67,7 @@ public class UninstallTask extends AndroidBuilderTask {
             final List<? extends DeviceConnector> devices = deviceProvider.getDevices();
 
             for (DeviceConnector device : devices) {
-                device.uninstallPackage(applicationId, getTimeOutInMs(), getILogger());
+                device.uninstallPackage(applicationId, getTimeOutInMs(), iLogger);
                 logger.lifecycle(
                         "Uninstalling {} (from {}:{}) from device '{}' ({}).",
                         applicationId,
@@ -94,7 +86,7 @@ public class UninstallTask extends AndroidBuilderTask {
 
     @InputFile
     public File getAdbExe() {
-        return adbSupplier.get();
+        return adbExecutableProvider.get();
     }
 
     public BaseVariantData getVariant() {
@@ -144,15 +136,8 @@ public class UninstallTask extends AndroidBuilderTask {
             task.setTimeOutInMs(
                     scope.getGlobalScope().getExtension().getAdbOptions().getTimeOutInMs());
 
-            task.adbSupplier =
-                    TaskInputHelper.memoize(
-                            () -> {
-                                // SDK is loaded somewhat dynamically, plus we don't want to do all this logic
-                                // if the task is not going to run, so use a supplier.
-                                final SdkInfo info =
-                                        scope.getGlobalScope().getSdkHandler().getSdkInfo();
-                                return (info == null ? null : info.getAdb());
-                            });
+            task.adbExecutableProvider =
+                    scope.getGlobalScope().getSdkComponents().getAdbExecutableProvider();
 
         }
 

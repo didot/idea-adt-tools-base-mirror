@@ -17,18 +17,27 @@
 #ifndef PACKAGEMANAGER_H
 #define PACKAGEMANAGER_H
 
-#include "apk_retriever.h"
-#include "shell_command.h"
+#include <string>
+#include <vector>
+
+#include "tools/base/deploy/installer/workspace.h"
 
 namespace deploy {
 
 // Wrapper around Android executable "pm" (Android Package Manager).
-class PackageManager : public ShellCommandRunner {
+class PackageManager {
  public:
-  PackageManager();
-  bool GetApks(const std::string& package_name, Apks* apks,
+  PackageManager(Workspace& workspace) : workspace_(workspace) {}
+  bool GetApks(const std::string& package_name, std::vector<std::string>* apks,
                std::string* error_string) const;
   static void SetPath(const char* path);
+
+  bool Install(const std::string& apk_path,
+               const std::vector<std::string>& options,
+               std::string* output) const noexcept;
+
+ private:
+  Workspace& workspace_;
 };
 
 }  // namespace deploy

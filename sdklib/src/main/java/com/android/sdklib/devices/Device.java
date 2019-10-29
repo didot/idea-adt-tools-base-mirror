@@ -23,9 +23,14 @@ import com.android.resources.ScreenOrientation;
 import com.android.resources.ScreenRound;
 import com.android.sdklib.repository.targets.SystemImage;
 
-import java.awt.*;
-import java.util.*;
+import java.awt.Dimension;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,6 +41,18 @@ import java.util.regex.Pattern;
  * the {@link DeviceSchema} standards.
  */
 public final class Device {
+
+    /** Minimum diagonal size of a tablet, in inches.
+     *  A device with a smaller diagonal size is
+     *  considered a phone.
+     */
+    public final static double MINIMUM_TABLET_SIZE = 7.0;
+
+    /** Minimum diagonal size of a TV, in inches.
+     *  A device with a smaller diagonal size is
+     *  considered a phone or tablet
+     */
+    public final static double MINIMUM_TV_SIZE = 15.0;
 
     /** Name of the device */
     @NonNull
@@ -582,18 +599,20 @@ public final class Device {
      * sorted by actual size.
      */
     public static Comparator<Device> getDisplayComparator() {
-        return (d1, d2) -> {
-            String s1 = d1.getSortableName();
-            String s2 = d2.getSortableName();
-            if (s1.length() > 1 && s2.length() > 1) {
-                int i1 = Character.isDigit(s1.charAt(0)) ? 1 : 0;
-                int i2 = Character.isDigit(s2.charAt(0)) ? 1 : 0;
-                if (i1 != i2) {
-                    return i1 - i2;
+        return new Comparator<Device>() {
+            @Override
+            public int compare(Device d1, Device d2) {
+                String s1 = d1.getSortableName();
+                String s2 = d2.getSortableName();
+                if (s1.length() > 1 && s2.length() > 1) {
+                    int i1 = Character.isDigit(s1.charAt(0)) ? 1 : 0;
+                    int i2 = Character.isDigit(s2.charAt(0)) ? 1 : 0;
+                    if (i1 != i2) {
+                        return i1 - i2;
+                    }
                 }
-            }
-            return s1.compareTo(s2);
-        };
+                return s1.compareTo(s2);
+            }};
     }
 
 }

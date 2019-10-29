@@ -15,9 +15,14 @@
  */
 package com.android.ide.common.vectordrawable;
 
+import static com.android.ide.common.vectordrawable.SvgNode.CONTINUATION_INDENT;
+import static com.android.ide.common.vectordrawable.SvgNode.INDENT_UNIT;
+import static com.android.utils.PositionXmlParser.getPosition;
+import static com.android.utils.XmlUtils.formatFloatAttribute;
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.ide.common.blame.SourcePosition;
 import com.android.utils.Pair;
 import com.android.utils.PositionXmlParser;
 import com.google.common.base.Preconditions;
@@ -25,16 +30,20 @@ import java.awt.geom.AffineTransform;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.OutputStreamWriter;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.w3c.dom.Document;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
@@ -44,6 +53,10 @@ import org.w3c.dom.Node;
  */
 class SvgTree {
     private static final Logger logger = Logger.getLogger(SvgTree.class.getSimpleName());
+
+    private static final String HEAD =
+        "<vector xmlns:android=\"http://schemas.android.com/apk/res/android\"";
+    private static final String AAPT_BOUND = "xmlns:aapt=\"http://schemas.android.com/aapt\"";
 
     public static final String SVG_WIDTH = "width";
     public static final String SVG_HEIGHT = "height";
@@ -58,49 +71,41 @@ class SvgTree {
     private SvgGroupNode mRoot;
     private String mFileName;
 
-    private final ArrayList<LogMessage> mLogMessages = new ArrayList<>();
+    private final List<LogMessage> mLogMessages = new ArrayList<>();
 
     private boolean mHasLeafNode;
 
     private boolean mHasGradient;
 
-    public float getWidth() { return w; }
-    public float getHeight() { return h; }
-    public float getScaleFactor() { return mScaleFactor; }
-    public void setHasLeafNode(boolean hasLeafNode) {
-        mHasLeafNode = hasLeafNode;
-    }
+    /** Map of SvgNode's id to the SvgNode. */
+    private final Map<String, SvgNode> mIdMap = new HashMap<>();
 
-    public void setHasGradient(boolean hasGradient) {
-        mHasGradient = hasGradient;
-    }
+    /** IDs of ignored SVG nodes. */
+    private final Set<String> mIgnoredIds = new HashSet<>();
 
-    public float[] getViewBox() { return viewBox; }
+    /** Set of SvgGroupNodes that contain use elements. */
+    private final Set<SvgGroupNode> mPendingUseGroupSet = new HashSet<>();
 
-    // Map of SvgNode's id to the SvgNode.
-    private final HashMap<String, SvgNode> mIdMap = new HashMap<>();
+    /**
+     * Key is SvgNode that references a clipPath. Value is SvgGroupNode that is the parent of that
+     * SvgNode.
+     */
+    private final Map<SvgNode, Pair<SvgGroupNode, String>> mClipPathAffectedNodes =
+            new LinkedHashMap<>();
 
-    // Set of SvgGroupNodes that contain use elements.
-    private final HashSet<SvgGroupNode> mUseGroupSet = new HashSet<>();
+    /**
+     * Key is String that is the id of a style class. Value is set of SvgNodes referencing that
+     * class.
+     */
+    private final Map<String, Set<SvgNode>> mStyleAffectedNodes = new HashMap<>();
 
-    // Key is SvgNode that references a clipPath. Value is SvgGroupNode that is the parent of that
-    // SvgNode.
-    private final Map<SvgNode, Pair<SvgGroupNode, String>> mClipPathAffectedNodes = new HashMap<>();
+    /**
+     * Key is String that is the id of a style class. Value is a String that contains attribute
+     * information of that style class.
+     */
+    private final Map<String, String> mStyleClassAttributeMap = new HashMap<>();
 
-    // Key is String that is the id of a style class.
-    // Value is set of SvgNodes referencing that class.
-    private final HashMap<String, HashSet<SvgNode>> mStyleAffectedNodes = new HashMap<>();
-
-    // Key is String that is the id of a style class. Value is a String that contains attribute
-    // information of that style class.
-    private final HashMap<String, String> mStyleClassAttributeMap = new HashMap<>();
-
-    /** From the root, top down, pass the transformation (TODO: attributes) down the children. */
-    public void flatten() {
-        mRoot.flatten(new AffineTransform());
-    }
-
-    public enum SvgLogLevel {
+    enum SvgLogLevel {
         ERROR,
         WARNING
     }
@@ -130,7 +135,7 @@ class SvgTree {
         }
 
         @Override
-        public int compareTo(@NotNull LogMessage other) {
+        public int compareTo(@NonNull LogMessage other) {
             int cmp = level.compareTo(other.level);
             if (cmp != 0) {
                 return cmp;
@@ -140,6 +145,43 @@ class SvgTree {
                 return cmp;
             }
             return message.compareTo(other.message);
+        }
+    }
+
+    public float getWidth() {
+        return w;
+    }
+
+    public float getHeight() {
+        return h;
+    }
+
+    public float getScaleFactor() {
+        return mScaleFactor;
+    }
+
+    public void setHasLeafNode(boolean hasLeafNode) {
+        mHasLeafNode = hasLeafNode;
+    }
+
+    public void setHasGradient(boolean hasGradient) {
+        mHasGradient = hasGradient;
+    }
+
+    public float[] getViewBox() {
+        return viewBox;
+    }
+
+    /** From the root, top down, pass the transformation (TODO: attributes) down the children. */
+    public void flatten() {
+        mRoot.flatten(new AffineTransform());
+    }
+
+    /** Validates all nodes and logs any encountered issues. */
+    public void validate() {
+        mRoot.validate();
+        if (mLogMessages.isEmpty() && !getHasLeafNode()) {
+            logError("No vector content found", null);
         }
     }
 
@@ -160,12 +202,12 @@ class SvgTree {
         mRoot.transformIfNeeded(rootTransform);
     }
 
-    public void dump(@NonNull SvgGroupNode root) {
-        logger.log(Level.FINE, "current file is :" + mFileName);
-        root.dumpNode("");
+    public void dump() {
+        logger.log(Level.FINE, "file: " + mFileName);
+        mRoot.dumpNode("");
     }
 
-    public void setRoot(SvgGroupNode root) {
+    public void setRoot(@NonNull SvgGroupNode root) {
         mRoot = root;
     }
 
@@ -174,17 +216,26 @@ class SvgTree {
         return mRoot;
     }
 
-    public void logErrorLine(@NonNull String s, @Nullable Node node, @NonNull SvgLogLevel level) {
+    public void logError(@NonNull String s, @Nullable Node node) {
+        logErrorLine(s, node, SvgLogLevel.ERROR);
+    }
+
+    public void logWarning(@NonNull String s, @Nullable Node node) {
+        logErrorLine(s, node, SvgLogLevel.WARNING);
+    }
+
+    void logErrorLine(@NonNull String s, @Nullable Node node, @NonNull SvgLogLevel level) {
         Preconditions.checkArgument(!s.isEmpty());
-        int line = node == null ? 0 : getPosition(node).getStartLine() + 1;
+        int line = node == null ? 0 : getStartLine(node);
         mLogMessages.add(new LogMessage(level, line, s));
     }
 
     /**
-     * Returns the error log. Empty string if there are no errors.
+     * Returns the error message that combines all logged errors and warnings. If there were no
+     * errors, returns an empty string.
      */
     @NonNull
-    public String getErrorLog() {
+    public String getErrorMessage() {
         if (mLogMessages.isEmpty()) {
             return "";
         }
@@ -209,8 +260,9 @@ class SvgTree {
         return mHasGradient;
     }
 
-    private static SourcePosition getPosition(Node node) {
-        return PositionXmlParser.getPosition(node);
+    /** Returns the 1-based start line number of the given node. */
+    public static int getStartLine(@NonNull Node node) {
+        return getPosition(node).getStartLine() + 1;
     }
 
     public float getViewportWidth() {
@@ -286,13 +338,21 @@ class SvgTree {
         return mIdMap.get(id);
     }
 
-    public void addToUseSet(@NonNull SvgGroupNode useGroup) {
-        mUseGroupSet.add(useGroup);
+    public void addToPendingUseSet(@NonNull SvgGroupNode useGroup) {
+        mPendingUseGroupSet.add(useGroup);
     }
 
     @NonNull
-    public Set<SvgGroupNode> getUseSet() {
-        return mUseGroupSet;
+    public Set<SvgGroupNode> getPendingUseSet() {
+        return mPendingUseGroupSet;
+    }
+
+    public void addIgnoredId(@NonNull String id) {
+        mIgnoredIds.add(id);
+    }
+
+    public boolean isIdIgnored(@NonNull String id) {
+        return mIgnoredIds.contains(id);
     }
 
     public void addClipPathAffectedNode(
@@ -312,7 +372,7 @@ class SvgTree {
         if (mStyleAffectedNodes.containsKey(className)) {
             mStyleAffectedNodes.get(className).add(child);
         } else {
-            HashSet<SvgNode> styleNodesSet = new HashSet<>();
+            Set<SvgNode> styleNodesSet = new HashSet<>();
             styleNodesSet.add(child);
             mStyleAffectedNodes.put(className, styleNodesSet);
         }
@@ -331,7 +391,7 @@ class SvgTree {
     }
 
     @NonNull
-    public Set<Map.Entry<String, HashSet<SvgNode>>> getStyleAffectedNodes() {
+    public Set<Map.Entry<String, Set<SvgNode>>> getStyleAffectedNodes() {
         return mStyleAffectedNodes.entrySet();
     }
 
@@ -354,5 +414,51 @@ class SvgTree {
         float viewportWidth = getViewportWidth();
         float viewportHeight = getViewportHeight();
         return VdUtil.getCoordinateFormat(Math.max(viewportHeight, viewportWidth));
+    }
+
+    public void writeXml(@NonNull OutputStream stream) throws IOException {
+        if (mRoot == null) {
+            throw new IllegalStateException("SvgTree is not fully initialized");
+        }
+
+        OutputStreamWriter writer = new OutputStreamWriter(stream, UTF_8);
+        writer.write(HEAD);
+        writer.write(System.lineSeparator());
+        if (getHasGradient()) {
+            writer.write(CONTINUATION_INDENT);
+            writer.write(AAPT_BOUND);
+            writer.write(System.lineSeparator());
+        }
+        float viewportWidth = getViewportWidth();
+        float viewportHeight = getViewportHeight();
+
+        writer.write(CONTINUATION_INDENT);
+        writer.write("android:width=\"");
+        writer.write(formatFloatAttribute(getWidth() * getScaleFactor()));
+        writer.write("dp\"");
+        writer.write(System.lineSeparator());
+        writer.write(CONTINUATION_INDENT);
+        writer.write("android:height=\"");
+        writer.write(formatFloatAttribute(getHeight() * getScaleFactor()));
+        writer.write("dp\"");
+        writer.write(System.lineSeparator());
+
+        writer.write(CONTINUATION_INDENT);
+        writer.write("android:viewportWidth=\"");
+        writer.write(formatFloatAttribute(viewportWidth));
+        writer.write("\"");
+        writer.write(System.lineSeparator());
+        writer.write(CONTINUATION_INDENT);
+        writer.write("android:viewportHeight=\"");
+        writer.write(formatFloatAttribute(viewportHeight));
+        writer.write("\">");
+        writer.write(System.lineSeparator());
+
+        normalize();
+        mRoot.writeXml(writer, false, INDENT_UNIT);
+        writer.write("</vector>");
+        writer.write(System.lineSeparator());
+
+        writer.close();
     }
 }

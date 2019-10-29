@@ -30,7 +30,6 @@ import static com.android.tools.lint.detector.api.TextFormat.TEXT;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
 import com.android.tools.lint.checks.BuiltinIssueRegistry;
 import com.android.tools.lint.client.api.Configuration;
 import com.android.tools.lint.client.api.IssueRegistry;
@@ -49,6 +48,7 @@ import com.android.tools.lint.detector.api.TextFormat;
 import com.android.utils.SdkUtils;
 import com.android.utils.XmlUtils;
 import com.google.common.annotations.Beta;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.io.ByteStreams;
 import java.io.BufferedWriter;
@@ -65,13 +65,13 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
-import org.jetbrains.annotations.NotNull;
 import org.w3c.dom.Document;
 import org.xml.sax.SAXException;
 
@@ -115,6 +115,7 @@ public class Main {
     private static final String ARG_BUILD_API = "--compile-sdk-version";
     private static final String ARG_BASELINE = "--baseline";
     private static final String ARG_REMOVE_FIXED = "--remove-fixed";
+    private static final String ARG_UPDATE_BASELINE = "--update-baseline";
     private static final String ARG_ALLOW_SUPPRESS = "--allow-suppress";
     private static final String ARG_RESTRICT_SUPPRESS = "--restrict-suppress";
 
@@ -311,7 +312,7 @@ public class Main {
 
                     @NonNull
                     @Override
-                    public byte[] readBytes(@NotNull File file) throws IOException {
+                    public byte[] readBytes(@NonNull File file) throws IOException {
                         // .srcjar file handle?
                         byte[] srcJarBytes = readSrcJar(file);
                         if (srcJarBytes != null) {
@@ -460,6 +461,17 @@ public class Main {
                         }
 
                         return super.addBootClassPath(knownProjects, files);
+                    }
+
+                    @NonNull
+                    @Override
+                    public List<File> getExternalAnnotations(
+                            @NonNull Collection<? extends Project> projects) {
+                        List<File> externalAnnotations = super.getExternalAnnotations(projects);
+                        if (metadata != null) {
+                            externalAnnotations.addAll(metadata.getExternalAnnotations());
+                        }
+                        return externalAnnotations;
                     }
                 };
 
@@ -909,7 +921,23 @@ public class Main {
                 File input = getInArgumentPath(path);
                 flags.setBaselineFile(input);
             } else if (arg.equals(ARG_REMOVE_FIXED)) {
+                if (flags.isUpdateBaseline()) {
+                    System.err.printf(
+                            Locale.US,
+                            "Cannot use both %s and %s.%n",
+                            ARG_REMOVE_FIXED,
+                            ARG_UPDATE_BASELINE);
+                }
                 flags.setRemovedFixedBaselineIssues(true);
+            } else if (arg.equals(ARG_UPDATE_BASELINE)) {
+                if (flags.isRemoveFixedBaselineIssues()) {
+                    System.err.printf(
+                            Locale.US,
+                            "Cannot use both %s and %s.%n",
+                            ARG_UPDATE_BASELINE,
+                            ARG_REMOVE_FIXED);
+                }
+                flags.setUpdateBaseline(true);
             } else if (arg.equals(ARG_ALLOW_SUPPRESS)) {
                 flags.setAllowSuppress(true);
             } else if (arg.equals(ARG_RESTRICT_SUPPRESS)) {
@@ -1204,7 +1232,7 @@ public class Main {
     }
 
     private static void printVersion(LintCliClient client) {
-        String revision = client.getClientRevision();
+        String revision = client.getClientDisplayRevision();
         if (revision != null) {
             System.out.println(String.format("lint: version %1$s", revision));
         } else {
@@ -1415,7 +1443,7 @@ public class Main {
                             + "target to resolve Android API call to",
                     ARG_SDK_HOME + " <dir>",
                     "Use the given SDK instead of attempting to find it "
-                            + "relative to the lint installation or via $ANDROID_HOME",
+                            + "relative to the lint installation or via $ANDROID_SDK_ROOT",
                     "",
                     "\nExit Status:",
                     "0",

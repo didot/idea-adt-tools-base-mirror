@@ -18,132 +18,133 @@ package com.android.tools.deployer;
 
 import com.android.ddmlib.AndroidDebugBridge;
 import com.android.ddmlib.IDevice;
-import com.android.tools.deploy.swapper.DexArchiveDatabase;
-import com.android.tools.deploy.swapper.InMemoryDexArchiveDatabase;
+import com.android.tools.deployer.tasks.TaskRunner;
+import com.android.tools.tracer.Trace;
 import com.android.utils.ILogger;
+import com.android.utils.StdLogger;
+import com.google.common.collect.ImmutableMap;
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.ArrayList;
-
-class InstallerNotifier implements Deployer.InstallerCallBack {
-    @Override
-    public void onInstallationFinished(boolean status) {}
-}
+import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class DeployerRunner {
 
-    private static final ILogger LOGGER = Logger.getLogger(DeployerRunner.class);
     private static final String DB_PATH = "/tmp/studio.db";
-    private final DexArchiveDatabase db;
-
-    static InMemoryDexArchiveDatabase readDB() throws IOException {
-        if (!Files.exists(Paths.get(DB_PATH))) {
-            InMemoryDexArchiveDatabase db = new InMemoryDexArchiveDatabase();
-            saveDB(db);
-            return db;
-        }
-
-        try (FileInputStream file = new FileInputStream(DB_PATH);
-                ObjectInputStream in = new ObjectInputStream(file)) {
-            InMemoryDexArchiveDatabase db = (InMemoryDexArchiveDatabase) in.readObject();
-            return db;
-        } catch (InvalidClassException e) {
-            // This may occur if the layout of InMemoryDexArchiveDatabase has changed since
-            // last run.
-            Files.delete(Paths.get(DB_PATH));
-            return readDB();
-        } catch (IOException | ClassNotFoundException e) {
-            throw new DeployerException("Unable to load database", e);
-        }
-    }
-
-    static void saveDB(InMemoryDexArchiveDatabase db) {
-        try (FileOutputStream file = new FileOutputStream(DB_PATH);
-                ObjectOutputStream out = new ObjectOutputStream(file); ) {
-            out.writeObject(db);
-        } catch (IOException e) {
-            throw new DeployerException("Unable to save database", e);
-        }
-    }
+    private final ApkFileDatabase db;
+    private final ArrayList<DeployMetric> metrics;
+    private final UIService service;
 
     // Run it from bazel with the following command:
     // bazel run :deployer.runner org.wikipedia.alpha PATH_TO_APK1 PATH_TO_APK2
-    public static void main(String[] args)
-            throws IOException, ClassNotFoundException, InterruptedException {
-        InMemoryDexArchiveDatabase db = null;
+    public static void main(String[] args) {
+        Trace.start();
+        Trace.begin("main");
+        int errorcode = tracedMain(args, new StdLogger(StdLogger.Level.VERBOSE));
+        Trace.end();
+        Trace.flush();
+        if (errorcode != 0) {
+            System.exit(errorcode);
+        }
+    }
+
+    public static int tracedMain(String[] args, ILogger logger) {
+        ApkFileDatabase db = new SqlApkFileDatabase(new File(DB_PATH));
+        DeployerRunner runner = new DeployerRunner(db, new CommandLineService());
+        return runner.run(args, logger);
+    }
+
+    public DeployerRunner(ApkFileDatabase db, UIService service) {
+        this.db = db;
+        this.service = service;
+        this.metrics = new ArrayList<>();
+    }
+
+    public int run(String[] args, ILogger logger) {
         try {
-            db = readDB();
-            DeployerRunner runner = new DeployerRunner(db);
-            runner.run(args);
-        } catch (RuntimeException e) {
-            e.printStackTrace(System.out);
+            AndroidDebugBridge bridge = initDebugBridge();
+            return run(bridge, args, logger);
         } finally {
-            saveDB(db);
             AndroidDebugBridge.terminate();
         }
     }
 
-    public DeployerRunner(DexArchiveDatabase db) {
-        this.db = db;
-    }
-
-    public void run(String[] args) throws IOException {
+    public int run(AndroidDebugBridge bridge, String[] args, ILogger logger) {
         // Check that we have the parameters we need to run.
         if (args.length < 2) {
-            printUsage();
-            return;
+            logger.info("Usage: DeployerRunner packageName [packageBase,packageSplit1,...]");
+            return -1;
         }
 
-        // Get package name.
-        String packageName = args[0];
+        DeployRunnerParameters parameters = DeployRunnerParameters.parse(args);
+        String packageName = parameters.get(0);
 
-        // Get all apks with base and splits.
-        ArrayList<String> apks = new ArrayList();
-        for (int i = 1; i < args.length; i++) {
-            apks.add(args[i]);
+        ArrayList<String> apks = new ArrayList<>();
+        for (int i = 1; i < parameters.size(); i++) {
+            apks.add(parameters.get(i));
         }
 
-        IDevice device = getDevice();
+        Trace.begin("getDevice()");
+        IDevice device = getDevice(bridge);
         if (device == null) {
-            LOGGER.error(null, "%s", "No device found.");
-            return;
+            logger.error(null, "%s", "No device found.");
+            return -2;
         }
+        Trace.end();
 
         // Run
-        AdbClient adb = new AdbClient(device);
-        Installer installer = new Installer(adb);
-        Deployer deployer =
-                new Deployer(packageName, apks, new InstallerNotifier(), adb, db, installer);
-        Deployer.RunResponse response = deployer.fullSwap();
-
-        if (response.status != Deployer.RunResponse.Status.OK) {
-            LOGGER.info("%s", response.errorMessage);
-            return;
-        }
-
-        // Output apks differences found.
-        for (String apkName : response.result.keySet()) {
-            Deployer.RunResponse.Analysis analysis = response.result.get(apkName);
-            for (String key : analysis.diffs.keySet()) {
-                ApkDiffer.ApkEntryStatus status = analysis.diffs.get(key);
-                switch (status) {
-                    case CREATED:
-                        LOGGER.info("%s has been CREATED.", key);
-                        break;
-                    case DELETED:
-                        LOGGER.info("%s has been DELETED.", key);
-                        break;
-                    case MODIFIED:
-                        LOGGER.info("%s has been MODIFIED.", key);
-                        break;
+        metrics.clear();
+        AdbClient adb = new AdbClient(device, logger);
+        Installer installer =
+                new AdbInstaller(parameters.getInstallersPath(), adb, metrics, logger);
+        ExecutorService service = Executors.newFixedThreadPool(5);
+        TaskRunner runner = new TaskRunner(service);
+        Deployer deployer = new Deployer(adb, db, runner, installer, this.service, metrics, logger);
+        try {
+            if (parameters.getCommand() == DeployRunnerParameters.Command.INSTALL) {
+                InstallOptions.Builder options = InstallOptions.builder().setAllowDebuggable();
+                if (device.supportsFeature(IDevice.HardwareFeature.EMBEDDED)) {
+                    options.setGrantAllPermissions();
                 }
+
+                Deployer.InstallMode installMode = Deployer.InstallMode.DELTA;
+                if (parameters.isForceFullInstall()) {
+                    installMode = Deployer.InstallMode.FULL;
+                }
+                deployer.install(packageName, apks, options.build(), installMode);
+            } else if (parameters.getCommand() == DeployRunnerParameters.Command.FULLSWAP) {
+                deployer.fullSwap(apks);
+            } else if (parameters.getCommand() == DeployRunnerParameters.Command.CODESWAP) {
+                deployer.codeSwap(apks, ImmutableMap.of());
+            } else {
+                throw new RuntimeException("UNKNOWN command");
             }
+            runner.run();
+        } catch (DeployerException e) {
+            logger.error(
+                    e, "Not possible to execute " + parameters.getCommand().name().toLowerCase());
+            logger.warning(e.getDetails());
+            return e.getError().ordinal();
+        } finally {
+            service.shutdown();
         }
+        return 0;
     }
 
-    private IDevice getDevice() {
-        // Get an IDevice
+    public ArrayList<DeployMetric> getMetrics() {
+        return metrics;
+    }
+
+    private IDevice getDevice(AndroidDebugBridge bridge) {
+        IDevice[] devices = bridge.getDevices();
+        if (devices.length < 1) {
+            return null;
+        }
+        return devices[0];
+    }
+
+    private AndroidDebugBridge initDebugBridge() {
         AndroidDebugBridge.init(false);
         AndroidDebugBridge bridge = AndroidDebugBridge.createBridge();
         while (!bridge.hasInitialDeviceList()) {
@@ -153,14 +154,21 @@ public class DeployerRunner {
                 e.printStackTrace();
             }
         }
-        IDevice[] devices = bridge.getDevices();
-        if (devices.length < 1) {
-            return null;
-        }
-        return devices[0];
+        return bridge;
     }
 
-    private static void printUsage() {
-        LOGGER.info("Usage: DeployerRunner packageName [packageBase,packageSplit1,...]");
+    static class CommandLineService implements UIService {
+        @Override
+        public boolean prompt(String message) {
+            System.err.println(message + ". Y/N?");
+            try (Scanner scanner = new Scanner(System.in)) {
+                return scanner.nextLine().equalsIgnoreCase("y");
+            }
+        }
+
+        @Override
+        public void message(String message) {
+            System.err.println(message);
+        }
     }
 }

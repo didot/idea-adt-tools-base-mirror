@@ -19,7 +19,9 @@ package com.android.build.gradle.tasks;
 import static com.android.build.VariantOutput.OutputType.FULL_SPLIT;
 import static com.android.build.VariantOutput.OutputType.MAIN;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.JAR;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.LINT;
+import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH;
 import static com.android.build.gradle.internal.publishing.AndroidArtifacts.ConsumedConfigType.RUNTIME_CLASSPATH;
 import static com.android.build.gradle.internal.scope.AnchorOutputType.ALL_CLASSES;
 import static com.android.build.gradle.internal.scope.InternalArtifactType.LIBRARY_MANIFEST;
@@ -31,6 +33,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.dsl.LintOptions;
+import com.android.build.gradle.internal.ide.dependencies.ArtifactUtils;
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder;
 import com.android.build.gradle.internal.scope.BuildElements;
 import com.android.build.gradle.internal.scope.BuildOutput;
@@ -39,25 +42,29 @@ import com.android.build.gradle.internal.scope.GlobalScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
-import com.android.builder.core.AndroidBuilder;
+import com.android.build.gradle.internal.variant.TestVariantData;
+import com.android.build.gradle.internal.variant.TestedVariantData;
+import com.android.builder.core.VariantType;
 import com.android.builder.model.Version;
-import com.android.builder.sdk.TargetInfo;
-import com.android.sdklib.BuildToolInfo;
+import com.android.repository.Revision;
 import com.android.tools.lint.gradle.api.ReflectiveLintRunner;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Streams;
 import java.io.File;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.Project;
+import org.gradle.api.artifacts.ArtifactCollection;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.api.plugins.JavaBasePlugin;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
@@ -68,7 +75,7 @@ public abstract class LintBaseTask extends DefaultTask {
     protected static final Logger LOG = Logging.getLogger(LintBaseTask.class);
 
     @Nullable FileCollection lintClassPath;
-    protected AndroidBuilder androidBuilder;
+    protected Provider<Revision> buildToolsRevisionProvider;
 
     /** Lint classpath */
     @InputFiles
@@ -95,16 +102,15 @@ public abstract class LintBaseTask extends DefaultTask {
         }
     }
 
-    @Internal("No influence on output, this is to give access to the build tools")
-    private BuildToolInfo getBuildTools() {
-        TargetInfo targetInfo = androidBuilder.getTargetInfo();
-        Preconditions.checkState(
-                targetInfo != null, "androidBuilder.targetInfo required for task '%s'.", getName());
-        return targetInfo.getBuildTools();
+    @Internal("No influence on output, this is to give access to the build tools version")
+    @NonNull
+    private Revision getBuildToolsRevision() {
+        return buildToolsRevisionProvider.get();
     }
 
     protected abstract class LintBaseTaskDescriptor extends
             com.android.tools.lint.gradle.api.LintExecutionRequest {
+
         @Override
         @Nullable
         public File getSdkHome() {
@@ -137,8 +143,8 @@ public abstract class LintBaseTask extends DefaultTask {
 
         @NonNull
         @Override
-        public BuildToolInfo getBuildTools() {
-            return LintBaseTask.this.getBuildTools();
+        public Revision getBuildToolsRevision() {
+            return LintBaseTask.this.getBuildToolsRevision();
         }
 
         @Override
@@ -153,11 +159,47 @@ public abstract class LintBaseTask extends DefaultTask {
         }
     }
 
+    /**
+     * The jar artifacts are used in ModelBuilder eventually, we add them to inputs here so Gradle
+     * would make sure they are resolved before starting the task.
+     */
+    protected static void addJarArtifactsToInputs(
+            @NonNull ConfigurableFileCollection inputs, @NonNull VariantScope variantScope) {
+        inputs.from(ArtifactUtils.computeArtifactList(variantScope, COMPILE_CLASSPATH, ALL, JAR));
+        inputs.from(ArtifactUtils.computeArtifactList(variantScope, RUNTIME_CLASSPATH, ALL, JAR));
+
+        if (variantScope.getVariantData() instanceof TestedVariantData) {
+            for (VariantType variantType : VariantType.Companion.getTestComponents()) {
+                TestVariantData testVariantData =
+                        ((TestedVariantData) variantScope.getVariantData())
+                                .getTestVariantData(variantType);
+                if (testVariantData != null) {
+                    inputs.from(
+                            (Callable<ArtifactCollection>)
+                                    (() ->
+                                            ArtifactUtils.computeArtifactList(
+                                                    testVariantData.getScope(),
+                                                    COMPILE_CLASSPATH,
+                                                    ALL,
+                                                    JAR)));
+                    inputs.from(
+                            (Callable<ArtifactCollection>)
+                                    (() ->
+                                            ArtifactUtils.computeArtifactList(
+                                                    testVariantData.getScope(),
+                                                    RUNTIME_CLASSPATH,
+                                                    ALL,
+                                                    JAR)));
+                }
+            }
+        }
+    }
+
     public static class VariantInputs implements com.android.tools.lint.gradle.api.VariantInputs {
         @NonNull private final String name;
         @NonNull private final BuildableArtifact localLintJarCollection;
         @NonNull private final FileCollection dependencyLintJarCollection;
-        @NonNull private final BuildableArtifact mergedManifest;
+        @NonNull private final Provider<? extends FileSystemLocation> mergedManifest;
         @Nullable private final BuildableArtifact mergedManifestReport;
         private List<File> lintRuleJars;
 
@@ -178,15 +220,17 @@ public abstract class LintBaseTask extends DefaultTask {
                             variantScope.getArtifactFileCollection(RUNTIME_CLASSPATH, ALL, LINT));
 
             BuildArtifactsHolder artifacts = variantScope.getArtifacts();
-            if (artifacts.hasArtifact(MERGED_MANIFESTS)) {
-                mergedManifest = artifacts.getFinalArtifactFiles(MERGED_MANIFESTS);
-            } else if (artifacts.hasArtifact(LIBRARY_MANIFEST)) {
-                mergedManifest = artifacts.getFinalArtifactFiles(LIBRARY_MANIFEST);
-            } else {
+            Provider<? extends FileSystemLocation> tmpMergedManifest =
+                    artifacts.getFinalProduct(MERGED_MANIFESTS);
+            if (!tmpMergedManifest.isPresent()) {
+                tmpMergedManifest = artifacts.getFinalProduct(LIBRARY_MANIFEST);
+            }
+            if (!tmpMergedManifest.isPresent()) {
                 throw new RuntimeException(
                         "VariantInputs initialized with no merged manifest on: "
                                 + variantScope.getVariantConfiguration().getType());
             }
+            mergedManifest = tmpMergedManifest;
             allInputs.from(mergedManifest);
 
             if (artifacts.hasArtifact(MANIFEST_MERGE_REPORT)) {
@@ -202,6 +246,8 @@ public abstract class LintBaseTask extends DefaultTask {
             // these inputs are only there to ensure that the lint task runs after these build
             // intermediates are built.
             allInputs.from(artifacts.getFinalArtifactFiles(ALL_CLASSES));
+
+            addJarArtifactsToInputs(allInputs, variantScope);
         }
 
         @NonNull
@@ -235,7 +281,7 @@ public abstract class LintBaseTask extends DefaultTask {
         @Override
         @NonNull
         public File getMergedManifest() {
-            File file = Iterables.getOnlyElement(mergedManifest.getFiles());
+            File file = mergedManifest.get().getAsFile();
             if (file.isFile()) {
                 return file;
             }
@@ -251,7 +297,7 @@ public abstract class LintBaseTask extends DefaultTask {
             Optional<File> mainManifest =
                     manifests
                             .stream()
-                            .filter(buildOutput -> buildOutput.getApkInfo().getType() == MAIN)
+                            .filter(buildOutput -> buildOutput.getApkData().getType() == MAIN)
                             .map(BuildOutput::getOutputFile)
                             .findFirst();
             if (mainManifest.isPresent()) {
@@ -264,7 +310,7 @@ public abstract class LintBaseTask extends DefaultTask {
                             .stream()
                             .filter(
                                     output ->
-                                            output.getApkInfo().getType() == FULL_SPLIT
+                                            output.getApkData().getType() == FULL_SPLIT
                                                     && output.getFilters().isEmpty())
                             .map(BuildOutput::getOutputFile)
                             .findFirst();
@@ -302,14 +348,15 @@ public abstract class LintBaseTask extends DefaultTask {
         public void configure(@NonNull T lintTask) {
             lintTask.setGroup(JavaBasePlugin.VERIFICATION_GROUP);
             lintTask.lintOptions = globalScope.getExtension().getLintOptions();
-            File sdkFolder = globalScope.getSdkHandler().getSdkFolder();
+            File sdkFolder = globalScope.getSdkComponents().getSdkFolder();
             if (sdkFolder != null) {
                 lintTask.sdkHome = sdkFolder;
             }
 
             lintTask.toolingRegistry = globalScope.getToolingRegistry();
             lintTask.reportsDir = globalScope.getReportsDir();
-            lintTask.androidBuilder = globalScope.getAndroidBuilder();
+            lintTask.buildToolsRevisionProvider =
+                    globalScope.getSdkComponents().getBuildToolsRevisionProvider();
 
             lintTask.lintClassPath = globalScope.getProject().getConfigurations()
                     .getByName(LINT_CLASS_PATH);

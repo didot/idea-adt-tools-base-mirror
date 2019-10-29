@@ -17,7 +17,7 @@
 package com.android.build.gradle.internal.res.namespaced
 
 import com.android.SdkConstants
-import com.android.annotations.VisibleForTesting
+import com.google.common.annotations.VisibleForTesting
 import com.android.ide.common.resources.CompileResourceRequest
 import com.android.ide.common.resources.ResourceCompilationService
 import com.android.ide.common.xml.XmlFormatPreferences
@@ -67,7 +67,7 @@ object NamespaceRemover : ResourceCompilationService {
      * Rewrites an XML file to be namespace free.
      */
     @Throws(IOException::class, ParserConfigurationException::class, SAXException::class)
-    private fun rewrite(input: Path, output: Path) {
+    fun rewrite(input: Path, output: Path) {
         BufferedInputStream(
                 Files.newInputStream(input)).use {
             `is` -> Files.write(output, rewrite(`is`).toByteArray())

@@ -64,37 +64,73 @@ public class ProfilerToBenchmarkAdapter {
     private static final Analyzer DEFAULT_ANALYZER =
             new WindowDeviationAnalyzer.Builder()
                     .setMetricAggregate(Analyzer.MetricAggregate.MEDIAN)
-                    .setRunInfoQueryLimit(50)
-                    .setRecentWindowSize(25)
-                    .addMedianTolerance(new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
-                            // constant term of 10.0 ms to ignore regressions in trivial tasks
-                            .setConstTerm(10.0)
-                            // recommended value
-                            .setMadCoeff(1.0)
-                            // flag 10% regressions
-                            .setMedianCoeff(0.10)
-                            .build())
+                    .setRunInfoQueryLimit(100)
+                    .setRecentWindowSize(50)
+                    .addMedianTolerance(
+                            new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
+                                    // const term of 10.0 ms to ignore regressions in trivial tasks
+                                    .setConstTerm(10.0)
+                                    // recommended value
+                                    .setMadCoeff(1.0)
+                                    // flag 10% regressions
+                                    .setMedianCoeff(0.10)
+                                    .build())
+                    .addMeanTolerance(
+                            new WindowDeviationAnalyzer.MeanToleranceParams.Builder()
+                                    // const term of 10.0 ms to ignore regressions in trivial tasks
+                                    .setConstTerm(10.0)
+                                    // recommended value
+                                    .setStddevCoeff(1.0)
+                                    // flag 10% regressions
+                                    .setMeanCoeff(0.10)
+                                    .build())
+                    .build();
+
+    // TOTAL_BUILD_TIME_ANALYZER checks for regressions of 5% in mean and median, with 0.0 set for
+    // constant term and StdDev or MAD coeffecient. This is a much tighter threshold than the
+    // DEFAULT_ANALYZER.
+    @NonNull
+    private static final Analyzer TOTAL_BUILD_TIME_ANALYZER =
+            new WindowDeviationAnalyzer.Builder()
+                    .setMetricAggregate(Analyzer.MetricAggregate.MEDIAN)
+                    .setRunInfoQueryLimit(100)
+                    .setRecentWindowSize(50)
+                    .addMedianTolerance(
+                            new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
+                                    .setConstTerm(0.0)
+                                    .setMadCoeff(0.0)
+                                    // flag 5% regressions
+                                    .setMedianCoeff(0.05)
+                                    .build())
+                    .addMeanTolerance(
+                            new WindowDeviationAnalyzer.MeanToleranceParams.Builder()
+                                    .setConstTerm(0.0)
+                                    .setStddevCoeff(0.0)
+                                    // flag 5% regressions
+                                    .setMeanCoeff(0.05)
+                                    .build())
                     .build();
 
     @NonNull
     private static final Analyzer MIN_ANALYZER =
             new WindowDeviationAnalyzer.Builder()
                     .setMetricAggregate(Analyzer.MetricAggregate.MIN)
-                    .setRunInfoQueryLimit(50)
-                    .setRecentWindowSize(25)
-                    .addMedianTolerance(new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
-                        // constant term of 10.0 ms to ignore regressions in trivial tasks
-                        .setConstTerm(10.0)
-                        // recommended value
-                        .setMadCoeff(1.0)
-                        // flag 10% regressions
-                        .setMedianCoeff(0.10)
-                        .build())
+                    .setRunInfoQueryLimit(100)
+                    .setRecentWindowSize(50)
+                    .addMedianTolerance(
+                            new WindowDeviationAnalyzer.MedianToleranceParams.Builder()
+                                    // constant term of 10.0 ms to ignore regressions in trivial tasks
+                                    .setConstTerm(10.0)
+                                    // recommended value
+                                    .setMadCoeff(1.0)
+                                    // flag 10% regressions
+                                    .setMedianCoeff(0.10)
+                                    .build())
                     .build();
 
     @NonNull
     private static final List<String> MIN_ANALYZER_METRICS =
-            Arrays.asList("DEX_MERGER", "EXTERNAL_LIBS_MERGER");
+            Arrays.asList("DEX_MERGER", "DEX_MERGING", "EXTERNAL_LIBS_MERGER");
 
     @NonNull
     private final List<ConsolidatedRunTimings> consolidatedTimingsPerIterations = new ArrayList<>();
@@ -104,6 +140,15 @@ public class ProfilerToBenchmarkAdapter {
         this.benchmark = benchmark;
         this.benchmarkRun = benchmarkRun;
         metrics = new HashMap<>();
+        final int upperLimit =
+                benchmarkRun.iterations
+                        - (benchmarkRun.removeUpperOutliers + benchmarkRun.removeLowerOutliers);
+        if (upperLimit < benchmarkRun.removeLowerOutliers || benchmarkRun.removeLowerOutliers < 0) {
+            throw new RuntimeException(
+                    String.format(
+                            "Invalid upper (%d) and/or lower (%d) outliers removal settings",
+                            benchmarkRun.removeLowerOutliers, benchmarkRun.removeUpperOutliers));
+        }
     }
 
     @SuppressWarnings("MethodMayBeStatic")
@@ -121,15 +166,7 @@ public class ProfilerToBenchmarkAdapter {
 
     public void commit() {
 
-        final int upperLimit =
-                benchmarkRun.iterations
-                        - (benchmarkRun.removeUpperOutliers + benchmarkRun.removeLowerOutliers);
-        if (upperLimit < benchmarkRun.removeLowerOutliers || benchmarkRun.removeLowerOutliers < 0) {
-            throw new RuntimeException(
-                    String.format(
-                            "Invalid upper (%d) and/or lower (%d) outliers removal settings",
-                            benchmarkRun.removeLowerOutliers, benchmarkRun.removeUpperOutliers));
-        }
+
         Metric totalBuildTime = new Metric("TOTAL_BUILD_TIME");
         Metric totalGcTime = new Metric("TOTAL_GC_TIME");
 
@@ -206,6 +243,8 @@ public class ProfilerToBenchmarkAdapter {
     private static void setAnalyzers(Metric metric, Benchmark benchmark) {
         if (MIN_ANALYZER_METRICS.contains(metric.getMetricName())) {
             metric.setAnalyzers(benchmark, Arrays.asList(MIN_ANALYZER));
+        } else if ("TOTAL_BUILD_TIME".equals(metric.getMetricName())) {
+            metric.setAnalyzers(benchmark, Arrays.asList(TOTAL_BUILD_TIME_ANALYZER));
         } else {
             metric.setAnalyzers(benchmark, Arrays.asList(DEFAULT_ANALYZER));
         }

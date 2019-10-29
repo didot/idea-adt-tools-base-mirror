@@ -40,6 +40,9 @@ enum class BooleanOption(
     // tell bundletool to only extract instant APKs.
     IDE_EXTRACT_INSTANT(AndroidProject.PROPERTY_EXTRACT_INSTANT_APK, status = Option.Status.STABLE),
 
+    // Flag used to indicate a "deploy as instant" run configuration.
+    IDE_DEPLOY_AS_INSTANT_APP(AndroidProject.PROPERTY_DEPLOY_AS_INSTANT_APP, false, status = Option.Status.STABLE),
+
 
     // ---------------
     // Permanent Other Flags -- No lifecycle
@@ -50,13 +53,14 @@ enum class BooleanOption(
     WARN_ABOUT_DEPENDENCY_RESOLUTION_AT_CONFIGURATION("android.dependencyResolutionAtConfigurationTime.warn"),
     DISALLOW_DEPENDENCY_RESOLUTION_AT_CONFIGURATION("android.dependencyResolutionAtConfigurationTime.disallow"),
     DEBUG_OBSOLETE_API("android.debug.obsoleteApi", false, Option.Status.STABLE),
+    ENABLE_STUDIO_VERSION_CHECK("android.injected.studio.version.check", true, Option.Status.STABLE),
 
     // ---------------
     // Lifecycle flags: Experimental stage, not yet enabled by default
     ENABLE_TEST_SHARDING("android.androidTest.shardBetweenDevices"),
     VERSION_CHECK_OVERRIDE_PROPERTY("android.overrideVersionCheck"),
     OVERRIDE_PATH_CHECK_PROPERTY("android.overridePathCheck"),
-    ENABLE_GRADLE_WORKERS("android.enableGradleWorkers", false),
+    ENABLE_GRADLE_WORKERS("android.enableGradleWorkers", true),
     DISABLE_RESOURCE_VALIDATION("android.disableResourceValidation"),
     CONSUME_DEPENDENCIES_AS_SHARED_LIBRARIES("android.consumeDependenciesAsSharedLibraries"),
     KEEP_TIMESTAMPS_IN_APK("android.keepTimestampsInApk"),
@@ -64,15 +68,23 @@ enum class BooleanOption(
     ENABLE_EXPERIMENTAL_FEATURE_DATABINDING("android.enableExperimentalFeatureDatabinding", false),
     ENABLE_JETIFIER("android.enableJetifier", false, status = Option.Status.STABLE),
     USE_ANDROID_X("android.useAndroidX", false, status = Option.Status.STABLE),
-    ENABLE_UNIT_TEST_BINARY_RESOURCES("android.enableUnitTestBinaryResources", false),
     DISABLE_EARLY_MANIFEST_PARSING("android.disableEarlyManifestParsing", false),
     DEPLOYMENT_USES_DIRECTORY("android.deployment.useOutputDirectory", false),
     DEPLOYMENT_PROVIDES_LIST_OF_CHANGES("android.deployment.provideListOfChanges", false),
     ENABLE_RESOURCE_NAMESPACING_DEFAULT("android.enableResourceNamespacingDefault", false),
     NAMESPACED_R_CLASS("android.namespacedRClass", false),
-    DEPLOY_AS_INSTANT_APP(AndroidProject.PROPERTY_DEPLOY_AS_INSTANT_APP, false),
     ENABLE_SEPARATE_ANNOTATION_PROCESSING("android.enableSeparateAnnotationProcessing", false),
     FULL_R8("android.enableR8.fullMode", false),
+    CONDITIONAL_KEEP_RULES("android.useConditionalKeepRules", false),
+    ENFORCE_UNIQUE_PACKAGE_NAMES("android.uniquePackageNames", false, status = Option.Status.STABLE),
+    USE_RELATIVE_PATH_IN_TEST_CONFIG("android.testConfig.useRelativePath", false),
+    ENABLE_INCREMENTAL_DATA_BINDING("android.databinding.incremental", false, Option.Status.STABLE),
+    KEEP_SERVICES_BETWEEN_BUILDS("android.keepWorkerActionServicesBetweenBuilds", false),
+    USE_NON_FINAL_RES_IDS("android.nonFinalResIds", false),
+    ENABLE_SIDE_BY_SIDE_NDK("android.enableSideBySideNdk", true),
+    PRECOMPILE_REMOTE_RESOURCES("android.precompileRemoteResources", false),
+    // Flag added to work around b/130596259.
+    FORCE_JACOCO_OUT_OF_PROCESS("android.forceJacocoOutOfProcess", false, status = Option.Status.STABLE),
 
     // ---------------
     // Lifecycle flags: Stable stage, Enabled by default, can be disabled
@@ -82,24 +94,25 @@ enum class BooleanOption(
     ENABLE_EXTRACT_ANNOTATIONS("android.enableExtractAnnotations", true),
     ENABLE_AAPT2_WORKER_ACTIONS("android.enableAapt2WorkerActions", true),
     ENABLE_D8_DESUGARING("android.enableD8.desugaring", true),
-    ENABLE_R8("android.enableR8", false, status = Option.Status.STABLE),
+    ENABLE_R8_LIBRARIES("android.enableR8.libraries", true, status = Option.Status.STABLE),
     /** Set to true by default, but has effect only if R8 is enabled. */
     ENABLE_R8_DESUGARING("android.enableR8.desugaring", true),
     // Marked as stable to avoid reporting deprecation twice.
-    ENABLE_DEPRECATED_NDK("android.useDeprecatedNdk", status = Option.Status.STABLE),
     CONVERT_NON_NAMESPACED_DEPENDENCIES("android.convertNonNamespacedDependencies", true),
     /** Set to true to build native .so libraries only for the device it will be run on. */
     BUILD_ONLY_TARGET_ABI("android.buildOnlyTargetAbi", true),
-    ENABLE_DATA_BINDING_V2("android.databinding.enableV2", true),
     ENABLE_SEPARATE_APK_RESOURCES("android.enableSeparateApkRes", true),
     ENABLE_SEPARATE_R_CLASS_COMPILATION(AndroidProject.PROPERTY_SEPARATE_R_CLASS_COMPILATION, true),
     ENABLE_PARALLEL_NATIVE_JSON_GEN("android.enableParallelJsonGen", true),
     ENABLE_SIDE_BY_SIDE_CMAKE("android.enableSideBySideCmake", true),
+    ENABLE_NATIVE_COMPILER_SETTINGS_CACHE("android.enableNativeCompilerSettingsCache", false),
     ENABLE_PROGUARD_RULES_EXTRACTION("android.proguard.enableRulesExtraction", true),
-    INJECT_SDK_MAVEN_REPOS("android.injectSdkMavenRepos", true),
     ENABLE_UNCOMPRESSED_NATIVE_LIBS_IN_BUNDLE("android.bundle.enableUncompressedNativeLibs", true),
     USE_DEPENDENCY_CONSTRAINTS("android.dependency.useConstraints", true),
     ENABLE_DEXING_ARTIFACT_TRANSFORM("android.enableDexingArtifactTransform", true, status=Option.Status.STABLE),
+    ENABLE_UNIT_TEST_BINARY_RESOURCES("android.enableUnitTestBinaryResources", true, Option.Status.STABLE),
+    ENABLE_DUPLICATE_CLASSES_CHECK("android.enableDuplicateClassesCheck", true),
+    ENABLE_DEXING_DESUGARING_ARTIFACT_TRANSFORM("android.enableDexingArtifactTransform.desugaring", true),
 
     // ---------------
     // Lifecycle flags: Deprecated stage, feature is stable and we want to get rid of the ability to revert to older code path
@@ -116,20 +129,6 @@ enum class BooleanOption(
             this(propertyName, defaultValue, Option.Status.Deprecated(deprecationTarget))
 
     override fun parse(value: Any): Boolean {
-        return when (value) {
-            is Boolean -> value
-            is CharSequence -> java.lang.Boolean.parseBoolean(value.toString())
-            is Number -> value.toInt() != 0
-            else -> throw IllegalArgumentException(
-                "Cannot parse project property "
-                        + this.propertyName
-                        + "='"
-                        + value
-                        + "' of type '"
-                        + value.javaClass
-                        + "' as boolean."
-            )
-        }
+        return parseBoolean(propertyName, value)
     }
-
 }

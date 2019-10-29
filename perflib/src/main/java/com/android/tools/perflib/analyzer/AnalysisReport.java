@@ -25,10 +25,10 @@ import java.util.Set;
 public class AnalysisReport {
 
     @NonNull
-    private Set<Listener> mListeners = new HashSet<>();
+    private Set<Listener> mListeners = new HashSet<Listener>();
 
     @NonNull
-    private List<AnalysisResultEntry<?>> mAnalysisResults = new ArrayList<>();
+    private List<AnalysisResultEntry<?>> mAnalysisResults = new ArrayList<AnalysisResultEntry<?>>();
 
     // volatile so other threads can see the updated value, but this is not intrinsically
     // thread-safe. This is mainly useful for the UI to know that the analysis is complete and

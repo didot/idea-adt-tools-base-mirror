@@ -40,7 +40,9 @@ class ApplicationIdTextResourceTest {
             project.getSubproject(":base").buildFile, """
                     android {
                         featureVariants.all { variant ->
-                            task "appId${"$"}variant.name"(dependsOn: variant.applicationIdTextResource) << {
+                            def task = task("appId${"$"}variant.name")
+                            task.dependsOn(variant.applicationIdTextResource)
+                            task.doLast {
                                 assert variant.applicationIdTextResource.asString().equals(
                                     "newAppId")
                             }
@@ -62,7 +64,9 @@ class ApplicationIdTextResourceTest {
             project.getSubproject(":feature").buildFile, """
                     android {
                         featureVariants.all { variant ->
-                            task "appId${"$"}variant.name"(dependsOn: variant.applicationIdTextResource) << {
+                            def task = task("appId${"$"}variant.name")
+                            task.dependsOn(variant.applicationIdTextResource)
+                            task.doLast {
                                 assert variant.applicationIdTextResource.asString().equals(
                                     "newAppId")
                             }
@@ -84,7 +88,11 @@ class ApplicationIdTextResourceTest {
             project.getSubproject(":app").buildFile, """
                     android {
                         applicationVariants.all { variant ->
-                            task "appId${"$"}variant.name"(dependsOn: variant.applicationIdTextResource) << {
+                            def task = task("appId${"$"}variant.name")
+                            task.dependsOn(variant.applicationIdTextResource)
+                            task.doLast {
+                                assert variant.applicationId.equals(
+                                    "newAppId")
                                 assert variant.applicationIdTextResource.asString().equals(
                                     "newAppId")
                             }

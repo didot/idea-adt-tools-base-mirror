@@ -39,9 +39,6 @@ class DataBindingWithFeaturesIntegrationTestAppTest(useAndroidX: Boolean) {
     val project: GradleTestProject = GradleTestProject.builder()
         .fromDataBindingIntegrationTest("InstantApp", useAndroidX)
         .addGradleProperties(
-            BooleanOption.ENABLE_DATA_BINDING_V2.propertyName + "=true"
-        )
-        .addGradleProperties(
             BooleanOption.ENABLE_EXPERIMENTAL_FEATURE_DATABINDING.propertyName
                     + "=true"
         )
@@ -50,7 +47,7 @@ class DataBindingWithFeaturesIntegrationTestAppTest(useAndroidX: Boolean) {
                     + "=" + useAndroidX
         ).also {
             if (SdkVersionInfo.HIGHEST_KNOWN_STABLE_API < 28 && useAndroidX) {
-                it.withCompileSdkVersion("\"android-P\"")
+                it.withCompileSdkVersion("28")
             }
         }
         .create()

@@ -26,13 +26,14 @@ class ${className} : SliceProvider() {
         var uriBuilder: Uri.Builder = Uri.Builder().scheme(ContentResolver.SCHEME_CONTENT)
         if (intent == null) return uriBuilder.build()
         val data = intent.data
-        if (data != null && data.path != null) {
-            val path = data.path.replace("${pathPrefix}", "")
+	val dataPath = data?.path
+        if (data != null && dataPath != null) {
+            val path = dataPath.replace("${pathPrefix}", "")
             uriBuilder = uriBuilder.path(path)
         }
         val context = context
         if (context != null) {
-            uriBuilder = uriBuilder.authority(context.packageName))
+            uriBuilder = uriBuilder.authority(context.packageName)
         }
         return uriBuilder.build()
     }
@@ -74,7 +75,7 @@ class ${className} : SliceProvider() {
         Instead of returning null, you should create a SliceAction. Here is an example:
         return SliceAction.create(
             PendingIntent.getActivity(
-                context, 0, Intent(context, ${activityClass}::class.java), 0
+                context, 0, Intent(context, MyActivityClass::class.java), 0
             ),
             IconCompat.createWithResource(context, R.drawable.ic_launcher_foreground),
             ListBuilder.ICON_IMAGE,

@@ -18,9 +18,11 @@ package com.android.build.gradle.internal.tasks.databinding
 
 import android.databinding.tool.CompilerArguments
 import com.android.build.api.artifact.BuildableArtifact
+import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_BASE_CLASS_LOG_ARTIFACT
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_DEPENDENCY_ARTIFACTS
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_MERGE
+import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_LAYOUT_INFO_TYPE_PACKAGE
 import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_DATA_BINDING_BASE_FEATURE_INFO
 import com.android.build.gradle.internal.scope.InternalArtifactType.FEATURE_DATA_BINDING_FEATURE_INFO
 import com.android.build.gradle.internal.scope.VariantScope
@@ -42,6 +44,10 @@ import java.io.File
  */
 @Suppress("MemberVisibilityCanBePrivate")
 class DataBindingCompilerArguments constructor(
+
+    @get:Input
+    val incremental: Boolean,
+
     @get:Input
     val artifactType: CompilerArguments.Type,
 
@@ -116,6 +122,7 @@ class DataBindingCompilerArguments constructor(
 
     override fun asArguments(): Iterable<String> {
         val arguments = CompilerArguments(
+            incremental = incremental,
             artifactType = artifactType,
             modulePackage = getModulePackage(),
             minApi = minApi,
@@ -153,6 +160,9 @@ class DataBindingCompilerArguments constructor(
             val variantConfig = variantScope.variantConfiguration
             val artifacts = variantScope.artifacts
 
+            var incremental =
+                globalScope.projectOptions.get(BooleanOption.ENABLE_INCREMENTAL_DATA_BINDING)
+
             // Get artifactType
             val artifactVariantData = if (variantData.type.isTestComponent) {
                 variantScope.testedVariantData!!
@@ -177,14 +187,15 @@ class DataBindingCompilerArguments constructor(
             }
 
             return DataBindingCompilerArguments(
+                incremental = incremental,
                 artifactType = artifactType,
                 modulePackageProvider = { variantConfig.originalApplicationId },
                 minApi = variantConfig.minSdkVersion.apiLevel,
-                sdkDir = globalScope.sdkHandler.checkAndGetSdkFolder(),
+                sdkDir = globalScope.sdkComponents.getSdkFolder()!!,
                 dependencyArtifactsDir =
                         artifacts.getFinalArtifactFiles(DATA_BINDING_DEPENDENCY_ARTIFACTS),
                 layoutInfoDir =
-                        artifacts.getFinalArtifactFiles(DATA_BINDING_LAYOUT_INFO_TYPE_MERGE),
+                        artifacts.getFinalArtifactFiles(getLayoutInfoArtifactType(variantScope)),
                 classLogDir = artifacts.getFinalArtifactFiles(DATA_BINDING_BASE_CLASS_LOG_ARTIFACT),
                 baseFeatureInfoDir =
                         artifacts.getFinalArtifactFilesIfPresent(
@@ -197,8 +208,21 @@ class DataBindingCompilerArguments constructor(
                 printEncodedErrorLogs = printEncodedErrorLogs,
                 isTestVariant = variantData.type.isTestComponent,
                 isEnabledForTests = globalScope.extension.dataBinding.isEnabledForTests,
-                isEnableV2 = globalScope.projectOptions.get(BooleanOption.ENABLE_DATA_BINDING_V2)
+                isEnableV2 = true
             )
+        }
+
+        /**
+         * Returns the appropriate artifact type of the layout info directory so that it does not
+         * trigger unnecessary computations (see bug 133092984 and 110412851).
+         */
+        @JvmStatic
+        fun getLayoutInfoArtifactType(variantScope: VariantScope): InternalArtifactType {
+            return if (variantScope.variantData.type.isAar) {
+                DATA_BINDING_LAYOUT_INFO_TYPE_PACKAGE
+            } else {
+                DATA_BINDING_LAYOUT_INFO_TYPE_MERGE
+            }
         }
     }
 }

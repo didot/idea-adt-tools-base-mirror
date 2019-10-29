@@ -25,9 +25,11 @@ import com.android.build.gradle.integration.common.fixture.app.AndroidTestModule
 import com.android.build.gradle.integration.common.fixture.app.TestSourceFile;
 import com.android.build.gradle.integration.common.utils.SdkHelper;
 import com.android.build.gradle.integration.common.utils.TestFileUtils;
+import com.android.testutils.MavenRepoGenerator;
 import com.android.testutils.TestUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.io.Files;
 import java.io.File;
@@ -50,15 +52,24 @@ public final class GradleTestProjectBuilder {
     private boolean withoutNdk = false;
     @NonNull private List<String> gradleProperties = Lists.newArrayList();
     @Nullable private String heapSize;
+    @Nullable private String metaspace;
     @Nullable private Path profileDirectory;
     @Nullable private File testDir = null;
     private boolean withDependencyChecker = true;
     // Indicates if we need to create a project without setting cmake.dir in local.properties.
     private boolean withCmakeDirInLocalProp = false;
+    // NDK symlink path is relative to the module's .cxx/cmake/debug folder. A full path example of
+    // this is like this on bazel:
+    // /private/var/tmp/_bazel/cd7382de6c57d974eabcf5c1270266ca/sandbox
+    //   /darwin-sandbox/9/execroot/__main__/_tmp/85abb3fc831caa67a0715d2cf3ce5967
+    //   /tests/CmakeBasicProjectTest/checkCleanAfterAbiSubset/project/.cxx/cmake/debug
+    // The resulting symlink path is always in the form */ndk/
+    private String ndkSymlinkPath = "../../../../../..";
     @Nullable String cmakeVersion;
     @Nullable private List<Path> repoDirectories;
     @Nullable private File androidHome;
     @Nullable private File androidNdkHome;
+    @Nullable private String sideBySideNdkVersion = null;
     @Nullable private File gradleDistributionDirectory;
     @Nullable private File gradleBuildCacheDirectory;
     @Nullable private String kotlinVersion;
@@ -72,6 +83,7 @@ public final class GradleTestProjectBuilder {
 
     /** Whether or not to output the log of the last build result when a test fails */
     private boolean outputLogOnFailure = true;
+    private MavenRepoGenerator additionalMavenRepo;
 
     /** Create a GradleTestProject. */
     @NonNull
@@ -95,10 +107,22 @@ public final class GradleTestProjectBuilder {
                                 + androidNdkHome.getAbsolutePath()
                                 + " is not a directory");
             } else {
-                androidNdkHome =
-                        TestUtils.runningFromBazel()
-                                ? BazelIntegrationTestsSuite.NDK_IN_TMP.toFile()
-                                : new File(androidHome, SdkConstants.FD_NDK);
+                if (sideBySideNdkVersion != null) {
+                    androidNdkHome =
+                            TestUtils.runningFromBazel()
+                                    ? new File(
+                                            BazelIntegrationTestsSuite.NDK_SIDE_BY_SIDE_ROOT
+                                                    .toFile(),
+                                            sideBySideNdkVersion)
+                                    : new File(
+                                            new File(androidHome, SdkConstants.FD_NDK_SIDE_BY_SIDE),
+                                            sideBySideNdkVersion);
+                } else {
+                    androidNdkHome =
+                            TestUtils.runningFromBazel()
+                                    ? BazelIntegrationTestsSuite.NDK_IN_TMP.toFile()
+                                    : new File(androidHome, SdkConstants.FD_NDK);
+                }
             }
         }
 
@@ -114,6 +138,8 @@ public final class GradleTestProjectBuilder {
             withDeviceProvider = GradleTestProject.APPLY_DEVICEPOOL_PLUGIN;
         }
 
+        MemoryRequirement memoryRequirement = MemoryRequirement.use(heapSize, metaspace);
+
         return new GradleTestProject(
                 name,
                 testProject,
@@ -121,12 +147,13 @@ public final class GradleTestProjectBuilder {
                 withoutNdk,
                 withDependencyChecker,
                 gradleProperties,
-                heapSize,
+                memoryRequirement,
                 compileSdkVersion,
                 buildToolsVersion,
                 profileDirectory,
                 cmakeVersion,
                 withCmakeDirInLocalProp,
+                ndkSymlinkPath,
                 withDeviceProvider,
                 withSdk,
                 withAndroidGradlePlugin,
@@ -134,6 +161,7 @@ public final class GradleTestProjectBuilder {
                 withIncludedBuilds,
                 testDir,
                 repoDirectories,
+                additionalMavenRepo,
                 androidHome,
                 androidNdkHome,
                 gradleDistributionDirectory,
@@ -142,6 +170,49 @@ public final class GradleTestProjectBuilder {
                 outputLogOnFailure);
     }
 
+    public GradleTestProjectBuilder withAdditionalMavenRepo(@NonNull MavenRepoGenerator mavenRepo) {
+        additionalMavenRepo = mavenRepo;
+        return this;
+    }
+
+    /** Policy for setting Heap Size for Gradle process */
+    public static class MemoryRequirement {
+
+        private static final String DEFAULT_HEAP = "1G";
+        private static final String DEFAULT_METASPACE = "1G";
+
+        /** use default heap size for gradle. */
+        public static MemoryRequirement useDefault() {
+            return use(null, null);
+        }
+
+        /**
+         * Use a provided heap size for Gradle
+         *
+         * @param heap the desired heap size
+         * @param metaspace the desired metaspace size
+         */
+        public static MemoryRequirement use(@Nullable String heap, @Nullable String metaspace) {
+            return new MemoryRequirement(
+                    heap != null ? heap : DEFAULT_HEAP,
+                    metaspace != null ? metaspace : DEFAULT_METASPACE);
+        }
+
+        @NonNull private final String heap;
+        @NonNull private final String metaspace;
+
+        private MemoryRequirement(@NonNull String heap, @NonNull String metaspace) {
+            this.heap = heap;
+            this.metaspace = metaspace;
+        }
+
+        @NonNull
+        public List<String> getJvmArgs() {
+            return ImmutableList.of("-Xmx" + heap, "-XX:MaxMetaspaceSize=" + metaspace);
+        }
+
+
+    }
     /**
      * Set the name of the project.
      *
@@ -318,6 +389,17 @@ public final class GradleTestProjectBuilder {
         return this;
     }
 
+    /**
+     * Sets the test metaspace size requirement. Example values : 128m, 1024m...
+     *
+     * @param metaspaceSize the metaspacesize in a format understood by the -Xmx JVM parameter
+     * @return itself.
+     */
+    public GradleTestProjectBuilder withMetaspace(String metaspaceSize) {
+        this.metaspace = metaspaceSize;
+        return this;
+    }
+
     public GradleTestProjectBuilder withDependencyChecker(
             boolean dependencyChecker) {
         this.withDependencyChecker = dependencyChecker;
@@ -339,6 +421,11 @@ public final class GradleTestProjectBuilder {
         return this;
     }
 
+    public GradleTestProjectBuilder setSideBySideNdkVersion(String sideBySideNdkVersion) {
+        this.sideBySideNdkVersion = sideBySideNdkVersion;
+        return this;
+    }
+
     /**
      * Enable profile output generation. Typically used in benchmark tests. By default, places the
      * outputs in build/android-profile.
@@ -351,6 +438,12 @@ public final class GradleTestProjectBuilder {
     /** Enables setting cmake.dir in local.properties */
     public GradleTestProjectBuilder setWithCmakeDirInLocalProp(boolean withCmakeDirInLocalProp) {
         this.withCmakeDirInLocalProp = withCmakeDirInLocalProp;
+        return this;
+    }
+
+    /** Enables setting ndk.symlinkdir in local.properties */
+    public GradleTestProjectBuilder setWithNdkSymlinkDirInLocalProp(String ndkSymlinkPath) {
+        this.ndkSymlinkPath = ndkSymlinkPath;
         return this;
     }
 

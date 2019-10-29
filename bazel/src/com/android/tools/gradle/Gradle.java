@@ -3,6 +3,7 @@ package com.android.tools.gradle;
 import com.android.annotations.NonNull;
 import com.android.testutils.TestUtils;
 import com.android.utils.FileUtils;
+import com.google.common.base.MoreObjects;
 import java.io.BufferedInputStream;
 import java.io.Closeable;
 import java.io.File;
@@ -11,7 +12,11 @@ import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -68,6 +73,10 @@ public class Gradle implements Closeable {
         arguments.add(argument);
     }
 
+    public void withProfiler() {
+        arguments.add("--profile");
+    }
+
     @NonNull
     private File getInitScript() {
         return new File(outDir, "init.script");
@@ -86,7 +95,7 @@ public class Gradle implements Closeable {
         File androidDir = new File(outDir, "_android").getAbsoluteFile();
         File homeDir = getGradleUserHome().getAbsoluteFile();
         // gradle tries to write into .m2 so we pass it a tmp one.
-        File tmpLocalMaven = new File(outDir, "_tmp_local_maven").getAbsoluteFile();
+        Path tmpLocalMaven = getLocalMavenRepo();
 
         HashMap<String, String> env = new HashMap<>();
 
@@ -105,7 +114,7 @@ public class Gradle implements Closeable {
         arguments.add("--offline");
         arguments.add("--init-script");
         arguments.add(getInitScript().getAbsolutePath());
-        arguments.add("-Dmaven.repo.local=" + tmpLocalMaven.getAbsolutePath());
+        arguments.add("-Dmaven.repo.local=" + tmpLocalMaven.toAbsolutePath().toString());
 
         // Workaround for issue https://github.com/gradle/gradle/issues/5188
         System.setProperty("gradle.user.home", "");
@@ -123,6 +132,8 @@ public class Gradle implements Closeable {
             launcher.setStandardOutput(out);
             launcher.setStandardError(err);
             launcher.run();
+        } catch (Exception e) {
+            throw new RuntimeException("Gradle invocation failed: " + this.toString(), e);
         } finally {
             projectConnection.close();
         }
@@ -134,10 +145,6 @@ public class Gradle implements Closeable {
         }
     }
 
-    public File getOutput(String path) {
-        return new File(getBuildDir(), path);
-    }
-
     @Override
     public void close() throws IOException {
         // Shut down the daemon so it doesn't hold the lock on any of the files.
@@ -146,6 +153,9 @@ public class Gradle implements Closeable {
         // Because this circumvents the connector we must set gradle.user.home for it to work
         System.setProperty("gradle.user.home", getGradleUserHome().getAbsolutePath());
         DefaultGradleConnector.close();
+
+        maybeCopyProfiles();
+
         try {
             FileUtils.cleanOutputDir(outDir);
         } catch (Exception e) {
@@ -156,12 +166,45 @@ public class Gradle implements Closeable {
         }
     }
 
+    private void maybeCopyProfiles() throws IOException {
+        Path profiles = project.toPath().resolve("build").resolve("reports").resolve("profile");
+        if (!Files.isDirectory(profiles)) {
+            return;
+        }
+        Path destination = TestUtils.getTestOutputDir().toPath().resolve("gradle_profiles");
+        copyDirectory(profiles, destination);
+    }
+
+    private static void copyDirectory(Path from, Path to) throws IOException {
+        Files.walkFileTree(
+                from,
+                new SimpleFileVisitor<Path>() {
+                    @Override
+                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
+                            throws IOException {
+                        Files.createDirectory(to.resolve(from.relativize(dir)));
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                            throws IOException {
+                        Files.copy(file, to.resolve(from.relativize(file)));
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+    }
+
     private File getGradleUserHome() {
         return new File(outDir, "_home");
     }
 
-    private File getBuildDir() {
+    public File getBuildDir() {
         return new File(outDir, "_build");
+    }
+
+    public Path getLocalMavenRepo() {
+        return outDir.toPath().resolve("_tmp_local_maven");
     }
 
     private File getRepoDir() {
@@ -183,6 +226,12 @@ public class Gradle implements Closeable {
                         + repoDir.toURI().toString()
                         + "'}\n"
                         + "  }\n"
+                        + "}\n"
+                        + "rootProject {\n"
+                        + "    task cleanLocalCaches(type: Delete) {\n"
+                        + "       delete gradle.gradleUserHomeDir.toString() + '/caches/transforms-2'\n"
+                        + "       delete System.env['ANDROID_SDK_HOME'] + '/build-cache'\n"
+                        + "    }\n"
                         + "}\n";
 
         try (FileWriter writer = new FileWriter(initScript)) {
@@ -221,5 +270,15 @@ public class Gradle implements Closeable {
                 .useGradleUserHomeDir(home)
                 .forProjectDirectory(projectDirectory)
                 .connect();
+    }
+
+    @Override
+    public String toString() {
+        return MoreObjects.toStringHelper(this)
+                .add("outDir", outDir)
+                .add("distribution", distribution)
+                .add("project", project)
+                .add("arguments", arguments)
+                .toString();
     }
 }

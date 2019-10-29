@@ -76,6 +76,7 @@ public final class AndroidVersion implements Comparable<AndroidVersion> {
         public static final int O = 26;
         public static final int O_MR1 = 27;
         public static final int P = 28;
+        public static final int Q = 29;
     }
 
     private final int mApiLevel;
@@ -87,6 +88,9 @@ public final class AndroidVersion implements Comparable<AndroidVersion> {
 
     /** First version to use ART by default. */
     public static final AndroidVersion ART_RUNTIME = new AndroidVersion(21, null);
+
+    /** First version to support 64-bit ABIs. */
+    public static final AndroidVersion SUPPORTS_64_BIT = new AndroidVersion(VersionCodes.LOLLIPOP, null);
 
     /** First version to feature binder's common interface "cmd" for sending shell commands to services. */
     public static final AndroidVersion BINDER_CMD_AVAILABLE = new AndroidVersion(24, null);
@@ -100,6 +104,9 @@ public final class AndroidVersion implements Comparable<AndroidVersion> {
     /** Minimum API versions that are recommended for use in testing apps */
     public static final int MIN_RECOMMENDED_API = 22;
     public static final int MIN_RECOMMENDED_WEAR_API = 25;
+
+    /** Frist version to support Foldable device */
+    public static final int MIN_FOLDABLE_DEVICE_API = 29;
 
     /**
      * Thrown when an {@link AndroidVersion} object could not be created.

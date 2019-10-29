@@ -16,6 +16,7 @@
 
 package com.android.projectmodel
 
+import com.android.SdkConstants
 import com.android.ide.common.util.PathString
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
@@ -36,7 +37,10 @@ class ExternalLibraryTest {
             address = "foo",
             classJars = listOf(PathString("/bar/baz"))
         )
-        assertThat(cfg.toString()).isEqualTo("ExternalLibrary(address=foo,classJars=[file:///bar/baz])")
+        assertThat(cfg.toString()).isEqualTo("ExternalLibrary(address=foo,classJars=[" +
+                if (SdkConstants.currentPlatform() == SdkConstants.PLATFORM_WINDOWS)
+                    "file:///C://bar/baz])"
+                else "file:///bar/baz])")
     }
 
     @Test
@@ -82,8 +86,8 @@ class ExternalLibraryTest {
 
     @Test
     fun withResFolderTest() {
-        assertThat(ExternalLibrary("foo").withResFolder(barPath))
-            .isEqualTo(ExternalLibrary(address = "foo", resFolder = barPath))
+        assertThat(ExternalLibrary("foo").withResFolder(RecursiveResourceFolder(barPath)))
+            .isEqualTo(ExternalLibrary(address = "foo", resFolder = RecursiveResourceFolder(barPath)))
     }
 
     @Test
@@ -111,7 +115,7 @@ class ExternalLibraryTest {
         assertThat(testLib.copy(manifestFile = PathString("bar")).isEmpty()).isFalse()
         assertThat(testLib.copy(classJars = listOf(PathString("bar"))).isEmpty()).isFalse()
         assertThat(testLib.copy(dependencyJars = listOf(PathString("bar"))).isEmpty()).isFalse()
-        assertThat(testLib.copy(resFolder = PathString("res")).isEmpty()).isFalse()
+        assertThat(testLib.copy(resFolder = RecursiveResourceFolder(PathString("res"))).isEmpty()).isFalse()
         assertThat(testLib.copy(symbolFile = PathString("res")).isEmpty()).isFalse()
         assertThat(testLib.copy(resApkFile = PathString("res")).isEmpty()).isFalse()
     }

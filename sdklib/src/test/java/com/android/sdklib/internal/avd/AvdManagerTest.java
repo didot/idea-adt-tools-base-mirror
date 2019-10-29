@@ -16,6 +16,8 @@
 
 package com.android.sdklib.internal.avd;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.android.prefs.AndroidLocation;
 import com.android.repository.testframework.FakeProgressIndicator;
 import com.android.repository.testframework.MockFileOp;
@@ -27,18 +29,9 @@ import com.android.sdklib.repository.targets.SystemImage;
 import com.android.testutils.MockLog;
 import com.android.utils.NullLogger;
 import com.google.common.collect.Maps;
+import java.io.*;
+import java.util.*;
 import junit.framework.TestCase;
-
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TreeMap;
-
-import static com.google.common.truth.Truth.assertThat;
 
 public class AvdManagerTest extends TestCase {
 
@@ -589,11 +582,12 @@ public class AvdManagerTest extends TestCase {
         MockLog log = new MockLog();
 
         DeviceManager devMan = DeviceManager.createInstance(mAndroidSdkHandler, log);
-        Device myDevice = devMan.getDevice("Nexus 5", "Google");
+        Device myDevice = devMan.getDevice("7.3in Foldable", "Generic");
         Map<String, String> baseHardwareProperties = DeviceManager.getHardwareProperties(myDevice);
 
-        // Modify a hardware property that should change
+        // Modify hardware properties that should change
         baseHardwareProperties.put("hw.lcd.height", "960");
+        baseHardwareProperties.put("hw.displayRegion.0.1.height", "480");
         // Modify a hardware property that should NOT change
         baseHardwareProperties.put("hw.ramSize", "1536");
         // Add a user-settable property
@@ -615,19 +609,21 @@ public class AvdManagerTest extends TestCase {
           false,
           log);
 
-        // Verify the parameters that we changed and the parameter that we added
+        // Verify all the parameters that we changed and the parameter that we added
         Map<String, String> firstHardwareProperties = myDeviceInfo.getProperties();
         assertEquals("960",  firstHardwareProperties.get("hw.lcd.height"));
+        assertEquals("480",  firstHardwareProperties.get("hw.displayRegion.0.1.height"));
         assertEquals("1536", firstHardwareProperties.get("hw.ramSize"));
         assertEquals("yes",  firstHardwareProperties.get("hw.keyboard"));
 
         // Update the device using the original hardware definition
         AvdInfo updatedDeviceInfo = mAvdManager.updateDeviceChanged(myDeviceInfo, log);
 
-        // Verify that one hardware property changed, but the other hardware property
-        // and the user-settable property did not change.
+        // Verify that the two fixed hardware properties changed back, but the other hardware
+        // property and the user-settable property did not change.
         Map<String, String> updatedHardwareProperties = updatedDeviceInfo.getProperties();
-        assertEquals("1920", updatedHardwareProperties.get("hw.lcd.height"));
+        assertEquals("2152", updatedHardwareProperties.get("hw.lcd.height"));
+        assertEquals("1960",  updatedHardwareProperties.get("hw.displayRegion.0.1.height"));
         assertEquals("1536", updatedHardwareProperties.get("hw.ramSize"));
         assertEquals("yes",  updatedHardwareProperties.get("hw.keyboard"));
     }
@@ -661,7 +657,7 @@ public class AvdManagerTest extends TestCase {
         // Check a bad AVD .ini file.
         // Append garbage to make the file invalid.
         try (OutputStream corruptedStream = mFileOp.newFileOutputStream(avdIniFile, true);
-             BufferedWriter corruptedWriter = new BufferedWriter(new OutputStreamWriter(corruptedStream, StandardCharsets.UTF_8))) {
+             BufferedWriter corruptedWriter = new BufferedWriter(new OutputStreamWriter(corruptedStream))) {
             corruptedWriter.write("[invalid syntax]\n");
         }
         AvdInfo corruptedInfo = mAvdManager.parseAvdInfo(avdIniFile, log);

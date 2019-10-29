@@ -68,11 +68,10 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.annotations.VisibleForTesting;
-import com.android.annotations.VisibleForTesting.Visibility;
 import com.android.repository.Revision;
 import com.android.repository.api.LocalPackage;
 import com.android.utils.ILogger;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Maps;
 import java.io.File;
@@ -128,8 +127,8 @@ public class BuildToolInfo {
         ZIP_ALIGN("19.1.0"),
 
         // --- NEW IN 21.x.y ---
-        JACK("21.1.0"),
-        JILL("21.1.0"),
+        JACK("21.1.0", "28.0.0 rc1"),
+        JILL("21.1.0", "28.0.0 rc1"),
 
         SPLIT_SELECT("22.0.0"),
 
@@ -138,8 +137,8 @@ public class BuildToolInfo {
         LD_ARM64("23.0.3"),
 
         // --- NEW IN 24.0.0 ---
-        JACK_JACOCO_REPORTER("24.0.0"),
-        JACK_COVERAGE_PLUGIN("24.0.0"),
+        JACK_JACOCO_REPORTER("24.0.0", "28.0.0 rc1"),
+        JACK_COVERAGE_PLUGIN("24.0.0", "28.0.0 rc1"),
 
         /** OS Path to the ARM64 linker. */
         LD_X86_64("24.0.0"),
@@ -154,10 +153,14 @@ public class BuildToolInfo {
         ;
 
         /**
-         * min revision this element was introduced.
-         * Controls {@link BuildToolInfo#isValid(ILogger)}
+         * min revision this element was introduced. Controls {@link BuildToolInfo#isValid(ILogger)}
          */
-        private final Revision mMinRevision;
+        private final Revision minRevision;
+
+        /**
+         * max revision this element was removed. Controls {@link BuildToolInfo#isValid(ILogger)}
+         */
+        private final Revision removalRevision;
 
         /**
          * Creates the enum with a min revision in which this
@@ -166,7 +169,21 @@ public class BuildToolInfo {
          * @param minRevision the min revision.
          */
         PathId(@NonNull String minRevision) {
-            mMinRevision = Revision.parseRevision(minRevision);
+            this(minRevision, null);
+        }
+
+        /**
+         * Creates the enum with a min revisions in which this tools appeared in the build tools and
+         * the revision where it was removed.
+         *
+         * @param minRevision the min revision.
+         * @param removalRevision the first revision where the component was removed or null if the
+         *     component is still present.
+         */
+        PathId(@NonNull String minRevision, @Nullable String removalRevision) {
+            this.minRevision = Revision.parseRevision(minRevision);
+            this.removalRevision =
+                    removalRevision != null ? Revision.parseRevision(removalRevision) : null;
         }
 
         /**
@@ -176,12 +193,18 @@ public class BuildToolInfo {
          * @return true if the tool is present.
          */
         public boolean isPresentIn(@NonNull Revision revision) {
-            return revision.compareTo(mMinRevision) >= 0;
+            return revision.compareTo(minRevision) >= 0
+                    && (removalRevision == null || revision.compareTo(removalRevision) < 0);
         }
 
         @VisibleForTesting
         public Revision getMinRevision() {
-            return mMinRevision;
+            return minRevision;
+        }
+
+        @VisibleForTesting
+        public Revision getRemovalRevision() {
+            return removalRevision;
         }
     }
 
@@ -415,7 +438,7 @@ public class BuildToolInfo {
         return true;
     }
 
-    @VisibleForTesting(visibility = Visibility.PRIVATE)
+    @VisibleForTesting
     @Nullable
     static Revision getCurrentJvmVersion() throws NumberFormatException {
         String javav = System.getProperty("java.version");              //$NON-NLS-1$

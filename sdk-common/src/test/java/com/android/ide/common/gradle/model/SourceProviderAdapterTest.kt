@@ -22,6 +22,7 @@ import com.android.projectmodel.Config
 import com.android.projectmodel.ConfigAssociation
 import com.android.projectmodel.SourceSet
 import com.android.projectmodel.matchArtifactsWith
+import com.android.utils.FileUtils
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import java.io.File

@@ -31,6 +31,7 @@ import com.android.builder.errors.EvalIssueReporter.Type;
 import com.android.builder.profile.Recorder;
 import com.android.sdklib.AndroidTargetHash;
 import com.android.sdklib.AndroidVersion;
+import java.util.List;
 import org.gradle.api.Project;
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry;
 
@@ -43,7 +44,6 @@ public class FeatureTaskManager extends ApplicationTaskManager {
             @NonNull ProjectOptions projectOptions,
             @NonNull DataBindingBuilder dataBindingBuilder,
             @NonNull AndroidConfig extension,
-            @NonNull SdkHandler sdkHandler,
             @NonNull VariantFactory variantFactory,
             @NonNull ToolingModelBuilderRegistry toolingRegistry,
             @NonNull Recorder recorder) {
@@ -53,15 +53,16 @@ public class FeatureTaskManager extends ApplicationTaskManager {
                 projectOptions,
                 dataBindingBuilder,
                 extension,
-                sdkHandler,
                 variantFactory,
                 toolingRegistry,
                 recorder);
     }
 
     @Override
-    public void createTasksForVariantScope(@NonNull final VariantScope variantScope) {
-        super.createTasksForVariantScope(variantScope);
+    public void createTasksForVariantScope(
+            @NonNull final VariantScope variantScope,
+            @NonNull List<VariantScope> variantScopesForLint) {
+        super.createTasksForVariantScope(variantScope, variantScopesForLint);
         // Ensure the compile SDK is at least 26 (O).
         final AndroidVersion androidVersion =
                 AndroidTargetHash.getVersionFromHash(
@@ -73,43 +74,25 @@ public class FeatureTaskManager extends ApplicationTaskManager {
                 message += " compileSdkVersion is set to " + androidVersion.getApiString();
             }
             globalScope
-                    .getAndroidBuilder()
-                    .getIssueReporter()
+                    .getErrorHandler()
                     .reportError(Type.GENERIC, new EvalIssueException(message));
         }
 
         // FIXME: This is currently disabled due to b/62301277.
         if (extension.getDataBinding().isEnabled() && !extension.getBaseFeature()) {
-            String bindingV2 = BooleanOption.ENABLE_DATA_BINDING_V2.getPropertyName();
             String experimentalBinding =
                     BooleanOption.ENABLE_EXPERIMENTAL_FEATURE_DATABINDING.getPropertyName();
             if (projectOptions.get(BooleanOption.ENABLE_EXPERIMENTAL_FEATURE_DATABINDING)) {
-                if (projectOptions.get(BooleanOption.ENABLE_DATA_BINDING_V2)) {
-                    globalScope
-                            .getAndroidBuilder()
-                            .getIssueReporter()
-                            .reportWarning(
-                                    Type.GENERIC,
-                                    "Data binding support for non-base features is experimental "
-                                            + "and is not supported.");
-                } else {
-
-                    globalScope
-                            .getAndroidBuilder()
-                            .getIssueReporter()
-                            .reportError(
-                                    Type.GENERIC,
-                                    new EvalIssueException(
-                                            "To use data binding in non-base features, you must"
-                                                    + " enable data binding v2 by adding "
-                                                    + bindingV2
-                                                    + "=true to your gradle.properties file."));
-                }
+                globalScope
+                        .getErrorHandler()
+                        .reportWarning(
+                                Type.GENERIC,
+                                "Data binding support for non-base features is experimental "
+                                        + "and is not supported.");
 
             } else {
                 globalScope
-                        .getAndroidBuilder()
-                        .getIssueReporter()
+                        .getErrorHandler()
                         .reportError(
                                 Type.GENERIC,
                                 new EvalIssueException(
@@ -118,12 +101,21 @@ public class FeatureTaskManager extends ApplicationTaskManager {
                                                 + "See https://issuetracker.google.com/63814741.\n"
                                                 + "To enable data binding with non-base features, set the "
                                                 + experimentalBinding
-                                                + " and "
-                                                + bindingV2
                                                 + " properties "
                                                 + "to true."));
             }
         }
+
+        // add a warning that the feature module is deprecated and will be removed in the future.
+        globalScope
+                .getErrorHandler()
+                .reportWarning(
+                        Type.PLUGIN_OBSOLETE,
+                        "The com.android.feature plugin is deprecated and will be removed by the"
+                                + " end of 2019. Please switch to using dynamic-features or"
+                                + " libraries. For more information on converting your application to using"
+                                + " Android App Bundles, please visit"
+                                + " https://developer.android.com/topic/google-play-instant/feature-module-migration");
     }
 
     @Override

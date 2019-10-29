@@ -37,6 +37,7 @@ kotlin_test(
     name = "tests",
     timeout = "long",
     srcs = ["src/test/java"],
+    coverage = True,
     data = [
         "//prebuilts/studio/sdk:platform-tools",
         "//prebuilts/studio/sdk:platforms/latest",
@@ -67,6 +68,7 @@ kotlin_test(
         "//tools/base/annotations",
         "//tools/base/apkparser:tools.binary-resources",
         "//tools/base/apkparser/analyzer:tools.analyzer",
+        "//tools/base/bazel:langtools",
         "//tools/base/build-system:tools.manifest-merger",
         "//tools/base/build-system/builder-model",
         "//tools/base/common:tools.common",

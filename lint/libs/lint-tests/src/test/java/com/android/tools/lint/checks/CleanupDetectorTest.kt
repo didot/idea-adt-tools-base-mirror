@@ -16,8 +16,6 @@
 
 package com.android.tools.lint.checks
 
-import com.android.tools.lint.checks.CleanupDetector.SHARED_PREF
-
 import com.android.tools.lint.detector.api.Detector
 
 class CleanupDetectorTest : AbstractCheckTest() {
@@ -451,24 +449,6 @@ class CleanupDetectorTest : AbstractCheckTest() {
                     """
             ).indented()
         ).run().expectClean()
-    }
-
-    fun testElvis() {
-        // Regression test for https://issuetracker.google.com/72581487
-        // Elvis operator on cursor initialization -> "Missing recycle() calls" warning
-        lint().files(
-                kotlin("""
-                    package test.pkg
-                    import android.app.FragmentManager
-
-                    fun ok(f: FragmentManager) {
-                        val transaction = f.beginTransaction() ?: return
-                        transaction.commitAllowingStateLoss()
-                    }
-                    """
-                ).indented())
-            .run()
-            .expectClean()
     }
 
     fun testCommit2() {
@@ -1540,7 +1520,7 @@ class CleanupDetectorTest : AbstractCheckTest() {
                         }
                     }"""
             )
-        ).issues(SHARED_PREF).run().expectClean()
+        ).issues(CleanupDetector.SHARED_PREF).run().expectClean()
     }
 
     fun testCommitVariable() {
@@ -1784,6 +1764,86 @@ class CleanupDetectorTest : AbstractCheckTest() {
                 """
             ).indented()
         ).run().expectClean()
+    }
+
+    fun test117794883() {
+        // Regression test for 117794883
+        lint().files(
+            kotlin(
+                """
+                @file:Suppress("UNUSED_VARIABLE")
+
+                import android.app.Activity
+                import android.os.Bundle
+                import android.view.VelocityTracker
+
+                class MainActivity : Activity() {
+
+                    override fun onCreate(savedInstanceState: Bundle?) {
+                        super.onCreate(savedInstanceState)
+
+                        VelocityTracker./*This `VelocityTracker` should be recycled after use with `#recycle()`*/obtain/**/()
+
+                        VelocityTracker.obtain().recycle()
+
+                        val v1 = VelocityTracker./*This `VelocityTracker` should be recycled after use with `#recycle()`*/obtain/**/()
+
+                        val v2 = VelocityTracker.obtain()
+                        v2.recycle()
+                    }
+                }
+                """
+            ).indented()
+        ).run().expectInlinedMessages(true)
+    }
+
+    fun test117792318() {
+        // Regression test for 117792318
+        lint().files(
+            kotlin(
+                """
+                @file:Suppress("UNUSED_VARIABLE")
+
+                import android.app.Activity
+                import android.app.FragmentTransaction
+                import android.app.FragmentManager
+                import android.os.Bundle
+
+                class MainActivity : Activity() {
+
+                    override fun onCreate(savedInstanceState: Bundle?) {
+                        super.onCreate(savedInstanceState)
+
+                        //OK
+                        val transaction = fragmentManager.beginTransaction()
+                        val transaction2: FragmentTransaction
+                        transaction2 = fragmentManager.beginTransaction()
+                        transaction.commit()
+                        transaction2.commit()
+
+                        //WARNING
+                        val transaction3 = fragmentManager./*This transaction should be completed with a `commit()` call*/beginTransaction/**/()
+
+                        //OK
+                        fragmentManager.beginTransaction().commit()
+                        fragmentManager.beginTransaction().add(null, "A").commit()
+
+                        //OK KT-14470
+                        Runnable {
+                            val a = fragmentManager.beginTransaction()
+                            a.commit()
+                        }
+                    }
+
+                    // KT-14780: Kotlin Lint: "Missing commit() calls" false positive when the result of `commit()` is assigned or used as receiver
+                    fun testResultOfCommit(fm: FragmentManager) {
+                        val r1 = fm.beginTransaction().hide(fm.findFragmentByTag("aTag")).commit()
+                        val r2 = fm.beginTransaction().hide(fm.findFragmentByTag("aTag")).commit().toString()
+                    }
+                }
+                """
+            ).indented()
+        ).run().expectInlinedMessages(true)
     }
 
     private val dialogFragment = java(

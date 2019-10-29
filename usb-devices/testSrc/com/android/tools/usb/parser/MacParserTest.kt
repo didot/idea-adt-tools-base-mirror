@@ -18,6 +18,7 @@ package com.android.tools.usb.parser
 
 import com.android.testutils.TestUtils
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -39,5 +40,17 @@ class MacParserTest {
         assertEquals("Card Reader", devices[0].name)
         assertEquals("0x05ac", devices[0].vendorId)
         assertEquals("0x8406", devices[0].productId)
+        assertEquals("000000000820", devices[0].iSerial)
+    }
+
+    @Test
+    fun parseOutputWithLeadingErrors() {
+        val file = TestUtils.getWorkspaceFile("tools/base/usb-devices/testData/mac2.txt");
+        val devices = parser.parse(file.inputStream())
+        assertEquals(7, devices.size)
+        assertEquals("iBridge DFR brightness", devices[0].name)
+        assertEquals("0x05ac", devices[0].vendorId)
+        assertEquals("0x8102", devices[0].productId)
+        assertNull(devices[0].iSerial)
     }
 }

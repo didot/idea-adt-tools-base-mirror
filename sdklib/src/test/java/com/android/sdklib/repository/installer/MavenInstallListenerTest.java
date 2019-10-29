@@ -16,26 +16,30 @@
 
 package com.android.sdklib.repository.installer;
 
+import static org.junit.Assert.assertArrayEquals;
+
 import com.android.repository.Revision;
 import com.android.repository.api.*;
+import com.android.repository.api.RepoManager.RepoLoadedCallback;
 import com.android.repository.impl.installer.BasicInstallerFactory;
 import com.android.repository.impl.manager.RepoManagerImpl;
 import com.android.repository.impl.meta.RepositoryPackages;
-import com.android.repository.testframework.*;
+import com.android.repository.testframework.FakeDownloader;
+import com.android.repository.testframework.FakeInstallListenerFactory;
+import com.android.repository.testframework.FakeProgressIndicator;
+import com.android.repository.testframework.FakeProgressRunner;
+import com.android.repository.testframework.FakeSettingsController;
+import com.android.repository.testframework.MockFileOp;
 import com.android.sdklib.repository.AndroidSdkHandler;
 import com.google.common.collect.ImmutableList;
-import junit.framework.TestCase;
-
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-
-import static org.junit.Assert.assertArrayEquals;
+import junit.framework.TestCase;
 
 /**
  * Tests for {@link MavenInstallListener}
@@ -82,10 +86,10 @@ public class MavenInstallListenerTest extends TestCase {
         ByteArrayOutputStream baos = new ByteArrayOutputStream(1000);
         ZipOutputStream zos = new ZipOutputStream(baos);
         zos.putNextEntry(new ZipEntry("top-level/a"));
-        zos.write("contents1".getBytes(StandardCharsets.UTF_8));
+        zos.write("contents1".getBytes());
         zos.closeEntry();
         zos.putNextEntry(new ZipEntry("top-level/artifact1-1.2.3.pom"));
-        zos.write(POM_1_2_3_CONTENTS.getBytes(StandardCharsets.UTF_8));
+        zos.write(POM_1_2_3_CONTENTS.getBytes());
         zos.closeEntry();
         zos.close();
         ByteArrayInputStream is = new ByteArrayInputStream(baos.toByteArray());
@@ -97,9 +101,9 @@ public class MavenInstallListenerTest extends TestCase {
         FakeProgressRunner runner = new FakeProgressRunner();
 
         // Load
-        mgr.load(RepoManager.DEFAULT_EXPIRATION_PERIOD_MS, ImmutableList.of(),
-                 ImmutableList.of(), ImmutableList.of(), runner,
-                 downloader, new FakeSettingsController(false), true);
+        mgr.load(RepoManager.DEFAULT_EXPIRATION_PERIOD_MS, ImmutableList.<RepoLoadedCallback>of(),
+                ImmutableList.<RepoLoadedCallback>of(), ImmutableList.<Runnable>of(), runner,
+                downloader, new FakeSettingsController(false), true);
 
         runner.getProgressIndicator().assertNoErrorsOrWarnings();
 
@@ -141,9 +145,9 @@ public class MavenInstallListenerTest extends TestCase {
                 contents);
 
         // Reload
-        mgr.load(0, ImmutableList.of(), ImmutableList.of(),
-                 ImmutableList.of(), runner, downloader, new FakeSettingsController(false),
-                 true);
+        mgr.load(0, ImmutableList.<RepoLoadedCallback>of(), ImmutableList.<RepoLoadedCallback>of(),
+                ImmutableList.<Runnable>of(), runner, downloader, new FakeSettingsController(false),
+                true);
 
         // Ensure it was recognized as a package.
         Map<String, ? extends LocalPackage> locals = mgr.getPackages().getLocalPackages();
@@ -189,10 +193,10 @@ public class MavenInstallListenerTest extends TestCase {
         ByteArrayOutputStream baos = new ByteArrayOutputStream(1000);
         ZipOutputStream zos = new ZipOutputStream(baos);
         zos.putNextEntry(new ZipEntry("top-level/a"));
-        zos.write("contents1".getBytes(StandardCharsets.UTF_8));
+        zos.write("contents1".getBytes());
         zos.closeEntry();
         zos.putNextEntry(new ZipEntry("top-level/artifact1-1.2.3.pom"));
-        zos.write(POM_1_2_3_CONTENTS.getBytes(StandardCharsets.UTF_8));
+        zos.write(POM_1_2_3_CONTENTS.getBytes());
         zos.closeEntry();
         zos.close();
         ByteArrayInputStream is = new ByteArrayInputStream(baos.toByteArray());
@@ -205,9 +209,9 @@ public class MavenInstallListenerTest extends TestCase {
 
         // Load
         mgr.load(RepoManager.DEFAULT_EXPIRATION_PERIOD_MS,
-                 ImmutableList.of(), ImmutableList.of(),
-                 ImmutableList.of(), runner,
-                 downloader, new FakeSettingsController(false), true);
+                ImmutableList.<RepoLoadedCallback>of(), ImmutableList.<RepoLoadedCallback>of(),
+                ImmutableList.<Runnable>of(), runner,
+                downloader, new FakeSettingsController(false), true);
 
         runner.getProgressIndicator().assertNoErrorsOrWarnings();
 
@@ -249,9 +253,9 @@ public class MavenInstallListenerTest extends TestCase {
                         new File(ROOT, "m2repository/com/android/group1/artifact1/1.2.3/package.xml")},
                 contents);
         // Reload
-        mgr.load(0, ImmutableList.of(), ImmutableList.of(),
-                 ImmutableList.of(), runner, downloader, new FakeSettingsController(false),
-                 true);
+        mgr.load(0, ImmutableList.<RepoLoadedCallback>of(), ImmutableList.<RepoLoadedCallback>of(),
+                ImmutableList.<Runnable>of(), runner, downloader, new FakeSettingsController(false),
+                true);
 
         // Ensure it was recognized as a package.
         Map<String, ? extends LocalPackage> locals = mgr.getPackages().getLocalPackages();
@@ -262,7 +266,7 @@ public class MavenInstallListenerTest extends TestCase {
         assertEquals(new Revision(3), newPkg.getVersion());
     }
 
-    public void testRemove() {
+    public void testRemove() throws Exception {
         MockFileOp fop = new MockFileOp();
         fop.recordExistingFile(
                 "/repo/m2repository/com/android/group1/artifact1/1.2.3/package.xml",
@@ -337,9 +341,9 @@ public class MavenInstallListenerTest extends TestCase {
         FakeProgressRunner runner = new FakeProgressRunner();
         FakeDownloader downloader = new FakeDownloader(fop);
         // Reload
-        mgr.load(0, ImmutableList.of(), ImmutableList.of(),
-                 ImmutableList.of(), runner, downloader, new FakeSettingsController(false),
-                 true);
+        mgr.load(0, ImmutableList.<RepoLoadedCallback>of(), ImmutableList.<RepoLoadedCallback>of(),
+                ImmutableList.<Runnable>of(), runner, downloader, new FakeSettingsController(false),
+                true);
         runner.getProgressIndicator().assertNoErrorsOrWarnings();
 
         Map<String, ? extends LocalPackage> locals = mgr.getPackages().getLocalPackages();
@@ -365,7 +369,7 @@ public class MavenInstallListenerTest extends TestCase {
         assertEquals("1.0.0", metadata.versioning.release);
     }
 
-    public void testRemoveAll() {
+    public void testRemoveAll() throws Exception {
         MockFileOp fop = new MockFileOp();
         fop.recordExistingFile(
                 "/repo/m2repository/com/android/group1/artifact1/1.2.3/package.xml",
@@ -416,9 +420,9 @@ public class MavenInstallListenerTest extends TestCase {
         FakeProgressRunner runner = new FakeProgressRunner();
         FakeDownloader downloader = new FakeDownloader(fop);
         // Reload
-        mgr.load(0, ImmutableList.of(), ImmutableList.of(),
-                 ImmutableList.of(), runner, downloader, new FakeSettingsController(false),
-                 true);
+        mgr.load(0, ImmutableList.<RepoLoadedCallback>of(), ImmutableList.<RepoLoadedCallback>of(),
+                ImmutableList.<Runnable>of(), runner, downloader, new FakeSettingsController(false),
+                true);
         runner.getProgressIndicator().assertNoErrorsOrWarnings();
 
         Map<String, ? extends LocalPackage> locals = mgr.getPackages().getLocalPackages();

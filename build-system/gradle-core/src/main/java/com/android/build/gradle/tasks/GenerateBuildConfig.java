@@ -20,7 +20,7 @@ import com.android.build.api.artifact.BuildableArtifact;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
 import com.android.build.gradle.internal.tasks.TaskInputHelper;
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction;
 import com.android.build.gradle.internal.variant.BaseVariantData;
@@ -39,11 +39,12 @@ import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Optional;
 import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.TaskProvider;
 
 @CacheableTask
-public class GenerateBuildConfig extends AndroidBuilderTask {
+public class GenerateBuildConfig extends NonIncrementalTask {
 
     // ----- PUBLIC TASK API -----
 
@@ -80,13 +81,19 @@ public class GenerateBuildConfig extends AndroidBuilderTask {
 
     private BuildableArtifact checkManifestResult;
 
+    private boolean isLibrary;
+
     @Input
     public String getBuildConfigPackageName() {
         return buildConfigPackageName.get();
     }
 
     @Input
+    @Optional
     public String getAppPackageName() {
+        if (isLibrary()) {
+            return null;
+        }
         return appPackageName.get();
     }
 
@@ -149,14 +156,20 @@ public class GenerateBuildConfig extends AndroidBuilderTask {
         return list;
     }
 
+    @Input
+    public boolean isLibrary() {
+        return isLibrary;
+    }
+
     @InputFiles
+    @PathSensitive(PathSensitivity.NONE)
     @Optional
     public BuildableArtifact getCheckManifestResult() {
         return checkManifestResult;
     }
 
-    @TaskAction
-    void generate() throws IOException {
+    @Override
+    protected void doTaskAction() throws IOException {
         // must clear the folder in case the packagename changed, otherwise,
         // there'll be two classes.
         File destinationDir = getSourceOutputDir();
@@ -172,13 +185,27 @@ public class GenerateBuildConfig extends AndroidBuilderTask {
         // be completely removed by the compiler), so as a hack we do it only for the case
         // where debug is true, which is the most likely scenario while the user is looking
         // at source code.
-        //map.put(PH_DEBUG, Boolean.toString(mDebug));
+        // map.put(PH_DEBUG, Boolean.toString(mDebug));
+
+        generator.addField(
+                "boolean", "DEBUG", isDebuggable() ? "Boolean.parseBoolean(\"true\")" : "false");
+
+        if (isLibrary) {
+            generator
+                    .addField(
+                            "String",
+                            "LIBRARY_PACKAGE_NAME",
+                            '"' + getBuildConfigPackageName() + '"')
+                    .addDeprecatedField(
+                            "String",
+                            "APPLICATION_ID",
+                            '"' + getBuildConfigPackageName() + '"',
+                            "@deprecated APPLICATION_ID is misleading in libraries. For the library package name use LIBRARY_PACKAGE_NAME");
+        } else {
+            generator.addField("String", "APPLICATION_ID", '"' + getAppPackageName() + '"');
+        }
+
         generator
-                .addField(
-                        "boolean",
-                        "DEBUG",
-                        isDebuggable() ? "Boolean.parseBoolean(\"true\")" : "false")
-                .addField("String", "APPLICATION_ID", '"' + appPackageName.get() + '"')
                 .addField("String", "BUILD_TYPE", '"' + getBuildTypeName() + '"')
                 .addField("String", "FLAVOR", '"' + getFlavorName() + '"')
                 .addField("int", "VERSION_CODE", Integer.toString(getVersionCode()))
@@ -269,6 +296,8 @@ public class GenerateBuildConfig extends AndroidBuilderTask {
                 // on its creation.
                 task.dependsOn(scope.getTaskContainer().getProcessManifestTask());
             }
+
+            task.isLibrary = variantConfiguration.getType().isAar();
         }
     }
 }

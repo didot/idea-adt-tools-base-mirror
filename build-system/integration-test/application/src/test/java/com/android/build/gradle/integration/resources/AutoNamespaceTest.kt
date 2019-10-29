@@ -18,6 +18,8 @@ package com.android.build.gradle.integration.resources
 
 import com.android.build.gradle.integration.common.fixture.GradleTestProject
 import com.android.build.gradle.integration.common.truth.ApkSubject.assertThat
+import com.android.build.gradle.integration.common.truth.ScannerSubject
+import com.android.build.gradle.integration.common.truth.TruthHelper
 import com.android.build.gradle.integration.common.utils.TestFileUtils
 import com.android.build.gradle.integration.common.utils.getDebugGenerateSourcesCommands
 import com.android.build.gradle.integration.common.utils.getDebugVariant
@@ -93,8 +95,7 @@ class AutoNamespaceTest {
                 .with(BooleanOption.CONVERT_NON_NAMESPACED_DEPENDENCIES, true)
                 .run("assembleDebug")
 
-        Truth.assertThat(result.upToDateTasks).contains(":autoNamespaceDebugDependencies")
-        Truth.assertThat(result.notUpToDateTasks).doesNotContain(":autoNamespaceDebugDependencies")
+        TruthHelper.assertThat(result.getTask(":autoNamespaceDebugDependencies")).wasUpToDate();
         val apk = project.getApk(GradleTestProject.ApkType.DEBUG)
         assertThat(apk).containsClass("Landroid/support/constraint/Guideline;")
         assertThat(apk).containsClass("Landroid/support/constraint/R\$attr;")
@@ -113,8 +114,12 @@ class AutoNamespaceTest {
             .expectFailure()
             .run("assembleDebug")
 
-        Truth.assertThat(result.stdout).contains("error: cannot find symbol")
-        Truth.assertThat(result.stdout)
+        result.stderr.use {
+            ScannerSubject.assertThat(it).contains("error: cannot find symbol")
+        }
+        result.stderr.use {
+            ScannerSubject.assertThat(it)
                 .contains("int resRef = android.support.constraint.R.attr.invalid_reference;")
+        }
     }
 }

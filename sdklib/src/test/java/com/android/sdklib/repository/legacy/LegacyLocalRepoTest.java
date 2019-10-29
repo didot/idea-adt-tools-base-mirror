@@ -16,6 +16,8 @@
 
 package com.android.sdklib.repository.legacy;
 
+import static com.google.common.truth.Truth.assertThat;
+
 import com.android.SdkConstants;
 import com.android.repository.Revision;
 import com.android.repository.api.LocalPackage;
@@ -28,23 +30,20 @@ import com.android.repository.impl.meta.SchemaModuleUtil;
 import com.android.repository.impl.meta.TypeDetails;
 import com.android.repository.testframework.FakeProgressIndicator;
 import com.android.repository.testframework.MockFileOp;
-import com.android.sdklib.IAndroidTarget;
+import com.android.sdklib.OptionalLibrary;
 import com.android.sdklib.repository.AndroidSdkHandler;
 import com.android.sdklib.repository.legacy.local.LocalSdk;
 import com.android.sdklib.repository.meta.DetailsTypes;
 import com.android.sdklib.repository.meta.SdkCommonFactory;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
-import junit.framework.TestCase;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.net.URISyntaxException;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
-
-import static com.google.common.truth.Truth.assertThat;
+import junit.framework.TestCase;
 
 /**
  * Tests parsing and rewriting legacy local packages.
@@ -117,27 +116,28 @@ public class LegacyLocalRepoTest extends TestCase {
         TypeDetails typeDetails = local.getTypeDetails();
         assertTrue(typeDetails instanceof DetailsTypes.AddonDetailsType);
         DetailsTypes.AddonDetailsType details = (DetailsTypes.AddonDetailsType) typeDetails;
-        Set<IAndroidTarget.OptionalLibrary> desired
-                = Sets.newHashSet(
-                factory.createLibraryType("com.google.android.maps",
-                        "maps.jar",
-                        "API for Google Maps",
-                        new File("/sdk/add-ons/addon-google_apis-google-23/"),
-                        false),
-                factory.createLibraryType("com.android.future.usb.accessory",
-                        "usb.jar",
-                        "API for USB Accessories",
-                        new File("/sdk/add-ons/addon-google_apis-google-23/"),
-                        false),
-                factory.createLibraryType("com.google.android.media.effects",
-                        "effects.jar",
-                        "Collection of video effects",
-                        new File("/sdk/add-ons/addon-google_apis-google-23/"),
-                        false));
+        Set<OptionalLibrary> desired =
+                Sets.newHashSet(
+                        factory.createLibraryType(
+                                "com.google.android.maps",
+                                "maps.jar",
+                                "API for Google Maps",
+                                new File("/sdk/add-ons/addon-google_apis-google-23/"),
+                                false),
+                        factory.createLibraryType(
+                                "com.android.future.usb.accessory",
+                                "usb.jar",
+                                "API for USB Accessories",
+                                new File("/sdk/add-ons/addon-google_apis-google-23/"),
+                                false),
+                        factory.createLibraryType(
+                                "com.google.android.media.effects",
+                                "effects.jar",
+                                "Collection of video effects",
+                                new File("/sdk/add-ons/addon-google_apis-google-23/"),
+                                false));
 
-        Set<IAndroidTarget.OptionalLibrary> libraries
-                = Sets.newHashSet(
-                details.getLibraries().getLibrary());
+        Set<OptionalLibrary> libraries = Sets.newHashSet(details.getLibraries().getLibrary());
         assertEquals(desired, libraries);
 
     }
@@ -245,9 +245,13 @@ public class LegacyLocalRepoTest extends TestCase {
           .of(RepoManager.getCommonModule(), RepoManager.getGenericModule(), AndroidSdkHandler.getAddonModule());
 
         // Now read the new package
-        Repository repo = (Repository) SchemaModuleUtil.unmarshal(
-          mockFop.newFileInputStream(new File(rootPath, packagePath)),
-          extensions, mgr.getResourceResolver(progress), true, progress);
+        Repository repo =
+                (Repository)
+                        SchemaModuleUtil.unmarshal(
+                                mockFop.newFileInputStream(new File(rootPath, packagePath)),
+                                extensions,
+                                true,
+                                progress);
         progress.assertNoErrorsOrWarnings();
         LocalPackage local = repo.getLocalPackage();
         local.setInstalledPath(mgr.getLocalPath());

@@ -36,6 +36,8 @@ import org.xml.sax.SAXException;
  */
 public class ManifestModelTest extends TestCase {
 
+    private final ManifestModel mModel = new ManifestModel();
+
     public void testNameResolution()
             throws ParserConfigurationException, SAXException, IOException {
         String input = ""
@@ -48,8 +50,11 @@ public class ManifestModelTest extends TestCase {
                 + "\n"
                 + "</manifest>";
 
-        XmlDocument xmlDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"), input);
+        XmlDocument xmlDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"),
+                        input,
+                        mModel);
 
         XmlElement xmlElement = xmlDocument.getRootNode().getMergeableElements().get(0);
         assertEquals("uses-feature",xmlElement.getXml().getNodeName());
@@ -68,8 +73,11 @@ public class ManifestModelTest extends TestCase {
                 + "\n"
                 + "</manifest>";
 
-        XmlDocument xmlDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"), input);
+        XmlDocument xmlDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"),
+                        input,
+                        mModel);
 
         XmlElement xmlElement = xmlDocument.getRootNode().getMergeableElements().get(0);
         assertEquals("uses-feature",xmlElement.getXml().getNodeName());
@@ -87,10 +95,12 @@ public class ManifestModelTest extends TestCase {
         when(xmlAttribute.getId()).thenReturn(new NodeKey(AndroidManifest.ATTRIBUTE_GLESVERSION));
 
         ArgumentCaptor<String> argumentCaptor = ArgumentCaptor.forClass(String.class);
-        Mockito.doNothing().when(xmlAttribute).addMessage(
-                Mockito.any(MergingReport.Builder.class),
-                eq(MergingReport.Record.Severity.ERROR),
-                argumentCaptor.capture());
+        Mockito.doReturn(mergingReport)
+                .when(mergingReport)
+                .addMessage(
+                        Mockito.any(XmlAttribute.class),
+                        eq(MergingReport.Record.Severity.ERROR),
+                        argumentCaptor.capture());
         when(xmlAttribute.printPosition()).thenReturn("unknown");
         assertFalse(validator.validates(mergingReport, xmlAttribute, "0xFFFFFFFFFFFF"));
         assertEquals("Attribute glEsVersion at unknown is not a valid hexadecimal "
@@ -107,10 +117,12 @@ public class ManifestModelTest extends TestCase {
         MergingReport.Builder mergingReport = Mockito.mock(MergingReport.Builder.class);
 
         ArgumentCaptor<String> argumentCaptor = ArgumentCaptor.forClass(String.class);
-        Mockito.doNothing().when(xmlAttribute).addMessage(
-                Mockito.any(MergingReport.Builder.class),
-                eq(MergingReport.Record.Severity.ERROR),
-                argumentCaptor.capture());
+        Mockito.doReturn(mergingReport)
+                .when(mergingReport)
+                .addMessage(
+                        Mockito.any(XmlAttribute.class),
+                        eq(MergingReport.Record.Severity.ERROR),
+                        argumentCaptor.capture());
 
         when(xmlAttribute.getId()).thenReturn(new NodeKey(AndroidManifest.ATTRIBUTE_GLESVERSION));
         when(xmlAttribute.printPosition()).thenReturn("unknown");
@@ -143,10 +155,12 @@ public class ManifestModelTest extends TestCase {
         MergingReport.Builder mergingReport = Mockito.mock(MergingReport.Builder.class);
 
         ArgumentCaptor<String> argumentCaptor = ArgumentCaptor.forClass(String.class);
-        Mockito.doNothing().when(xmlAttribute).addMessage(
-                Mockito.any(MergingReport.Builder.class),
-                eq(MergingReport.Record.Severity.ERROR),
-                argumentCaptor.capture());
+        Mockito.doReturn(mergingReport)
+                .when(mergingReport)
+                .addMessage(
+                        Mockito.any(XmlAttribute.class),
+                        eq(MergingReport.Record.Severity.ERROR),
+                        argumentCaptor.capture());
 
         when(xmlAttribute.getId()).thenReturn(new NodeKey(AndroidManifest.ATTRIBUTE_GLESVERSION));
         when(xmlAttribute.printPosition()).thenReturn("unknown");
@@ -168,8 +182,11 @@ public class ManifestModelTest extends TestCase {
                 + "\n"
                 + "</manifest>";
 
-        XmlDocument xmlDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"), input);
+        XmlDocument xmlDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"),
+                        input,
+                        mModel);
 
         XmlElement xmlElement = xmlDocument.getRootNode().getMergeableElements().get(0);
         assertEquals("uses-feature",xmlElement.getXml().getNodeName());
@@ -194,8 +211,11 @@ public class ManifestModelTest extends TestCase {
                 + "\n"
                 + "</manifest>";
 
-        XmlDocument xmlDocument = TestUtils.xmlDocumentFromString(
-                TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"), input);
+        XmlDocument xmlDocument =
+                TestUtils.xmlDocumentFromString(
+                        TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"),
+                        input,
+                        mModel);
 
         XmlElement xmlElement = xmlDocument.getRootNode().getMergeableElements().get(0);
         ImmutableList<XmlElement> screenDefinitions = xmlElement.getMergeableElements();
@@ -230,7 +250,9 @@ public class ManifestModelTest extends TestCase {
 
         XmlDocument xmlDocument =
                 TestUtils.xmlDocumentFromString(
-                        TestUtils.sourceFile(getClass(), "testIntentFilterKeyResolution"), input);
+                        TestUtils.sourceFile(getClass(), "testIntentFilterKeyResolution"),
+                        input,
+                        mModel);
 
         XmlElement applicationXmlElement =
                 xmlDocument
@@ -275,7 +297,8 @@ public class ManifestModelTest extends TestCase {
             XmlDocument xmlDocument =
                     TestUtils.xmlDocumentFromString(
                             TestUtils.sourceFile(getClass(), "testNoUseFeaturesDeclaration"),
-                            input);
+                            input,
+                            mModel);
 
             XmlElement xmlElement = xmlDocument.getRootNode().getMergeableElements().get(0);
             assertEquals(

@@ -20,29 +20,24 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
-import com.android.build.gradle.options.IntegerOption;
-import com.android.build.gradle.options.StringOption;
-import com.android.builder.model.OptionalCompilationStep;
-import com.android.builder.tasks.BooleanLatch;
-import com.android.ddmlib.IDevice;
-import com.android.resources.Density;
-import com.android.sdklib.AndroidVersion;
+import com.android.builder.model.ProjectBuildOutput;
 import com.android.testutils.TestUtils;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import java.io.ByteArrayOutputStream;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.EnumSet;
+import java.io.OutputStream;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
+import java.util.function.Supplier;
+import org.gradle.tooling.BuildActionExecuter;
 import org.gradle.tooling.BuildLauncher;
+import org.gradle.tooling.ConfigurableLauncher;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.tooling.ProjectConnection;
-import org.gradle.tooling.ResultHandler;
 import org.gradle.tooling.events.OperationType;
 
 /** A Gradle tooling api build builder. */
@@ -51,6 +46,7 @@ public final class GradleTaskExecutor extends BaseGradleExecutor<GradleTaskExecu
     @Nullable private final String buildToolsVersion;
 
     private boolean isExpectingFailure = false;
+    private boolean queryOutputModel = false;
 
     GradleTaskExecutor(
             @NonNull GradleTestProject gradleTestProject,
@@ -75,28 +71,9 @@ public final class GradleTaskExecutor extends BaseGradleExecutor<GradleTaskExecu
         return this;
     }
 
-    /**
-     * Inject the instant run arguments.
-     *
-     * @param androidVersion The target device version
-     * @param flags additional instant run flags, see {@link OptionalCompilationStep}.
-     */
-    public GradleTaskExecutor withInstantRun(
-            AndroidVersion androidVersion, @NonNull OptionalCompilationStep... flags) {
-        setInstantRunArgs(androidVersion, null /* density */, flags);
-        return this;
-    }
-
-    /**
-     * Inject the instant run arguments.
-     *
-     * @param device The connected device.
-     * @param flags additional instant run flags, see {@link OptionalCompilationStep}.
-     */
-    public GradleTaskExecutor withInstantRun(
-            @NonNull IDevice device, @NonNull OptionalCompilationStep... flags) {
-        setInstantRunArgs(
-                device.getVersion(), Density.getEnum(device.getDensity()), flags);
+    /** Retrieve the ProjectBuildOutput models along with the build */
+    public GradleTaskExecutor withOutputModelQuery() {
+        queryOutputModel = true;
         return this;
     }
 
@@ -131,24 +108,33 @@ public final class GradleTaskExecutor extends BaseGradleExecutor<GradleTaskExecu
             args.add("--stacktrace");
         }
 
-        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
-        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
-        String message =
-                "[GradleTestProject "
-                        + projectDirectory
-                        + "] Executing tasks: \ngradle "
-                        + Joiner.on(' ').join(args)
-                        + " "
-                        + Joiner.on(' ').join(tasksList)
-                        + "\n\n";
-        stdout.write(message.getBytes());
+        File tmpStdOut = File.createTempFile("stdout", "log");
+        File tmpStdErr = File.createTempFile("stderr", "log");
 
-        BuildLauncher launcher =
-                projectConnection.newBuild().forTasks(Iterables.toArray(tasksList, String.class));
+
+        ConfigurableLauncher launcher;
+        Supplier<ModelContainer<ProjectBuildOutput>> runBuild;
+        if (queryOutputModel) {
+            BuildActionExecuter<ModelContainer<ProjectBuildOutput>> actionExecutor =
+                    projectConnection
+                            .action(new GetAndroidModelAction<>(ProjectBuildOutput.class))
+                            .forTasks(Iterables.toArray(tasksList, String.class));
+            runBuild = actionExecutor::run;
+            launcher = actionExecutor;
+        } else {
+            BuildLauncher buildLauncher =
+                    projectConnection
+                            .newBuild()
+                            .forTasks(Iterables.toArray(tasksList, String.class));
+            runBuild =
+                    () -> {
+                        buildLauncher.run();
+                        return null;
+                    };
+            launcher = buildLauncher;
+        }
 
         setJvmArguments(launcher);
-        setStandardOut(launcher, stdout);
-        setStandardError(launcher, stderr);
 
         CollectingProgressListener progressListener = new CollectingProgressListener();
 
@@ -156,12 +142,36 @@ public final class GradleTaskExecutor extends BaseGradleExecutor<GradleTaskExecu
 
         launcher.withArguments(Iterables.toArray(args, String.class));
 
-        WaitingResultHandler handler = new WaitingResultHandler();
-        launcher.run(handler);
-        GradleConnectionException failure = handler.waitForResult();
+        GradleConnectionException failure = null;
+        ModelContainer<ProjectBuildOutput> outputModelContainer = null;
+        try (OutputStream stdout = new BufferedOutputStream(new FileOutputStream(tmpStdOut));
+                OutputStream stderr = new BufferedOutputStream(new FileOutputStream(tmpStdErr))) {
+
+            String message =
+                    "[GradleTestProject "
+                            + projectDirectory
+                            + "] Executing tasks: \ngradle "
+                            + Joiner.on(' ').join(args)
+                            + " "
+                            + Joiner.on(' ').join(tasksList)
+                            + "\n\n";
+            stdout.write(message.getBytes());
+
+            setStandardOut(launcher, stdout);
+            setStandardError(launcher, stderr);
+
+            outputModelContainer = runBuild.get();
+        } catch (GradleConnectionException e) {
+            failure = e;
+        }
 
         GradleBuildResult result =
-                new GradleBuildResult(stdout, stderr, progressListener.getEvents(), failure);
+                new GradleBuildResult(
+                        tmpStdOut,
+                        tmpStdErr,
+                        progressListener.getEvents(),
+                        failure,
+                        outputModelContainer);
         lastBuildResultConsumer.accept(result);
 
         if (isExpectingFailure && failure == null) {
@@ -171,56 +181,5 @@ public final class GradleTaskExecutor extends BaseGradleExecutor<GradleTaskExecu
             throw failure;
         }
         return result;
-    }
-
-    private static class WaitingResultHandler implements ResultHandler<Void> {
-
-        private final BooleanLatch latch = new BooleanLatch();
-        private GradleConnectionException failure;
-
-        @Override
-        public void onComplete(Void aVoid) {
-            latch.signal();
-        }
-
-        @Override
-        public void onFailure(GradleConnectionException e) {
-            failure = e;
-            latch.signal();
-        }
-
-        /**
-         * Waits for the build to complete.
-         *
-         * @return null if the build passed, the GradleConnectionException if the build failed.
-         */
-        @Nullable
-        private GradleConnectionException waitForResult() throws InterruptedException {
-            latch.await();
-            return failure;
-        }
-    }
-
-    private void setInstantRunArgs(
-            @Nullable AndroidVersion androidVersion,
-            @Nullable Density density,
-            @NonNull OptionalCompilationStep[] flags) {
-        if (androidVersion != null) {
-            with(IntegerOption.IDE_TARGET_DEVICE_API, androidVersion.getApiLevel());
-            if (androidVersion.getCodename() != null) {
-                with(StringOption.IDE_TARGET_DEVICE_CODENAME, androidVersion.getCodename());
-            }
-        }
-
-        if (density != null) {
-            with(StringOption.IDE_BUILD_TARGET_DENSITY, density.getResourceValue());
-        }
-
-        Set<OptionalCompilationStep> steps = EnumSet.of(OptionalCompilationStep.INSTANT_DEV);
-        steps.addAll(Arrays.asList(flags));
-
-        with(
-                StringOption.IDE_OPTIONAL_COMPILATION_STEPS,
-                steps.stream().map(OptionalCompilationStep::name).collect(Collectors.joining(",")));
     }
 }

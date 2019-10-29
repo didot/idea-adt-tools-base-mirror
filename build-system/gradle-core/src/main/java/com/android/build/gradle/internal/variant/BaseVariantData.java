@@ -50,7 +50,6 @@ import com.android.ide.common.blame.SourceFile;
 import com.android.utils.StringHelper;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.io.File;
@@ -70,8 +69,11 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.ConfigurableFileTree;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.file.FileSystemLocation;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.resources.TextResource;
 import org.gradle.api.tasks.Sync;
 
@@ -113,8 +115,6 @@ public abstract class BaseVariantData {
      * to point to signed files built by other tasks.
      */
     public boolean outputsAreSigned = false;
-
-    @NonNull private final OutputScope outputScope;
 
     @NonNull private final OutputFactory outputFactory;
     public VariantOutputFactory variantOutputFactory;
@@ -167,10 +167,7 @@ public abstract class BaseVariantData {
                                 globalScope.getErrorHandler(),
                                 recorder),
                         this);
-        outputScope = new OutputScope();
-        outputFactory =
-                new OutputFactory(
-                        globalScope.getProjectBaseName(), variantConfiguration, outputScope);
+        outputFactory = new OutputFactory(globalScope.getProjectBaseName(), variantConfiguration);
 
         taskManager.configureScopeForNdk(scope);
 
@@ -216,7 +213,7 @@ public abstract class BaseVariantData {
 
     @NonNull
     public OutputScope getOutputScope() {
-        return outputScope;
+        return outputFactory.getOutput();
     }
 
     @NonNull
@@ -585,14 +582,12 @@ public abstract class BaseVariantData {
 
             // then all the generated src folders.
             if (scope.getArtifacts()
-                    .hasArtifact(InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES)) {
-                BuildableArtifact rClassSource =
+                    .hasFinalProduct(InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES)) {
+                Provider<Directory> rClassSource =
                         scope.getArtifacts()
-                                .getFinalArtifactFiles(
+                                .getFinalProduct(
                                         InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES);
-                sourceSets.add(
-                        project.fileTree(Iterables.getOnlyElement(rClassSource.get()))
-                                .builtBy(rClassSource));
+                sourceSets.add(project.fileTree(rClassSource).builtBy(rClassSource));
             }
 
             // for the other, there's no duplicate so no issue.
@@ -642,6 +637,22 @@ public abstract class BaseVariantData {
         }
 
         return defaultJavaSources;
+    }
+
+    @NonNull
+    public List<Provider<? extends FileSystemLocation>> getGeneratedSources() {
+        ImmutableList.Builder<Provider<? extends FileSystemLocation>> listBuilder =
+                ImmutableList.builder();
+
+        // then all the generated src folders.
+        if (scope.getArtifacts()
+                .hasFinalProduct(InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES)) {
+            Provider<Directory> rClassSource =
+                    scope.getArtifacts()
+                            .getFinalProduct(InternalArtifactType.NOT_NAMESPACED_R_CLASS_SOURCES);
+            listBuilder.add(rClassSource);
+        }
+        return listBuilder.build();
     }
 
     /**

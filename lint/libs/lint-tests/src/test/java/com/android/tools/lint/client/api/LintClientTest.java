@@ -182,5 +182,31 @@ public class LintClientTest extends TestCase {
         String revision = client.getClientRevision();
         Truth.assertThat(revision).isNotNull();
         Truth.assertThat(revision).isNotEmpty();
+        String displayRevision = client.getClientDisplayRevision();
+        Truth.assertThat(displayRevision).isNotNull();
+        Truth.assertThat(displayRevision).isNotEmpty();
+    }
+
+    private static File file(String path) {
+        return new File(path.replace('/', File.separatorChar));
+    }
+
+    public void testRelative() {
+        LintCliClient client = new LintCliClient(CLIENT_UNIT_TESTS);
+        assertEquals(
+                file("../../d/e/f").getPath(),
+                client.getRelativePath(file("a/b/c"), file("d/e/f")));
+        assertEquals(
+                file("../d/e/f").getPath(), client.getRelativePath(file("a/b/c"), file("a/d/e/f")));
+        assertEquals(
+                file("../d/e/f").getPath(),
+                client.getRelativePath(file("1/2/3/a/b/c"), file("1/2/3/a/d/e/f")));
+        assertEquals(file("c").getPath(), client.getRelativePath(file("a/b/c"), file("a/b/c")));
+        assertEquals(
+                file("../../e").getPath(),
+                client.getRelativePath(file("a/b/c/d/e/f"), file("a/b/c/e")));
+        assertEquals(
+                file("d/e/f").getPath(),
+                client.getRelativePath(file("a/b/c/e"), file("a/b/c/d/e/f")));
     }
 }

@@ -21,15 +21,14 @@ import com.android.tools.pixelprobe.Image;
 import com.android.tools.pixelprobe.Layer;
 import com.android.tools.pixelprobe.ShapeInfo;
 import com.android.tools.pixelprobe.tests.ImageUtils;
-import org.junit.Assert;
-import org.junit.Test;
-
 import java.awt.*;
 import java.awt.geom.PathIterator;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.Assert;
+import org.junit.Test;
 
 public class ShapeTest {
     @SuppressWarnings("InspectionUsingGrayColors")
@@ -41,7 +40,7 @@ public class ShapeTest {
 
         Map<String, Color> convertedColors = new HashMap<>();
         convertedColors.put("Grayscale", new Color(116, 116, 116));
-        convertedColors.put("LAB", new Color(214, 44, 247));
+        convertedColors.put("LAB", new Color(214, 41, 247));
         convertedColors.put("CMYK", new Color(255, 242, 0));
         convertedColors.put("HSB", new Color(36, 217, 0));
         convertedColors.put("RGB", new Color(255, 0, 0));

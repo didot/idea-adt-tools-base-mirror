@@ -1,18 +1,31 @@
 package(default_visibility = ["//visibility:public"])
 
 platform(
-    name = "rbe_debian8",
+    name = "rbe_ubuntu16",
     constraint_values = [
         "@bazel_tools//platforms:x86_64",
         "@bazel_tools//platforms:linux",
         "@bazel_tools//tools/cpp:clang",
-        "@bazel_toolchains//constraints:jessie",
+        "@bazel_toolchains//constraints:xenial",
+        "@bazel_toolchains//constraints/sanitizers:support_msan",
     ],
     remote_execution_properties = """
           properties: {
             name: "container-image"
-            value:"docker://gcr.io/google.com/android-studio-alphasource/nosla-debian8-clang-as@sha256:71c886770d70dd28c1e8a8f58eab8f8ed8bc7322550ec0dcca3cf28ae6eeac19"
-         }
+            value:"docker://gcr.io/google.com/android-studio-alphasource/rbe-ubuntu16-as@sha256:7b3de3e595ff49a3d2f17453152db8fa3b560e20ea67b4a19c1a5919fd024de9"
+          }
+          properties: {
+            name: "dockerNetwork"
+            value: "standard"
+          }
+          properties: {
+            name: "dockerUseURandom"
+            value: "true"
+          }
+          properties: {
+            name: "dockerAddCapabilities"
+            value: "SYS_NICE"
+          }
          """,
 )
 
@@ -24,12 +37,11 @@ java_test(
     data = [
         "//prebuilts/studio/jdk:jdk_runtime",
         "//prebuilts/studio/sdk:build-tools/latest",
+        "//tools/base/build-system/aapt2:aapt2_for_tests",
     ],
     jvm_flags = ["-Djava.security.debug=all"],
     tags = [
         "manual",
-        "no_mac",
-        "no_windows",
     ],
     test_class = "FoundryTest",
     deps = [
@@ -46,6 +58,9 @@ java_test(
     jvm_flags = [
         "-Xms10000M",
         "-Xmx10000M",
+    ],
+    tags = [
+        "perfgate_multi_run",
     ],
     test_class = "FoundryPerfgateMetrics",
     deps = [

@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 
+#include "tools/base/deploy/common/message_pipe_wrapper.h"
+
 #include <poll.h>
 #include <unistd.h>
 
-#include "message_pipe_wrapper.h"
-#include "size_buffer.h"
+#include "tools/base/deploy/common/size_buffer.h"
+#include "tools/base/deploy/common/utils.h"
 
 namespace deploy {
 
@@ -44,13 +46,11 @@ bool MessagePipeWrapper::Read(std::string* message) const {
   }
 
   size_t size = BufferToSize(size_bytes);
-  std::vector<char> buffer(size);
-
-  if (!ReadBytes(buffer.data(), size)) {
+  message->resize(size);
+  if (!ReadBytes((char*)message->data(), size)) {
     return false;
   }
 
-  message->append(buffer.data(), buffer.size());
   return true;
 }
 
@@ -75,8 +75,11 @@ std::vector<size_t> MessagePipeWrapper::Poll(
     return ready;
   }
 
+  // We want to report any possible error condition on the file descriptor.
+  // TODO(noahz): Make this more granular when refactoring.
+  constexpr short mask = POLLIN | POLLHUP | POLLERR | POLLNVAL;
   for (size_t i = 0; i < fds.size(); ++i) {
-    if (fds[i].revents & POLLIN) {
+    if (fds[i].revents & mask) {
       ready.emplace_back(i);
     }
   }
@@ -86,6 +89,7 @@ std::vector<size_t> MessagePipeWrapper::Poll(
 
 template <typename T>
 bool MessagePipeWrapper::ReadBytes(T* array, size_t size) const {
+  Phase p("ReadBytes: " + to_string(size));
   size_t count = 0;
   while (count < size) {
     ssize_t len = read(fd_, array + count, size - count);

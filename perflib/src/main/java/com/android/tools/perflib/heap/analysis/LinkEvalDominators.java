@@ -21,11 +21,13 @@ import com.android.tools.perflib.heap.Heap;
 import com.android.tools.perflib.heap.Instance;
 import com.android.tools.perflib.heap.RootObj;
 import com.android.tools.perflib.heap.Snapshot;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import gnu.trove.TIntStack;
-import gnu.trove.TObjectProcedure;
 
 import java.util.*;
+
+import gnu.trove.TIntStack;
+import gnu.trove.TObjectProcedure;
 
 /**
  * Computes dominators based on the union-find data structure with path compression and linking by
@@ -47,11 +49,14 @@ public final class LinkEvalDominators extends DominatorsBase {
     public LinkEvalDominators(@NonNull Snapshot snapshot) {
         super(snapshot);
 
-        final Map<Instance, LinkEvalNode> instanceNodeMap = new HashMap<>();
-        TObjectProcedure<Instance> mapProcedure = instance -> {
-            LinkEvalNode node = new LinkEvalNode(instance);
-            instanceNodeMap.put(instance, node);
-            return true;
+        final Map<Instance, LinkEvalNode> instanceNodeMap = new HashMap<Instance, LinkEvalNode>();
+        TObjectProcedure<Instance> mapProcedure = new TObjectProcedure<Instance>() {
+            @Override
+            public boolean execute(Instance instance) {
+                LinkEvalNode node = new LinkEvalNode(instance);
+                instanceNodeMap.put(instance, node);
+                return true;
+            }
         };
         for (Heap heap : mSnapshot.getHeaps()) {
             for (Instance instance : heap.getClasses()) {
@@ -65,7 +70,7 @@ public final class LinkEvalDominators extends DominatorsBase {
         }
 
         Collection<RootObj> roots = snapshot.getGCRoots();
-        Set<Instance> filteredRootInstances = new HashSet<>(roots.size());
+        Set<Instance> filteredRootInstances = new HashSet<Instance>(roots.size());
         for (RootObj root : roots) {
             Instance referredInstance = root.getReferredInstance();
             if (referredInstance != null) {
@@ -93,7 +98,7 @@ public final class LinkEvalDominators extends DominatorsBase {
             rootNode.setBackReferences(augmentedBackReferences);
         }
 
-        mNodes = new ArrayList<>();
+        mNodes = new ArrayList<LinkEvalNode>();
         depthFirstSearch(sentinelRootNode);
         mNodes.trimToSize();
 
@@ -195,7 +200,7 @@ public final class LinkEvalDominators extends DominatorsBase {
         //    return topologicalOrder;
         //}
 
-        Stack<LinkEvalNode> nodeStack = new Stack<>();
+        Stack<LinkEvalNode> nodeStack = new Stack<LinkEvalNode>();
         TIntStack childOffsetStack = new TIntStack();
         int topologicalOrder = 0;
 
@@ -233,7 +238,7 @@ public final class LinkEvalDominators extends DominatorsBase {
 
     protected static class LinkEval {
         @NonNull
-        private List<LinkEvalNode> mCompressArray = new ArrayList<>();
+        private List<LinkEvalNode> mCompressArray = new ArrayList<LinkEvalNode>();
 
         public static void link(@NonNull LinkEvalNode ancestor, @NonNull LinkEvalNode child) {
             child.setAncestor(ancestor);
@@ -318,7 +323,7 @@ public final class LinkEvalDominators extends DominatorsBase {
             mParent = null;
             mAncestor = null;
             mLabel = this;
-            mSemisDominated = new ArrayList<>(1);
+            mSemisDominated = new ArrayList<LinkEvalNode>(1);
         }
 
         public final Instance getInstance() {
@@ -347,8 +352,8 @@ public final class LinkEvalDominators extends DominatorsBase {
             }
 
             // Filter reverse reference list for unreachable nodes.
-            List<LinkEvalNode> backReferenceInstances = new ArrayList<>(
-              mInstance.getHardReverseReferences().size());
+            List<LinkEvalNode> backReferenceInstances = new ArrayList<LinkEvalNode>(
+                    mInstance.getHardReverseReferences().size());
             for (Instance instance : mInstance.getHardReverseReferences()) {
                 if (instance.isReachable()) {
                     backReferenceInstances.add(instanceLookup.get(instance));

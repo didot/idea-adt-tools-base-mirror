@@ -16,6 +16,9 @@
 
 package com.android.sdklib.repository.legacy.remote.internal;
 
+import static com.google.common.truth.Truth.assertThat;
+import static org.junit.Assert.fail;
+
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.android.repository.io.FileOp;
@@ -24,24 +27,26 @@ import com.android.repository.testframework.FakeSettingsController;
 import com.android.repository.testframework.MockFileOp;
 import com.android.utils.Pair;
 import com.google.common.base.Charsets;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLConnection;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import org.apache.http.Header;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
-
-import java.io.*;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLConnection;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Set;
-
-import static com.google.common.truth.Truth.assertThat;
-import static org.junit.Assert.fail;
 
 @RunWith(JUnit4.class)
 public class DownloadCacheTest {
@@ -80,7 +85,7 @@ public class DownloadCacheTest {
                 if (data == null) {
                     sb.append("(stream not closed properly)>");
                 } else {
-                    sb.append('\'').append(new String(data, StandardCharsets.UTF_8)).append("'>");
+                    sb.append('\'').append(new String(data)).append("'>");
                 }
             }
             return sb.toString();

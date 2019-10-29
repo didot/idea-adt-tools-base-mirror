@@ -22,6 +22,7 @@ import com.android.annotations.NonNull;
 import com.android.build.gradle.integration.common.fixture.GradleTestProject;
 import com.android.build.gradle.integration.common.fixture.TestProjectPaths;
 import com.android.build.gradle.integration.common.runner.FilterableParameterized;
+import com.android.testutils.AssumeUtil;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import java.io.File;
@@ -84,6 +85,7 @@ public class CheckAll {
 
     @Test
     public void assembleAndLint() throws Exception {
+        AssumeUtil.assumeNotWindows(); // b/73306170
         Assume.assumeTrue(canAssemble(project));
         project
                 .executor()
@@ -123,10 +125,14 @@ public class CheckAll {
                     "projectWithLocalDeps", // Doesn't have a build.gradle, not much to check anyway.
                     "simpleManifestMergingTask", // Not an Android project.
                     "externalBuildPlugin", // Not an Android Project.
+                    "lintKotlin", // deliberately contains lint errors (missing baseline file)
+                    "lintBaseline", // deliberately contains lint errors
+                    "lintResourceResolve/", // deliberately contains lint errors
                     "lintStandalone", // Not an Android project
                     "lintStandaloneVital", // Not an Android project
                     "lintStandaloneCustomRules", // Not an Android project
                     "lintCustomRules", // contains integ test for lint itself
+                    "lintCustomLocalAndPublishRules", // contains integ test for lint itself
                     "simpleCompositeBuild", // broken composite build project.
                     "multiCompositeBuild" // too complex composite build project to setup
                     );

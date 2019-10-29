@@ -70,8 +70,7 @@ public class BasicTest {
     @BeforeClass
     public static void getModel() throws Exception {
         outputModel =
-                project.executeAndReturnModel(
-                        ProjectBuildOutput.class, "clean", "assembleDebug", "assembleRelease");
+                project.executeAndReturnOutputModel("clean", "assembleDebug", "assembleRelease");
         // basic project overwrites buildConfigField which emits a sync warning
         model = project.model().ignoreSyncIssues().fetchAndroidProjects().getOnlyModel();
         model.getSyncIssues()
@@ -156,27 +155,12 @@ public class BasicTest {
     }
 
     @Test
-    public void generationInModel() {
-        assertThat(model.getPluginGeneration())
-                .named("Plugin Generation")
-                .isEqualTo(AndroidProject.GENERATION_ORIGINAL);
-    }
-
-    @Test
-    public void checkDensityAndResourceConfigs() throws Exception {
-        project.executor()
-                .withInstantRun(new AndroidVersion(23, null), OptionalCompilationStep.RESTART_ONLY)
-                .with(StringOption.IDE_BUILD_TARGET_DENSITY, "xxhdpi")
-                .run("assembleDebug");
-    }
-
-    @Test
     public void testBuildOutputModel() throws Exception {
-        project.executor().run("assemble", "assembleDebugAndroidTest", "testDebugUnitTest");
-
-        // get the initial minimalistic model.
+        // Execute build and get the initial minimalistic model.
         Map<String, ProjectBuildOutput> multi =
-                project.model().fetchMulti(ProjectBuildOutput.class);
+                project.executeAndReturnOutputMultiModel(
+                        "assemble", "assembleDebugAndroidTest", "testDebugUnitTest");
+
         ProjectBuildOutput mainModule = multi.get(":");
         assertThat(mainModule.getVariantsBuildOutput()).hasSize(2);
         assertThat(
@@ -221,5 +205,18 @@ public class BasicTest {
                 }
             }
         }
+    }
+
+    @Test
+    public void testRenderscriptDidNotRun() throws Exception {
+        // Execute renderscript task and check if it was skipped
+        Map<String, ProjectBuildOutput> multi =
+                project.executeAndReturnOutputMultiModel("compileDebugRenderscript");
+        assertThat(
+                        project.getBuildResult()
+                                .getTask(":compileDebugRenderscript")
+                                .getExecutionState()
+                                .toString())
+                .isEqualTo("SKIPPED");
     }
 }

@@ -33,7 +33,7 @@ import com.android.build.gradle.internal.VariantManager;
 import com.android.build.gradle.internal.core.GradleVariantConfiguration;
 import com.android.build.gradle.internal.dsl.LintOptions;
 import com.android.build.gradle.internal.ide.dependencies.BuildMappingUtils;
-import com.android.build.gradle.internal.incremental.BuildInfoWriterTask;
+import com.android.build.gradle.internal.scope.ApkData;
 import com.android.build.gradle.internal.scope.BuildOutput;
 import com.android.build.gradle.internal.scope.InstantAppOutputScope;
 import com.android.build.gradle.internal.scope.InternalArtifactType;
@@ -48,6 +48,7 @@ import com.android.builder.model.BuildTypeContainer;
 import com.android.builder.model.Dependencies;
 import com.android.builder.model.InstantAppProjectBuildOutput;
 import com.android.builder.model.InstantAppVariantBuildOutput;
+import com.android.builder.model.InstantRun;
 import com.android.builder.model.ModelBuilderParameter;
 import com.android.builder.model.ProductFlavor;
 import com.android.builder.model.ProductFlavorContainer;
@@ -55,7 +56,6 @@ import com.android.builder.model.SyncIssue;
 import com.android.builder.model.Variant;
 import com.android.builder.model.Version;
 import com.android.builder.model.level2.DependencyGraphs;
-import com.android.ide.common.build.ApkInfo;
 import com.android.sdklib.SdkVersionInfo;
 import com.android.utils.Pair;
 import com.google.common.collect.ImmutableList;
@@ -82,19 +82,16 @@ public class InstantAppModelBuilder
     @NonNull private final AndroidConfig config;
     @NonNull private final ExtraModelInfo extraModelInfo;
     @NonNull private final VariantManager variantManager;
-    private final int generation;
     private boolean modelWithFullDependency = false;
     private Set<SyncIssue> syncIssues = Sets.newLinkedHashSet();
 
     public InstantAppModelBuilder(
             @NonNull VariantManager variantManager,
             @NonNull AndroidConfig config,
-            @NonNull ExtraModelInfo extraModelInfo,
-            int generation) {
+            @NonNull ExtraModelInfo extraModelInfo) {
         this.config = config;
         this.extraModelInfo = extraModelInfo;
         this.variantManager = variantManager;
-        this.generation = generation;
     }
 
     @Override
@@ -199,6 +196,7 @@ public class InstantAppModelBuilder
                                     pfData.getProductFlavor().getName())));
         }
 
+        String defaultVariant = variantManager.getDefaultVariant(syncIssues::add);
         for (VariantScope variantScope : variantManager.getVariantScopes()) {
             if (!variantScope.getVariantData().getType().isTestComponent()) {
                 variantNames.add(variantScope.getFullVariantName());
@@ -216,6 +214,7 @@ public class InstantAppModelBuilder
                 productFlavors,
                 variants,
                 variantNames,
+                defaultVariant,
                 "android-" + SdkVersionInfo.HIGHEST_KNOWN_STABLE_API,
                 Collections.emptyList(),
                 Collections.emptyList(),
@@ -231,7 +230,6 @@ public class InstantAppModelBuilder
                 "",
                 PROJECT_TYPE_INSTANTAPP,
                 Version.BUILDER_MODEL_API_VERSION,
-                generation,
                 false,
                 ImmutableList.of());
     }
@@ -255,7 +253,7 @@ public class InstantAppModelBuilder
                                 instantAppOutputScope.getApplicationId(),
                                 new BuildOutput(
                                         InternalArtifactType.INSTANTAPP_BUNDLE,
-                                        ApkInfo.of(
+                                        ApkData.of(
                                                 VariantOutput.OutputType.MAIN,
                                                 ImmutableList.of(),
                                                 0),
@@ -332,13 +330,14 @@ public class InstantAppModelBuilder
                         null,
                         null,
                         null,
-                        Collections.emptyList(),
                         variantConfiguration.getMergedBuildConfigFields(),
                         variantConfiguration.getMergedResValues(),
                         new InstantRunImpl(
-                                BuildInfoWriterTask.CreationAction.getBuildInfoFile(variantScope),
-                                variantConfiguration.getInstantRunSupportStatus(
-                                        variantScope.getGlobalScope())),
+                                variantScope
+                                        .getGlobalScope()
+                                        .getProject()
+                                        .file("removed_build_info"),
+                                InstantRun.STATUS_REMOVED),
                         (BuildOutputSupplier<Collection<EarlySyncBuildOutput>>)
                                 () ->
                                         ImmutableList.of(

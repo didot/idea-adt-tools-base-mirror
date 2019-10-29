@@ -16,6 +16,7 @@
 
 package com.android.build.gradle.tasks;
 
+import static com.android.build.gradle.internal.cxx.logging.LoggingEnvironmentKt.infoln;
 import static com.android.build.gradle.internal.cxx.process.ProcessOutputJunctionKt.createProcessOutputJunction;
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -24,9 +25,10 @@ import com.android.build.gradle.internal.core.Abi;
 import com.android.build.gradle.internal.cxx.json.AndroidBuildGradleJsons;
 import com.android.build.gradle.internal.cxx.json.NativeBuildConfigValueMini;
 import com.android.build.gradle.internal.cxx.json.NativeLibraryValueMini;
-import com.android.build.gradle.internal.ndk.NdkHandler;
+import com.android.build.gradle.internal.cxx.logging.ErrorsAreFatalThreadLoggingEnvironment;
+import com.android.build.gradle.internal.process.GradleProcessExecutor;
 import com.android.build.gradle.internal.scope.VariantScope;
-import com.android.build.gradle.internal.tasks.AndroidBuilderTask;
+import com.android.build.gradle.internal.tasks.NonIncrementalTask;
 import com.android.build.gradle.internal.tasks.factory.TaskCreationAction;
 import com.android.ide.common.process.ProcessException;
 import com.android.ide.common.process.ProcessInfoBuilder;
@@ -40,7 +42,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.provider.Provider;
 
 /**
  * Task that takes set of JSON files of type NativeBuildConfigValue and does clean steps with them.
@@ -48,69 +50,65 @@ import org.gradle.api.tasks.TaskAction;
  * <p>It declares no inputs or outputs, as it's supposed to always run when invoked. Incrementality
  * is left to the underlying build system.
  */
-public class ExternalNativeCleanTask extends AndroidBuilderTask {
+public class ExternalNativeCleanTask extends NonIncrementalTask {
 
-    private List<File> nativeBuildConfigurationsJsons;
+    @NonNull private Provider<ExternalNativeJsonGenerator> generator;
 
-    private File objFolder;
+    @Override
+    protected void doTaskAction() throws ProcessException, IOException {
+        try (ErrorsAreFatalThreadLoggingEnvironment ignore =
+                new ErrorsAreFatalThreadLoggingEnvironment()) {
+            infoln("starting clean");
+            infoln("finding existing JSONs");
 
-    private Map<Abi, File> stlSharedObjectFiles;
-
-    /** Log low level diagnostic information. */
-    protected void diagnostic(String format, Object... args) {
-        getLogger().info(String.format(getName() + ": " + format, args));
-    }
-
-    @TaskAction
-    void clean() throws ProcessException, IOException {
-        diagnostic("starting clean");
-        diagnostic("finding existing JSONs");
-
-        List<File> existingJsons = Lists.newArrayList();
-        for (File json : nativeBuildConfigurationsJsons) {
-            if (json.isFile()) {
-                existingJsons.add(json);
-            }
-        }
-
-        List<NativeBuildConfigValueMini> configValueList =
-                AndroidBuildGradleJsons.getNativeBuildMiniConfigs(existingJsons, null);
-        List<String> cleanCommands = Lists.newArrayList();
-        List<String> targetNames = Lists.newArrayList();
-        for (NativeBuildConfigValueMini config : configValueList) {
-            cleanCommands.addAll(config.cleanCommands);
-            Set<String> targets = Sets.newHashSet();
-            for (NativeLibraryValueMini library : config.libraries.values()) {
-                targets.add(String.format("%s %s", library.artifactName, library.abi));
-            }
-            targetNames.add(Joiner.on(",").join(targets));
-        }
-        diagnostic("about to execute %s clean commands", cleanCommands.size());
-        executeProcessBatch(cleanCommands, targetNames);
-
-        if (!stlSharedObjectFiles.isEmpty()) {
-            diagnostic("remove STL shared object files");
-            for (Abi abi : stlSharedObjectFiles.keySet()) {
-                File stlSharedObjectFile = checkNotNull(stlSharedObjectFiles.get(abi));
-                File objAbi = FileUtils.join(objFolder, abi.getName(),
-                        stlSharedObjectFile.getName());
-
-                if (objAbi.delete()) {
-                    diagnostic("removed file %s", objAbi);
-                } else {
-                    diagnostic("failed to remove file %s", objAbi);
+            List<File> existingJsons = Lists.newArrayList();
+            for (File json : getNativeBuildConfigurationsJsons()) {
+                if (json.isFile()) {
+                    existingJsons.add(json);
                 }
             }
+
+            List<NativeBuildConfigValueMini> configValueList =
+                    AndroidBuildGradleJsons.getNativeBuildMiniConfigs(existingJsons, null);
+            List<String> cleanCommands = Lists.newArrayList();
+            List<String> targetNames = Lists.newArrayList();
+            for (NativeBuildConfigValueMini config : configValueList) {
+                cleanCommands.addAll(config.cleanCommands);
+                Set<String> targets = Sets.newHashSet();
+                for (NativeLibraryValueMini library : config.libraries.values()) {
+                    targets.add(String.format("%s %s", library.artifactName, library.abi));
+                }
+                targetNames.add(Joiner.on(",").join(targets));
+            }
+            infoln("about to execute %s clean commands", cleanCommands.size());
+            executeProcessBatch(cleanCommands, targetNames);
+
+            if (!getStlSharedObjectFiles().isEmpty()) {
+                infoln("remove STL shared object files");
+                for (Abi abi : getStlSharedObjectFiles().keySet()) {
+                    File stlSharedObjectFile = checkNotNull(getStlSharedObjectFiles().get(abi));
+                    File objAbi =
+                            FileUtils.join(
+                                    getObjFolder(), abi.getTag(), stlSharedObjectFile.getName());
+
+                    if (objAbi.delete()) {
+                        infoln("removed file %s", objAbi);
+                    } else {
+                        infoln("failed to remove file %s", objAbi);
+                    }
+                }
+            }
+            infoln("clean complete");
         }
-        diagnostic("clean complete");
     }
 
     /**
      * Given a list of build commands, execute each. If there is a failure, processing is stopped at
      * that point.
      */
-    protected void executeProcessBatch(@NonNull List<String> commands,
-            @NonNull List<String> targetNames) throws ProcessException, IOException {
+    private void executeProcessBatch(
+            @NonNull List<String> commands, @NonNull List<String> targetNames)
+            throws ProcessException, IOException {
         for (int commandIndex = 0; commandIndex < commands.size(); ++commandIndex) {
             String command = commands.get(commandIndex);
             String target = targetNames.get(commandIndex);
@@ -121,12 +119,13 @@ public class ExternalNativeCleanTask extends AndroidBuilderTask {
             for (int i = 1; i < tokens.size(); ++i) {
                 processBuilder.addArgs(tokens.get(i));
             }
-            diagnostic("%s", processBuilder);
+            infoln("%s", processBuilder);
             createProcessOutputJunction(
-                            this.objFolder,
+                            this.getObjFolder(),
                             "android_gradle_clean_" + commandIndex,
                             processBuilder,
-                            getBuilder(),
+                            getLogger(),
+                            new GradleProcessExecutor(getProject()),
                             "")
                     .logStderrToInfo()
                     .logStdoutToInfo()
@@ -135,12 +134,12 @@ public class ExternalNativeCleanTask extends AndroidBuilderTask {
     }
 
     public static class CreationAction extends TaskCreationAction<ExternalNativeCleanTask> {
-        @NonNull
-        private final ExternalNativeJsonGenerator generator;
+        @NonNull private final Provider<ExternalNativeJsonGenerator> generator;
         @NonNull private final VariantScope variantScope;
 
         public CreationAction(
-                @NonNull ExternalNativeJsonGenerator generator, @NonNull VariantScope scope) {
+                @NonNull Provider<ExternalNativeJsonGenerator> generator,
+                @NonNull VariantScope scope) {
             this.generator = generator;
             this.variantScope = scope;
         }
@@ -160,19 +159,30 @@ public class ExternalNativeCleanTask extends AndroidBuilderTask {
         @Override
         public void configure(@NonNull ExternalNativeCleanTask task) {
             task.setVariantName(variantScope.getFullVariantName());
-            // Attempt to clean every possible ABI even those that aren't currently built.
-            // This covers cases where user has changed abiFilters or platform. We don't want
-            // to leave stale results hanging around.
-            List<String> abiNames = Lists.newArrayList();
-            for(Abi abi : NdkHandler.getAbiList()) {
-                abiNames.add(abi.getName());
-            }
-            task.setAndroidBuilder(variantScope.getGlobalScope().getAndroidBuilder());
-            task.nativeBuildConfigurationsJsons =
-                    ExternalNativeBuildTaskUtils.getOutputJsons(
-                            generator.getJsonFolder(), abiNames);
-            task.stlSharedObjectFiles = generator.getStlSharedObjectFiles();
-            task.objFolder = generator.getObjFolder();
+            task.generator = generator;
         }
+    }
+
+    @NonNull
+    private List<File> getNativeBuildConfigurationsJsons() {
+        // Attempt to clean every possible ABI even those that aren't currently built.
+        // This covers cases where user has changed abiFilters or platform. We don't want
+        // to leave stale results hanging around.
+        List<String> abiNames = Lists.newArrayList();
+        for (Abi abi : Abi.values()) {
+            abiNames.add(abi.getTag());
+        }
+        ExternalNativeJsonGenerator jsonGenerator = generator.get();
+        return ExternalNativeBuildTaskUtils.getOutputJsons(jsonGenerator.getJsonFolder(), abiNames);
+    }
+
+    @NonNull
+    private Map<Abi, File> getStlSharedObjectFiles() {
+        return generator.get().getStlSharedObjectFiles();
+    }
+
+    @NonNull
+    private File getObjFolder() {
+        return generator.get().getObjFolder();
     }
 }

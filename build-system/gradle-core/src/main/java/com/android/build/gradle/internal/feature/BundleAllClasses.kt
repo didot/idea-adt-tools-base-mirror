@@ -16,8 +16,6 @@
 
 package com.android.build.gradle.internal.feature
 
-import com.android.build.api.artifact.BuildableArtifact
-import com.android.build.gradle.internal.api.artifact.BuildableArtifactImpl
 import com.android.build.gradle.internal.publishing.AndroidArtifacts
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactScope.ALL
 import com.android.build.gradle.internal.publishing.AndroidArtifacts.ArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR
@@ -25,18 +23,20 @@ import com.android.build.gradle.internal.res.namespaced.JarRequest
 import com.android.build.gradle.internal.res.namespaced.JarWorkerRunnable
 import com.android.build.gradle.internal.scope.InternalArtifactType
 import com.android.build.gradle.internal.scope.VariantScope
-import com.android.build.gradle.internal.tasks.AndroidVariantTask
+import com.android.build.gradle.internal.tasks.NonIncrementalTask
 import com.android.build.gradle.internal.tasks.Workers
 import com.android.build.gradle.internal.tasks.factory.VariantTaskCreationAction
 import com.android.ide.common.workers.WorkerExecutorFacade
+import org.gradle.api.file.Directory
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.FileVisitDetails
+import org.gradle.api.file.RegularFile
 import org.gradle.api.file.ReproducibleFileVisitor
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputFile
-import org.gradle.api.tasks.TaskAction
 import org.gradle.workers.WorkerExecutor
 import java.io.File
 import javax.inject.Inject
@@ -49,16 +49,16 @@ import javax.inject.Inject
  * - dependent features to compile against these classes without bundling them.
  * - unit tests to compile and run them against these classes.
  */
-open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) : AndroidVariantTask() {
+open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) : NonIncrementalTask() {
 
-    val workers: WorkerExecutorFacade = Workers.getWorker(workerExecutor)
+    private val workers: WorkerExecutorFacade = Workers.preferWorkers(project.name, path, workerExecutor)
 
     @get:OutputFile
     lateinit var outputJar: File
         private set
 
     @get:InputFiles
-    lateinit var javacClasses: BuildableArtifact
+    lateinit var javacClasses: Provider<Directory>
         private set
 
     @get:InputFiles
@@ -71,7 +71,7 @@ open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) 
 
     @get:InputFiles
     @get:Optional
-    var thisRClassClasses: BuildableArtifact? = null
+    var thisRClassClasses: Provider<RegularFile>? = null
         private set
 
     @get:InputFiles
@@ -83,8 +83,7 @@ open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) 
     lateinit var modulePath: String
         private set
 
-    @TaskAction
-    fun merge() {
+    public override fun doTaskAction() {
         val files = HashMap<String, File>()
         val collector = object: ReproducibleFileVisitor {
             override fun isReproducibleFileOrder() = true
@@ -94,16 +93,20 @@ open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) 
             override fun visitDir(fileVisitDetails: FileVisitDetails) {
             }
         }
-        (javacClasses as BuildableArtifactImpl).asFileTree.visit(collector)
+        javacClasses.get().asFileTree.visit(collector)
         preJavacClasses.asFileTree.visit(collector)
         postJavacClasses.asFileTree.visit(collector)
-        thisRClassClasses?.get()?.asFileTree?.visit(collector)
+        val rRClassJarFile = thisRClassClasses?.get()?.asFile
+        if (rRClassJarFile!=null) {
+            project.fileTree(rRClassJarFile).visit(collector)
+        }
 
         workers.use {
-            it.submit(JarWorkerRunnable::class.java,
-                JarRequest(toFile = outputJar,
+            it.submit(
+                JarWorkerRunnable::class.java, JarRequest(toFile = outputJar,
                     fromJars = dependencyRClassClasses?.files?.toList() ?: listOf(),
-                    fromFiles = files))
+                    fromFiles = files)
+            )
         }
     }
 
@@ -127,15 +130,14 @@ open class BundleAllClasses @Inject constructor(workerExecutor: WorkerExecutor) 
         override fun configure(task: BundleAllClasses) {
             super.configure(task)
             task.outputJar = outputJar
-            task.javacClasses =
-                    variantScope.artifacts.getArtifactFiles(InternalArtifactType.JAVAC)
+            task.javacClasses = variantScope.artifacts.getFinalProduct(InternalArtifactType.JAVAC)
             task.preJavacClasses = variantScope.variantData.allPreJavacGeneratedBytecode
             task.postJavacClasses = variantScope.variantData.allPostJavacGeneratedBytecode
             val globalScope = variantScope.globalScope
             task.modulePath = globalScope.project.path
             if (globalScope.extension.aaptOptions.namespaced) {
                 task.thisRClassClasses = variantScope.artifacts
-                    .getFinalArtifactFiles(InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR)
+                    .getFinalProduct(InternalArtifactType.COMPILE_ONLY_NAMESPACED_R_CLASS_JAR)
                 task.dependencyRClassClasses = variantScope.getArtifactFileCollection(
                         AndroidArtifacts.ConsumedConfigType.COMPILE_CLASSPATH,
                         ALL,

@@ -23,6 +23,7 @@ import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.intellij.psi.PsiElement;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
@@ -30,7 +31,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import org.intellij.lang.annotations.Language;
+import org.intellij.lang.annotations.RegExp;
 import org.jetbrains.annotations.Nls;
+import org.jetbrains.uast.UElement;
 
 /**
  * A <b>description</b> of a quickfix for a lint warning, which provides structured data for use by
@@ -42,6 +45,9 @@ import org.jetbrains.annotations.Nls;
  * <p>The set of operations is quite limited at the moment; more will be added over time.
  */
 public class LintFix {
+    /** Marker inserted in various places to indicate that something is expected from the user */
+    public static final String TODO = "TODO";
+
     @Nls @Nullable protected final String displayName;
     @Nls @Nullable protected final String familyName;
 
@@ -459,6 +465,7 @@ public class LintFix {
         @Nls @Nullable protected String familyName;
         private String newText;
         private String oldText;
+        private String selectPattern;
         private boolean shortenNames;
         private boolean reformat;
         private boolean robot;
@@ -557,6 +564,15 @@ public class LintFix {
         /** Inserts after the end of the range */
         public ReplaceStringBuilder end() {
             oldText = ReplaceString.INSERT_END;
+            return this;
+        }
+
+        /**
+         * Sets a pattern to select; if it contains parentheses, group(1) will be selected. To just
+         * set the caret, use an empty group.
+         */
+        public ReplaceStringBuilder select(@RegExp @Nullable String selectPattern) {
+            this.selectPattern = selectPattern;
             return this;
         }
 
@@ -673,6 +689,7 @@ public class LintFix {
                     familyName,
                     oldText,
                     oldPattern,
+                    selectPattern,
                     newText != null ? newText : "",
                     shortenNames,
                     reformat,
@@ -690,8 +707,8 @@ public class LintFix {
         private String value = "";
         private int mark = Integer.MIN_VALUE;
         private int dot = Integer.MIN_VALUE;
-        private boolean robot = true;
-        private boolean independent = true;
+        private boolean robot;
+        private boolean independent;
         private Location range;
 
         /** Constructed from {@link Builder#set()} */
@@ -779,7 +796,6 @@ public class LintFix {
         /** Removes the given attribute */
         public SetAttributeBuilder remove(@NonNull String attribute) {
             assert this.attribute == null;
-            assert attribute.indexOf(':') == -1 : attribute;
             this.attribute = attribute;
             this.value = null;
             return this;
@@ -813,7 +829,7 @@ public class LintFix {
                 sb.append(prefix);
             }
             int start = sb.length();
-            sb.append("TODO");
+            sb.append(TODO);
             int end = sb.length();
             if (suffix != null) {
                 sb.append(suffix);
@@ -987,6 +1003,10 @@ public class LintFix {
                 key = Map.class;
             } else if (value instanceof Set) {
                 key = Set.class;
+            } else if (value instanceof UElement) {
+                key = UElement.class;
+            } else if (value instanceof PsiElement) {
+                key = PsiElement.class;
             }
             assert !map.containsKey(key);
             map.put(key, value);
@@ -1150,6 +1170,14 @@ public class LintFix {
 
             return displayName;
         }
+
+        @Override
+        public LintFix autoFix(boolean robot, boolean independent) {
+            for (LintFix fix : fixes) {
+                fix.autoFix(robot, independent);
+            }
+            return super.autoFix(robot, independent);
+        }
     }
 
     /**
@@ -1213,7 +1241,7 @@ public class LintFix {
                 int mark,
                 boolean robot,
                 boolean independent) {
-            super(displayName);
+            super(displayName, familyName);
             this.namespace = namespace;
             this.attribute = attribute;
             this.value = value;
@@ -1270,6 +1298,10 @@ public class LintFix {
          * replacement range.
          */
         @Nullable public final String oldPattern;
+
+        /** Pattern to select; if it contains parentheses, group(1) will be selected */
+        @Nullable public final String selectPattern;
+
         /** The replacement string. */
         @NonNull public final String replacement;
 
@@ -1310,6 +1342,7 @@ public class LintFix {
                 @Nullable String familyName,
                 @Nullable String oldString,
                 @Nullable String oldPattern,
+                @Nullable String selectPattern,
                 @NonNull String replacement,
                 boolean shortenNames,
                 boolean reformat,
@@ -1319,6 +1352,7 @@ public class LintFix {
             super(displayName, familyName);
             this.oldString = oldString;
             this.oldPattern = oldPattern;
+            this.selectPattern = selectPattern;
             this.replacement = replacement;
             this.shortenNames = shortenNames;
             this.reformat = reformat;

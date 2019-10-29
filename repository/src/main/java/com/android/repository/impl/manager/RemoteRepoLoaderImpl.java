@@ -28,6 +28,7 @@ import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.AbstractMap;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import javax.xml.bind.JAXBException;
-import org.w3c.dom.ls.LSResourceResolver;
 
 /**
  * Utility class that loads {@link Repository}s from {@link RepositorySource}s.
@@ -54,10 +54,13 @@ public class RemoteRepoLoaderImpl implements RemoteRepoLoader {
     private static final String FETCH_PACKAGES_WAITING_MESSAGE =
             "Still waiting for package manifests to be fetched remotely.";
 
+    /** Whether or not NDK side by side redirection is enabled. */
+    private static final boolean ENABLE_SIDE_BY_SIDE_NDK = true;
+
     /**
-     * Resource resolver to use for finding imported XSDs.
+     * The name of NDK packages that should be redirected if ENABLE_SIDE_BY_SIDE_NDK is set to true.
      */
-    private final LSResourceResolver mResourceResolver;
+    private static final String NDK_BUNDLE_PACKAGE_NAME = "ndk-bundle";
 
     /**
      * {@link FallbackRemoteRepoLoader} to use if we get an XML file we can't parse.
@@ -69,22 +72,29 @@ public class RemoteRepoLoaderImpl implements RemoteRepoLoader {
      */
     private final Collection<RepositorySourceProvider> mSourceProviders;
 
+    /** If true then present NDK packages as legacy and side-by-side */
+    private final boolean mEnableSideBySideNdk;
+
     /**
      * Constructor
      *
      * @param sources          The {@link RepositorySourceProvider}s to get the {@link
      *                         RepositorySource}s to load from.
-     * @param resourceResolver The resolver to use to find imported XSDs, if necessary for the
-     *                         {@link SchemaModule}s used by the {@link RepositorySource}s.
      * @param fallback         The {@link FallbackRemoteRepoLoader} to use if we can't parse an XML
      *                         file.
      */
     public RemoteRepoLoaderImpl(@NonNull Collection<RepositorySourceProvider> sources,
-            @Nullable LSResourceResolver resourceResolver,
             @Nullable FallbackRemoteRepoLoader fallback) {
-        mResourceResolver = resourceResolver;
+        this(sources, fallback, ENABLE_SIDE_BY_SIDE_NDK);
+    }
+
+    public RemoteRepoLoaderImpl(
+            @NonNull Collection<RepositorySourceProvider> sources,
+            @Nullable FallbackRemoteRepoLoader fallback,
+            boolean enableSideBySideNdk) {
         mSourceProviders = sources;
         mFallback = fallback;
+        mEnableSideBySideNdk = enableSideBySideNdk;
     }
 
     @Override
@@ -163,7 +173,7 @@ public class RemoteRepoLoaderImpl implements RemoteRepoLoader {
             // Collect & process the results, blocking where necessary & checking whether there is anything to wait for
             // before blocking again.
             progress.setIndeterminate(false);
-            double progressIncrement = 0.9 / sources.size() * 2;
+            double progressIncrement = 0.9 / (sources.size() * 2);
             while ((!sourceThreadPool.isTerminated() && (resultsReceived < threadsSubmitted))
                     || !downloadedRepoManifests.isEmpty()) {
                 Map.Entry<RepositorySource, InputStream> repoResult = null;
@@ -243,7 +253,6 @@ public class RemoteRepoLoaderImpl implements RemoteRepoLoader {
                             SchemaModuleUtil.unmarshal(
                                     repoStream,
                                     source.getPermittedModules(),
-                                    mResourceResolver,
                                     true,
                                     unmarshalProgress);
         } catch (JAXBException e) {
@@ -264,7 +273,22 @@ public class RemoteRepoLoaderImpl implements RemoteRepoLoader {
         }
 
         if (parsedPackages != null && !parsedPackages.isEmpty()) {
-            for (RemotePackage pkg : parsedPackages) {
+            // Synthesize NDK packages
+            Collection<RemotePackage> packages = new ArrayList<>();
+            if (mEnableSideBySideNdk) {
+                for (RemotePackage pkg : parsedPackages) {
+                    if (pkg.getPath().equals(NDK_BUNDLE_PACKAGE_NAME)) {
+                        packages.add(new NdkLegacyPackage(pkg));
+                        packages.add(new NdkSideBySidePackage(pkg));
+                    } else {
+                        packages.add(pkg);
+                    }
+                }
+            } else {
+                packages.addAll(parsedPackages);
+            }
+
+            for (RemotePackage pkg : packages) {
                 RemotePackage existing = result.get(pkg.getPath());
                 if (existing != null) {
                     int compare = existing.getVersion().compareTo(pkg.getVersion());

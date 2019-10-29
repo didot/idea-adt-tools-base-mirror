@@ -16,12 +16,10 @@
 
 package com.android.build.gradle.tasks
 
-import com.android.build.api.artifact.BuildableArtifact
-import com.android.build.gradle.internal.api.artifact.singleFile
-import com.android.build.gradle.internal.incremental.InstantRunBuildContext
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder
 import com.android.build.gradle.internal.scope.BuildArtifactsHolder.OperationType.APPEND
-import com.android.build.gradle.internal.scope.InternalArtifactType.ANNOTATION_PROCESSOR_GENERATED_SOURCES_PRIVATE_USE
-import com.android.build.gradle.internal.scope.InternalArtifactType.ANNOTATION_PROCESSOR_GENERATED_SOURCES_PUBLIC_USE
+import com.android.build.gradle.internal.scope.BuildArtifactsHolder.OperationType.INITIAL
+import com.android.build.gradle.internal.scope.InternalArtifactType.AP_GENERATED_SOURCES
 import com.android.build.gradle.internal.scope.InternalArtifactType.ANNOTATION_PROCESSOR_LIST
 import com.android.build.gradle.internal.scope.InternalArtifactType.DATA_BINDING_ARTIFACT
 import com.android.build.gradle.internal.scope.InternalArtifactType.JAVAC
@@ -32,11 +30,18 @@ import com.android.build.gradle.options.BooleanOption
 import com.android.sdklib.AndroidTargetHash
 import com.google.common.base.Joiner
 import org.gradle.api.JavaVersion
+import org.gradle.api.file.Directory
+import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.FileTree
+import org.gradle.api.file.RegularFile
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.SkipWhenEmpty
@@ -70,7 +75,7 @@ import java.io.File
  *     annotation processing and compilation.
  */
 @CacheableTask
-open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
+abstract class AndroidJavaCompile: JavaCompile(), VariantAwareTask {
 
     @get:Internal
     override lateinit var variantName: String
@@ -88,9 +93,9 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
         BooleanOption.ENABLE_SEPARATE_ANNOTATION_PROCESSING.defaultValue
         private set
 
-    @get:InputFiles
+    @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
-    lateinit var processorListFile: BuildableArtifact
+    lateinit var processorListFile: Provider<RegularFile>
         internal set
 
     @get:Internal
@@ -104,12 +109,31 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
         return this.project.files(this.sourceFileTrees()).asFileTree
     }
 
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    // Annotation processors generated sources when separate annotation processing is enabled.
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    @get:Optional
+    abstract val separateTaskAnnotationProcessorsGeneratedSourcesDirectory: DirectoryProperty
+
+    // Annotation processors generated sources when separate annotation processing is disabled.
+    @get:OutputDirectory
+    @get:Optional
+    abstract val annotationProcessorSourcesDirectory: DirectoryProperty
+
+    /**
+     * Overrides the stock Gradle JavaCompile task output directory as we use instead the
+     * above outputDirectory. The [JavaCompile.destinationDir] is not declared as a Task output
+     * for this task.
+     */
+    override fun getDestinationDir(): File {
+        return outputDirectory.get().asFile
+    }
+
     @get:Input
     lateinit var compileSdkVersion: String
-        private set
-
-    @get:Internal
-    lateinit var instantRunBuildContext: InstantRunBuildContext
         private set
 
     override fun compile(inputs: IncrementalTaskInputs) {
@@ -123,7 +147,7 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
         val hasKapt = this.project.pluginManager.hasPlugin(KOTLIN_KAPT_PLUGIN_ID)
 
         val annotationProcessors =
-            readAnnotationProcessorsFromJsonFile(processorListFile.singleFile())
+            readAnnotationProcessorsFromJsonFile(processorListFile.get().asFile)
         val nonIncrementalAPs =
             annotationProcessors.filter { it -> it.value == java.lang.Boolean.FALSE }
         val allAPsAreIncremental = nonIncrementalAPs.isEmpty()
@@ -158,40 +182,25 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
         }
 
         /*
-         * HACK: The following are workarounds for known issues.
+         * HACK: The following is to work around a known issue.
+         *
+         * If Kapt or ProcessAnnotationTask has done annotation processing earlier, this task does
+         * not need to run annotation processing again.
+         *
+         * However, if the Lombok annotation processor is used, this task still needs to run
+         * annotation processing again as Lombok requires annotation processing and compilation to
+         * be done in the same invocation of the Java compiler.
+         *
+         * Note that in that case, even though this task runs annotation processing again, it should
+         * run Lombok only, to avoid running the other annotation processors twice.
+         *
+         * Also note that the version of Lombok being used may or may not be incremental. Related
+         * bugs: https://github.com/rzwitserloot/lombok/pull/1680 and
+         * https://github.com/rzwitserloot/lombok/issues/1817.
          */
-        if (incrementalFromDslOrByDefault
-            && !hasKapt
-            && !separateAnnotationProcessingFlag
-            && !allAPsAreIncremental
-        ) {
-            // If incremental compilation is requested and annotation processing is performed by
-            // this task, but not all of the annotation processors are incremental, then compilation
-            // should not be incremental. However, there is a Gradle bug that if a non-incremental
-            // annotation processor changes a resource, Gradle will mistakenly remain in incremental
-            // mode, and may not even perform any recompilation at all even though this task is not
-            // UP-TO-DATE. See http://issuetracker.google.com/113054294. Before the fix is available
-            // in Gradle 5.0, we need to disable incremental mode explicitly here.
-            this.options.isIncremental = false
-        }
         if (hasKapt
             || incrementalFromDslOrByDefault && separateAnnotationProcessingFlag
         ) {
-            /*
-             * If Kapt or ProcessAnnotationTask has done annotation processing earlier, this task
-             * does not need to run annotation processing again.
-             *
-             * However, if the Lombok annotation processor is used, this task still needs to run
-             * annotation processing again as Lombok requires annotation processing and compilation
-             * to be done in the same invocation of the Java compiler.
-             *
-             * Note that in that case, even though this task runs annotation processing again, it
-             * should run Lombok only, to avoid running the other annotation processors twice.
-             *
-             * Also note that the version of Lombok being used may or may not be incremental.
-             * Related bugs: https://github.com/rzwitserloot/lombok/pull/1680 and
-             * https://github.com/rzwitserloot/lombok/issues/1817.
-             */
             val lomboks = annotationProcessors.filter { it -> it.key.contains(LOMBOK) }
             if (lomboks.isNotEmpty()) {
                 this.options.compilerArgs.removeIf { it -> it == PROC_NONE }
@@ -208,10 +217,6 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
                                 " as the following annotation processors are not incremental:" +
                                 " ${Joiner.on(", ").join(nonIncrementalLomboks.keys)}."
                     )
-
-                    // Because of the Gradle bug mentioned in the previous hack, we need to disable
-                    // incremental mode explicitly here
-                    this.options.isIncremental = false
                 }
             }
         }
@@ -221,7 +226,7 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
         // JavaPreCompileTask as it needs to be done even in incremental builds where
         // JavaPreCompileTask may be UP-TO-DATE.
         recordAnnotationProcessorsForAnalytics(
-            annotationProcessors.keys, project.path, variantName
+            annotationProcessors, project.path, variantName
         )
 
         logger.info(
@@ -229,9 +234,7 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
                     " and target level $targetCompatibility."
         )
 
-        instantRunBuildContext.startRecording(InstantRunBuildContext.TaskType.JAVAC)
         super.compile(inputs)
-        instantRunBuildContext.stopRecording(InstantRunBuildContext.TaskType.JAVAC)
     }
 
     private fun isPostN(compileSdkVersion: String): Boolean {
@@ -245,8 +248,6 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
     ) :
         VariantTaskCreationAction<AndroidJavaCompile>(variantScope) {
 
-        private lateinit var destinationDir: File
-
         override val name: String
             get() = variantScope.getTaskName("compile", "JavaWithJavac")
 
@@ -255,19 +256,6 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
 
         override fun preConfigure(taskName: String) {
             super.preConfigure(taskName)
-
-            // Register annotation processing output.
-            // Note that the annotation processing output may be generated before AndroidJavaCompile
-            // is executed if annotation processing is done by another task (ProcessAnnotationTask
-            // or KaptTask). Since consumers of the annotation processing output does not need to
-            // know what task generates it, for simplicity, we still register AndroidJavaCompile as
-            // the generating task.
-            variantScope.artifacts.createBuildableArtifact(
-                ANNOTATION_PROCESSOR_GENERATED_SOURCES_PUBLIC_USE,
-                APPEND,
-                listOf(variantScope.annotationProcessorOutputDir),
-                taskName
-            )
 
             // Data binding artifact is one of the annotation processing outputs
             if (variantScope.globalScope.extension.dataBinding.isEnabled) {
@@ -278,16 +266,29 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
                     taskName
                 )
             }
-
-            // Register compiled Java classes output
-            destinationDir =
-                    variantScope.artifacts.appendArtifact(JAVAC, taskName, "classes")
         }
 
         override fun handleProvider(taskProvider: TaskProvider<out AndroidJavaCompile>) {
             super.handleProvider(taskProvider)
 
             variantScope.taskContainer.javacTask = taskProvider
+
+            variantScope.artifacts.producesDir(JAVAC,
+                APPEND,
+                taskProvider,
+                taskProvider.map { it.outputDirectory },
+                "classes"
+                )
+
+            // When doing annotation processing, register its output
+            if (!processAnnotationsTaskCreated) {
+                variantScope.artifacts.producesDir(
+                    AP_GENERATED_SOURCES,
+                    INITIAL,
+                    taskProvider,
+                    taskProvider.map { it.annotationProcessorSourcesDirectory }
+                )
+            }
         }
 
         override fun configure(task: AndroidJavaCompile) {
@@ -309,14 +310,13 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
                     DEFAULT_INCREMENTAL_COMPILATION
             task.separateAnnotationProcessingFlag = separateAnnotationProcessingFlag
             task.processorListFile =
-                    variantScope.artifacts.getFinalArtifactFiles(ANNOTATION_PROCESSOR_LIST)
+                    variantScope.artifacts.getFinalProduct(ANNOTATION_PROCESSOR_LIST)
             task.compileSdkVersion = globalScope.extension.compileSdkVersion
-            task.instantRunBuildContext = variantScope.instantRunBuildContext
 
             // Configure properties for annotation processing, but only if it is not done by
             // ProcessAnnotationsTask
             if (!processAnnotationsTaskCreated) {
-                task.configurePropertiesForAnnotationProcessing(variantScope)
+                task.configurePropertiesForAnnotationProcessing(variantScope, task.annotationProcessorSourcesDirectory)
             } else {
                 // Otherwise, disable annotation processing
                 task.options.compilerArgs.add(PROC_NONE)
@@ -325,12 +325,14 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
             // Collect the list of source files to process/compile, which includes the annotation
             // processing output if annotation processing is done by ProcessAnnotationsTask
             if (processAnnotationsTaskCreated) {
+                // we are not generating sources but we will need to set it.
+                task.annotationProcessorSourcesDirectory.set(null as Directory?)
                 val generatedSourcesArtifact = variantScope.artifacts
-                    .getFinalArtifactFiles(ANNOTATION_PROCESSOR_GENERATED_SOURCES_PRIVATE_USE)
-                val generatedSources =
-                    project.fileTree(generatedSourcesArtifact.get().singleFile).builtBy(
-                        generatedSourcesArtifact
-                    )
+                    .getFinalProduct<Directory>(AP_GENERATED_SOURCES)
+                task.separateTaskAnnotationProcessorsGeneratedSourcesDirectory.set(generatedSourcesArtifact)
+
+                val generatedSources = project.fileTree(task.separateTaskAnnotationProcessorsGeneratedSourcesDirectory)
+                    .builtBy(task.separateTaskAnnotationProcessorsGeneratedSourcesDirectory)
                 task.sourceFileTrees = {
                     val sources = mutableListOf<FileTree>()
                     sources.addAll(variantScope.variantData.javaSources)
@@ -338,18 +340,10 @@ open class AndroidJavaCompile : JavaCompile(), VariantAwareTask {
                     sources.toList()
                 }
             } else {
+                task.separateTaskAnnotationProcessorsGeneratedSourcesDirectory.set(null as Directory?)
                 task.sourceFileTrees = { variantScope.variantData.javaSources }
             }
 
-            task.destinationDir = destinationDir
-
-            // When ProcessAnnotationsTask is created, it also depends on the following task
-            // dependencies, and because AndroidJavaCompile already depends on
-            // ProcessAnnotationsTask, we don't need to set the dependencies again here (this makes
-            // the task dependencies simpler).
-            if (!processAnnotationsTaskCreated) {
-                task.dependsOn(variantScope.taskContainer.sourceGenTask)
-            }
         }
     }
 }

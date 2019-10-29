@@ -27,23 +27,14 @@ import java.util.function.BinaryOperator
 import java.util.function.Function
 import java.util.function.Supplier
 import java.util.stream.Collector
-import kotlin.collections.ArrayList
-import kotlin.collections.List
-import kotlin.collections.Map
-import kotlin.collections.MutableList
-import kotlin.collections.all
-import kotlin.collections.arrayListOf
-import kotlin.collections.filter
-import kotlin.collections.forEach
-import kotlin.collections.last
-import kotlin.collections.map
-import kotlin.collections.setOf
 
-private const val NAME_KEY = "name"
-private const val VENDOR_ID_KEY = "Vendor ID"
-private const val PRODUCT_ID_KEY = "Product ID"
+private val NAME_KEY = "name"
+private val VENDOR_ID_KEY = "Vendor ID"
+private val PRODUCT_ID_KEY = "Product ID"
+private val SERIAL_KEY = "Serial Number"
 private val NAME_REGEX: Regex = Regex("(.*):$")
 private val PROPERTY_REGEX: Regex = Regex("(.*):(.*)$")
+private val EMPTY_SERIAL = Regex("0*$")
 private val REQUIRED_KEYS: List<String> = arrayListOf(NAME_KEY, VENDOR_ID_KEY, PRODUCT_ID_KEY)
 
 private fun extractValues(lines: List<String>): Map<String, String> {
@@ -65,10 +56,18 @@ private fun extractValues(lines: List<String>): Map<String, String> {
 }
 
 private fun createUsbDevice(map: Map<String, String>): UsbDevice {
+  var serial = map[SERIAL_KEY]
+
+  if (serial != null && serial.matches(EMPTY_SERIAL)) {
+    serial = null
+  }
+
   return UsbDevice(
     map[NAME_KEY]!!,
     map[VENDOR_ID_KEY]!!.split(" ")[0], // output could include vendorId aa text. i.e. 0x18d1 (Google Inc.)
-    map[PRODUCT_ID_KEY]!!
+    map[PRODUCT_ID_KEY]!!,
+    null,
+    serial
   )
 }
 
@@ -86,7 +85,12 @@ class MacParser : OutputParser {
         stringGroups.add(ArrayList())
       }
 
-      stringGroups.last().add(line)
+      // system_profiler may include error messages at the start of its output. stringGroups will be empty in this case since we haven't
+      // yet encountered a line that matches NAME_REGEX. We can safely ignore such lines since they won't contain any information about a
+      // USB device, and trying to call stringGroups.last() will generate an exception since the list is empty.
+      if (!stringGroups.isEmpty()) {
+        stringGroups.last().add(line)
+      }
     }
 
     override fun combiner() = BinaryOperator<MutableList<MutableList<String>>> { t, u ->

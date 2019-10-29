@@ -24,6 +24,7 @@ import static com.android.tools.lint.LintCliFlags.ERRNO_SUCCESS;
 import com.android.SdkConstants;
 import com.android.annotations.NonNull;
 import com.android.annotations.Nullable;
+import com.android.builder.model.Version;
 import com.android.testutils.TestUtils;
 import com.android.tools.lint.checks.AbstractCheckTest;
 import com.android.tools.lint.checks.AccessibilityDetector;
@@ -34,6 +35,9 @@ import com.android.tools.lint.detector.api.Issue;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
+import java.util.stream.Collectors;
 import kotlin.text.StringsKt;
 import org.intellij.lang.annotations.Language;
 
@@ -445,6 +449,75 @@ public class MainTest extends AbstractCheckTest {
         baseline.delete();
     }
 
+    public void testUpdateBaseline() throws Exception {
+        File baseline = File.createTempFile("baseline", "xml");
+        Files.write(
+                baseline.toPath(),
+                // language=XML
+                ("<issues></issues>").getBytes(),
+                StandardOpenOption.TRUNCATE_EXISTING);
+
+        checkDriver(
+                // Expected output
+                "\n"
+                        + "Scanning MainTest_testUpdateBaseline: .\n"
+                        + "res/layout/accessibility.xml:4: Warning: Missing contentDescription attribute on image [ContentDescription]\n"
+                        + "    <ImageView android:id=\"@+id/android_logo\" android:layout_width=\"wrap_content\" android:layout_height=\"wrap_content\" android:src=\"@drawable/android_button\" android:focusable=\"false\" android:clickable=\"false\" android:layout_weight=\"1.0\" />\n"
+                        + "     ~~~~~~~~~\n"
+                        + "res/layout/accessibility.xml:5: Warning: Missing contentDescription attribute on image [ContentDescription]\n"
+                        + "    <ImageButton android:importantForAccessibility=\"yes\" android:id=\"@+id/android_logo2\" android:layout_width=\"wrap_content\" android:layout_height=\"wrap_content\" android:src=\"@drawable/android_button\" android:focusable=\"false\" android:clickable=\"false\" android:layout_weight=\"1.0\" />\n"
+                        + "     ~~~~~~~~~~~\n"
+                        + "0 errors, 2 warnings\n",
+
+                // Expected error
+                "",
+
+                // Expected exit code
+                ERRNO_CREATED_BASELINE,
+
+                // Args
+                new String[] {
+                    "--check",
+                    "ContentDescription",
+                    "--baseline",
+                    baseline.getPath(),
+                    "--update-baseline",
+                    "--disable",
+                    "LintError",
+                    getProjectDir(null, mAccessibility).getPath()
+                });
+
+        // Skip the first three lines that contain just the version which can change.
+        String newBaseline =
+                Files.readAllLines(baseline.toPath())
+                        .stream()
+                        .skip(3)
+                        .collect(Collectors.joining("\n"));
+
+        String expected =
+                "    <issue\n"
+                        + "        id=\"ContentDescription\"\n"
+                        + "        message=\"Missing `contentDescription` attribute on image\">\n"
+                        + "        <location\n"
+                        + "            file=\"res/layout/accessibility.xml\"\n"
+                        + "            line=\"4\"/>\n"
+                        + "    </issue>\n"
+                        + "\n"
+                        + "    <issue\n"
+                        + "        id=\"ContentDescription\"\n"
+                        + "        message=\"Missing `contentDescription` attribute on image\">\n"
+                        + "        <location\n"
+                        + "            file=\"res/layout/accessibility.xml\"\n"
+                        + "            line=\"5\"/>\n"
+                        + "    </issue>\n"
+                        + "\n"
+                        + "</issues>";
+
+        assertEquals(expected, newBaseline);
+
+        baseline.delete();
+    }
+
     @Override
     protected Detector getDetector() {
         // Sample issue to check by the main driver
@@ -614,6 +687,19 @@ public class MainTest extends AbstractCheckTest {
                 new String[] {
                     "--text", new File(outputDir, "foo.text").getPath(), project.getPath(),
                 });
+    }
+
+    public void testVersion() throws Exception {
+        File project = getProjectDir(null, manifest().minSdk(1));
+        checkDriver(
+                "lint: version " + Version.ANDROID_TOOLS_BASE_VERSION + "\n",
+                "",
+
+                // Expected exit code
+                ERRNO_SUCCESS,
+
+                // Args
+                new String[] {"--version", "--check", "HardcodedText", project.getPath()});
     }
 
     @Override

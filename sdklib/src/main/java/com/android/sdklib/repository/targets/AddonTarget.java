@@ -27,6 +27,7 @@ import com.android.sdklib.AndroidVersion;
 import com.android.sdklib.BuildToolInfo;
 import com.android.sdklib.IAndroidTarget;
 import com.android.sdklib.ISystemImage;
+import com.android.sdklib.OptionalLibrary;
 import com.android.sdklib.repository.PackageParserUtils;
 import com.android.sdklib.repository.legacy.LegacyRepoUtils;
 import com.android.sdklib.repository.meta.DetailsTypes;
@@ -41,7 +42,6 @@ import java.util.Map;
  * Represents an add-on target in the SDK. An add-on extends a standard {@link PlatformTarget}.
  */
 public class AddonTarget implements IAndroidTarget {
-
     /**
      * The {@link LocalPackage} from which this target was created.
      */
@@ -71,11 +71,12 @@ public class AddonTarget implements IAndroidTarget {
     private List<OptionalLibrary> mAdditionalLibraries;
 
     /**
-     * Construct a new {@link AddonTarget}.
-     *  @param p          The {@link LocalPackage} containing this target.
+     * Constructs a new {@link AddonTarget}.
+     *
+     * @param p          The {@link LocalPackage} containing this target.
      * @param baseTarget The {@link IAndroidTarget} on which this addon is based.
      * @param sysImgMgr  A {@link SystemImageManager}, used to find {@link ISystemImage}s associated
- *                   associated with this target.
+     *                   associated with this target.
      * @param progress
      * @param fop        {@link FileOp} to use for file operations. For normal use should be {@link
      *                   FileOpUtils#create()}.
@@ -142,6 +143,7 @@ public class AddonTarget implements IAndroidTarget {
     }
 
     @Override
+    @NonNull
     public String getLocation() {
         return mPackage.getLocation().getPath() + File.separator;
     }
@@ -203,6 +205,7 @@ public class AddonTarget implements IAndroidTarget {
     }
 
     @Override
+    @NonNull
     public String getPath(int pathId) {
         String installPath = mPackage.getLocation().getPath();
         switch (pathId) {
@@ -218,29 +221,24 @@ public class AddonTarget implements IAndroidTarget {
     }
 
     @Override
-    public File getFile(int pathId) {
-        return new File(getPath(pathId));
-    }
-
-    @Override
     public BuildToolInfo getBuildToolInfo() {
         return mBasePlatform.getBuildToolInfo();
     }
 
-    @NonNull
     @Override
+    @NonNull
     public List<String> getBootClasspath() {
         return mBasePlatform.getBootClasspath();
     }
 
-    @NonNull
     @Override
+    @NonNull
     public List<OptionalLibrary> getOptionalLibraries() {
         return mBasePlatform.getOptionalLibraries();
     }
 
-    @NonNull
     @Override
+    @NonNull
     public List<OptionalLibrary> getAdditionalLibraries() {
         return mAdditionalLibraries;
     }
@@ -250,14 +248,14 @@ public class AddonTarget implements IAndroidTarget {
         return false;
     }
 
-    @NonNull
     @Override
+    @NonNull
     public File[] getSkins() {
         return mSkins;
     }
 
-    @Nullable
     @Override
+    @Nullable
     public File getDefaultSkin() {
         return mDefaultSkin;
     }
@@ -308,22 +306,22 @@ public class AddonTarget implements IAndroidTarget {
 
     @Override
     public int compareTo(@NonNull IAndroidTarget target) {
-        // quick check.
+        // Quick check.
         if (this == target) {
             return 0;
         }
 
         int versionDiff = getVersion().compareTo(target.getVersion());
 
-        // only if the versions are the same do we care about platform/add-ons.
+        // Only if the versions are the same do we care about platform/add-ons.
         if (versionDiff == 0) {
-            // platforms go before add-ons.
+            // Platforms go before add-ons.
             if (target.isPlatform()) {
-                return +1;
+                return 1;
             } else {
                 AddonTarget targetAddOn = (AddonTarget) target;
 
-                // both are add-ons of the same version. Compare per vendor then by name
+                // Both are add-ons of the same version. Compare per vendor then by name.
                 int vendorDiff = getVendor().compareTo(targetAddOn.getVendor());
                 if (vendorDiff == 0) {
                     return getName().compareTo(targetAddOn.getName());

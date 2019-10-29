@@ -1,18 +1,20 @@
-// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.android.tools.perflib.heap.memoryanalyzer;
 
 import com.android.tools.perflib.analyzer.AnalysisResultEntry;
 import com.android.tools.perflib.heap.Instance;
 import com.android.tools.perflib.heap.memoryanalyzer.DuplicatedStringsAnalyzerTask.DuplicatedStringsEntry;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
-import org.mockito.*;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import org.mockito.ArgumentMatchers;
+import org.mockito.InOrder;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.MockitoAnnotations;
 
 /**
  * Tests for {@link DuplicatedStringsReport}.
@@ -68,15 +70,15 @@ public final class DuplicatedStringsReportTest {
         // verify that the entries were sorted correctly
         inOrder.verify(mPrinterMock)
                 .addRow(
-                  ArgumentMatchers.anyString(),
-                  ArgumentMatchers.anyString(),
-                  ArgumentMatchers.eq("2"),
+                        Mockito.anyString(),
+                        Mockito.anyString(),
+                        Mockito.eq("2"),
                         ArgumentMatchers.nullable(String.class));
         inOrder.verify(mPrinterMock)
                 .addRow(
-                  ArgumentMatchers.anyString(),
-                  ArgumentMatchers.anyString(),
-                  ArgumentMatchers.eq("1"),
+                        Mockito.anyString(),
+                        Mockito.anyString(),
+                        Mockito.eq("1"),
                         ArgumentMatchers.nullable(String.class));
     }
 
@@ -94,6 +96,6 @@ public final class DuplicatedStringsReportTest {
         // verify
         Mockito.verify(mPrinterMock).addHeading(2, task.getTaskName() + " Report");
         Mockito.verify(mPrinterMock).addParagraph(task.getTaskDescription());
-        Mockito.verify(mPrinterMock).addParagraph(ArgumentMatchers.contains("No issues found."));
+        Mockito.verify(mPrinterMock).addParagraph(Mockito.contains("No issues found."));
     }
 }

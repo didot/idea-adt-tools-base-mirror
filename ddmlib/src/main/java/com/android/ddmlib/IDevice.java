@@ -65,13 +65,15 @@ public interface IDevice extends IShellEnabledDevice {
     enum Feature {
         SCREEN_RECORD,      // screen recorder available?
         PROCSTATS,          // procstats service (dumpsys procstats) available
+        ABB_EXEC,           // Android Binder Bridge available
     }
 
     /** Device level hardware features. */
     enum HardwareFeature {
         WATCH("watch"),
         EMBEDDED("embedded"),
-        TV("tv");
+        TV("tv"),
+        AUTOMOTIVE("automotive");
 
         private final String mCharacteristic;
 
@@ -387,6 +389,34 @@ public interface IDevice extends IShellEnabledDevice {
     }
 
     /**
+     * Executes a Binder command on the device, and sends the result to a <var>receiver</var>
+     * <p>This uses exec:cmd <command> call or faster abb_exec:<command> if both device OS and
+     * host ADB server support Android Binder Bridge execute feature.
+     *
+     * @param command the binder command to execute
+     * @param receiver the {@link IShellOutputReceiver} that will receives the output of the binder
+     *            command
+     * @param is optional input stream to send through stdin
+     * @throws TimeoutException in case of timeout on the connection.
+     * @throws AdbCommandRejectedException if adb rejects the command
+     * @throws ShellCommandUnresponsiveException in case the binder command doesn't send output
+     *            for a given time.
+     * @throws IOException in case of I/O error on the connection.
+     *
+     * @see DdmPreferences#getTimeOut()
+     */
+    default void executeBinderCommand(
+            String[] parameters,
+            IShellOutputReceiver receiver,
+            long maxTimeToOutputResponse,
+            TimeUnit maxTimeUnits,
+            @Nullable InputStream is)
+            throws TimeoutException, AdbCommandRejectedException, ShellCommandUnresponsiveException,
+                    IOException {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
      * Runs the event log service and outputs the event log to the {@link LogReceiver}.
      * <p>This call is blocking until {@link LogReceiver#isCancelled()} returns true.
      * @param receiver the receiver to receive the event log entries.
@@ -506,7 +536,7 @@ public interface IDevice extends IShellEnabledDevice {
      * @param packageFilePath the absolute file system path to file on local host to install
      * @param reinstall set to <code>true</code> if re-install of app should be performed
      * @param extraArgs optional extra arguments to pass. See 'adb shell pm install --help' for
-     *            available options.
+     *     available options.
      * @throws InstallException if the installation fails.
      */
     void installPackage(String packageFilePath, boolean reinstall, String... extraArgs)
@@ -566,14 +596,82 @@ public interface IDevice extends IShellEnabledDevice {
      * @param apks list of apks to install (1 main APK + 0..n split apks)
      * @param reinstall set to <code>true</code> if re-install of app should be performed
      * @param installOptions optional extra arguments to pass. See 'adb shell pm install --help' for
-     *            available options.
+     *     available options.
      * @param timeout installation timeout
      * @param timeoutUnit {@link TimeUnit} corresponding to the timeout parameter
      * @throws InstallException if the installation fails.
      */
-    void installPackages(@NonNull List<File> apks, boolean reinstall,
-            @NonNull List<String> installOptions, long timeout, @NonNull TimeUnit timeoutUnit)
+    void installPackages(
+            @NonNull List<File> apks,
+            boolean reinstall,
+            @NonNull List<String> installOptions,
+            long timeout,
+            @NonNull TimeUnit timeoutUnit)
             throws InstallException;
+
+    /**
+     * Installs an Android application made of several APK files (one main and 0..n split packages)
+     * with default timeout
+     *
+     * @param apks list of apks to install (1 main APK + 0..n split apks)
+     * @param reinstall set to <code>true</code> if re-install of app should be performed
+     * @param installOptions optional extra arguments to pass. See 'adb shell pm install --help' for
+     *     available options.
+     * @throws InstallException if the installation fails.
+     */
+    default void installPackages(
+            @NonNull List<File> apks, boolean reinstall, @NonNull List<String> installOptions)
+            throws InstallException {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Gets the information about the most recent installation on this device.
+     *
+     * @return {@link InstallMetrics} metrics describing the installation.
+     */
+    default InstallMetrics getLastInstallMetrics() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Installs an Android application made of several APK files sitting locally on the device
+     *
+     * @param remoteApks list of apk file paths sitting on the device to install
+     * @param reinstall set to <code>true</code> if re-install of app should be performed
+     * @param installOptions optional extra arguments to pass. See 'adb shell pm install --help' for
+     *     available options.
+     * @param timeout installation timeout
+     * @param timeoutUnit {@link TimeUnit} corresponding to the timeout parameter
+     * @throws InstallException if the installation fails.
+     */
+    default void installRemotePackages(
+            @NonNull List<String> remoteApks,
+            boolean reinstall,
+            @NonNull List<String> installOptions,
+            long timeout,
+            @NonNull TimeUnit timeoutUnit)
+            throws InstallException {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Installs an Android application made of several APK files sitting locally on the device with
+     * default timeout
+     *
+     * @param apks list of apk file paths on the device to install
+     * @param reinstall set to <code>true</code> if re-install of app should be performed
+     * @param installOptions optional extra arguments to pass. See 'adb shell pm install --help' for
+     *     available options.
+     * @throws InstallException if the installation fails.
+     */
+    default void installRemotePackages(
+            @NonNull List<String> remoteApks,
+            boolean reinstall,
+            @NonNull List<String> installOptions)
+            throws InstallException {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * Pushes a file to device
