@@ -53,6 +53,15 @@ public final class IdeBuildTypeContainer extends IdeModel implements BuildTypeCo
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeBuildTypeContainer() {
+        myBuildType = null;
+        mySourceProvider = null;
+        myExtraSourceProviders = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public IdeBuildType getBuildType() {

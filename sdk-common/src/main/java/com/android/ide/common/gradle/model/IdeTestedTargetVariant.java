@@ -37,6 +37,14 @@ public final class IdeTestedTargetVariant extends IdeModel implements TestedTarg
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeTestedTargetVariant() {
+        myTargetProjectPath = null;
+        myTargetVariant = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getTargetProjectPath() {

@@ -186,6 +186,40 @@ public final class IdeAndroidProjectImpl extends IdeModel implements IdeAndroidP
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeAndroidProjectImpl() {
+        myModelVersion = null;
+        myName = null;
+        myDefaultConfig = null;
+        myBuildTypes = null;
+        myProductFlavors = null;
+        mySyncIssues = null;
+        myVariants = null;
+        myVariantNames = null;
+        myDefaultVariant = null;
+        myFlavorDimensions = null;
+        myCompileTarget = null;
+        myBootClassPath = null;
+        myNativeToolchains = null;
+        mySigningConfigs = null;
+        myLintOptions = null;
+        myUnresolvedDependencies = null;
+        myJavaCompileOptions = null;
+        myAaptOptions = null;
+        myBuildFolder = null;
+        myDynamicFeatures = null;
+        myParsedModelVersion = null;
+        myBuildToolsVersion = null;
+        myResourcePrefix = null;
+        mySupportsPluginGeneration = false;
+        myApiVersion = 0;
+        myLibrary = false;
+        myProjectType = 0;
+        myBaseSplit = false;
+        myHashCode = 0;
+    }
+
     @NonNull
     private static ImmutableList<String> computeVariantNames(Collection<Variant> variants) {
         return variants.stream().map(Variant::getName).collect(ImmutableList.toImmutableList());

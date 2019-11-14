@@ -38,6 +38,9 @@ public abstract class IdeModel implements Serializable {
         }
     }
 
+    protected IdeModel() {
+    }
+
     @Nullable
     protected static <K, V> V copyNewProperty(
             @NonNull ModelCache modelCache,
@@ -73,24 +76,24 @@ public abstract class IdeModel implements Serializable {
     }
 
     @NonNull
-    protected static <K, V> List<K> copy(
+    protected static <K, V> List<V> copy(
             @NonNull Collection<K> original,
             @NonNull ModelCache modelCache,
             @NonNull Function<K, V> mapper) {
         if (original.isEmpty()) {
             return Collections.emptyList();
         }
-        ImmutableList.Builder<K> copies = ImmutableList.builder();
+        ImmutableList.Builder<V> copies = ImmutableList.builder();
         for (K item : original) {
             V copy = modelCache.computeIfAbsent(item, mapper);
             //noinspection unchecked
-            copies.add((K) copy);
+            copies.add(copy);
         }
         return copies.build();
     }
 
     @NonNull
-    protected static <K, V> List<K> copy(
+    protected static <K, V> List<V> copy(
             @NonNull Supplier<Collection<K>> propertyInvoker,
             @NonNull ModelCache modelCache,
             @NonNull Function<K, V> mapper) {

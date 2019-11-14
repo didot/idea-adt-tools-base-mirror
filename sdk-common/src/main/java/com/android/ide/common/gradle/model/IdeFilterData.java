@@ -36,6 +36,14 @@ public final class IdeFilterData extends IdeModel implements FilterData {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeFilterData() {
+        myIdentifier = null;
+        myFilterType = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getIdentifier() {

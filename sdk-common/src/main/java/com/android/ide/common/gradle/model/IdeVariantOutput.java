@@ -30,7 +30,7 @@ public abstract class IdeVariantOutput extends IdeModel implements VariantOutput
     // Increase the value when adding/removing fields or when changing the serialization/deserialization mechanism.
     private static final long serialVersionUID = 1L;
 
-    @NonNull private final Collection<? extends OutputFile> myOutputs;
+    @NonNull private final Collection<IdeOutputFile> myOutputs;
     @NonNull private final Collection<String> myFilterTypes;
     @Nullable private final Collection<FilterData> myFilters;
     @Nullable private final OutputFile myMainOutputFile;
@@ -61,6 +61,16 @@ public abstract class IdeVariantOutput extends IdeModel implements VariantOutput
         myVersionCode = output.getVersionCode();
 
         myHashCode = calculateHashCode();
+    }
+
+    protected IdeVariantOutput() {
+        myOutputs = null;
+        myFilterTypes = null;
+        myFilters = null;
+        myMainOutputFile = null;
+        myOutputType = null;
+        myVersionCode = 0;
+        myHashCode = 0;
     }
 
     @Nullable

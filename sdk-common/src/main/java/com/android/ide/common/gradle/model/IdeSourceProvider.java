@@ -62,6 +62,24 @@ public final class IdeSourceProvider extends IdeModel implements SourceProvider 
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    public IdeSourceProvider() {
+        myName = null;
+        myManifestFile = null;
+        myJavaDirectories = null;
+        myResourcesDirectories = null;
+        myAidlDirectories = null;
+        myRenderscriptDirectories = null;
+        myCDirectories = null;
+        myCppDirectories = null;
+        myResDirectories = null;
+        myAssetsDirectories = null;
+        myJniLibsDirectories = null;
+        myShadersDirectories = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getName() {

@@ -39,6 +39,15 @@ public final class IdeInstantRun extends IdeModel implements InstantRun {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeInstantRun() {
+        myInfoFile = null;
+        mySupportedByArtifact = false;
+        mySupportStatus = 0;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public File getInfoFile() {

@@ -94,6 +94,31 @@ public final class IdeAndroidLibrary extends IdeModel implements Library {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeAndroidLibrary() {
+        myArtifactAddress = null;
+        myFolder = null;
+        myManifest = null;
+        myJarFile = null;
+        myCompileJarFile = null;
+        myResFolder = null;
+        resStaticLibrary = null;
+        myAssetsFolder = null;
+        myLocalJars = null;
+        myJniFolder = null;
+        myAidlFolder = null;
+        myRenderscriptFolder = null;
+        myProguardRules = null;
+        myLintJar = null;
+        myExternalAnnotations = null;
+        myPublicResources = null;
+        myArtifactFile = null;
+        mySymbolFile = null;
+        myType = 0;
+        myHashCode = 0;
+    }
+
     @Override
     public int getType() {
         return myType;

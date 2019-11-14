@@ -47,6 +47,19 @@ public final class IdeBuildType extends IdeBaseConfig implements BuildType {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused"})
+    private IdeBuildType() {
+        super();
+        myDebuggable = false;
+        myJniDebuggable = false;
+        myRenderscriptDebuggable = false;
+        myRenderscriptOptimLevel = 0;
+        myMinifyEnabled = false;
+        myZipAlignEnabled = false;
+        myHashCode = 0;
+    }
+
     @Override
     @Nullable
     public SigningConfig getSigningConfig() {

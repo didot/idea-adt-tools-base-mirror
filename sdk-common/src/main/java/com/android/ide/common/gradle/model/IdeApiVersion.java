@@ -39,6 +39,15 @@ public final class IdeApiVersion extends IdeModel implements ApiVersion {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeApiVersion() {
+        myApiString = null;
+        myCodename = null;
+        myApiLevel = 0;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getApiString() {

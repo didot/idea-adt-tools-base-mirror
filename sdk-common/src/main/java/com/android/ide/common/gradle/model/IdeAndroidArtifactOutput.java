@@ -29,7 +29,6 @@ public final class IdeAndroidArtifactOutput extends IdeVariantOutput
 
     @Nullable private final File myOutputFile;
     @Nullable private final String myAssembleTaskName;
-    private final int myHashCode;
 
     public IdeAndroidArtifactOutput(
             @NonNull AndroidArtifactOutput output, @NonNull ModelCache modelCache) {
@@ -48,8 +47,14 @@ public final class IdeAndroidArtifactOutput extends IdeVariantOutput
         // do.
         myOutputFile =
                 copyNewProperty(output::getOutputFile, output.getMainOutputFile().getOutputFile());
+    }
 
-        myHashCode = calculateHashCode();
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeAndroidArtifactOutput() {
+        super();
+        myOutputFile = null;
+        myAssembleTaskName = null;
     }
 
     @Override
@@ -96,11 +101,6 @@ public final class IdeAndroidArtifactOutput extends IdeVariantOutput
     @Override
     protected boolean canEquals(Object other) {
         return other instanceof IdeAndroidArtifactOutput;
-    }
-
-    @Override
-    public int hashCode() {
-        return myHashCode;
     }
 
     @Override

@@ -45,6 +45,16 @@ public abstract class IdeLibrary extends IdeModel implements Library {
         myHashCode = calculateHashCode();
     }
 
+    @SuppressWarnings("ConstantConditions")
+    protected IdeLibrary() {
+        myResolvedCoordinates = null;
+        myBuildId = null;
+        myProject = null;
+        myName = null;
+        myProvided = null;
+        myHashCode = 0;
+    }
+
     @Override
     @Nullable
     public IdeMavenCoordinates getRequestedCoordinates() {
