@@ -53,6 +53,15 @@ public final class IdeLintOptions extends IdeModel implements LintOptions {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeLintOptions() {
+        myBaselineFile = null;
+        mySeverityOverrides = null;
+        myCheckTestSources = false;
+        myHashCode = 0;
+    }
+
     @Nullable
     private static Map<String, Integer> copy(@Nullable Map<String, Integer> original) {
         return original != null ? ImmutableMap.copyOf(original) : null;

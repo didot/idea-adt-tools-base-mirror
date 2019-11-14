@@ -241,6 +241,18 @@ public class GradleVersion implements Comparable<GradleVersion>, Serializable {
         mQualifiers = qualifiers;
     }
 
+    private GradleVersion() {
+        this.mRawValue = null;
+        this.mMajorSegment = null;
+        this.mMinorSegment = null;
+        this.mMicroSegment = null;
+        this.mPreview = 0;
+        this.mPreviewType = null;
+        this.mSnapshot = false;
+        this.mAdditionalSegments = null;
+        this.mQualifiers = null;
+    }
+
     public int getMajor() {
         return valueOf(mMajorSegment);
     }
@@ -467,6 +479,13 @@ public class GradleVersion implements Comparable<GradleVersion>, Serializable {
                 }
                 mValue = value;
             }
+        }
+
+        // for serialization
+        @SuppressWarnings({"unused", "ConstantConditions"})
+        private VersionSegment() {
+            this.mText = null;
+            this.mValue = 0;
         }
 
         @NonNull

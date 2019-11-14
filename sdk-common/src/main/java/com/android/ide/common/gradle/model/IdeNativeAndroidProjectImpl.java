@@ -81,6 +81,22 @@ public final class IdeNativeAndroidProjectImpl extends IdeModel implements IdeNa
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeNativeAndroidProjectImpl() {
+        myModelVersion = null;
+        myName = null;
+        myBuildFiles = null;
+        myVariantInfos = null;
+        myArtifacts = null;
+        myToolChains = null;
+        mySettings = null;
+        myFileExtensions = null;
+        myBuildSystems = null;
+        myApiVersion = 0;
+        myHashCode = 0;
+    }
+
     @NonNull
     private static Map<String, NativeVariantInfo> copyVariantInfos(
             @NonNull NativeAndroidProject project, @NonNull ModelCache modelCache) {

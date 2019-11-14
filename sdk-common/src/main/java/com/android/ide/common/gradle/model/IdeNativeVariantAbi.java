@@ -71,6 +71,19 @@ public final class IdeNativeVariantAbi extends IdeModel implements NativeVariant
 
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeNativeVariantAbi() {
+        myBuildFiles = null;
+        myArtifacts = null;
+        myToolChains = null;
+        mySettings = null;
+        myFileExtensions = null;
+        myVariantName = null;
+        myAbi = null;
+        myHashCode = 0;
+    }
+
     @NonNull
     @Override
     public Collection<File> getBuildFiles() {

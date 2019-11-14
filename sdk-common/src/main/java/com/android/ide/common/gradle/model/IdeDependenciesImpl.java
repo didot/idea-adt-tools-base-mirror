@@ -75,6 +75,17 @@ public final class IdeDependenciesImpl extends IdeModel implements IdeDependenci
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeDependenciesImpl() {
+        myLibraries = null;
+        myJavaLibraries = null;
+        myProjects = null;
+        myJavaModules = null;
+        myRuntimeOnlyClasses = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public Collection<AndroidLibrary> getLibraries() {

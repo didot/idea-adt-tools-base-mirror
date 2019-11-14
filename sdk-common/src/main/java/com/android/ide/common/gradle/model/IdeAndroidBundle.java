@@ -71,6 +71,23 @@ public abstract class IdeAndroidBundle extends IdeLibrary implements AndroidBund
         myHashCode = calculateHashCode();
     }
 
+    @SuppressWarnings("ConstantConditions")
+    protected IdeAndroidBundle() {
+        super();
+        myBundle = null;
+        myFolder = null;
+        myLibraryDependencies = null;
+        myJavaDependencies = null;
+        myManifest = null;
+        myJarFile = null;
+        myCompileJarFile = null;
+        myResFolder = null;
+        myResStaticLibrary = null;
+        myAssetsFolder = null;
+        myProjectVariant = null;
+        myHashCode = 0;
+    }
+
     @NonNull
     private static Collection<? extends JavaLibrary> copyJavaDependencies(
             @NonNull AndroidBundle bundle, @NonNull ModelCache modelCache) {

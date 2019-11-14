@@ -51,6 +51,16 @@ public final class IdeDependencyGraphs extends IdeModel implements DependencyGra
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeDependencyGraphs() {
+        myCompileDependencies = null;
+        myPackageDependencies = null;
+        myProvidedLibraries = null;
+        mySkippedLibraries = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public List<GraphItem> getCompileDependencies() {

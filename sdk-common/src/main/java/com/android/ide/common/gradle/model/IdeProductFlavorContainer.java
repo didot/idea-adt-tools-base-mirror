@@ -55,6 +55,15 @@ public final class IdeProductFlavorContainer extends IdeModel implements Product
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeProductFlavorContainer() {
+        myProductFlavor = null;
+        mySourceProvider = null;
+        myExtraSourceProviders = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public ProductFlavor getProductFlavor() {

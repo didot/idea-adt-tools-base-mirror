@@ -44,6 +44,16 @@ public class IdeAaptOptions extends IdeModel implements AaptOptions {
         failOnMissingConfigEntry = copyNewProperty(original::getFailOnMissingConfigEntry, false);
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeAaptOptions() {
+        this.ignoreAssets = null;
+        this.noCompress = null;
+        this.failOnMissingConfigEntry = false;
+        this.additionalParameters = null;
+        this.namespacing = null;
+    }
+
     @Override
     @Nullable
     public String getIgnoreAssets() {

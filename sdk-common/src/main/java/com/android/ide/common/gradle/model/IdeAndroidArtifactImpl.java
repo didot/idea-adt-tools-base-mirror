@@ -47,7 +47,6 @@ public final class IdeAndroidArtifactImpl extends IdeBaseArtifactImpl
     @Nullable private final String myApkFromBundleTaskName;
 
     private final boolean mySigned;
-    private final int myHashCode;
 
     public IdeAndroidArtifactImpl(
             @NonNull AndroidArtifact artifact,
@@ -99,7 +98,28 @@ public final class IdeAndroidArtifactImpl extends IdeBaseArtifactImpl
         myApkFromBundleTaskName =
                 copyNewProperty(
                         modelCache, artifact::getApkFromBundleTaskName, taskName -> taskName, null);
-        myHashCode = calculateHashCode();
+    }
+
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeAndroidArtifactImpl() {
+        super();
+        myOutputs = null;
+        myApplicationId = null;
+        mySourceGenTaskName = null;
+        myGeneratedResourceFolders = null;
+        myAdditionalRuntimeApks = null;
+        myBuildConfigFields = null;
+        myResValues = null;
+        myInstantRun = null;
+        mySigningConfigName = null;
+        myAbiFilters = null;
+        myNativeLibraries = null;
+        myTestOptions = null;
+        myInstrumentedTestTaskName = null;
+        myBundleTaskName = null;
+        myApkFromBundleTaskName = null;
+        mySigned = false;
     }
 
     @NonNull
@@ -259,11 +279,6 @@ public final class IdeAndroidArtifactImpl extends IdeBaseArtifactImpl
     @Override
     protected boolean canEquals(Object other) {
         return other instanceof IdeAndroidArtifactImpl;
-    }
-
-    @Override
-    public int hashCode() {
-        return myHashCode;
     }
 
     @Override

@@ -42,6 +42,14 @@ public final class IdeJavaArtifact extends IdeBaseArtifactImpl implements JavaAr
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeJavaArtifact() {
+        super();
+        myMockablePlatformJar = null;
+        myHashCode = 0;
+    }
+
     @Override
     @Nullable
     public File getMockablePlatformJar() {

@@ -33,6 +33,13 @@ public class IdeProjectIdentifierImpl extends IdeModel implements IdeProjectIden
         this.projectPath = projectIdentifier.getProjectPath();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeProjectIdentifierImpl() {
+        this.buildId = null;
+        this.projectPath = null;
+    }
+
     @NonNull
     @Override
     public String getBuildId() {

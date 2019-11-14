@@ -52,6 +52,20 @@ public final class IdeNativeArtifact extends IdeModel implements NativeArtifact 
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeNativeArtifact() {
+        myName = null;
+        myToolChain = null;
+        myGroupName = null;
+        mySourceFiles = null;
+        myExportedHeaders = null;
+        myOutputFile = null;
+        myAbi = null;
+        myTargetName = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getName() {

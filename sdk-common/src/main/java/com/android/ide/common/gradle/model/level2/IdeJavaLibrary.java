@@ -46,6 +46,15 @@ public final class IdeJavaLibrary extends IdeModel implements Library {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeJavaLibrary() {
+        myArtifactAddress = null;
+        myArtifactFile = null;
+        myType = 0;
+        myHashCode = 0;
+    }
+
     @Override
     public int getType() {
         return myType;

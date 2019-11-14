@@ -99,6 +99,26 @@ public abstract class IdeBaseArtifactImpl extends IdeModel implements IdeBaseArt
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"ConstantConditions"})
+    protected IdeBaseArtifactImpl() {
+        myName = null;
+        myCompileTaskName = null;
+        myAssembleTaskName = null;
+        myClassesFolder = null;
+        myDependencies = null;
+        myIdeSetupTaskNames = null;
+        myGeneratedSourceFolders = null;
+        myAdditionalClassFolders = null;
+        myLevel2Dependencies = null;
+        myCompileDependencies = null;
+        myJavaResourcesFolder = null;
+        myDependencyGraphs = null;
+        myVariantSourceProvider = null;
+        myMultiFlavorSourceProvider = null;
+        myHashCode = 0;
+    }
+
     @NonNull
     private static IdeDependencies copy(
             @NonNull Dependencies original,

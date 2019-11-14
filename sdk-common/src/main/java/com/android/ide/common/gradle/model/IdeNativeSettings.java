@@ -40,6 +40,14 @@ public final class IdeNativeSettings extends IdeModel implements NativeSettings 
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeNativeSettings() {
+        myName = null;
+        myCompilerFlags = null;
+        myHashCode = 0;
+    }
+
     @NonNull
     @Override
     public String getName() {

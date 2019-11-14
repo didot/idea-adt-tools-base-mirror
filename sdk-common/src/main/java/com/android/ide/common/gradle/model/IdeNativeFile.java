@@ -34,6 +34,15 @@ public final class IdeNativeFile extends IdeModel implements NativeFile {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeNativeFile() {
+        myFilePath = null;
+        mySettingsName = null;
+        myWorkingDirectory = null;
+        myHashCode = 0;
+    }
+
     @NonNull
     @Override
     public File getFilePath() {

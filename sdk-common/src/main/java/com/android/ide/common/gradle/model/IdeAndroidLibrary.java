@@ -43,6 +43,17 @@ public final class IdeAndroidLibrary extends IdeAndroidBundle implements Android
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeAndroidLibrary() {
+        super();
+        myLocalJars = null;
+        myProguardRules = null;
+        myLintJar = null;
+        myPublicResources = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public Collection<File> getLocalJars() {
