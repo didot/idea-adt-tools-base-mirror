@@ -40,6 +40,15 @@ public final class IdeNativeToolchain extends IdeModel implements NativeToolchai
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeNativeToolchain() {
+        myName = null;
+        myCCompilerExecutable = null;
+        myCppCompilerExecutable = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getName() {

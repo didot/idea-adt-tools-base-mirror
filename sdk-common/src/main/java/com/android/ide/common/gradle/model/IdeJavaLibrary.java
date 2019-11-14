@@ -42,6 +42,15 @@ public final class IdeJavaLibrary extends IdeLibrary implements JavaLibrary {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeJavaLibrary() {
+        super();
+        myJarFile = null;
+        myDependencies = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public File getJarFile() {

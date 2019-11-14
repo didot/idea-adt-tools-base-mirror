@@ -44,6 +44,15 @@ public final class IdeGraphItem extends IdeModel implements GraphItem {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeGraphItem() {
+        myArtifactAddress = null;
+        myDependencies = null;
+        myRequestedCoordinates = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getArtifactAddress() {

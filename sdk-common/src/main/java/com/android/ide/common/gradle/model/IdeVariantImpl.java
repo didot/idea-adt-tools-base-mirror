@@ -93,6 +93,22 @@ public final class IdeVariantImpl extends IdeModel implements IdeVariant {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeVariantImpl() {
+        myName = null;
+        myDisplayName = null;
+        myMainArtifact = null;
+        myExtraAndroidArtifacts = null;
+        myExtraJavaArtifacts = null;
+        myBuildType = null;
+        myProductFlavors = null;
+        myMergedFlavor = null;
+        myTestedTargetVariants = null;
+        myHashCode = 0;
+        myInstantAppCompatible = false;
+    }
+
     @NonNull
     private static Collection<TestedTargetVariant> getTestedTargetVariants(
             @NonNull Variant variant, @NonNull ModelCache modelCache) {

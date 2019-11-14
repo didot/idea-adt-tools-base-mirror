@@ -59,6 +59,24 @@ public final class IdeNativeLibrary extends IdeModel implements NativeLibrary {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeNativeLibrary() {
+        myName = null;
+        myAbi = null;
+        myToolchainName = null;
+        myCIncludeDirs = null;
+        myCppIncludeDirs = null;
+        myCSystemIncludeDirs = null;
+        myCppSystemIncludeDirs = null;
+        myCDefines = null;
+        myCppDefines = null;
+        myCCompilerFlags = null;
+        myCppCompilerFlags = null;
+        myDebuggableLibraryFolders = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getName() {

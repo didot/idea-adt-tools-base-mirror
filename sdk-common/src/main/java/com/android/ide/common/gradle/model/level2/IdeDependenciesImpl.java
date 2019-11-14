@@ -45,6 +45,16 @@ public class IdeDependenciesImpl implements IdeDependencies, Serializable {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeDependenciesImpl() {
+        myAndroidLibraries = null;
+        myJavaLibraries = null;
+        myModuleDependencies = null;
+        myRuntimeOnlyClasses = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public Collection<Library> getAndroidLibraries() {

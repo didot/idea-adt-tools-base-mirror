@@ -44,6 +44,17 @@ public final class IdeSigningConfig extends IdeModel implements SigningConfig {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeSigningConfig() {
+        myName = null;
+        myStoreFile = null;
+        myStorePassword = null;
+        myKeyAlias = null;
+        myV1SigningEnabled = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getName() {

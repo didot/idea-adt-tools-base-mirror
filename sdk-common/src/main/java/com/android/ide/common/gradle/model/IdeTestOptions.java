@@ -35,6 +35,14 @@ public class IdeTestOptions extends IdeModel implements TestOptions {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeTestOptions() {
+        myAnimationsDisabled = false;
+        myExecutionEnum = null;
+        myHashCode = 0;
+    }
+
     @Override
     public boolean getAnimationsDisabled() {
         return myAnimationsDisabled;

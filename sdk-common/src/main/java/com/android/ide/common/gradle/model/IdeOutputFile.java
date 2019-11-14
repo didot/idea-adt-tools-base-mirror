@@ -35,7 +35,7 @@ public final class IdeOutputFile extends IdeModel implements OutputFile {
     @NonNull private final Collection<String> myFilterTypes;
     @NonNull private final Collection<FilterData> myFilters;
     @NonNull private final File myOutputFile;
-    @NonNull private final Collection<? extends OutputFile> myOutputs;
+    @NonNull private final Collection<IdeOutputFile> myOutputs;
     @Nullable private final OutputFile myMainOutputFile;
     @Nullable private final Integer myVersionCode;
     private final int myHashCode;
@@ -60,8 +60,21 @@ public final class IdeOutputFile extends IdeModel implements OutputFile {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeOutputFile() {
+        myOutputType = null;
+        myFilterTypes = null;
+        myFilters = null;
+        myOutputFile = null;
+        myOutputs = null;
+        myMainOutputFile = null;
+        myVersionCode = null;
+        myHashCode = 0;
+    }
+
     @NonNull
-    private static Collection<? extends OutputFile> copyOutputs(
+    private static Collection<IdeOutputFile> copyOutputs(
             @NonNull OutputFile file, @NonNull ModelCache modelCache) {
         try {
             //noinspection deprecation

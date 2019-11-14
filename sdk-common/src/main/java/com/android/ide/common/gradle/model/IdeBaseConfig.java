@@ -60,6 +60,20 @@ public abstract class IdeBaseConfig extends IdeModel implements BaseConfig {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"ConstantConditions"})
+    protected IdeBaseConfig() {
+        myName = null;
+        myResValues = null;
+        myProguardFiles = null;
+        myConsumerProguardFiles = null;
+        myManifestPlaceholders = null;
+        myApplicationIdSuffix = null;
+        myVersionNameSuffix = null;
+        myMultiDexEnabled = false;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getName() {

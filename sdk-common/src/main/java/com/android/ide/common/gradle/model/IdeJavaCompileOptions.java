@@ -39,6 +39,15 @@ public final class IdeJavaCompileOptions extends IdeModel implements JavaCompile
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeJavaCompileOptions() {
+        myEncoding = null;
+        mySourceCompatibility = null;
+        myTargetCompatibility = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getEncoding() {

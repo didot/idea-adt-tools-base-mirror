@@ -89,6 +89,17 @@ public final class IdeModuleLibrary extends IdeModel implements Library {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeModuleLibrary() {
+        myArtifactAddress = null;
+        myBuildId = null;
+        myProjectPath = null;
+        myVariant = null;
+        myType = 0;
+        myHashCode = 0;
+    }
+
     @Override
     public int getType() {
         return myType;

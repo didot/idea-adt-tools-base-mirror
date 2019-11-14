@@ -68,6 +68,26 @@ public final class IdeProductFlavor extends IdeBaseConfig implements ProductFlav
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeProductFlavor() {
+        super();
+        myTestInstrumentationRunnerArguments = null;
+        myResourceConfigurations = null;
+        myVectorDrawables = null;
+        myDimension = null;
+        myApplicationId = null;
+        myVersionCode = null;
+        myVersionName = null;
+        myMinSdkVersion = null;
+        myTargetSdkVersion = null;
+        myMaxSdkVersion = null;
+        myTestApplicationId = null;
+        myTestInstrumentationRunner = null;
+        mySigningConfig = null;
+        myHashCode = 0;
+    }
+
     @Nullable
     private static VectorDrawablesOptions copyVectorDrawables(
             @NonNull ProductFlavor flavor, @NonNull ModelCache modelCache) {

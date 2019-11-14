@@ -40,6 +40,14 @@ public final class IdeSourceProviderContainer extends IdeModel implements Source
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeSourceProviderContainer() {
+        myArtifactName = null;
+        mySourceProvider = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getArtifactName() {

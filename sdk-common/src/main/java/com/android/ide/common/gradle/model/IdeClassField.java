@@ -39,6 +39,15 @@ public final class IdeClassField extends IdeModel implements ClassField {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeClassField() {
+        myName = null;
+        myType = null;
+        myValue = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getType() {

@@ -39,6 +39,14 @@ public final class IdeVectorDrawablesOptions extends IdeModel implements VectorD
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeVectorDrawablesOptions() {
+        myGeneratedDensities = null;
+        myUseSupportLibrary = null;
+        myHashCode = 0;
+    }
+
     @Override
     @Nullable
     public Set<String> getGeneratedDensities() {

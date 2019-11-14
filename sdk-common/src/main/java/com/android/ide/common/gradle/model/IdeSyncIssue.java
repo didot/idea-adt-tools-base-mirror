@@ -44,6 +44,17 @@ public final class IdeSyncIssue extends IdeModel implements SyncIssue {
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeSyncIssue() {
+        myMessage = null;
+        myData = null;
+        myMultiLineMessage = null;
+        mySeverity = 0;
+        myType = 0;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getMessage() {

@@ -55,6 +55,17 @@ public final class IdeMavenCoordinates extends IdeModel implements MavenCoordina
         myHashCode = calculateHashCode();
     }
 
+    // for serialization
+    @SuppressWarnings({"unused", "ConstantConditions"})
+    private IdeMavenCoordinates() {
+        myGroupId = null;
+        myArtifactId = null;
+        myVersion = null;
+        myPacking = null;
+        myClassifier = null;
+        myHashCode = 0;
+    }
+
     @Override
     @NonNull
     public String getGroupId() {
