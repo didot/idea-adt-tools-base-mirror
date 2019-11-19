@@ -1413,7 +1413,7 @@ public class Main {
                     "Add links to HTML report, replacing local "
                             + "path prefixes with url prefix. The mapping can be a comma-separated list of "
                             + "path prefixes to corresponding URL prefixes, such as "
-                            + "C:\\temp\\Proj1=http://buildserver/sources/temp/Proj1.  To turn off linking "
+                            + "C:\\temp\\Proj1=https://buildserver/sources/temp/Proj1.  To turn off linking "
                             + "to files, use "
                             + ARG_URL
                             + " "
